@@ -1,0 +1,22 @@
+[package]
+name = "indexify"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rust-bert = {version="^0"}
+anyhow = {version="^1"}
+clap = {version="^4", features=["derive"]}
+figment = {version="0.10.8", features=["yaml", "env"]}
+serde = {version="^1", features=["derive"]}
+serde_yaml={version="^0"}
+axum = {version="^0"} 
+axum-macros = {version = "0.3.7"}
+tokio = { version = "^1", features = ["full"] }
+tracing = {version="^0"}
+tracing-subscriber = {version="^0"}
+batched-fn = {version="^0"}
+torch-sys = {version="^0"}
+
