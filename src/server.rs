@@ -63,7 +63,7 @@ async fn root() -> &'static str {
 
 async fn list_embedding_models() -> Json<ListEmbeddingModelsResponse> {
     Json(ListEmbeddingModelsResponse {
-        models: vec!["all-mini-lm-l12-v2".to_string()],
+        models: vec!["all-mini-lm-l12-v2".to_string(), "openai-text-ada-03".to_string()],
     })
 }
 
