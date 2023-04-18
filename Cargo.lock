@@ -923,6 +923,7 @@ dependencies = [
  "rust-bert",
  "serde",
  "serde_yaml",
+ "tch",
  "tokio",
  "torch-sys",
  "tracing",
