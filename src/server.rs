@@ -39,7 +39,8 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let embedding_generator = Arc::new(EmbeddingGenerator::new(self.available_models.clone())?);
+        let eg = EmbeddingGenerator::new(self.available_models.clone())?;
+        let embedding_generator = Arc::new(eg);
         let app = Router::new()
             .route("/", get(root))
             .route("/embeddings/models", get(list_embedding_models))
@@ -63,7 +64,10 @@ async fn root() -> &'static str {
 
 async fn list_embedding_models() -> Json<ListEmbeddingModelsResponse> {
     Json(ListEmbeddingModelsResponse {
-        models: vec!["all-mini-lm-l12-v2".to_string(), "openai-text-ada-03".to_string()],
+        models: vec![
+            "all-mini-lm-l12-v2".to_string(),
+            "openai-text-ada-03".to_string(),
+        ],
     })
 }
 
@@ -76,7 +80,5 @@ async fn generate_embedding(
         .generate_embeddings(payload.inputs, payload.model)
         .await
         .unwrap();
-    Json(GenerateEmbeddingResponse {
-        embeddings,
-    })
+    Json(GenerateEmbeddingResponse { embeddings })
 }
