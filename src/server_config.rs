@@ -4,24 +4,68 @@ use figment::{
     Figment,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum SentenceEmbeddingModels {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EmbeddingModelKind {
     #[serde(rename(serialize = "all-minilm-l12-v2", deserialize = "all-minilm-l12-v2"))]
     AllMiniLmL12V2,
+    #[serde(rename(serialize = "openai-ada-03", deserialize = "openai-ada-03"))]
+    OpenAIAda02,
 }
+
+impl fmt::Display for EmbeddingModelKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            EmbeddingModelKind::AllMiniLmL12V2 => write!(f, "all-minilm-l12-v2"),
+            EmbeddingModelKind::OpenAIAda02 => write!(f, "text-embedding-ada-002"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DeviceKind {
+    Cpu,
+    Gpu,
+    Remote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingModel {
+    pub model_kind: EmbeddingModelKind,
+    pub device_kind: DeviceKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIConfig {
+    pub api_key: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub listen_addr: String,
-    pub available_models: Vec<SentenceEmbeddingModels>,
+    pub available_models: Vec<EmbeddingModel>,
+    pub openai: Option<OpenAIConfig>,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             listen_addr: "0.0.0.0:8900".to_string(),
-            available_models: vec![SentenceEmbeddingModels::AllMiniLmL12V2],
+            available_models: vec![
+                EmbeddingModel {
+                    model_kind: EmbeddingModelKind::AllMiniLmL12V2,
+                    device_kind: DeviceKind::Cpu,
+                },
+                EmbeddingModel {
+                    model_kind: EmbeddingModelKind::OpenAIAda02,
+                    device_kind: DeviceKind::Remote,
+                },
+            ],
+            openai: Some(OpenAIConfig {
+                api_key: "xxxx".to_string(),
+            }),
         }
     }
 }

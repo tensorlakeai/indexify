@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub struct Server {
     addr: SocketAddr,
-    available_models: Vec<server_config::SentenceEmbeddingModels>,
+    available_models: Vec<server_config::EmbeddingModel>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

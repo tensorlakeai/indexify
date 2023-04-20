@@ -3,11 +3,11 @@ use std::sync::mpsc;
 use std::thread;
 
 use anyhow::Result;
-use thiserror::Error;
-
 use rust_bert::pipelines::sentence_embeddings::{
     SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType,
 };
+use server_config::EmbeddingModelKind::AllMiniLmL12V2;
+use thiserror::Error;
 
 use crate::server_config;
 
@@ -37,7 +37,7 @@ pub struct EmbeddingGenerator {
 
 impl EmbeddingGenerator {
     pub fn new(
-        models_to_load: Vec<server_config::SentenceEmbeddingModels>,
+        models_to_load: Vec<server_config::EmbeddingModel>,
     ) -> Result<EmbeddingGenerator, EmbeddingGeneratorError> {
         let (sender, receiver) = mpsc::sync_channel(100);
         thread::spawn(move || {
@@ -50,18 +50,23 @@ impl EmbeddingGenerator {
 
     fn runner(
         receiver: mpsc::Receiver<Message>,
-        models_to_load: Vec<server_config::SentenceEmbeddingModels>,
+        models_to_load: Vec<server_config::EmbeddingModel>,
     ) -> Result<(), EmbeddingGeneratorError> {
         let mut models: HashMap<String, SentenceEmbeddingsModel> = HashMap::new();
-        for model_name in &models_to_load {
-            match model_name {
-                server_config::SentenceEmbeddingModels::AllMiniLmL12V2 => {
+        for model in &models_to_load {
+            match &model.model_kind {
+                AllMiniLmL12V2 => {
                     let model = SentenceEmbeddingsBuilder::remote(
                         SentenceEmbeddingsModelType::AllMiniLmL12V2,
                     )
                     .create_model()
                     .map_err(|e| EmbeddingGeneratorError::ModelLoadingError(e.to_string()))?;
                     models.insert("all-minilm-l12-v2".into(), model);
+                }
+                _ => {
+                    return Err(EmbeddingGeneratorError::InternalError(
+                        "unknown model kind".into(),
+                    ));
                 }
             }
         }
@@ -98,17 +103,23 @@ impl EmbeddingGenerator {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[tokio::test]
     async fn test_generate_embeddings_all_mini_lm_l12v2() {
         use super::*;
+        use server_config::DeviceKind;
+
         let inputs = vec![
             "Hello, world!".to_string(),
             "Hello, NBA!".to_string(),
             "Hello, NFL!".to_string(),
         ];
-        let embedding_generator =
-            EmbeddingGenerator::new(vec![server_config::SentenceEmbeddingModels::AllMiniLmL12V2])
-                .unwrap();
+        let embedding_generator = EmbeddingGenerator::new(vec![server_config::EmbeddingModel {
+            model_kind: AllMiniLmL12V2,
+            device_kind: DeviceKind::Cpu,
+        }])
+        .unwrap();
         let embeddings = embedding_generator
             .generate_embeddings(inputs, "all-minilm-l12-v2".into())
             .await
