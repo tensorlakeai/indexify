@@ -11,6 +11,13 @@ use std::fs;
 pub enum EmbeddingModelKind {
     #[serde(rename(serialize = "all-minilm-l12-v2", deserialize = "all-minilm-l12-v2"))]
     AllMiniLmL12V2,
+
+    #[serde(rename(serialize = "all-minilm-l6-v2", deserialize = "all-minilm-l6-v2"))]
+    AllMiniLmL6V2,
+
+    #[serde(rename(serialize = "t5-base", deserialize = "t5-base"))]
+    T5Base,
+
     #[serde(rename(serialize = "openai-ada-03", deserialize = "openai-ada-03"))]
     OpenAIAda02,
 }
@@ -19,6 +26,8 @@ impl fmt::Display for EmbeddingModelKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             EmbeddingModelKind::AllMiniLmL12V2 => write!(f, "all-minilm-l12-v2"),
+            EmbeddingModelKind::AllMiniLmL6V2 => write!(f, "all-minilm-l6-v2"),
+            EmbeddingModelKind::T5Base => write!(f, "t5-base"),
             EmbeddingModelKind::OpenAIAda02 => write!(f, "text-embedding-ada-002"),
         }
     }

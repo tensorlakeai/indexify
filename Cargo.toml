@@ -21,3 +21,4 @@ torch-sys = {version="^0"}
 oneshot = {version="^0"}
 thiserror = "*"
 async-openai = "*"
+async-trait = "*"

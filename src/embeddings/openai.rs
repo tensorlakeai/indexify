@@ -1,7 +1,10 @@
+use crate::{EmbeddingGenerator, EmbeddingGeneratorError};
+
 use super::server_config;
 use anyhow::Result;
 use async_openai::types::{CreateEmbeddingRequest, EmbeddingInput};
 use async_openai::{Client, Embeddings};
+use async_trait::async_trait;
 
 pub struct OpenAI {
     client: Client,
@@ -12,15 +15,22 @@ impl OpenAI {
     pub fn new(
         openai_config: server_config::OpenAIConfig,
         model_config: server_config::EmbeddingModel,
-    ) -> Result<Self> {
+    ) -> Result<Self, EmbeddingGeneratorError> {
         let client = Client::new().with_api_key(openai_config.api_key);
         Ok(Self {
             client,
             model: model_config.model_kind.to_string(),
         })
     }
+}
 
-    pub async fn generate_embeddings(&self, inputs: Vec<String>) -> Result<Vec<Vec<f32>>> {
+#[async_trait]
+impl EmbeddingGenerator for OpenAI {
+    async fn generate_embeddings(
+        &self,
+        inputs: Vec<String>,
+        _model: String,
+    ) -> Result<Vec<Vec<f32>>, EmbeddingGeneratorError> {
         let embeddings = Embeddings::new(&self.client);
         let response = embeddings
             .create(CreateEmbeddingRequest {
@@ -28,7 +38,8 @@ impl OpenAI {
                 model: self.model.clone(),
                 user: None,
             })
-            .await?;
+            .await
+            .map_err(|e| EmbeddingGeneratorError::ModelError(e.to_string()))?;
         let mut embeddings: Vec<Vec<f32>> = Vec::new();
         for embedding in response.data {
             embeddings.push(embedding.embedding);
@@ -60,7 +71,7 @@ mod tests {
         )
         .unwrap();
         let embeddings = openai
-            .generate_embeddings(vec!["hello".into(), "world".into()])
+            .generate_embeddings(vec!["hello".into(), "world".into()], "".into())
             .await
             .unwrap();
         assert_eq!(embeddings.len(), 2);

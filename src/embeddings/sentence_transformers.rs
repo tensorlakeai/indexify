@@ -1,51 +1,35 @@
-use std::collections::HashMap;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::thread;
 
-use anyhow::Result;
+use async_trait::async_trait;
 use rust_bert::pipelines::sentence_embeddings::{
     SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType,
 };
-use server_config::EmbeddingModelKind::AllMiniLmL12V2;
-use thiserror::Error;
 
-use crate::server_config;
-
-#[derive(Error, Debug)]
-pub enum EmbeddingGeneratorError {
-    #[error("model `{0}` not found")]
-    ModelNotFound(String),
-
-    #[error("model inference error: `{0}`")]
-    ModelError(String),
-
-    #[error("model loading error: `{0}`")]
-    ModelLoadingError(String),
-
-    #[error("internal error: `{0}`")]
-    InternalError(String),
-}
+use super::server_config;
+use super::{EmbeddingGenerator, EmbeddingGeneratorError};
+use std::collections::HashMap;
 
 type Message = (
     String,
     Vec<String>,
     oneshot::Sender<Result<Vec<Vec<f32>>, EmbeddingGeneratorError>>,
 );
-pub struct EmbeddingGenerator {
+pub struct SentenceTransformerModels {
     sender: mpsc::SyncSender<Message>,
 }
 
-impl EmbeddingGenerator {
+impl SentenceTransformerModels {
     pub fn new(
         models_to_load: Vec<server_config::EmbeddingModel>,
-    ) -> Result<EmbeddingGenerator, EmbeddingGeneratorError> {
+    ) -> Result<Arc<dyn EmbeddingGenerator + Sync + Send>, EmbeddingGeneratorError> {
         let (sender, receiver) = mpsc::sync_channel(100);
         thread::spawn(move || {
             if let Err(err) = Self::runner(receiver, models_to_load) {
                 tracing::error!("embedding generator runner exited with error: {}", err);
             }
         });
-        Ok(EmbeddingGenerator { sender })
+        Ok(Arc::new(SentenceTransformerModels { sender }))
     }
 
     fn runner(
@@ -55,7 +39,7 @@ impl EmbeddingGenerator {
         let mut models: HashMap<String, SentenceEmbeddingsModel> = HashMap::new();
         for model in &models_to_load {
             match &model.model_kind {
-                AllMiniLmL12V2 => {
+                server_config::EmbeddingModelKind::AllMiniLmL12V2 => {
                     let model = SentenceEmbeddingsBuilder::remote(
                         SentenceEmbeddingsModelType::AllMiniLmL12V2,
                     )
@@ -84,8 +68,11 @@ impl EmbeddingGenerator {
         }
         Ok(())
     }
+}
 
-    pub async fn generate_embeddings(
+#[async_trait]
+impl EmbeddingGenerator for SentenceTransformerModels {
+    async fn generate_embeddings(
         &self,
         texts: Vec<String>,
         model: String,
@@ -109,17 +96,19 @@ mod tests {
     async fn test_generate_embeddings_all_mini_lm_l12v2() {
         use super::*;
         use server_config::DeviceKind;
+        use server_config::EmbeddingModelKind::AllMiniLmL12V2;
 
         let inputs = vec![
             "Hello, world!".to_string(),
             "Hello, NBA!".to_string(),
             "Hello, NFL!".to_string(),
         ];
-        let embedding_generator = EmbeddingGenerator::new(vec![server_config::EmbeddingModel {
-            model_kind: AllMiniLmL12V2,
-            device_kind: DeviceKind::Cpu,
-        }])
-        .unwrap();
+        let embedding_generator =
+            SentenceTransformerModels::new(vec![server_config::EmbeddingModel {
+                model_kind: AllMiniLmL12V2,
+                device_kind: DeviceKind::Cpu,
+            }])
+            .unwrap();
         let embeddings = embedding_generator
             .generate_embeddings(inputs, "all-minilm-l12-v2".into())
             .await

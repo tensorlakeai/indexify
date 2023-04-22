@@ -1,7 +1,8 @@
-use crate::server_config;
+use crate::{EmbeddingRouter, ServerConfig};
 
-use super::embedding::EmbeddingGenerator;
+use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
+use axum::http::StatusCode;
 use axum::{extract::State, routing::get, Json, Router};
 
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use std::sync::Arc;
 
 pub struct Server {
     addr: SocketAddr,
-    available_models: Vec<server_config::EmbeddingModel>,
+    config: Arc<ServerConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,7 +22,8 @@ struct GenerateEmbeddingRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GenerateEmbeddingResponse {
-    embeddings: Vec<Vec<f32>>,
+    embeddings: Option<Vec<Vec<f32>>>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,21 +34,17 @@ struct ListEmbeddingModelsResponse {
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
         let addr: SocketAddr = config.listen_addr.parse()?;
-        Ok(Self {
-            addr,
-            available_models: config.available_models.clone(),
-        })
+        Ok(Self { addr, config })
     }
 
     pub async fn run(&self) -> Result<()> {
-        let eg = EmbeddingGenerator::new(self.available_models.clone())?;
-        let embedding_generator = Arc::new(eg);
+        let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let app = Router::new()
             .route("/", get(root))
-            .route("/embeddings/models", get(list_embedding_models))
+            .route("/embeddings/models", get(list_embedding_models).with_state(embedding_router.clone()))
             .route(
                 "/embeddings/generate",
-                get(generate_embedding).with_state(embedding_generator),
+                get(generate_embedding).with_state(embedding_router.clone()),
             );
 
         axum::Server::bind(&self.addr)
@@ -58,27 +56,40 @@ impl Server {
 
 // basic handler that responds with a static string
 async fn root() -> &'static str {
-    // TODO - List the routes enabled
     "Indexify Server"
 }
 
-async fn list_embedding_models() -> Json<ListEmbeddingModelsResponse> {
+#[axum_macros::debug_handler]
+async fn list_embedding_models(State(embedding_router): State<Arc<EmbeddingRouter>>) -> Json<ListEmbeddingModelsResponse> {
     Json(ListEmbeddingModelsResponse {
-        models: vec![
-            "all-mini-lm-l12-v2".to_string(),
-            "openai-text-ada-03".to_string(),
-        ],
+        models: embedding_router.list_models(),
     })
 }
 
 #[axum_macros::debug_handler]
 async fn generate_embedding(
-    State(embedding_generator): State<Arc<EmbeddingGenerator>>,
+    State(embedding_generator): State<Arc<dyn EmbeddingGenerator + Sync + Send>>,
     Json(payload): Json<GenerateEmbeddingRequest>,
-) -> Json<GenerateEmbeddingResponse> {
+) -> (StatusCode, Json<GenerateEmbeddingResponse>) {
     let embeddings = embedding_generator
         .generate_embeddings(payload.inputs, payload.model)
-        .await
-        .unwrap();
-    Json(GenerateEmbeddingResponse { embeddings })
+        .await;
+
+    if let Err(err) = embeddings {
+        return (
+            StatusCode::EXPECTATION_FAILED,
+            Json(GenerateEmbeddingResponse {
+                embeddings: None,
+                error: Some(err.to_string()),
+            }),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(GenerateEmbeddingResponse {
+            embeddings: Some(embeddings.unwrap()),
+            error: None,
+        }),
+    )
 }
