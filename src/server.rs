@@ -27,8 +27,14 @@ struct GenerateEmbeddingResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct EmbeddingModel {
+    name: String,
+    dimensions: i16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ListEmbeddingModelsResponse {
-    models: Vec<String>,
+    models: Vec<EmbeddingModel>,
 }
 
 impl Server {
@@ -41,7 +47,10 @@ impl Server {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let app = Router::new()
             .route("/", get(root))
-            .route("/embeddings/models", get(list_embedding_models).with_state(embedding_router.clone()))
+            .route(
+                "/embeddings/models",
+                get(list_embedding_models).with_state(embedding_router.clone()),
+            )
             .route(
                 "/embeddings/generate",
                 get(generate_embedding).with_state(embedding_router.clone()),
@@ -60,10 +69,20 @@ async fn root() -> &'static str {
 }
 
 #[axum_macros::debug_handler]
-async fn list_embedding_models(State(embedding_router): State<Arc<EmbeddingRouter>>) -> Json<ListEmbeddingModelsResponse> {
-    Json(ListEmbeddingModelsResponse {
-        models: embedding_router.list_models(),
-    })
+async fn list_embedding_models(
+    State(embedding_router): State<Arc<EmbeddingRouter>>,
+) -> Json<ListEmbeddingModelsResponse> {
+    let model_names = embedding_router.list_models();
+    let mut models: Vec<EmbeddingModel> = Vec::new();
+    for model in model_names {
+        if let Ok(dimensions) = embedding_router.dimensions(model.clone()) {
+            models.push(EmbeddingModel {
+                name: model.clone(),
+                dimensions,
+            })
+        }
+    }
+    Json(ListEmbeddingModelsResponse { models })
 }
 
 #[axum_macros::debug_handler]

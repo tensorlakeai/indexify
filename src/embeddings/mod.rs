@@ -40,6 +40,8 @@ pub trait EmbeddingGenerator {
         inputs: Vec<String>,
         model: String,
     ) -> Result<Vec<Vec<f32>>, EmbeddingGeneratorError>;
+
+    fn dimensions(&self, model: String) -> Result<i16, EmbeddingGeneratorError>;
 }
 
 pub struct EmbeddingRouter {
@@ -102,5 +104,13 @@ impl EmbeddingGenerator for EmbeddingRouter {
             .get(&model)
             .ok_or(EmbeddingGeneratorError::ModelNotFound(model.clone()))?;
         embedding_model.generate_embeddings(inputs, model).await
+    }
+
+    fn dimensions(&self, model: String) -> Result<i16, EmbeddingGeneratorError> {
+        let embedding_model = self
+            .router
+            .get(&model)
+            .ok_or(EmbeddingGeneratorError::ModelLoadingError(model.clone()))?;
+        embedding_model.dimensions(model)
     }
 }

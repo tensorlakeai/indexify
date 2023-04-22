@@ -1,6 +1,6 @@
 use crate::{EmbeddingGenerator, EmbeddingGeneratorError};
 
-use super::server_config;
+use super::server_config::{self};
 use anyhow::Result;
 use async_openai::types::{CreateEmbeddingRequest, EmbeddingInput};
 use async_openai::{Client, Embeddings};
@@ -45,6 +45,13 @@ impl EmbeddingGenerator for OpenAI {
             embeddings.push(embedding.embedding);
         }
         Ok(embeddings)
+    }
+
+    fn dimensions(&self, model: String) -> Result<i16, EmbeddingGeneratorError> {
+        match model.as_str() {
+            "text-embedding-ada-002" => Ok(1536),
+            _ => Err(EmbeddingGeneratorError::ModelNotFound(model)),
+        }
     }
 }
 

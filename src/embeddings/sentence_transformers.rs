@@ -86,6 +86,17 @@ impl EmbeddingGenerator for SentenceTransformerModels {
             )),
         }
     }
+
+    fn dimensions(&self, model: String) -> Result<i16, EmbeddingGeneratorError> {
+        match model.as_str() {
+            "all-minilm-l12-v2" => Ok(384),
+            "all-minilm-l6-v2" => Ok(384),
+            "all-mpnet-base-v2" => Ok(768),
+            "all-distilroberta-v1" => Ok(768),
+            "t5-base" => Ok(1536),
+            _ => Err(EmbeddingGeneratorError::ModelNotFound(model)),
+        }
+    }
 }
 
 #[cfg(test)]
