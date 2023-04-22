@@ -6,7 +6,7 @@ use rust_bert::pipelines::sentence_embeddings::{
     SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType,
 };
 
-use super::server_config;
+use super::server_config::{self, EmbeddingModelKind};
 use super::{EmbeddingGenerator, EmbeddingGeneratorError};
 use std::collections::HashMap;
 
@@ -39,13 +39,29 @@ impl SentenceTransformerModels {
         let mut models: HashMap<String, SentenceEmbeddingsModel> = HashMap::new();
         for model in &models_to_load {
             match &model.model_kind {
-                server_config::EmbeddingModelKind::AllMiniLmL12V2 => {
+                EmbeddingModelKind::AllMiniLmL12V2 => {
                     let model = SentenceEmbeddingsBuilder::remote(
                         SentenceEmbeddingsModelType::AllMiniLmL12V2,
                     )
                     .create_model()
                     .map_err(|e| EmbeddingGeneratorError::ModelLoadingError(e.to_string()))?;
-                    models.insert("all-minilm-l12-v2".into(), model);
+                    models.insert(EmbeddingModelKind::AllMiniLmL12V2.to_string(), model);
+                }
+                EmbeddingModelKind::AllMiniLmL6V2 => {
+                    let model = SentenceEmbeddingsBuilder::remote(
+                        SentenceEmbeddingsModelType::AllMiniLmL6V2,
+                    )
+                    .create_model()
+                    .map_err(|e| EmbeddingGeneratorError::ModelLoadingError(e.to_string()))?;
+                    models.insert(EmbeddingModelKind::AllMiniLmL6V2.to_string(), model);
+                }
+                EmbeddingModelKind::T5Base => {
+                    let model = SentenceEmbeddingsBuilder::remote(
+                        SentenceEmbeddingsModelType::SentenceT5Base,
+                    )
+                    .create_model()
+                    .map_err(|e| EmbeddingGeneratorError::ModelLoadingError(e.to_string()))?;
+                    models.insert(EmbeddingModelKind::T5Base.to_string(), model);
                 }
                 _ => {
                     return Err(EmbeddingGeneratorError::InternalError(
