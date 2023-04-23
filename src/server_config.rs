@@ -18,7 +18,7 @@ pub enum EmbeddingModelKind {
     #[serde(rename(serialize = "t5-base", deserialize = "t5-base"))]
     T5Base,
 
-    #[serde(rename(serialize = "openai-ada-03", deserialize = "openai-ada-03"))]
+    #[serde(rename(serialize = "text-embedding-ada-002", deserialize = "text-embedding-ada-002"))]
     OpenAIAda02,
 }
 
@@ -35,14 +35,21 @@ impl fmt::Display for EmbeddingModelKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DeviceKind {
+    #[serde(rename(serialize="cpu", deserialize="cpu"))]
     Cpu,
+
+    #[serde(rename(serialize="gpu", deserialize="gpu"))]
     Gpu,
+
+    #[serde(rename(serialize="remote", deserialize="remote"))]
     Remote,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingModel {
+    #[serde(rename(serialize="model", deserialize="model"))]
     pub model_kind: EmbeddingModelKind,
+    #[serde(rename(serialize="device", deserialize="device"))]
     pub device_kind: DeviceKind,
 }
 
