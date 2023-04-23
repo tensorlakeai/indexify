@@ -23,8 +23,6 @@ FROM gcr.io/distroless/cc
 
 WORKDIR /indexify
 
-RUN mkdir -p /indexify/config/
-
 COPY --from=builder /indexify-build/target/release/indexify ./
 
 COPY --from=builder /indexify-build/libtorch ./libtorch
