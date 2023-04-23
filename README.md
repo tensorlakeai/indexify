@@ -12,18 +12,60 @@ Indexify provides APIs to generate embeddings from SOTA models and manage and qu
 ## APIs
 
 ### List Embedding Models
+Provides a list of embedding models available and their dimensions.
 
+```
+/embeddings/models
+```
 ### Generate Embeddings
+Generate embeddings for a collection of strings
+
+```
+/embeddings/generate
+```
+Example: Generate embeddings from t5-base
+```
+ curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "t5-base"}'
+```
 
 ## List of Embedding Models
-1. OpenAI
-2. SBERT Family Models
+* OpenAI
+   * text-embedding-ada02
+* Sentence Transformers
+   * All-MiniLM-L12-V2
+   * All-MiniLM-L6-V2
+   * T5-Base
+
+*More models are on the way. Contributions are welcome!* 
+
+
+## Server Commands
+### Generate Configuration
+```
+indexify init-config /path/to/config.yaml
+```
+
+### Start the Server
+```
+indexify start /path/to/config.yaml
+```
+
+### Server Configuration
+Configure the behavior of the server and models through a YAML configuration scheme.
+1. ```listen_addr``` - The adrress and port on which the server is listening.
+2. ```available_models``` - A list of models the server is serving.
+       1.  ```model``` -  Name of the model. Default Models: ```openai(text-embedding-ada002)```, ```all-minilm-l12-v2```
+       2.  ```device``` - Device on which the model is running. Default: ```cpu```
+3. ```openai``` - OpenAI configuration options.
+       1. ```api_key``` - The api key to use with openai. This is not set by default. We use OPENAI_API_KEY by default but use this when it's set.
 
 ## Operational Metrics
 Indexify exposes operational metrics of the server on a prometheous endpoint at `/metrics`
 
 
 ## Coming Soon
-* Support for Vector Databases to manage and query indexes
-* ACLs for managing indexes
-* Resource Usage of Embedding Models
+* Text splitting and chunking strategies for generating embeddings for longer sentences.
+* Retrieval strategies for dense embeddings, and a plugin mechanism to add new strategies.
+* Resource Usage of Embedding Models.
+* Asynchronous Embedding Generation for large corpuses of documents.
+* Real Time Index updates
