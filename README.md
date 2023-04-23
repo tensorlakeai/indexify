@@ -7,6 +7,18 @@ Indexify provides APIs to generate embeddings from SOTA models and manage and qu
 2. REST APIs to access all the models and indexes from any application runtime.
 4. Does not require distribution of embedding models with applications, reduces size of application bundle.
 
+## Getting Started
+
+## Start the Service
+```
+docker run -p 8090:8090 indexify start /indexify/config/indexify.yaml
+```
+
+## Query Embeddings 
+```
+ curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "t5-base"}'
+```
+
 ## API Reference
 
 ### List Embedding Models
