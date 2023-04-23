@@ -23,12 +23,16 @@ FROM gcr.io/distroless/cc
 
 WORKDIR /indexify
 
+RUN mkdir -p /indexify/config/
+
 COPY --from=builder /indexify-build/target/release/indexify ./
 
 COPY --from=builder /indexify-build/libtorch ./libtorch
 
-COPY --from=builder /indexify-build/indexify.yaml ./
+COPY --from=builder /indexify-build/indexify.yaml ./config/
 
 ENV LIBTORCH=/indexify/libtorch
 
 ENV LD_LIBRARY_PATH=${LIBTORCH}/lib:$LD_LIBRARY_PATH
+
+ENTRYPOINT [ "/indexify/indexify" ]
