@@ -52,12 +52,12 @@ indexify start /path/to/config.yaml
 
 ### Server Configuration
 Configure the behavior of the server and models through a YAML configuration scheme.
-1. ```listen_addr``` - The adrress and port on which the server is listening.
-2. ```available_models``` - A list of models the server is serving.
-       1.  ```model``` -  Name of the model. Default Models: ```openai(text-embedding-ada002)```, ```all-minilm-l12-v2```
-       2.  ```device``` - Device on which the model is running. Default: ```cpu```
-3. ```openai``` - OpenAI configuration options.
-       1. ```api_key``` - The api key to use with openai. This is not set by default. We use OPENAI_API_KEY by default but use this when it's set.
+1. `listen_addr` - The adrress and port on which the server is listening.
+2. `available_models` - A list of models the server is serving.
+    *  `model` -  Name of the model. Default Models: `openai(text-embedding-ada002)`, `all-minilm-l12-v2`.
+    *  `device` - Device on which the model is running. Default: `cpu`
+3. `openai` - OpenAI configuration options.
+    * `api_key` - The api key to use with openai. This is not set by default. We use OPENAI_API_KEY by default but use this when it's set.
 
 ## Operational Metrics
 Indexify exposes operational metrics of the server on a prometheous endpoint at `/metrics`
