@@ -5,11 +5,9 @@ Indexify provides APIs to generate embeddings from SOTA models and manage and qu
 ## Why Use Indexify
 1. Efficient execution of embedding models outside of applications in a standalone service.
 2. REST APIs to access all the models and indexes from any application runtime.
-3. Access to SOTA models and all the logic around chunking texts are implemented on the service.
 4. Does not require distribution of embedding models with applications, reduces size of application bundle.
-5. Support for hardware accelerators to run models faster.
 
-## APIs
+## API Reference
 
 ### List Embedding Models
 Provides a list of embedding models available and their dimensions.
@@ -69,14 +67,35 @@ Indexify exposes operational metrics of the server on a prometheous endpoint at 
 The docker distribution of Indexify makes it easy to run the service on any cloud or on-prem hardware.
 
 ### Default Configuration
+```
+docker run -p 8090:8090 /indexify/indexify start /indexify/indexify.yaml
+```
+This starts the indexify service and forwards the port 8090 to the container port where the server is listening. It uses the default configuration which provides two default embedding models. 
+Refer to the API section to query the list of models and generate embeddings.
 
 ### Custom configuration
+## Generate a base configuration
+Creating a custom configuration is easier by tweaking the default configuration -
+```
+docker run -v -v "$(pwd)":/indexify/config/ indexify /indexify/indexify init-config ./config/indexify.yaml
+```
+This will create the default configuration in the current directory in `indexify.yaml`.
+
+## Start the Server usng Custom Configuration
+
+Start the server after making changes to the default configuration.
+```
+docker run -v -v "$(pwd)":/indexify/config/ indexify /indexify/indexify start ./config/indexify.yaml
+```
 
 ## Building indexify
-
+```
+docker build -t indexify:latest .
+```
 
 ## Coming Soon
 * Text splitting and chunking strategies for generating embeddings for longer sentences.
+* Suppport for hardware acceleration, and using ONNX runtime for faster execution on CPUs.
 * Retrieval strategies for dense embeddings, and a plugin mechanism to add new strategies.
 * Resource Usage of Embedding Models.
 * Asynchronous Embedding Generation for large corpuses of documents.
