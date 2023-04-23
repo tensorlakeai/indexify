@@ -63,6 +63,18 @@ Configure the behavior of the server and models through a YAML configuration sch
 Indexify exposes operational metrics of the server on a prometheous endpoint at `/metrics`
 
 
+### Docker Distribution of Indexify
+
+## Start the server
+The docker distribution of Indexify makes it easy to run the service on any cloud or on-prem hardware.
+
+### Default Configuration
+
+### Custom configuration
+
+## Building indexify
+
+
 ## Coming Soon
 * Text splitting and chunking strategies for generating embeddings for longer sentences.
 * Retrieval strategies for dense embeddings, and a plugin mechanism to add new strategies.
