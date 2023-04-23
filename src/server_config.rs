@@ -61,11 +61,27 @@ pub struct OpenAIConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IndexStoreKind {
+    Milvius,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilviusConfig {
+    pub addr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorIndexConfig {
+    pub index_store: IndexStoreKind,
+    pub milvius_config: Option<MilviusConfig>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub listen_addr: String,
     pub available_models: Vec<EmbeddingModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
+    pub index_config: Option<VectorIndexConfig>,
 }
 
 impl Default for ServerConfig {
@@ -85,6 +101,7 @@ impl Default for ServerConfig {
             openai: Some(OpenAIConfig {
                 api_key:  OPENAI_DUMMY_KEY.into(),
             }),
+            index_config: None,
         }
     }
 }

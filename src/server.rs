@@ -3,7 +3,7 @@ use crate::{EmbeddingRouter, ServerConfig};
 use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
 use axum::http::StatusCode;
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{extract::State, routing::get, routing::post, Json, Router};
 
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -37,6 +37,21 @@ struct ListEmbeddingModelsResponse {
     models: Vec<EmbeddingModel>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+enum TextSplitterKind {
+    NewLine,
+    Html{
+        num_elements: i32,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CreateIndex {
+    name: String,
+    embedding_model: String,
+    text_splitter: TextSplitterKind,
+}
+
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
         let addr: SocketAddr = config.listen_addr.parse()?;
@@ -54,7 +69,8 @@ impl Server {
             .route(
                 "/embeddings/generate",
                 get(generate_embedding).with_state(embedding_router.clone()),
-            );
+            )
+            .route("index/create", post(index_create));
 
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
