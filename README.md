@@ -1,6 +1,6 @@
 # Indexify
 
-Indexify is a knowledge/context retreival service, and provides APIs to generate embeddings from SOTA models and manage and query indexes on vector databases,
+Indexify is a knowledge/context retreival service, and provides APIs to generate embeddings from various pre-trained models and manage and query indexes on vector databases,
 implement various SOTA retrieval algorithms.
 
 Currently for production use-case, the embedding generation APIs are stable, while the other features are coming along.
@@ -95,6 +95,25 @@ Creating a custom configuration is easier by tweaking the default configuration 
 docker run -v -v "$(pwd)":/indexify/config/ diptanu/indexify init-config ./config/indexify.yaml
 ```
 This will create the default configuration in the current directory in `indexify.yaml`.
+
+```
+# Address on which the server listens
+listen_addr: 0.0.0.0:8900
+
+# List of available models via the api. The name corresponds to a model
+# that the service knows how to load, and the device is where the model
+# is executed.
+available_models:
+- model: all-mpnet-base-v2
+  device: cpu
+- model: text-embedding-ada-002
+  device: remote
+
+# OpenAI key. Either set it here or set via the OPENAI_API_KEY
+# environment variable
+openai:
+  api_key: xxxx
+```
 
 ## Start the Server usng Custom Configuration
 
