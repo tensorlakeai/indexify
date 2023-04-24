@@ -14,7 +14,7 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 
 ### Start the Service
 ```
-docker run -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
+docker run -e OPENAI_API_KEY -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
 ```
 
 ### Query Embeddings 
