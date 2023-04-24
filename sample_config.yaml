@@ -1,0 +1,16 @@
+# Address on which the server listens
+listen_addr: 0.0.0.0:8900
+
+# List of available models via the api. The name corresponds to a model
+# that the service knows how to load, and the device is where the model
+# is executed.
+available_models:
+- model: all-mpnet-base-v2
+  device: cpu
+- model: text-embedding-ada-002
+  device: remote
+
+# OpenAI key. Either set it here or set via the OPENAI_API_KEY
+# environment variable
+openai:
+  api_key: xxxx
