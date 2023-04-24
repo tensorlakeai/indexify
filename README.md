@@ -108,5 +108,5 @@ docker build -t diptanu/indexify:latest .
 * Real Time Index updates
 
 ## Contact 
-Join the Discord Server - https://discord.gg/mrXrq3DmV8
+Join the Discord Server - https://discord.gg/mrXrq3DmV8 <br />
 Email - diptanuc@gmail.com
