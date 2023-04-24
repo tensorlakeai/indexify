@@ -30,7 +30,7 @@ docker run -v "$(pwd)":/indexify/config/ diptanu/indexify init-config ./config/c
 This will create the default configuration in the current directory in `custom_config.yaml`.
 Make changes to it and mount it on the container and use it.
 ```
-docker run -v "./custom_config.yaml":/indexify/config/custom_config.yaml diptanu/indexify start -c ./config/custom_config.yaml
+docker run -v "$(pwd)/custom_config.yaml:/indexify/config/custom_config.yaml" diptanu/indexify start -c ./config/custom_config.yaml
 ```
 
 ## API Reference
