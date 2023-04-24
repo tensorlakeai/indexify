@@ -106,3 +106,7 @@ docker build -t diptanu/indexify:latest .
 * Resource Usage of Embedding Models.
 * Asynchronous Embedding Generation for large corpuses of documents.
 * Real Time Index updates
+
+## Contact 
+Join the Discord Server - https://discord.gg/mrXrq3DmV8
+Email - diptanuc@gmail.com
