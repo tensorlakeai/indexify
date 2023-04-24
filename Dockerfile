@@ -1,4 +1,5 @@
 FROM rust:latest AS builder
+LABEL stage=builder
 
 RUN update-ca-certificates
 
@@ -34,3 +35,5 @@ ENV LIBTORCH=/indexify/libtorch
 ENV LD_LIBRARY_PATH=${LIBTORCH}/lib:$LD_LIBRARY_PATH
 
 ENTRYPOINT [ "/indexify/indexify" ]
+
+CMD [ "start", "-c", "./config/indexify.yaml" ]
