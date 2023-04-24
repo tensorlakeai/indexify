@@ -11,7 +11,7 @@ Indexify provides APIs to generate embeddings from SOTA models and manage and qu
 
 ## Start the Service
 ```
-docker run -p 0.0.0.0:8900:8900/tcp -it indexify start ./config/indexify.yaml
+docker run -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify start ./config/indexify.yaml
 ```
 
 ## Query Embeddings 
@@ -80,7 +80,7 @@ The docker distribution of Indexify makes it easy to run the service on any clou
 
 ### Default Configuration
 ```
-docker run -p 8090:8090 /indexify/indexify start /indexify/indexify.yaml
+docker run -p 8090:8090 diptanu/indexify start ./config/indexify.yaml
 ```
 This starts the indexify service and forwards the port 8090 to the container port where the server is listening. It uses the default configuration which provides two default embedding models. 
 Refer to the API section to query the list of models and generate embeddings.
@@ -89,7 +89,7 @@ Refer to the API section to query the list of models and generate embeddings.
 ## Generate a base configuration
 Creating a custom configuration is easier by tweaking the default configuration -
 ```
-docker run -v -v "$(pwd)":/indexify/config/ indexify /indexify/indexify init-config ./config/indexify.yaml
+docker run -v -v "$(pwd)":/indexify/config/ diptanu/indexify init-config ./config/indexify.yaml
 ```
 This will create the default configuration in the current directory in `indexify.yaml`.
 
@@ -97,12 +97,12 @@ This will create the default configuration in the current directory in `indexify
 
 Start the server after making changes to the default configuration.
 ```
-docker run -v -v "$(pwd)":/indexify/config/ indexify /indexify/indexify start ./config/indexify.yaml
+docker run -v -v "$(pwd)":/indexify/config/ diptanu/indexify start ./config/indexify.yaml
 ```
 
 ## Building indexify
 ```
-docker build -t indexify:latest .
+docker build -t diptanu/indexify:latest .
 ```
 
 ## Coming Soon
