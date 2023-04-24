@@ -62,6 +62,7 @@ pub struct OpenAIConfig {
 pub struct ServerConfig {
     pub listen_addr: String,
     pub available_models: Vec<EmbeddingModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
 }
 
@@ -79,9 +80,7 @@ impl Default for ServerConfig {
                     device_kind: DeviceKind::Remote,
                 },
             ],
-            openai: Some(OpenAIConfig {
-                api_key: "xxxx".to_string(),
-            }),
+            openai: None,
         }
     }
 }
@@ -89,10 +88,16 @@ impl Default for ServerConfig {
 impl ServerConfig {
     pub fn from_path(path: String) -> Result<Self> {
         let config_str: String = fs::read_to_string(path)?;
-        let config: ServerConfig = Figment::new()
+        let mut config: ServerConfig = Figment::new()
             .merge(Yaml::string(&config_str))
             .merge(Env::prefixed("INDEXIFY_"))
             .extract()?;
+        if let Ok(openai_api_key) = std::env::var("OPENAI_API_KEY") {
+            let openai_config = OpenAIConfig {
+                api_key: openai_api_key,
+            };
+            config.openai = Some(openai_config);
+        }
         Ok(config)
     }
 
