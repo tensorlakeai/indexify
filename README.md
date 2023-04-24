@@ -1,6 +1,9 @@
 # Indexify
 
-Indexify provides APIs to generate embeddings from SOTA models and manage and query indexes on vector databases.
+Indexify is a knowledge/context retreival service, and provides APIs to generate embeddings from SOTA models and manage and query indexes on vector databases,
+implement various SOTA retrieval algorithms.
+
+Currently for production use-case, the embedding generation APIs are stable, while the other features are coming along.
 
 ## Why Use Indexify
 1. Efficient execution of embedding models outside of applications in a standalone service.
