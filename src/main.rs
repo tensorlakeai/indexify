@@ -14,6 +14,7 @@ struct Cli {
 enum Commands {
     #[command(about = "Start the server")]
     Start {
+        #[arg(short, long)]
         config_path: String,
     },
     InitConfig {
