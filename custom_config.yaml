@@ -1,0 +1,8 @@
+listen_addr: 0.0.0.0:8900
+available_models:
+- model: all-minilm-l12-v2
+  device: cpu
+- model: text-embedding-ada-002
+  device: remote
+openai:
+  api_key: xxxx

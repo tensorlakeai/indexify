@@ -12,14 +12,25 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 
 ## Getting Started
 
-## Start the Service
+### Start the Service
 ```
-docker run -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify start ./config/indexify.yaml
+docker run -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
 ```
 
-## Query Embeddings 
+### Query Embeddings 
 ```
  curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "t5-base"}'
+```
+
+### Custom Configuration
+Creating a custom configuration is easy by tweaking the default configuration -
+```
+docker run -v "$(pwd)":/indexify/config/ diptanu/indexify init-config ./config/custom_config.yaml
+```
+This will create the default configuration in the current directory in `custom_config.yaml`.
+Make changes to it and mount it on the container and use it.
+```
+docker run -v "./custom_config.yaml":/indexify/config/custom_config.yaml diptanu/indexify start -c ./config/custom_config.yaml
 ```
 
 ## API Reference
@@ -51,19 +62,7 @@ Example: Generate embeddings from t5-base
 
 *More models are on the way. Contributions are welcome!* 
 
-
-## Server Commands
-### Generate Configuration
-```
-indexify init-config /path/to/config.yaml
-```
-
-### Start the Server
-```
-indexify start /path/to/config.yaml
-```
-
-### Server Configuration
+## Server Configuration Reference
 Configure the behavior of the server and models through a YAML configuration scheme.
 1. `listen_addr` - The adrress and port on which the server is listening.
 2. `available_models` - A list of models the server is serving.
@@ -72,30 +71,7 @@ Configure the behavior of the server and models through a YAML configuration sch
 3. `openai` - OpenAI configuration options.
     * `api_key` - The api key to use with openai. This is not set by default. We use OPENAI_API_KEY by default but use this when it's set.
 
-## Operational Metrics
-Indexify exposes operational metrics of the server on a prometheous endpoint at `/metrics`
-
-
-### Docker Distribution of Indexify
-
-## Start the server
-The docker distribution of Indexify makes it easy to run the service on any cloud or on-prem hardware.
-
 ### Default Configuration
-```
-docker run -p 8090:8090 diptanu/indexify start ./config/indexify.yaml
-```
-This starts the indexify service and forwards the port 8090 to the container port where the server is listening. It uses the default configuration which provides two default embedding models. 
-Refer to the API section to query the list of models and generate embeddings.
-
-### Custom configuration
-## Generate a base configuration
-Creating a custom configuration is easier by tweaking the default configuration -
-```
-docker run -v -v "$(pwd)":/indexify/config/ diptanu/indexify init-config ./config/indexify.yaml
-```
-This will create the default configuration in the current directory in `indexify.yaml`.
-
 ```
 # Address on which the server listens
 listen_addr: 0.0.0.0:8900
@@ -115,12 +91,8 @@ openai:
   api_key: xxxx
 ```
 
-## Start the Server usng Custom Configuration
-
-Start the server after making changes to the default configuration.
-```
-docker run -v -v "$(pwd)":/indexify/config/ diptanu/indexify start ./config/indexify.yaml
-```
+## Operational Metrics
+Indexify exposes operational metrics of the server on a prometheous endpoint at `/metrics`
 
 ## Building indexify
 ```
