@@ -11,7 +11,7 @@ Indexify provides APIs to generate embeddings from SOTA models and manage and qu
 
 ## Start the Service
 ```
-docker run -p 8090:8090 indexify start /indexify/config/indexify.yaml
+docker run -p 0.0.0.0:8900:8900/tcp -it indexify start ./config/indexify.yaml
 ```
 
 ## Query Embeddings 
