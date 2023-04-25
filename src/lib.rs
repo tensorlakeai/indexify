@@ -1,6 +1,7 @@
 mod embeddings;
-mod vectordbs;
+mod index;
 mod server;
 mod server_config;
+mod vectordbs;
 
-pub use {embeddings::*, vectordbs::*, server::*, server_config::*};
+pub use {embeddings::*, server::*, server_config::*, vectordbs::*};
