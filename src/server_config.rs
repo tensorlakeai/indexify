@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
 
+const OPENAI_DUMMY_KEY: &str = "xxxxx";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmbeddingModelKind {
     #[serde(rename(serialize = "all-minilm-l12-v2", deserialize = "all-minilm-l12-v2"))]
@@ -80,7 +82,9 @@ impl Default for ServerConfig {
                     device_kind: DeviceKind::Remote,
                 },
             ],
-            openai: None,
+            openai: Some(OpenAIConfig {
+                api_key:  OPENAI_DUMMY_KEY.into(),
+            }),
         }
     }
 }
@@ -92,6 +96,9 @@ impl ServerConfig {
             .merge(Yaml::string(&config_str))
             .merge(Env::prefixed("INDEXIFY_"))
             .extract()?;
+
+        // TODO Merge the openai api key from env only if there is nothing set in config
+        // or it's not dummy
         if let Ok(openai_api_key) = std::env::var("OPENAI_API_KEY") {
             let openai_config = OpenAIConfig {
                 api_key: openai_api_key,
