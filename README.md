@@ -96,7 +96,7 @@ Indexify exposes operational metrics of the server on a prometheous endpoint at 
 
 ## Building indexify
 ```
-docker build -t diptanu/indexify:latest .
+make build-container
 ```
 
 ## Coming Soon
