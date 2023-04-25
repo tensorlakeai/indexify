@@ -54,11 +54,11 @@ Example: Generate embeddings from t5-base
 
 ## List of Embedding Models
 * OpenAI
-   * text-embedding-ada02
+   * text-embedding-ada02 (`text-embedding-ada-002`)
 * Sentence Transformers
-   * All-MiniLM-L12-V2
-   * All-MiniLM-L6-V2
-   * T5-Base
+   * All-MiniLM-L12-V2 (`all-minilm-l12-v2`)
+   * All-MiniLM-L6-V2 (`all-minilm-l6-v2`)
+   * T5-Base (`t5-base`)
 
 *More models are on the way. Contributions are welcome!* 
 
