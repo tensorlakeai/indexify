@@ -19,7 +19,7 @@ docker run -e OPENAI_API_KEY -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
 
 ### Query Embeddings 
 ```
- curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "t5-base"}'
+ curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "all-minilm-l12-v2"}'
 ```
 
 ### Custom Configuration
@@ -49,7 +49,7 @@ Generate embeddings for a collection of strings
 ```
 Example: Generate embeddings from t5-base
 ```
- curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "t5-base"}'
+ curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "all-minilm-l12-v2"}'
 ```
 
 ## List of Embedding Models
