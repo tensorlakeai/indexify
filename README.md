@@ -16,6 +16,7 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 ```
 docker run -e OPENAI_API_KEY -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
 ```
+*If you don't wish to use openai, remove the -e flag and Indexify will only use native/local models.*
 
 ### Query Embeddings 
 ```
