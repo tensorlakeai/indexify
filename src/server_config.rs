@@ -20,7 +20,10 @@ pub enum EmbeddingModelKind {
     #[serde(rename(serialize = "t5-base", deserialize = "t5-base"))]
     T5Base,
 
-    #[serde(rename(serialize = "text-embedding-ada-002", deserialize = "text-embedding-ada-002"))]
+    #[serde(rename(
+        serialize = "text-embedding-ada-002",
+        deserialize = "text-embedding-ada-002"
+    ))]
     OpenAIAda02,
 }
 
@@ -37,21 +40,21 @@ impl fmt::Display for EmbeddingModelKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DeviceKind {
-    #[serde(rename(serialize="cpu", deserialize="cpu"))]
+    #[serde(rename(serialize = "cpu", deserialize = "cpu"))]
     Cpu,
 
-    #[serde(rename(serialize="gpu", deserialize="gpu"))]
+    #[serde(rename(serialize = "gpu", deserialize = "gpu"))]
     Gpu,
 
-    #[serde(rename(serialize="remote", deserialize="remote"))]
+    #[serde(rename(serialize = "remote", deserialize = "remote"))]
     Remote,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingModel {
-    #[serde(rename(serialize="model", deserialize="model"))]
+    #[serde(rename(serialize = "model", deserialize = "model"))]
     pub model_kind: EmbeddingModelKind,
-    #[serde(rename(serialize="device", deserialize="device"))]
+    #[serde(rename(serialize = "device", deserialize = "device"))]
     pub device_kind: DeviceKind,
 }
 
@@ -61,11 +64,27 @@ pub struct OpenAIConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IndexStoreKind {
+    Qdrant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QdrantConfig {
+    pub addr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorIndexConfig {
+    pub index_store: IndexStoreKind,
+    pub qdrant_config: Option<QdrantConfig>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub listen_addr: String,
     pub available_models: Vec<EmbeddingModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
+    pub index_config: Option<VectorIndexConfig>,
 }
 
 impl Default for ServerConfig {
@@ -83,8 +102,9 @@ impl Default for ServerConfig {
                 },
             ],
             openai: Some(OpenAIConfig {
-                api_key:  OPENAI_DUMMY_KEY.into(),
+                api_key: OPENAI_DUMMY_KEY.into(),
             }),
+            index_config: None,
         }
     }
 }

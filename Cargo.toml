@@ -22,3 +22,5 @@ oneshot = {version="^0"}
 thiserror = "*"
 async-openai = "*"
 async-trait = "*"
+qdrant-client = "^1"
+uuid = {version = "^1", features = ["v4", "fast-rng","macro-diagnostics"]}

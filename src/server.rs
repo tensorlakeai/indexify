@@ -1,9 +1,9 @@
-use crate::{EmbeddingRouter, ServerConfig};
+use crate::{vectordbs, EmbeddingRouter, ServerConfig, VectorDBTS};
 
 use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
 use axum::http::StatusCode;
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{extract::State, routing::get, routing::post, Json, Router};
 
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -37,6 +37,22 @@ struct ListEmbeddingModelsResponse {
     models: Vec<EmbeddingModel>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+enum TextSplitterKind {
+    NewLine,
+    Html { num_elements: i32 },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct IndexCreateRequest {
+    name: String,
+    embedding_model: String,
+    text_splitter: TextSplitterKind,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct IndexCreateResponse {}
+
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
         let addr: SocketAddr = config.listen_addr.parse()?;
@@ -45,6 +61,7 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
+        let index = vectordbs::create_vectordb(self.config.clone()).unwrap();
         let app = Router::new()
             .route("/", get(root))
             .route(
@@ -54,7 +71,8 @@ impl Server {
             .route(
                 "/embeddings/generate",
                 get(generate_embedding).with_state(embedding_router.clone()),
-            );
+            )
+            .route("index/create", post(index_create).with_state(index));
 
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
@@ -66,6 +84,14 @@ impl Server {
 // basic handler that responds with a static string
 async fn root() -> &'static str {
     "Indexify Server"
+}
+
+#[axum_macros::debug_handler]
+async fn index_create(
+    State(index): State<VectorDBTS>,
+    Json(payload): Json<IndexCreateRequest>,
+) -> (StatusCode, Json<IndexCreateResponse>) {
+    (StatusCode::OK, Json(IndexCreateResponse {}))
 }
 
 #[axum_macros::debug_handler]
