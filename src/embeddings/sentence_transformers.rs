@@ -103,7 +103,7 @@ impl EmbeddingGenerator for SentenceTransformerModels {
         }
     }
 
-    fn dimensions(&self, model: String) -> Result<i16, EmbeddingGeneratorError> {
+    fn dimensions(&self, model: String) -> Result<u64, EmbeddingGeneratorError> {
         match model.as_str() {
             "all-minilm-l12-v2" => Ok(384),
             "all-minilm-l6-v2" => Ok(384),

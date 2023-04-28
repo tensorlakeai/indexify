@@ -23,7 +23,7 @@ pub enum MetricKind {
     Cosine,
 }
 
-pub struct CreateIndex {
+pub struct CreateIndexParams {
     pub name: String,
     pub vector_dim: u64,
     pub metric: MetricKind,
@@ -51,7 +51,7 @@ pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 
 #[async_trait]
 pub trait VectorDb {
-    async fn create_index(&self, index: CreateIndex) -> Result<(), VectorDbError>;
+    async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError>;
 
     async fn add_embedding(
         &self,
@@ -72,14 +72,13 @@ pub trait VectorDb {
 
 pub fn create_vectordb(
     config: Arc<server_config::ServerConfig>,
-) -> Result<VectorDBTS, VectorDbError> {
-    let qdrant_config = config
+) -> Result<Option<VectorDBTS>, VectorDbError> {
+    let qdrant = config
         .index_config
         .clone()
-        .map(|c| c.qdrant_config)
-        .flatten()
-        .ok_or(VectorDbError::ConfigNotPresent)?;
-    QdrantDb::new(qdrant_config)
+        .and_then(|c| c.qdrant_config)
+        .map(QdrantDb::new);
+    Ok(qdrant)
 }
 
 pub struct QdrantDb {
@@ -87,10 +86,10 @@ pub struct QdrantDb {
 }
 
 impl QdrantDb {
-    pub fn new(config: QdrantConfig) -> Result<VectorDBTS, VectorDbError> {
-        Ok(Arc::new(Self {
+    pub fn new(config: QdrantConfig) -> VectorDBTS {
+        Arc::new(Self {
             qdrant_config: config,
-        }))
+        })
     }
 
     async fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
@@ -112,7 +111,7 @@ impl QdrantDb {
 
 #[async_trait]
 impl VectorDb for QdrantDb {
-    async fn create_index(&self, index: CreateIndex) -> Result<(), VectorDbError> {
+    async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
         let _collection = self
             .create_client()
             .await?
@@ -185,8 +184,7 @@ impl VectorDb for QdrantDb {
         let document_payloads: Vec<&Value> = result
             .result
             .iter()
-            .map(|value| value.payload.get("document"))
-            .flatten()
+            .filter_map(|value| value.payload.get("document"))
             .collect();
         let mut documents: Vec<String> = Vec::new();
         for document_payload in document_payloads {
@@ -217,17 +215,16 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{CreateIndex, QdrantDb};
+    use crate::{CreateIndexParams, QdrantDb};
 
     #[tokio::test]
     async fn test_qdrant_search_basic() {
         let qdrant = QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
-        })
-        .unwrap();
+        });
         qdrant.drop_index("hello-index".into()).await.unwrap();
         qdrant
-            .create_index(CreateIndex {
+            .create_index(CreateIndexParams {
                 name: "hello-index".into(),
                 vector_dim: 2,
                 metric: crate::MetricKind::Cosine,

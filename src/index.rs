@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::{EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS, VectorDbError};
+use crate::{
+    CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS, VectorDbError,
+};
 
 #[derive(Error, Debug)]
 pub enum IndexError {
@@ -16,19 +18,21 @@ pub enum IndexError {
 pub struct Index {
     vectordb: VectorDBTS,
     embedding_generator: EmbeddingGeneratorTS,
-    model: String,
+    embedding_model: String,
 }
 
 impl Index {
-    pub fn new(
+    pub async fn new(
+        vectordb_params: CreateIndexParams,
         vectordb: VectorDBTS,
         embedding_generator: EmbeddingGeneratorTS,
-        model: String,
+        embedding_model: String,
     ) -> Result<Index, IndexError> {
+        vectordb.create_index(vectordb_params).await?;
         Ok(Self {
             vectordb,
             embedding_generator,
-            model,
+            embedding_model,
         })
     }
 
@@ -40,12 +44,12 @@ impl Index {
     ) -> Result<(), IndexError> {
         let embeddings = self
             .embedding_generator
-            .generate_embeddings(texts.clone(), String::from(self.model.clone()))
+            .generate_embeddings(texts.clone(), self.embedding_model.clone())
             .await?;
         let it = embeddings.iter().zip(attrs.iter());
-        for (i, (x, y)) in it.enumerate() {
+        for (_i, (embedding, attr)) in it.enumerate() {
             self.vectordb
-                .add_embedding(index.clone(), x.to_owned(), y.to_owned())
+                .add_embedding(index.clone(), embedding.to_owned(), attr.to_owned())
                 .await?;
         }
         Ok(())

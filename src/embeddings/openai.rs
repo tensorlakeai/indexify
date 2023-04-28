@@ -47,7 +47,7 @@ impl EmbeddingGenerator for OpenAI {
         Ok(embeddings)
     }
 
-    fn dimensions(&self, model: String) -> Result<i16, EmbeddingGeneratorError> {
+    fn dimensions(&self, model: String) -> Result<u64, EmbeddingGeneratorError> {
         match model.as_str() {
             "text-embedding-ada-002" => Ok(1536),
             _ => Err(EmbeddingGeneratorError::ModelNotFound(model)),

@@ -1,4 +1,5 @@
-use crate::{vectordbs, EmbeddingRouter, ServerConfig, VectorDBTS};
+use crate::index::Index;
+use crate::{vectordbs, CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig, VectorDBTS};
 
 use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
@@ -8,6 +9,7 @@ use axum::{extract::State, routing::get, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
+
 
 pub struct Server {
     addr: SocketAddr,
@@ -29,7 +31,7 @@ struct GenerateEmbeddingResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct EmbeddingModel {
     name: String,
-    dimensions: i16,
+    dimensions: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,9 +46,17 @@ enum TextSplitterKind {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+enum IndexMetric {
+    Dot,
+    Cosine,
+    Euclidean,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct IndexCreateRequest {
     name: String,
     embedding_model: String,
+    metric: IndexMetric,
     text_splitter: TextSplitterKind,
 }
 
@@ -61,7 +71,7 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let index = vectordbs::create_vectordb(self.config.clone()).unwrap();
+        let vectordb = vectordbs::create_vectordb(self.config.clone())?;
         let app = Router::new()
             .route("/", get(root))
             .route(
@@ -72,7 +82,10 @@ impl Server {
                 "/embeddings/generate",
                 get(generate_embedding).with_state(embedding_router.clone()),
             )
-            .route("index/create", post(index_create).with_state(index));
+            .route(
+                "index/create",
+                post(index_create).with_state((vectordb, embedding_router)),
+            );
 
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
@@ -88,9 +101,38 @@ async fn root() -> &'static str {
 
 #[axum_macros::debug_handler]
 async fn index_create(
-    State(index): State<VectorDBTS>,
+    State(index_args): State<(Option<VectorDBTS>, Arc<EmbeddingRouter>)>,
     Json(payload): Json<IndexCreateRequest>,
 ) -> (StatusCode, Json<IndexCreateResponse>) {
+    if index_args.0.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(IndexCreateResponse {}));
+    }
+    let try_dim = index_args.1.dimensions(payload.embedding_model.clone());
+    if let Err(_err) = try_dim {
+        return (StatusCode::BAD_REQUEST, Json(IndexCreateResponse {}));
+    }
+    let index_params = CreateIndexParams {
+        name: payload.name.clone(),
+        vector_dim: try_dim.unwrap(),
+        metric: match payload.metric {
+            IndexMetric::Cosine => MetricKind::Cosine,
+            IndexMetric::Dot => MetricKind::Dot,
+            IndexMetric::Euclidean => MetricKind::Euclidean,
+        },
+    };
+    let index = Index::new(
+        index_params,
+        index_args.0.unwrap(),
+        index_args.1,
+        payload.embedding_model.clone(),
+    )
+    .await;
+    if let Err(_err) = index {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(IndexCreateResponse {}),
+        );
+    }
     (StatusCode::OK, Json(IndexCreateResponse {}))
 }
 
