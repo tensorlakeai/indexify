@@ -27,9 +27,6 @@ pub enum IndexError {
 
     #[error(transparent)]
     VectorDbError(#[from] VectorDbError),
-
-    #[error("index not found: `{0}`")]
-    IndexNotFound(String),
 }
 pub struct Index {
     vectordb: VectorDBTS,
