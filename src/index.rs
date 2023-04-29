@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
 use anyhow::Result;
 use thiserror::Error;
@@ -12,6 +12,12 @@ pub trait Indexstore {
     async fn get_index(name: String) -> Result<Index, IndexError>;
 
     async fn store_index(name: String, splitter: String) -> Result<(), IndexError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct Text {
+    pub text: String,
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Error, Debug)]
@@ -51,20 +57,20 @@ impl Index {
             embedding_model,
         })
     }
-    pub async fn add_texts(
-        &self,
-        index: String,
-        texts: Vec<String>,
-        attrs: Vec<HashMap<String, String>>,
-    ) -> Result<(), IndexError> {
+
+    pub async fn add_texts(&self, index: String, texts: Vec<Text>) -> Result<(), IndexError> {
+        let text_content = texts.iter().map(|text| text.text.clone()).collect();
         let embeddings = self
             .embedding_generator
-            .generate_embeddings(texts.clone(), self.embedding_model.clone())
+            .generate_embeddings(text_content, self.embedding_model.clone())
             .await?;
-        let it = embeddings.iter().zip(attrs.iter());
-        for (_i, (embedding, attr)) in it.enumerate() {
+
+        let it = embeddings.iter().zip(texts.iter());
+        for (_i, (embedding, text)) in it.enumerate() {
+            let mut metadata = text.metadata.to_owned();
+            metadata.insert("document".into(), text.text.to_owned());
             self.vectordb
-                .add_embedding(index.clone(), embedding.to_owned(), attr.to_owned())
+                .add_embedding(index.clone(), embedding.to_owned(), metadata)
                 .await?;
         }
         Ok(())
@@ -72,19 +78,76 @@ impl Index {
 
     pub async fn search(
         &self,
-        embedding_model: String,
-        query: String,
         index: String,
+        query: String,
         k: u64,
     ) -> Result<Vec<String>, IndexError> {
         let query_embedding = self
             .embedding_generator
-            .generate_embeddings(vec![query], embedding_model)
+            .generate_embeddings(vec![query], self.embedding_model.clone())
             .await?
             .get(0)
             .unwrap()
             .to_owned();
+
         let results = self.vectordb.search(index, query_embedding, k).await?;
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use crate::{CreateIndexParams, EmbeddingRouter, MetricKind, QdrantDb, ServerConfig};
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_qdrant_search_basic() {
+        let qdrant = QdrantDb::new(crate::QdrantConfig {
+            addr: "http://localhost:6334".into(),
+        });
+        qdrant.drop_index("hello".into()).await.unwrap();
+        let embedding_router =
+            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
+
+        let index_params = CreateIndexParams {
+            name: "hello".into(),
+            vector_dim: 384,
+            metric: MetricKind::Cosine,
+        };
+
+        Index::create_index(index_params, qdrant.clone())
+            .await
+            .unwrap();
+        let index = Index::new(qdrant, embedding_router, "all-minilm-l12-v2".into())
+            .await
+            .unwrap();
+        index
+            .add_texts(
+                "hello".into(),
+                vec![
+                    Text {
+                        text: "hello world".into(),
+                        metadata: HashMap::new(),
+                    },
+                    Text {
+                        text: "hello pipe".into(),
+                        metadata: HashMap::new(),
+                    },
+                    Text {
+                        text: "nba".into(),
+                        metadata: HashMap::new(),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        let result = index
+            .search("hello".into(), "pipe".into(), 1)
+            .await
+            .unwrap();
+        assert_eq!(1, result.len())
     }
 }

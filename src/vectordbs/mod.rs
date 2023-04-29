@@ -9,8 +9,8 @@ use qdrant_client::{
         value::{self, Kind},
         vectors_config::Config,
         with_payload_selector::SelectorOptions,
-        CreateCollection, Distance, PointStruct, SearchPoints, Value, VectorParams, VectorsConfig,
-        WithPayloadSelector,
+        CountPoints, CreateCollection, Distance, PointStruct, SearchPoints, Value, VectorParams,
+        VectorsConfig, WithPayloadSelector,
     },
 };
 use thiserror::Error;
@@ -158,6 +158,16 @@ impl VectorDb for QdrantDb {
             .upsert_points(index, points, None)
             .await
             .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
+
+        let _result = self
+            .create_client()
+            .await?
+            .count(&CountPoints {
+                collection_name: "hello".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         Ok(())
     }
 
@@ -241,7 +251,7 @@ mod tests {
             .unwrap();
 
         let results = qdrant
-            .search("hello-index".into(), vec![0., 2.], 5)
+            .search("hello-index".into(), vec![10., 8.], 1)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);

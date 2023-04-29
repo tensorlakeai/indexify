@@ -1,4 +1,4 @@
-use crate::index::Index;
+use crate::index::{Index, Text};
 use crate::{vectordbs, CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig, VectorDBTS};
 
 use super::embeddings::EmbeddingGenerator;
@@ -72,9 +72,9 @@ struct IndexCreateResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Document {
-    text: String,
-    metadata: HashMap<String, String>,
+pub struct Document {
+    pub text: String,
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,13 +218,15 @@ async fn add_texts(
             }),
         );
     }
-    let mut texts: Vec<String> = Vec::new();
-    let mut attrs: Vec<HashMap<String, String>> = Vec::new();
-    for document in payload.texts {
-        texts.push(document.text);
-        attrs.push(document.metadata);
-    }
-    let result = index.unwrap().add_texts(payload.index, texts, attrs).await;
+    let texts = payload
+        .texts
+        .iter()
+        .map(|d| Text {
+            text: d.text.to_owned(),
+            metadata: d.metadata.to_owned(),
+        })
+        .collect();
+    let result = index.unwrap().add_texts(payload.index, texts).await;
     if let Err(err) = result {
         return (
             StatusCode::BAD_REQUEST,
@@ -265,12 +267,7 @@ async fn index_search(
     }
     let results = index
         .unwrap()
-        .search(
-            "all-minilm-l12-v2".into(),
-            query.query,
-            query.index,
-            query.k,
-        )
+        .search(query.query, query.index, query.k)
         .await;
     if let Err(err) = results {
         return (
