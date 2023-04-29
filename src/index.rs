@@ -69,4 +69,22 @@ impl Index {
         }
         Ok(())
     }
+
+    pub async fn search(
+        &self,
+        embedding_model: String,
+        query: String,
+        index: String,
+        k: u64,
+    ) -> Result<Vec<String>, IndexError> {
+        let query_embedding = self
+            .embedding_generator
+            .generate_embeddings(vec![query], embedding_model)
+            .await?
+            .get(0)
+            .unwrap()
+            .to_owned();
+        let results = self.vectordb.search(index, query_embedding, k).await?;
+        Ok(results)
+    }
 }

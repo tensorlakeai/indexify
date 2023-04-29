@@ -6,11 +6,9 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 
-
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;
-
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -68,13 +66,10 @@ struct IndexCreateRequest {
     text_splitter: TextSplitterKind,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexCreateResponse {
     errors: Vec<String>,
 }
-
-
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Document {
@@ -88,13 +83,29 @@ struct AddTextsRequest {
     texts: Vec<Document>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexAdditionResponse {
     errors: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchRequest {
+    index: String,
+    query: String,
+    k: u64,
+}
 
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct DocumentFragment {
+    text: String,
+    source: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct IndexSearchResponse {
+    results: Vec<DocumentFragment>,
+    errors: Vec<String>,
+}
 
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
@@ -122,6 +133,10 @@ impl Server {
             .route(
                 "/index/add",
                 post(add_texts).with_state((vectordb.clone(), embedding_router.clone())),
+            )
+            .route(
+                "/index/search",
+                get(index_search).with_state((vectordb.clone(), embedding_router.clone())),
             );
 
         axum::Server::bind(&self.addr)
@@ -220,6 +235,67 @@ async fn add_texts(
     }
 
     (StatusCode::OK, Json(IndexAdditionResponse::default()))
+}
+
+#[axum_macros::debug_handler]
+async fn index_search(
+    State(index_args): State<(Option<VectorDBTS>, Arc<EmbeddingRouter>)>,
+    Json(query): Json<SearchRequest>,
+) -> (StatusCode, Json<IndexSearchResponse>) {
+    if index_args.0.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexSearchResponse {
+                errors: vec!["server is not configured to have indexes".into()],
+                ..Default::default()
+            }),
+        );
+    }
+    let vectordb = index_args.0.unwrap();
+    let index = Index::new(vectordb, index_args.1, "all-minilm-l12-v2".into()).await;
+
+    if let Err(err) = index {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(IndexSearchResponse {
+                errors: vec![err.to_string()],
+                ..Default::default()
+            }),
+        );
+    }
+    let results = index
+        .unwrap()
+        .search(
+            "all-minilm-l12-v2".into(),
+            query.query,
+            query.index,
+            query.k,
+        )
+        .await;
+    if let Err(err) = results {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(IndexSearchResponse {
+                results: vec![],
+                errors: vec![err.to_string()],
+            }),
+        );
+    }
+    let document_fragments: Vec<DocumentFragment> = results
+        .unwrap()
+        .iter()
+        .map(|text| DocumentFragment {
+            text: text.to_owned(),
+            source: HashMap::new(),
+        })
+        .collect();
+    (
+        StatusCode::OK,
+        Json(IndexSearchResponse {
+            results: document_fragments,
+            errors: vec![],
+        }),
+    )
 }
 
 #[axum_macros::debug_handler]
