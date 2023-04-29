@@ -6,10 +6,14 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 
+
 use serde::{Deserialize, Serialize};
+use smart_default::SmartDefault;
+use std::collections::HashMap;
+
+
 use std::net::SocketAddr;
 use std::sync::Arc;
-
 
 pub struct Server {
     addr: SocketAddr,
@@ -39,10 +43,14 @@ struct ListEmbeddingModelsResponse {
     models: Vec<EmbeddingModel>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(SmartDefault, Debug, Serialize, Deserialize)]
 enum TextSplitterKind {
+    #[default]
     NewLine,
-    Html { num_elements: i32 },
+    Html {
+        #[default = 1]
+        num_elements: u64,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,7 +69,32 @@ struct IndexCreateRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct IndexCreateResponse {}
+#[derive(Default)]
+struct IndexCreateResponse {
+    errors: Vec<String>,
+}
+
+
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Document {
+    text: String,
+    metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AddTextsRequest {
+    index: String,
+    texts: Vec<Document>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default)]
+struct IndexAdditionResponse {
+    errors: Vec<String>,
+}
+
+
 
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
@@ -83,8 +116,12 @@ impl Server {
                 get(generate_embedding).with_state(embedding_router.clone()),
             )
             .route(
-                "index/create",
-                post(index_create).with_state((vectordb, embedding_router)),
+                "/index/create",
+                post(index_create).with_state((vectordb.clone(), embedding_router.clone())),
+            )
+            .route(
+                "/index/add",
+                post(add_texts).with_state((vectordb.clone(), embedding_router.clone())),
             );
 
         axum::Server::bind(&self.addr)
@@ -105,11 +142,21 @@ async fn index_create(
     Json(payload): Json<IndexCreateRequest>,
 ) -> (StatusCode, Json<IndexCreateResponse>) {
     if index_args.0.is_none() {
-        return (StatusCode::BAD_REQUEST, Json(IndexCreateResponse {}));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexCreateResponse {
+                errors: vec!["server is not configured to have indexes".into()],
+            }),
+        );
     }
     let try_dim = index_args.1.dimensions(payload.embedding_model.clone());
-    if let Err(_err) = try_dim {
-        return (StatusCode::BAD_REQUEST, Json(IndexCreateResponse {}));
+    if let Err(err) = try_dim {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexCreateResponse {
+                errors: vec![err.to_string()],
+            }),
+        );
     }
     let index_params = CreateIndexParams {
         name: payload.name.clone(),
@@ -120,20 +167,59 @@ async fn index_create(
             IndexMetric::Euclidean => MetricKind::Euclidean,
         },
     };
-    let index = Index::new(
-        index_params,
-        index_args.0.unwrap(),
-        index_args.1,
-        payload.embedding_model.clone(),
-    )
-    .await;
-    if let Err(_err) = index {
+    let result = Index::create_index(index_params, index_args.0.unwrap()).await;
+    if let Err(err) = result {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(IndexCreateResponse {}),
+            Json(IndexCreateResponse {
+                errors: vec![err.to_string()],
+            }),
         );
     }
-    (StatusCode::OK, Json(IndexCreateResponse {}))
+    (StatusCode::OK, Json(IndexCreateResponse { errors: vec![] }))
+}
+
+#[axum_macros::debug_handler]
+async fn add_texts(
+    State(index_args): State<(Option<VectorDBTS>, Arc<EmbeddingRouter>)>,
+    Json(payload): Json<AddTextsRequest>,
+) -> (StatusCode, Json<IndexAdditionResponse>) {
+    if index_args.0.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexAdditionResponse {
+                errors: vec!["server is not configured to have indexes".into()],
+            }),
+        );
+    }
+    let vectordb = index_args.0.unwrap();
+    let index = Index::new(vectordb, index_args.1, "all-minilm-l12-v2".into()).await;
+
+    if let Err(err) = index {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(IndexAdditionResponse {
+                errors: vec![err.to_string()],
+            }),
+        );
+    }
+    let mut texts: Vec<String> = Vec::new();
+    let mut attrs: Vec<HashMap<String, String>> = Vec::new();
+    for document in payload.texts {
+        texts.push(document.text);
+        attrs.push(document.metadata);
+    }
+    let result = index.unwrap().add_texts(payload.index, texts, attrs).await;
+    if let Err(err) = result {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexAdditionResponse {
+                errors: vec![err.to_string()],
+            }),
+        );
+    }
+
+    (StatusCode::OK, Json(IndexAdditionResponse::default()))
 }
 
 #[axum_macros::debug_handler]

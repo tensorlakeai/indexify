@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use thiserror::Error;
@@ -7,6 +7,13 @@ use crate::{
     CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS, VectorDbError,
 };
 
+#[async_trait::async_trait]
+pub trait Indexstore {
+    async fn get_index(name: String) -> Result<Index, IndexError>;
+
+    async fn store_index(name: String, splitter: String) -> Result<(), IndexError>;
+}
+
 #[derive(Error, Debug)]
 pub enum IndexError {
     #[error(transparent)]
@@ -14,6 +21,9 @@ pub enum IndexError {
 
     #[error(transparent)]
     VectorDbError(#[from] VectorDbError),
+
+    #[error("index not found: `{0}`")]
+    IndexNotFound(String),
 }
 pub struct Index {
     vectordb: VectorDBTS,
@@ -22,20 +32,25 @@ pub struct Index {
 }
 
 impl Index {
-    pub async fn new(
+    pub async fn create_index(
         vectordb_params: CreateIndexParams,
+        vectordb: VectorDBTS,
+    ) -> Result<(), IndexError> {
+        vectordb.create_index(vectordb_params).await?;
+        Ok(())
+    }
+
+    pub async fn new(
         vectordb: VectorDBTS,
         embedding_generator: EmbeddingGeneratorTS,
         embedding_model: String,
     ) -> Result<Index, IndexError> {
-        vectordb.create_index(vectordb_params).await?;
         Ok(Self {
             vectordb,
             embedding_generator,
             embedding_model,
         })
     }
-
     pub async fn add_texts(
         &self,
         index: String,
