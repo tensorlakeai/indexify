@@ -5,18 +5,20 @@ use async_trait::async_trait;
 
 use thiserror::Error;
 
-use crate::server_config;
+use crate::VectorIndexConfig;
 
 pub mod qdrant;
 
 use qdrant::QdrantDb;
 
+#[derive(Clone)]
 pub enum MetricKind {
     Dot,
     Euclidean,
     Cosine,
 }
 
+#[derive(Clone)]
 pub struct CreateIndexParams {
     pub name: String,
     pub vector_dim: u64,
@@ -62,15 +64,12 @@ pub trait VectorDb {
     ) -> Result<Vec<String>, VectorDbError>;
 
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError>;
+
+    fn name(&self) -> String;
 }
 
-pub fn create_vectordb(
-    config: Arc<server_config::ServerConfig>,
-) -> Result<Option<VectorDBTS>, VectorDbError> {
-    let qdrant = config
-        .index_config
-        .clone()
-        .and_then(|c| c.qdrant_config)
-        .map(QdrantDb::new);
-    Ok(qdrant)
+pub fn create_vectordb(config: VectorIndexConfig) -> Result<VectorDBTS, VectorDbError> {
+    match config.index_store {
+        crate::IndexStoreKind::Qdrant => Ok(Arc::new(QdrantDb::new(config.qdrant_config.unwrap()))),
+    }
 }

@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use sea_orm::DatabaseConnection;
 use thiserror::Error;
+use tracing::info;
 
 use crate::{
-    CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS, VectorDbError,
+    persistence::{Respository, RespositoryError},
+    vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS,
+    VectorDbError, VectorIndexConfig,
 };
 
 #[async_trait::async_trait]
@@ -23,39 +27,118 @@ pub struct Text {
 #[derive(Error, Debug)]
 pub enum IndexError {
     #[error(transparent)]
-    EmbeddingError(#[from] EmbeddingGeneratorError),
+    EmbeddingGenerator(#[from] EmbeddingGeneratorError),
 
     #[error(transparent)]
-    VectorDbError(#[from] VectorDbError),
+    VectorDb(#[from] VectorDbError),
+
+    #[error(transparent)]
+    Persistence(#[from] RespositoryError),
+}
+
+pub struct IndexManager {
+    vectordb: VectorDBTS,
+    embedding_router: EmbeddingGeneratorTS,
+    repository: Respository,
+}
+
+impl IndexManager {
+    pub async fn new(
+        index_config: Option<VectorIndexConfig>,
+        embedding_router: EmbeddingGeneratorTS,
+    ) -> Result<Option<Self>, IndexError> {
+        if index_config.is_none() {
+            info!("indexing feature is not configured");
+            return Ok(None);
+        }
+        let db_url = &index_config.clone().unwrap().db_url;
+        info!("persistence: using database: {:?}", db_url);
+        let repository = Respository::new(db_url).await?;
+        info!(
+            "vector database backend: {:?}",
+            index_config.as_ref().unwrap().index_store
+        );
+        IndexManager::_new(repository, index_config.unwrap(), embedding_router)
+    }
+
+    fn _new(
+        repository: Respository,
+        index_config: VectorIndexConfig,
+        embedding_router: EmbeddingGeneratorTS,
+    ) -> Result<Option<Self>, IndexError> {
+        let vectordb = vectordbs::create_vectordb(index_config)?;
+        Ok(Some(IndexManager {
+            vectordb,
+            embedding_router,
+            repository,
+        }))
+    }
+
+    #[allow(dead_code)]
+    pub fn new_with_db(
+        index_config: Option<VectorIndexConfig>,
+        embedding_router: EmbeddingGeneratorTS,
+        db: DatabaseConnection,
+    ) -> Result<Option<Self>, IndexError> {
+        let repository = Respository::new_with_db(db);
+        IndexManager::_new(repository, index_config.unwrap(), embedding_router)
+    }
+
+    pub async fn create_index(
+        &self,
+        vectordb_params: CreateIndexParams,
+        embedding_model: String,
+        text_splitter: String,
+    ) -> Result<(), IndexError> {
+        self.vectordb.create_index(vectordb_params.clone()).await?;
+        self.repository
+            .create_index(
+                vectordb_params.name,
+                embedding_model,
+                self.vectordb.name(),
+                text_splitter,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn load(&self, index_name: String) -> Result<Option<Index>, IndexError> {
+        let index_entity = self.repository.get_index(index_name.clone()).await?;
+        let index = Index::new(
+            index_name.clone(),
+            self.vectordb.clone(),
+            self.embedding_router.clone(),
+            index_entity.embedding_model,
+            index_entity.text_splitter,
+        )
+        .await?;
+        Ok(index)
+    }
 }
 pub struct Index {
+    name: String,
     vectordb: VectorDBTS,
     embedding_generator: EmbeddingGeneratorTS,
     embedding_model: String,
 }
 
 impl Index {
-    pub async fn create_index(
-        vectordb_params: CreateIndexParams,
-        vectordb: VectorDBTS,
-    ) -> Result<(), IndexError> {
-        vectordb.create_index(vectordb_params).await?;
-        Ok(())
-    }
-
     pub async fn new(
+        name: String,
         vectordb: VectorDBTS,
         embedding_generator: EmbeddingGeneratorTS,
         embedding_model: String,
-    ) -> Result<Index, IndexError> {
-        Ok(Self {
+        _text_splitter: String,
+    ) -> Result<Option<Index>, IndexError> {
+        Ok(Some(Self {
+            name,
             vectordb,
             embedding_generator,
             embedding_model,
-        })
+        }))
     }
 
-    pub async fn add_texts(&self, index: String, texts: Vec<Text>) -> Result<(), IndexError> {
+    pub async fn add_texts(&self, texts: Vec<Text>) -> Result<(), IndexError> {
         let text_content = texts.iter().map(|text| text.text.clone()).collect();
         let embeddings = self
             .embedding_generator
@@ -67,7 +150,7 @@ impl Index {
             let mut metadata = text.metadata.to_owned();
             metadata.insert("document".into(), text.text.to_owned());
             self.vectordb
-                .add_embedding(index.clone(), embedding.to_owned(), metadata)
+                .add_embedding(self.name.clone(), embedding.to_owned(), metadata)
                 .await?;
         }
         Ok(())
@@ -94,17 +177,27 @@ impl Index {
 
 #[cfg(test)]
 mod tests {
+    use super::super::entity::index::Entity as IndexEntity;
+    use sea_orm::entity::prelude::*;
+    use sea_orm::{
+        sea_query::TableCreateStatement, Database, DatabaseConnection, DbBackend, DbConn, DbErr,
+        Schema,
+    };
+
     use super::*;
     use std::sync::Arc;
 
-    use crate::{qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig};
+    use crate::{
+        qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, MetricKind, QdrantConfig,
+        ServerConfig, VectorIndexConfig,
+    };
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_qdrant_search_basic() {
-        let qdrant = QdrantDb::new(crate::QdrantConfig {
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
-        });
+        }));
         qdrant.drop_index("hello".into()).await.unwrap();
         let embedding_router =
             Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
@@ -114,31 +207,37 @@ mod tests {
             vector_dim: 384,
             metric: MetricKind::Cosine,
         };
-
-        Index::create_index(index_params, qdrant.clone())
+        let index_config = Some(VectorIndexConfig {
+            index_store: crate::IndexStoreKind::Qdrant,
+            qdrant_config: Some(QdrantConfig {
+                addr: "http://localhost:6334".into(),
+            }),
+            db_url: "sqlite::memory:".into(),
+        });
+        let db = create_db().await.unwrap();
+        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db)
+            .unwrap()
+            .unwrap();
+        index_manager
+            .create_index(index_params, "all-minilm-l12-v2".into(), "new-line".into())
             .await
             .unwrap();
-        let index = Index::new(qdrant, embedding_router, "all-minilm-l12-v2".into())
-            .await
-            .unwrap();
+        let index = index_manager.load("hello".into()).await.unwrap().unwrap();
         index
-            .add_texts(
-                "hello".into(),
-                vec![
-                    Text {
-                        text: "hello world".into(),
-                        metadata: HashMap::new(),
-                    },
-                    Text {
-                        text: "hello pipe".into(),
-                        metadata: HashMap::new(),
-                    },
-                    Text {
-                        text: "nba".into(),
-                        metadata: HashMap::new(),
-                    },
-                ],
-            )
+            .add_texts(vec![
+                Text {
+                    text: "hello world".into(),
+                    metadata: HashMap::new(),
+                },
+                Text {
+                    text: "hello pipe".into(),
+                    metadata: HashMap::new(),
+                },
+                Text {
+                    text: "nba".into(),
+                    metadata: HashMap::new(),
+                },
+            ])
             .await
             .unwrap();
         let result = index
@@ -146,5 +245,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(1, result.len())
+    }
+
+    async fn create_db() -> Result<DatabaseConnection, DbErr> {
+        let db = Database::connect("sqlite::memory:").await?;
+
+        setup_schema(&db).await?;
+
+        Ok(db)
+    }
+
+    async fn setup_schema(db: &DbConn) -> Result<(), DbErr> {
+        // Setup Schema helper
+        let schema = Schema::new(DbBackend::Sqlite);
+
+        // Derive from Entity
+        let stmt1: TableCreateStatement = schema.create_table_from_entity(IndexEntity);
+
+        // Execute create table statement
+        db.execute(db.get_database_backend().build(&stmt1)).await?;
+        Ok(())
     }
 }

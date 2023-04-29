@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::info;
 
 use openai::OpenAI;
 use sentence_transformers::SentenceTransformerModels;
@@ -57,6 +58,10 @@ impl EmbeddingRouter {
         let mut model_names = Vec::new();
         for model in config.available_models.clone() {
             model_names.push(model.model_kind.to_string());
+            info!(
+                "loading embedding model: {:?}",
+                model.model_kind.to_string()
+            );
             match model.model_kind {
                 AllMiniLmL12V2 | T5Base | AllMiniLmL6V2 => {
                     sentence_transformers.push(model.clone());
@@ -73,8 +78,9 @@ impl EmbeddingRouter {
                 }
             }
         }
-        let sentence_transformer_router =
-            SentenceTransformerModels::new(sentence_transformers.clone())?;
+        let sentence_transformer_router = Arc::new(SentenceTransformerModels::new(
+            sentence_transformers.clone(),
+        )?);
         for st in sentence_transformers {
             router.insert(
                 st.model_kind.to_string(),

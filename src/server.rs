@@ -1,22 +1,19 @@
-use crate::index::{Index, Text};
-use crate::{vectordbs, CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig, VectorDBTS};
+use crate::index::{IndexManager, Text};
+use crate::{CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig};
 
 use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
+use tracing::info;
 
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-
-pub struct Server {
-    addr: SocketAddr,
-    config: Arc<ServerConfig>,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GenerateEmbeddingRequest {
@@ -49,6 +46,15 @@ enum TextSplitterKind {
         #[default = 1]
         num_elements: u64,
     },
+}
+
+impl fmt::Display for TextSplitterKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TextSplitterKind::NewLine => write!(f, "new_line"),
+            TextSplitterKind::Html { num_elements: _ } => write!(f, "html"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,6 +113,12 @@ struct IndexSearchResponse {
     errors: Vec<String>,
 }
 
+type IndexEndpointState = (Arc<Option<IndexManager>>, Arc<EmbeddingRouter>);
+
+pub struct Server {
+    addr: SocketAddr,
+    config: Arc<ServerConfig>,
+}
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
         let addr: SocketAddr = config.listen_addr.parse()?;
@@ -115,7 +127,9 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let vectordb = vectordbs::create_vectordb(self.config.clone())?;
+        let index_manager = Arc::new(
+            IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
+        );
         let app = Router::new()
             .route("/", get(root))
             .route(
@@ -128,17 +142,18 @@ impl Server {
             )
             .route(
                 "/index/create",
-                post(index_create).with_state((vectordb.clone(), embedding_router.clone())),
+                post(index_create).with_state((index_manager.clone(), embedding_router.clone())),
             )
             .route(
                 "/index/add",
-                post(add_texts).with_state((vectordb.clone(), embedding_router.clone())),
+                post(add_texts).with_state((index_manager.clone(), embedding_router.clone())),
             )
             .route(
                 "/index/search",
-                get(index_search).with_state((vectordb.clone(), embedding_router.clone())),
+                get(index_search).with_state((index_manager.clone(), embedding_router.clone())),
             );
 
+        info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
             .await?;
@@ -153,7 +168,7 @@ async fn root() -> &'static str {
 
 #[axum_macros::debug_handler]
 async fn index_create(
-    State(index_args): State<(Option<VectorDBTS>, Arc<EmbeddingRouter>)>,
+    State(index_args): State<IndexEndpointState>,
     Json(payload): Json<IndexCreateRequest>,
 ) -> (StatusCode, Json<IndexCreateResponse>) {
     if index_args.0.is_none() {
@@ -182,7 +197,16 @@ async fn index_create(
             IndexMetric::Euclidean => MetricKind::Euclidean,
         },
     };
-    let result = Index::create_index(index_params, index_args.0.unwrap()).await;
+    let index_manager = index_args.0.as_ref();
+    let result = index_manager
+        .as_ref()
+        .unwrap()
+        .create_index(
+            index_params,
+            payload.embedding_model,
+            payload.text_splitter.to_string(),
+        )
+        .await;
     if let Err(err) = result {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -196,7 +220,7 @@ async fn index_create(
 
 #[axum_macros::debug_handler]
 async fn add_texts(
-    State(index_args): State<(Option<VectorDBTS>, Arc<EmbeddingRouter>)>,
+    State(index_args): State<IndexEndpointState>,
     Json(payload): Json<AddTextsRequest>,
 ) -> (StatusCode, Json<IndexAdditionResponse>) {
     if index_args.0.is_none() {
@@ -207,17 +231,25 @@ async fn add_texts(
             }),
         );
     }
-    let vectordb = index_args.0.unwrap();
-    let index = Index::new(vectordb, index_args.1, "all-minilm-l12-v2".into()).await;
-
-    if let Err(err) = index {
+    let index_manager = index_args.0.as_ref().as_ref().unwrap();
+    let try_index = index_manager.load(payload.index).await;
+    if let Err(_err) = try_index {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(IndexAdditionResponse {
-                errors: vec![err.to_string()],
+                errors: vec!["".into()],
             }),
         );
     }
+    if try_index.is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexAdditionResponse {
+                errors: vec!["".into()],
+            }),
+        );
+    }
+    let index = try_index.unwrap().unwrap();
     let texts = payload
         .texts
         .iter()
@@ -226,7 +258,7 @@ async fn add_texts(
             metadata: d.metadata.to_owned(),
         })
         .collect();
-    let result = index.unwrap().add_texts(payload.index, texts).await;
+    let result = index.add_texts(texts).await;
     if let Err(err) = result {
         return (
             StatusCode::BAD_REQUEST,
@@ -241,7 +273,7 @@ async fn add_texts(
 
 #[axum_macros::debug_handler]
 async fn index_search(
-    State(index_args): State<(Option<VectorDBTS>, Arc<EmbeddingRouter>)>,
+    State(index_args): State<IndexEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> (StatusCode, Json<IndexSearchResponse>) {
     if index_args.0.is_none() {
@@ -253,22 +285,29 @@ async fn index_search(
             }),
         );
     }
-    let vectordb = index_args.0.unwrap();
-    let index = Index::new(vectordb, index_args.1, "all-minilm-l12-v2".into()).await;
 
-    if let Err(err) = index {
+    let index_manager = index_args.0.as_ref().as_ref().unwrap();
+    let try_index = index_manager.load(query.index.clone()).await;
+    if try_index.is_err() {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(IndexSearchResponse {
-                errors: vec![err.to_string()],
-                ..Default::default()
+                results: vec![],
+                errors: vec!["".into()],
             }),
         );
     }
-    let results = index
-        .unwrap()
-        .search(query.query, query.index, query.k)
-        .await;
+    if try_index.as_ref().unwrap().is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexSearchResponse {
+                results: vec![],
+                errors: vec!["".into()],
+            }),
+        );
+    }
+    let index = try_index.unwrap().unwrap();
+    let results = index.search(query.index, query.query, query.k).await;
     if let Err(err) = results {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,

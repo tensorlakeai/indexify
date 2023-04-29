@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use qdrant_client::{
     client::QdrantClient,
@@ -13,7 +13,7 @@ use qdrant_client::{
     },
 };
 
-use super::{CreateIndexParams, MetricKind, VectorDBTS, VectorDb, VectorDbError};
+use super::{CreateIndexParams, MetricKind, VectorDb, VectorDbError};
 use crate::QdrantConfig;
 
 pub struct QdrantDb {
@@ -21,10 +21,10 @@ pub struct QdrantDb {
 }
 
 impl QdrantDb {
-    pub fn new(config: QdrantConfig) -> VectorDBTS {
-        Arc::new(Self {
+    pub fn new(config: QdrantConfig) -> QdrantDb {
+        Self {
             qdrant_config: config,
-        })
+        }
     }
 
     async fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
@@ -46,6 +46,10 @@ impl QdrantDb {
 
 #[async_trait]
 impl VectorDb for QdrantDb {
+    fn name(&self) -> String {
+        "qdrant".into()
+    }
+
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
         let _collection = self
             .create_client()
@@ -90,7 +94,7 @@ impl VectorDb for QdrantDb {
         let _result = self
             .create_client()
             .await?
-            .upsert_points(index, points, None)
+            .upsert_points(&index, points, None)
             .await
             .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
 
@@ -98,7 +102,7 @@ impl VectorDb for QdrantDb {
             .create_client()
             .await?
             .count(&CountPoints {
-                collection_name: "hello".into(),
+                collection_name: index,
                 ..Default::default()
             })
             .await
@@ -158,15 +162,17 @@ impl VectorDb for QdrantDb {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
+
+    use crate::VectorDBTS;
 
     use super::{CreateIndexParams, QdrantDb};
 
     #[tokio::test]
     async fn test_qdrant_search_basic() {
-        let qdrant = QdrantDb::new(crate::QdrantConfig {
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
-        });
+        }));
         qdrant.drop_index("hello-index".into()).await.unwrap();
         qdrant
             .create_index(CreateIndexParams {

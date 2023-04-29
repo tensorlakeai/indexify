@@ -1,4 +1,4 @@
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 use std::thread;
 
 use async_trait::async_trait;
@@ -22,14 +22,14 @@ pub struct SentenceTransformerModels {
 impl SentenceTransformerModels {
     pub fn new(
         models_to_load: Vec<server_config::EmbeddingModel>,
-    ) -> Result<Arc<dyn EmbeddingGenerator + Sync + Send>, EmbeddingGeneratorError> {
+    ) -> Result<Self, EmbeddingGeneratorError> {
         let (sender, receiver) = mpsc::sync_channel(100);
         thread::spawn(move || {
             if let Err(err) = Self::runner(receiver, models_to_load) {
                 tracing::error!("embedding generator runner exited with error: {}", err);
             }
         });
-        Ok(Arc::new(SentenceTransformerModels { sender }))
+        Ok(SentenceTransformerModels { sender })
     }
 
     fn runner(

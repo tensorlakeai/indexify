@@ -1,6 +1,7 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use std::sync::Arc;
+use tracing::log::info;
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -24,10 +25,12 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt::init();
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber)?;
     let args = Cli::parse();
     match args.command {
         Commands::Start { config_path } => {
+            info!("starting indexify server....");
             let config = indexify::ServerConfig::from_path(config_path)?;
             let server = indexify::Server::new(Arc::new(config))?;
             server.run().await?

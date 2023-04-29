@@ -1,5 +1,7 @@
 mod embeddings;
+mod entity;
 mod index;
+mod persistence;
 mod server;
 mod server_config;
 mod vectordbs;

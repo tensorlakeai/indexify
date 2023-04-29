@@ -77,6 +77,7 @@ pub struct QdrantConfig {
 pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
+    pub db_url: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
