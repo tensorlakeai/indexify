@@ -3,6 +3,9 @@ name = "indexify"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [".", "migration"]
+
 [dependencies]
 rust-bert = {version="0.20.0"}
 tch = {version="0.10.3"}
