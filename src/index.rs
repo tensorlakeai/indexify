@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use thiserror::Error;
@@ -97,7 +97,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use crate::{CreateIndexParams, EmbeddingRouter, MetricKind, QdrantDb, ServerConfig};
+    use crate::{qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig};
 
     #[tokio::test]
     #[tracing_test::traced_test]
