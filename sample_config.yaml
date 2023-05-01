@@ -5,12 +5,25 @@ listen_addr: 0.0.0.0:8900
 # that the service knows how to load, and the device is where the model
 # is executed.
 available_models:
-- model: all-mpnet-base-v2
+- model: all-minilm-l12-v2
   device: cpu
 - model: text-embedding-ada-002
   device: remote
-
 # OpenAI key. Either set it here or set via the OPENAI_API_KEY
 # environment variable
 openai:
   api_key: xxxx
+
+# Vector index configuration for the service. The index_store parameter
+# specifies the type of index to use. Currently, only Qdrant is supported.
+#
+# The db_url parameter specifies the database url used for persistence of
+# metadata realted to the indexed vectors and documents.
+#
+# The qdrant_config parameter specifies the configuration for the Qdrant
+# service.
+index_config:
+  index_store: Qdrant
+  db_url: sqlite://indexify.db
+  qdrant_config:
+    addr: "http://localhost:6334"
