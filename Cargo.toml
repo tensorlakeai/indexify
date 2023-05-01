@@ -30,3 +30,5 @@ uuid = {version = "^1", features = ["v4", "fast-rng","macro-diagnostics"]}
 smart-default = {version = "^0"}
 tracing-test = {version = "^0"}
 sea-orm = { version = "^0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros" ] }
+scraper = {version="^0"}
+regex = {version="^1"}
