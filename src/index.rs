@@ -8,7 +8,7 @@ use tracing::info;
 use crate::{
     persistence::{Respository, RespositoryError},
     vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS,
-    VectorDbError, VectorIndexConfig,
+    VectorDbError, VectorIndexConfig, DOC_PAYLOAD,
 };
 
 #[async_trait::async_trait]
@@ -148,7 +148,7 @@ impl Index {
         let it = embeddings.iter().zip(texts.iter());
         for (_i, (embedding, text)) in it.enumerate() {
             let mut metadata = text.metadata.to_owned();
-            metadata.insert("document".into(), text.text.to_owned());
+            metadata.insert(DOC_PAYLOAD.into(), text.text.to_owned());
             self.vectordb
                 .add_embedding(self.name.clone(), embedding.to_owned(), metadata)
                 .await?;

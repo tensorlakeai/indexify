@@ -45,6 +45,8 @@ pub enum VectorDbError {
 
 pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 
+pub const DOC_PAYLOAD: &str = "___document";
+
 #[async_trait]
 pub trait VectorDb {
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError>;

@@ -14,7 +14,7 @@ use qdrant_client::{
 };
 
 use super::{CreateIndexParams, MetricKind, VectorDb, VectorDbError};
-use crate::QdrantConfig;
+use crate::{QdrantConfig, DOC_PAYLOAD};
 
 pub struct QdrantDb {
     qdrant_config: QdrantConfig,
@@ -133,7 +133,7 @@ impl VectorDb for QdrantDb {
         let document_payloads: Vec<&Value> = result
             .result
             .iter()
-            .filter_map(|value| value.payload.get("document"))
+            .filter_map(|value| value.payload.get(DOC_PAYLOAD))
             .collect();
         let mut documents: Vec<String> = Vec::new();
         for document_payload in document_payloads {
@@ -164,7 +164,7 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use crate::VectorDBTS;
+    use crate::{VectorDBTS, DOC_PAYLOAD};
 
     use super::{CreateIndexParams, QdrantDb};
 
@@ -183,7 +183,7 @@ mod tests {
             .await
             .unwrap();
         let attrs: HashMap<String, String> = HashMap::from([
-            ("document".into(), "hello".into()),
+            (DOC_PAYLOAD.into(), "hello".into()),
             ("user_id".into(), "5".into()),
         ]);
         qdrant
