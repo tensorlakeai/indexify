@@ -8,7 +8,7 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 ## Why Use Indexify
 1. Efficient execution of embedding models outside of applications in a standalone service.
 2. REST APIs to access all the models and indexes from any application runtime.
-4. Does not require distribution of embedding models with applications, reduces size of application bundle.
+3. Create indexes from documents and search them to retrieve relevant context for Large Language Model based inference.
 
 ## Getting Started
 
@@ -17,6 +17,21 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 docker run -e OPENAI_API_KEY -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
 ```
 *If you don't wish to use openai, remove the -e flag and Indexify will only use native/local models.*
+
+### Create Index
+```
+curl -v -X POST http://localhost:8900/index/create   -H "Content-Type: application/json" -d '{"name": "myindex", "embedding_model": "all-minilm-l12-v2","metric": "Dot", "text_splitter": "new_line"}'
+```
+
+### Add Texts
+```
+curl -v -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "texts": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
+```
+
+### Retreive
+```
+curl -v -X GET http://localhost:8900/index/search   -H "Content-Type: application/json" -d '{"index": "myindex", "query": "good", "k": 1}'
+```
 
 ### Query Embeddings 
 ```
