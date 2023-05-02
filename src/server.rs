@@ -233,19 +233,19 @@ async fn add_texts(
     }
     let index_manager = index_args.0.as_ref().as_ref().unwrap();
     let try_index = index_manager.load(payload.index).await;
-    if let Err(_err) = try_index {
+    if let Err(err) = try_index {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(IndexAdditionResponse {
-                errors: vec!["".into()],
+                errors: vec![err.to_string()],
             }),
         );
     }
-    if try_index.is_err() {
+    if try_index.as_ref().unwrap().is_none() {
         return (
             StatusCode::BAD_REQUEST,
             Json(IndexAdditionResponse {
-                errors: vec!["".into()],
+                errors: vec!["index does not exist".into()],
             }),
         );
     }
@@ -288,12 +288,12 @@ async fn index_search(
 
     let index_manager = index_args.0.as_ref().as_ref().unwrap();
     let try_index = index_manager.load(query.index.clone()).await;
-    if try_index.is_err() {
+    if let Err(err) = try_index {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(IndexSearchResponse {
                 results: vec![],
-                errors: vec!["".into()],
+                errors: vec![err.to_string()],
             }),
         );
     }
@@ -302,7 +302,7 @@ async fn index_search(
             StatusCode::BAD_REQUEST,
             Json(IndexSearchResponse {
                 results: vec![],
-                errors: vec!["".into()],
+                errors: vec!["index does not exist".into()],
             }),
         );
     }
