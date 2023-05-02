@@ -1,6 +1,6 @@
 # Indexify
 
-Indexify is a knowledge/context retreival service, and provides APIs to generate embeddings from various pre-trained models and manage and query indexes on vector databases,
+Indexify is a knowledge/context retrieval service, and provides APIs to generate embeddings from various pre-trained models and manage and query indexes on vector databases,
 implement various SOTA retrieval algorithms.
 
 Currently for production use-case, the embedding generation APIs are stable, while the other features are coming along.

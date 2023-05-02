@@ -6,12 +6,30 @@ use async_openai::types::{CreateEmbeddingRequest, EmbeddingInput};
 use async_openai::{Client, Embeddings};
 use async_trait::async_trait;
 
+/// A struct that represents an interface to the OpenAI API for generating text embeddings.
+///
+/// This struct provides methods for generating text embeddings using the OpenAI API.
+/// It supports generating embeddings for multiple input texts using a specified model.
 pub struct OpenAI {
     client: Client,
     model: String,
 }
 
 impl OpenAI {
+    /// Creates a new instance of `OpenAI` with the specified configuration.
+    ///
+    /// This method initializes the OpenAI client with the provided API key and sets the model
+    /// to be used for generating embeddings.
+    ///
+    /// # Arguments
+    ///
+    /// * `openai_config` - The configuration for the OpenAI API, including the API key.
+    /// * `model_config` - The configuration for the embedding model to be used.
+    ///
+    /// # Returns
+    ///
+    /// * A result containing an instance of `OpenAI` if successful, or an `EmbeddingGeneratorError`
+    ///   if an error occurs.
     pub fn new(
         openai_config: server_config::OpenAIConfig,
         model_config: server_config::EmbeddingModel,

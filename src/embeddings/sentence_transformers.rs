@@ -15,11 +15,32 @@ type Message = (
     Vec<String>,
     oneshot::Sender<Result<Vec<Vec<f32>>, EmbeddingGeneratorError>>,
 );
+
+/// A struct that represents a collection of sentence transformer models.
+///
+/// This struct provides methods for generating sentence embeddings using
+/// pre-trained transformer models. It supports multiple models and manages
+/// them in a separate thread.
 pub struct SentenceTransformerModels {
     sender: mpsc::SyncSender<Message>,
 }
 
 impl SentenceTransformerModels {
+    /// Creates a new instance of `SentenceTransformerModels` and loads the specified models.
+    ///
+    /// This method spawns a new thread that runs the `runner` method, which is responsible
+    /// for loading the specified models and processing incoming requests for generating
+    /// embeddings.
+    ///
+    /// # Arguments
+    ///
+    /// * `models_to_load` - A vector of `EmbeddingModel` configurations specifying the models
+    ///   to be loaded.
+    ///
+    /// # Returns
+    ///
+    /// * A result containing an `Arc` reference to the `SentenceTransformerModels` instance
+    ///   if successful, or an `EmbeddingGeneratorError` if an error occurs.
     pub fn new(
         models_to_load: Vec<server_config::EmbeddingModel>,
     ) -> Result<Self, EmbeddingGeneratorError> {
@@ -32,6 +53,21 @@ impl SentenceTransformerModels {
         Ok(SentenceTransformerModels { sender })
     }
 
+    /// Loads the specified models and processes incoming requests for generating embeddings.
+    ///
+    /// This method is run in a separate thread and listens for incoming requests to generate
+    /// embeddings using the loaded models. It sends the generated embeddings back to the caller
+    /// through a one-shot channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver` - A receiver for incoming requests to generate embeddings.
+    /// * `models_to_load` - A vector of `EmbeddingModel` configurations specifying the models
+    ///   to be loaded.
+    ///
+    /// # Returns
+    ///
+    /// * A result indicating success or an `EmbeddingGeneratorError` if an error occurs.
     fn runner(
         receiver: mpsc::Receiver<Message>,
         models_to_load: Vec<server_config::EmbeddingModel>,
