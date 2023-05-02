@@ -12,11 +12,11 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 
 ## Getting Started
 
-### Start the Service
+### Start the Service with a Vector Database
 ```
-docker run -e OPENAI_API_KEY -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
+docker compose up indexify
 ```
-*If you don't wish to use openai, remove the -e flag and Indexify will only use native/local models.*
+*If you wish to use OpenAI for Embedding, please set the OPENAPI_API_KEY environment variable, or pass it through the configuration file(see below).*
 
 ### Create Index
 ```
