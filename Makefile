@@ -8,3 +8,9 @@ build-container:
 entity:
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
+migrate-dev:
+	rm -rf indexify.db
+	sqlite3 indexify.db "VACUUM;"
+	cargo install sea-orm-cli
+	DATABASE_URL="sqlite://indexify.db" sea-orm-cli migrate up
+
