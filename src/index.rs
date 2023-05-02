@@ -155,12 +155,7 @@ impl Index {
         Ok(())
     }
 
-    pub async fn search(
-        &self,
-        index: String,
-        query: String,
-        k: u64,
-    ) -> Result<Vec<String>, IndexError> {
+    pub async fn search(&self, query: String, k: u64) -> Result<Vec<String>, IndexError> {
         let query_embedding = self
             .embedding_generator
             .generate_embeddings(vec![query], self.embedding_model.clone())
@@ -169,7 +164,10 @@ impl Index {
             .unwrap()
             .to_owned();
 
-        let results = self.vectordb.search(index, query_embedding, k).await?;
+        let results = self
+            .vectordb
+            .search(self.name.clone(), query_embedding, k)
+            .await?;
         Ok(results)
     }
 }
@@ -239,10 +237,7 @@ mod tests {
             ])
             .await
             .unwrap();
-        let result = index
-            .search("hello".into(), "pipe".into(), 1)
-            .await
-            .unwrap();
+        let result = index.search("pipe".into(), 1).await.unwrap();
         assert_eq!(1, result.len())
     }
 

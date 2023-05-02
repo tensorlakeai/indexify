@@ -307,7 +307,7 @@ async fn index_search(
         );
     }
     let index = try_index.unwrap().unwrap();
-    let results = index.search(query.index, query.query, query.k).await;
+    let results = index.search(query.query, query.k).await;
     if let Err(err) = results {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,

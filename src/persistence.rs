@@ -54,10 +54,11 @@ impl Respository {
         };
         let tx = self.conn.begin().await?;
         let _ = IndexEntity::insert(index).exec(&tx).await?;
-        if let Err(err) = vectordb.create_index(index_params).await {
+        if let Err(err) = vectordb.create_index(index_params.clone()).await {
             tx.rollback().await?;
             return Err(RespositoryError::VectorDb(err));
         }
+
         tx.commit().await?;
         Ok(())
     }
