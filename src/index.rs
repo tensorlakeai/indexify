@@ -90,12 +90,11 @@ impl IndexManager {
         embedding_model: String,
         text_splitter: String,
     ) -> Result<(), IndexError> {
-        self.vectordb.create_index(vectordb_params.clone()).await?;
         self.repository
             .create_index(
-                vectordb_params.name,
                 embedding_model,
-                self.vectordb.name(),
+                vectordb_params,
+                self.vectordb.clone(),
                 text_splitter,
             )
             .await?;
