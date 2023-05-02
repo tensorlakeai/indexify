@@ -13,6 +13,8 @@ services:
     image: diptanu/indexify
     ports:
       - "8900:8900"
+    volumes:
+      - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
     profiles:
       - local
     depends_on:
