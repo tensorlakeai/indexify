@@ -6,9 +6,9 @@ implement various SOTA retrieval algorithms.
 Currently for production use-case, the embedding generation APIs are stable, while the other features are coming along.
 
 ## Why Use Indexify
-1. Efficient execution of embedding models outside of applications in a standalone service.
-2. REST APIs to access all the models and indexes from any application runtime.
-3. Create indexes from documents and search them to retrieve relevant context for Large Language Model based inference.
+1. Create indexes from documents and search them to retrieve relevant context for Large Language Model based inference.
+2. Efficient execution of pre-trained and fine-tuned embedding models in a standalone service.
+3. APIs to retreive context from indexes or generate embeddings from any application runtime.
 
 ## Getting Started
 
