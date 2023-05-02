@@ -41,9 +41,12 @@ struct ListEmbeddingModelsResponse {
 #[derive(SmartDefault, Debug, Serialize, Deserialize)]
 enum TextSplitterKind {
     #[default]
+    #[serde(rename = "new_line")]
     NewLine,
+    #[serde(rename = "html")]
     Html {
         #[default = 1]
+        #[serde(rename = "elements")]
         num_elements: u64,
     },
 }
