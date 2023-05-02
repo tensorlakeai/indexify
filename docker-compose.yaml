@@ -9,26 +9,14 @@ networks:
       config:
         - subnet: 172.21.0.0/24
 services:
-  modelbox:
-    image: modelboxdotio/modelbox:0.0.1-next-amd64
-    profiles: ["local"]
-    command: ["/app/scripts/compose_start.sh"]
-    volumes:
-      - type: volume
-        source: data
-        target: /tmp # stores data
-      - type: bind
-        source: ./cmd/modelbox/assets/
-        target: "/app/config" # binds config file
-      - type: bind
-        source: ./deploy/scripts/
-        target: "/app/scripts/"
-      - type: bind
-        source: ./server/storage/schemas/
-        target: /app/schemas/
+  indexify:
+    image: diptanu/indexify
+    ports:
+      - "8900:8900"
+    profiles:
+      - local
     depends_on:
-      - "postgres"
-      - "timescaledb"
+      - qdrant
     networks:
         server:
             ipv4_address: 172.21.0.2
@@ -40,55 +28,5 @@ services:
     networks:
         dependencies:
             ipv4_address: 172.20.0.8
-  postgres:
-    image: postgres
-    profiles: ["local", "unittests"]
-    restart: always
-    environment:
-      - POSTGRES_PASSWORD=foo
-    networks:
-        dependencies:
-            ipv4_address: 172.20.0.5
-  mysql:
-    image: mysql
-    profiles: ["unittests"]
-    command: --default-authentication-plugin=mysql_native_password
-    restart: always
-    networks:
-        dependencies:
-            ipv4_address: 172.20.0.6
-    environment:
-      - MYSQL_ROOT_PASSWORD=foo
-  timescaledb:
-    image: timescale/timescaledb:latest-pg14
-    profiles: ["local", "unittests"]
-    restart: always
-    networks:
-        dependencies:
-            ipv4_address: 172.20.0.7
-    environment:
-      - POSTGRES_PASSWORD=foo
-  jupyter:
-    image: jupyter/scipy-notebook:0fd03d9356de
-    command: ["/home/jovyan/work/scripts/jupyter_server_start.sh"]
-    profiles: ["local"]
-    restart: always
-    ports:
-      - "8888:8888"
-    volumes:
-      - type: bind
-        source: ./sdk-py/
-        target: "/home/jovyan/work/sdk-py/" # binds config file
-      - type: bind
-        source: ./tutorials/
-        target: "/home/jovyan/work/tutorials/"
-      - type: bind
-        source: ./deploy/scripts
-        target: "/home/jovyan/work/scripts/"
-
-    networks:
-        server:
-            ipv4_address: 172.21.0.5
-
 volumes:
   data:
