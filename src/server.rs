@@ -7,7 +7,6 @@ use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use tracing::info;
 
-use core::fmt;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;

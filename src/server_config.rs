@@ -5,13 +5,15 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
-use strum_macros;
+
 
 const OPENAI_DUMMY_KEY: &str = "xxxxx";
 
 /// Enum representing the different kinds of text embedding models available for use.
 /// Each variant is associated with specific dimensions, which represent the size of the embeddings.
-#[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display, strum_macros::EnumProperty)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, strum_macros::Display, strum_macros::EnumProperty,
+)]
 #[strum(serialize_all = "kebab-case")]
 pub enum EmbeddingModelKind {
     #[strum(props(dimensions = "384"))]
@@ -81,7 +83,7 @@ pub struct OpenAIConfig {
 
 /// Enum representing the different kinds of index stores available for use.
 /// The available options include Qdrant, which is a vector search engine.
-#[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
@@ -188,5 +190,26 @@ impl ServerConfig {
         let str = serde_yaml::to_string(&config)?;
         std::fs::write(path, str)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::server_config::OPENAI_DUMMY_KEY;
+
+    #[test]
+    fn pasrse_config() {
+        // Uses the sample config file to test the config parsing
+        let config = super::ServerConfig::from_path("sample_config.yaml".to_string()).unwrap();
+        assert_eq!(2, config.available_models.len());
+        assert_eq!(OPENAI_DUMMY_KEY, config.openai.unwrap().api_key);
+        assert_eq!(
+            config.index_config.clone().unwrap().index_store,
+            super::IndexStoreKind::Qdrant
+        );
+        assert_eq!(
+            config.index_config.unwrap().qdrant_config.unwrap().addr,
+            "http://172.20.0.8:6334".to_string()
+        );
     }
 }
