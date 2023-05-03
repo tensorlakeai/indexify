@@ -1,0 +1,36 @@
+version: "3.9"
+networks:
+  dependencies:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  server:
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+services:
+  indexify:
+    image: diptanu/indexify
+    ports:
+      - "8900:8900"
+    volumes:
+      - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
+    environment:
+      - OPENAI_API_KEY
+    profiles:
+      - local
+    depends_on:
+      - qdrant
+    networks:
+        server:
+            ipv4_address: 172.21.0.2
+        dependencies:
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["local", "unittests"]
+    restart: always
+    networks:
+        dependencies:
+            ipv4_address: 172.20.0.8
+volumes:
+  data:

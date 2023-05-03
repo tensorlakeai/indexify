@@ -26,4 +26,4 @@ index_config:
   index_store: Qdrant
   db_url: sqlite://indexify.db
   qdrant_config:
-    addr: "http://localhost:6334"
+    addr: "http://172.20.0.8:6334"

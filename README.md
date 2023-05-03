@@ -1,22 +1,22 @@
 # Indexify
 
-Indexify is a knowledge/context retrieval service, and provides APIs to generate embeddings from various pre-trained models and manage and query indexes on vector databases,
-implement various SOTA retrieval algorithms.
+Indexify is a knowledge and memory retrieval service for Large Language Models. It faciliates in-context learning of LLMs by providing relevant context in a prompt or expsing relevant memory to AI agents.
+It also faciliates efficient execution of fine tuned/pre-trained embedding models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
 
 Currently for production use-case, the embedding generation APIs are stable, while the other features are coming along.
 
 ## Why Use Indexify
-1. Efficient execution of embedding models outside of applications in a standalone service.
-2. REST APIs to access all the models and indexes from any application runtime.
-3. Create indexes from documents and search them to retrieve relevant context for Large Language Model based inference.
+1. Create indexes from documents and search them to retrieve relevant context for Large Language Model based inference.
+2. Efficient execution of pre-trained and fine-tuned embedding models in a standalone service.
+3. APIs to retreive context from indexes or generate embeddings from any application runtime.
 
 ## Getting Started
 
-### Start the Service
+### Start the Service with a Vector Database
 ```
-docker run -e OPENAI_API_KEY -p 0.0.0.0:8900:8900/tcp -it diptanu/indexify
+docker compose up indexify
 ```
-*If you don't wish to use openai, remove the -e flag and Indexify will only use native/local models.*
+*If you wish to use OpenAI for Embedding, please set the OPENAPI_API_KEY environment variable, or pass it through the configuration file(see below).*
 
 ### Create Index
 ```
@@ -63,10 +63,6 @@ Generate embeddings for a collection of strings
 ```
 /embeddings/generate
 ```
-Example: Generate embeddings from t5-base
-```
- curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "all-minilm-l12-v2"}'
-```
 
 ## List of Embedding Models
 * OpenAI
@@ -77,6 +73,11 @@ Example: Generate embeddings from t5-base
    * T5-Base (`t5-base`)
 
 *More models are on the way. Contributions are welcome!* 
+
+## List of Vector Databases
+* Qdrant
+
+*More integrations on the way, and contributions welcome!*
 
 ## Server Configuration Reference
 Configure the behavior of the server and models through a YAML configuration scheme.
