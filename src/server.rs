@@ -51,11 +51,17 @@ struct ListEmbeddingModelsResponse {
 #[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 enum TextSplitterKind {
+    // Do not split text.
+    #[serde(rename = "none")]
+    None,
+
     /// Split text by new lines.
     #[default]
+    #[serde(rename = "new_line")]
     NewLine,
 
     /// Split HTML text into a specified number of elements.
+    #[serde(rename = "html")]
     Html {
         #[default = 1]
         #[strum(serialize = "elements")]
@@ -64,9 +70,15 @@ enum TextSplitterKind {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename = "metric")]
 enum IndexMetric {
+    #[serde(rename = "dot")]
     Dot,
+
+    #[serde(rename = "cosine")]
     Cosine,
+
+    #[serde(rename = "euclidean")]
     Euclidean,
 }
 
