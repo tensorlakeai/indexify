@@ -31,7 +31,7 @@ pub enum EmbeddingModelKind {
     AllDistilrobertaV1,
 
     /// T5 Model
-    #[strum(props(dimensions = "1536"))]
+    #[strum(props(dimensions = "768"))]
     #[strum(serialize = "t5-base")]
     T5Base,
 
