@@ -14,3 +14,6 @@ migrate-dev:
 	cargo install sea-orm-cli
 	DATABASE_URL="sqlite://indexify.db" sea-orm-cli migrate up
 
+test:
+	run_tests.sh
+
