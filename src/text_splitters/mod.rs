@@ -1,7 +1,7 @@
 use anyhow::Result;
 use regex::Regex;
 use scraper::{Html, Selector};
-use std::cmp::max;
+use std::{cmp::max, fmt::Debug};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
@@ -13,7 +13,7 @@ pub trait Tokenizer<T: Clone> {
     fn to_string(&self, tokens: Vec<T>) -> Result<String>;
 }
 
-pub trait TextSplitter<T: Clone>: Tokenizer<T> {
+pub trait TextSplitter<T: Clone + Debug>: Tokenizer<T> {
     fn split(
         &self,
         doc: &str,
@@ -21,6 +21,7 @@ pub trait TextSplitter<T: Clone>: Tokenizer<T> {
         token_overlap: usize,
     ) -> Result<Vec<String>> {
         let tokens = self.tokenize(doc)?;
+        println!("tokens {:?}", tokens);
         let step_size = max(
             max_tokens_per_chunk.checked_sub(token_overlap).unwrap_or(1),
             1,
@@ -36,19 +37,29 @@ pub trait TextSplitter<T: Clone>: Tokenizer<T> {
     }
 }
 
-pub struct NaiveWhiteSpaceSplitter;
+pub struct SimpleTokenizer {
+    separators: Vec<String>,
+}
 
-impl Tokenizer<String> for NaiveWhiteSpaceSplitter {
-    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
-        Ok(doc
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>())
+impl Tokenizer<String> for SimpleTokenizer{
+    fn tokenize(&self, text: &str) -> Result<Vec<String>, TokenizerError> {
+        let mut texts= vec![text.to_owned()];
+        for sep in &self.separators {
+            let mut new_texts = vec![];
+            for text in texts {
+                new_texts.extend(text.split(sep).map(|s| s.to_owned()).collect::<Vec<String>>());
+            }
+            texts = new_texts;
+        }
+        Ok(texts)
     }
+
     fn to_string(&self, tokens: Vec<String>) -> Result<String> {
         Ok(tokens.join(""))
     }
 }
+
+impl TextSplitter<String> for SimpleTokenizer {}
 
 pub struct HTMLSplitter;
 
@@ -114,5 +125,15 @@ mod tests {
         let tokens = splitter.tokenize(xml).unwrap();
         assert_eq!(tokens.len(), 5);
         assert_eq!(tokens[1], "<l id=0>About</l>");
+    }
+
+    #[test]
+    fn test_char_splitter() {
+        let doc1: String = "foo bar baz a a".into();
+        let splitter = super::SimpleTokenizer{separators: vec![" ".into()]};
+        let splitter_tokens =  splitter.tokenize(&doc1).unwrap();
+        assert_eq!(5, splitter_tokens.len());
+        let result = splitter.split(&doc1, 3, 1).unwrap();
+        assert_eq!(result, vec!["foobarbaz", "bazaa", "a"]);
     }
 }
