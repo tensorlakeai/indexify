@@ -16,28 +16,34 @@ const OPENAI_DUMMY_KEY: &str = "xxxxx";
 pub enum EmbeddingModelKind {
     #[strum(props(dimensions = "384"))]
     #[strum(serialize = "all-minilm-l12-v2")]
+    #[serde(rename = "all-minilm-l12-v2")]
     AllMiniLmL12V2,
 
     #[strum(props(dimensions = "384"))]
     #[strum(serialize = "all-minilm-l6-v2")]
+    #[serde(rename = "all-minilm-l6-v2")]
     AllMiniLmL6V2,
 
     #[strum(props(dimensions = "768"))]
     #[strum(serialize = "all-mpnet-base-v2")]
+    #[serde(rename = "all-mpnet-base-v2")]
     AllMpnetBaseV2,
 
     #[strum(props(dimensions = "768"))]
     #[strum(serialize = "all-distilroberta-v1")]
+    #[serde(rename = "all-distilroberta-v1")]
     AllDistilrobertaV1,
 
     /// T5 Model
     #[strum(props(dimensions = "768"))]
     #[strum(serialize = "t5-base")]
+    #[serde(rename = "t5-base")]
     T5Base,
 
     /// OpenAI Ada Model
     #[strum(props(dimensions = "1536"))]
     #[strum(serialize = "text-embedding-ada-002")]
+    #[serde(rename = "text-embedding-ada-002")]
     OpenAIAda02,
 }
 
@@ -46,8 +52,11 @@ pub enum EmbeddingModelKind {
 #[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum DeviceKind {
+    #[serde(rename = "cpu")]
     Cpu,
+    #[serde(rename = "gpu")]
     Gpu,
+    #[serde(rename = "remote")]
     Remote,
 }
 
@@ -56,7 +65,9 @@ pub enum DeviceKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct EmbeddingModel {
+    #[serde(rename = "model")]
     pub model_kind: EmbeddingModelKind,
+    #[serde(rename = "device")]
     pub device_kind: DeviceKind,
 }
 
