@@ -6,7 +6,6 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-
 const OPENAI_DUMMY_KEY: &str = "xxxxx";
 
 /// Enum representing the different kinds of text embedding models available for use.

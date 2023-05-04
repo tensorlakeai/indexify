@@ -7,8 +7,7 @@ use qdrant_client::{
     qdrant::{
         value::{self, Kind},
         vectors_config::Config,
-        with_payload_selector::SelectorOptions,
-        CountPoints, CreateCollection, Distance, PointStruct, SearchPoints, Value, VectorParams,
+        with_payload_selector::SelectorOptions, CreateCollection, Distance, PointStruct, SearchPoints, Value, VectorParams,
         VectorsConfig, WithPayloadSelector,
     },
 };
@@ -73,40 +72,48 @@ impl VectorDb for QdrantDb {
 
     async fn add_embedding(
         &self,
-        index: String,
-        embeddings: Vec<f32>,
+        index: &str,
+        embeddings: Vec<Vec<f32>>,
+        texts: Vec<String>,
         attrs: HashMap<String, String>,
     ) -> Result<(), VectorDbError> {
-        let mut payload = Payload::new();
+        let mut common_payload = Payload::new();
         for (k, v) in attrs {
-            payload.insert(
+            common_payload.insert(
                 k,
                 Value {
                     kind: Some(Kind::StringValue(v)),
                 },
             );
         }
-        let points = vec![PointStruct::new(
-            uuid::Uuid::new_v4().to_string(),
-            embeddings,
-            payload,
-        )];
+
+        let mut points = Vec::<PointStruct>::new();
+        for (i, text) in texts.iter().enumerate() {
+            let mut payload = common_payload.clone();
+            payload.insert(
+                DOC_PAYLOAD,
+                Value {
+                    kind: Some(Kind::StringValue(text.to_owned())),
+                },
+            );
+            payload.insert(
+                "chunk",
+                Value {
+                    kind: Some(Kind::IntegerValue(i as i64)),
+                },
+            );
+            points.push(PointStruct::new(
+                uuid::Uuid::new_v4().to_string(),
+                embeddings[i].clone(),
+                payload.clone(),
+            ));
+        }
         let _result = self
             .create_client()
             .await?
             .upsert_points(&index, points, None)
             .await
             .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
-
-        let _result = self
-            .create_client()
-            .await?
-            .count(&CountPoints {
-                collection_name: index,
-                ..Default::default()
-            })
-            .await
-            .unwrap();
         Ok(())
     }
 
@@ -187,7 +194,12 @@ mod tests {
             ("user_id".into(), "5".into()),
         ]);
         qdrant
-            .add_embedding("hello-index".into(), vec![0., 2.], attrs)
+            .add_embedding(
+                "hello-index",
+                vec![vec![0., 2.]],
+                vec!["test".into()],
+                attrs,
+            )
             .await
             .unwrap();
 

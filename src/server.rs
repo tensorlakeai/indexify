@@ -307,7 +307,7 @@ async fn add_texts(
         .texts
         .iter()
         .map(|d| Text {
-            text: d.text.to_owned(),
+            texts: vec![d.text.to_owned()],
             metadata: d.metadata.to_owned(),
         })
         .collect();

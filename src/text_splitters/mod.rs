@@ -1,17 +1,22 @@
 use anyhow::Result;
 use regex::Regex;
 use scraper::{Html, Selector};
-use std::{cmp::max, fmt::Debug};
+use std::{cmp::max, fmt::Debug, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
-pub enum TokenizerError {}
+pub enum TokenizerError {
+    #[error("unknown tokenizer: `{0}`")]
+    UnknownTokenizer(String),
+}
 
 pub trait Tokenizer<T: Clone> {
     fn tokenize(&self, doc: &str) -> Result<Vec<T>, TokenizerError>;
 
-    fn to_string(&self, tokens: Vec<T>) -> Result<String>;
+    fn to_string(&self, tokens: Vec<T>) -> Result<String, TokenizerError>;
 }
+
+pub type TextSplitterTS = Arc<dyn TextSplitter<String> + Send + Sync>;
 
 pub trait TextSplitter<T: Clone + Debug>: Tokenizer<T> {
     fn split(
@@ -19,9 +24,8 @@ pub trait TextSplitter<T: Clone + Debug>: Tokenizer<T> {
         doc: &str,
         max_tokens_per_chunk: usize,
         token_overlap: usize,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<String>, TokenizerError> {
         let tokens = self.tokenize(doc)?;
-        println!("tokens {:?}", tokens);
         let step_size = max(
             max_tokens_per_chunk.checked_sub(token_overlap).unwrap_or(1),
             1,
@@ -37,24 +41,44 @@ pub trait TextSplitter<T: Clone + Debug>: Tokenizer<T> {
     }
 }
 
+pub fn get_splitter(splitter: &str) -> Result<TextSplitterTS, TokenizerError> {
+    match splitter {
+        "recursive" => Ok(Arc::new(SimpleTokenizer {
+            separators: vec!["\n\n".into(), "\n".into(), " ".into(), "".into()],
+        })),
+        "html" => Ok(Arc::new(HTMLSplitter)),
+        "custom_dom" => Ok(Arc::new(CustomDomSplitter)),
+        "noop" => Ok(Arc::new(NoOpTokenizer)),
+        _ => Err(TokenizerError::UnknownTokenizer(splitter.to_owned())),
+    }
+}
+
 pub struct SimpleTokenizer {
     separators: Vec<String>,
 }
 
-impl Tokenizer<String> for SimpleTokenizer{
+impl Tokenizer<String> for SimpleTokenizer {
     fn tokenize(&self, text: &str) -> Result<Vec<String>, TokenizerError> {
-        let mut texts= vec![text.to_owned()];
+        let mut texts = vec![text.to_owned()];
         for sep in &self.separators {
             let mut new_texts = vec![];
             for text in texts {
-                new_texts.extend(text.split(sep).map(|s| s.to_owned()).collect::<Vec<String>>());
+                if sep.is_empty() {
+                    new_texts.extend(text.chars().map(|c| c.to_string()).collect::<Vec<String>>());
+                } else {
+                    new_texts.extend(
+                        text.split(sep)
+                            .map(|s| s.to_owned())
+                            .collect::<Vec<String>>(),
+                    );
+                }
             }
             texts = new_texts;
         }
         Ok(texts)
     }
 
-    fn to_string(&self, tokens: Vec<String>) -> Result<String> {
+    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
         Ok(tokens.join(""))
     }
 }
@@ -73,10 +97,12 @@ impl Tokenizer<String> for HTMLSplitter {
         }
         Ok(tokens)
     }
-    fn to_string(&self, tokens: Vec<String>) -> Result<String> {
+    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
         Ok(tokens.join(""))
     }
 }
+
+impl TextSplitter<String> for HTMLSplitter {}
 
 pub struct CustomDomSplitter;
 impl CustomDomSplitter {
@@ -101,10 +127,25 @@ impl Tokenizer<String> for CustomDomSplitter {
         let tokens = CustomDomSplitter::split_by_closing_selectors(doc);
         Ok(tokens)
     }
-    fn to_string(&self, tokens: Vec<String>) -> Result<String> {
+    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
         Ok(tokens.join(""))
     }
 }
+
+impl TextSplitter<String> for CustomDomSplitter {}
+
+pub struct NoOpTokenizer;
+
+impl Tokenizer<String> for NoOpTokenizer {
+    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
+        Ok(vec![doc.to_owned()])
+    }
+    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
+        Ok(tokens.join(""))
+    }
+}
+
+impl TextSplitter<String> for NoOpTokenizer {}
 
 #[cfg(test)]
 mod tests {
@@ -130,10 +171,22 @@ mod tests {
     #[test]
     fn test_char_splitter() {
         let doc1: String = "foo bar baz a a".into();
-        let splitter = super::SimpleTokenizer{separators: vec![" ".into()]};
-        let splitter_tokens =  splitter.tokenize(&doc1).unwrap();
+        let splitter = super::SimpleTokenizer {
+            separators: vec![" ".into()],
+        };
+        let splitter_tokens = splitter.tokenize(&doc1).unwrap();
         assert_eq!(5, splitter_tokens.len());
         let result = splitter.split(&doc1, 3, 1).unwrap();
         assert_eq!(result, vec!["foobarbaz", "bazaa", "a"]);
+    }
+
+    #[test]
+    fn test_recursive_text_splitter() {
+        let doc1: String = "foo bar baz a a".into();
+        let splitter = get_splitter("recursive").unwrap();
+        let splitter_tokens = splitter.tokenize(&doc1).unwrap();
+        assert_eq!(11, splitter_tokens.len());
+        let result = splitter.split(&doc1, 3, 1).unwrap();
+        assert_eq!(result, vec!["foo", "oba", "arb", "baz", "zaa", "a"]);
     }
 }

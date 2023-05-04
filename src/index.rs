@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
@@ -7,8 +7,9 @@ use tracing::info;
 
 use crate::{
     persistence::{Respository, RespositoryError},
+    text_splitters::{self, TextSplitterTS},
     vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS,
-    VectorDbError, VectorIndexConfig, DOC_PAYLOAD,
+    VectorDbError, VectorIndexConfig,
 };
 
 #[async_trait::async_trait]
@@ -20,7 +21,7 @@ pub trait Indexstore {
 
 #[derive(Debug, Clone)]
 pub struct Text {
-    pub text: String,
+    pub texts: Vec<String>,
     pub metadata: HashMap<String, String>,
 }
 
@@ -34,6 +35,9 @@ pub enum IndexError {
 
     #[error(transparent)]
     Persistence(#[from] RespositoryError),
+
+    #[error(transparent)]
+    TextSplitter(#[from] text_splitters::TokenizerError),
 }
 
 pub struct IndexManager {
@@ -103,12 +107,13 @@ impl IndexManager {
 
     pub async fn load(&self, index_name: String) -> Result<Option<Index>, IndexError> {
         let index_entity = self.repository.get_index(index_name.clone()).await?;
+        let splitter = text_splitters::get_splitter(&index_entity.text_splitter)?;
         let index = Index::new(
             index_name.clone(),
             self.vectordb.clone(),
             self.embedding_router.clone(),
             index_entity.embedding_model,
-            index_entity.text_splitter,
+            splitter,
         )
         .await?;
         Ok(index)
@@ -119,6 +124,7 @@ pub struct Index {
     vectordb: VectorDBTS,
     embedding_generator: EmbeddingGeneratorTS,
     embedding_model: String,
+    text_splitter: TextSplitterTS,
 }
 
 impl Index {
@@ -127,29 +133,32 @@ impl Index {
         vectordb: VectorDBTS,
         embedding_generator: EmbeddingGeneratorTS,
         embedding_model: String,
-        _text_splitter: String,
+        text_splitter: TextSplitterTS,
     ) -> Result<Option<Index>, IndexError> {
         Ok(Some(Self {
             name,
             vectordb,
             embedding_generator,
             embedding_model,
+            text_splitter,
         }))
     }
 
     pub async fn add_texts(&self, texts: Vec<Text>) -> Result<(), IndexError> {
-        let text_content = texts.iter().map(|text| text.text.clone()).collect();
-        let embeddings = self
-            .embedding_generator
-            .generate_embeddings(text_content, self.embedding_model.clone())
-            .await?;
+        for mut text in texts {
+            let mut splitted_texts = Vec::new();
+            for doc in text.texts {
+                let s_text = self.text_splitter.split(&doc, 1000, 1000)?;
+                splitted_texts.extend(s_text);
+            }
+            text.texts = splitted_texts;
 
-        let it = embeddings.iter().zip(texts.iter());
-        for (_i, (embedding, text)) in it.enumerate() {
-            let mut metadata = text.metadata.to_owned();
-            metadata.insert(DOC_PAYLOAD.into(), text.text.to_owned());
+            let embeddings = self
+                .embedding_generator
+                .generate_embeddings(text.texts.clone(), self.embedding_model.clone())
+                .await?;
             self.vectordb
-                .add_embedding(self.name.clone(), embedding.to_owned(), metadata)
+                .add_embedding(&self.name, embeddings, text.texts, text.metadata)
                 .await?;
         }
         Ok(())
@@ -216,22 +225,22 @@ mod tests {
             .unwrap()
             .unwrap();
         index_manager
-            .create_index(index_params, "all-minilm-l12-v2".into(), "new-line".into())
+            .create_index(index_params, "all-minilm-l12-v2".into(), "noop".into())
             .await
             .unwrap();
         let index = index_manager.load("hello".into()).await.unwrap().unwrap();
         index
             .add_texts(vec![
                 Text {
-                    text: "hello world".into(),
+                    texts: vec!["hello world".into()],
                     metadata: HashMap::new(),
                 },
                 Text {
-                    text: "hello pipe".into(),
+                    texts: vec!["hello pipe".into()],
                     metadata: HashMap::new(),
                 },
                 Text {
-                    text: "nba".into(),
+                    texts: vec!["nba".into()],
                     metadata: HashMap::new(),
                 },
             ])

@@ -60,8 +60,9 @@ pub trait VectorDb {
     /// Adds a vector embedding to the specified index, along with associated attributes.
     async fn add_embedding(
         &self,
-        index: String,
-        embeddings: Vec<f32>,
+        index: &str,
+        embeddings: Vec<Vec<f32>>,
+        texts: Vec<String>,
         attrs: HashMap<String, String>,
     ) -> Result<(), VectorDbError>;
 
