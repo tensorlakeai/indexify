@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
@@ -8,8 +8,8 @@ use tracing::info;
 use crate::{
     persistence::{Respository, RespositoryError},
     text_splitters::{self, TextSplitterTS},
-    vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, VectorDBTS,
-    VectorDbError, VectorIndexConfig,
+    vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, SearchResult,
+    VectorDBTS, VectorDbError, VectorIndexConfig,
 };
 
 #[async_trait::async_trait]
@@ -164,7 +164,7 @@ impl Index {
         Ok(())
     }
 
-    pub async fn search(&self, query: String, k: u64) -> Result<Vec<String>, IndexError> {
+    pub async fn search(&self, query: String, k: u64) -> Result<Vec<SearchResult>, IndexError> {
         let query_embedding = self
             .embedding_generator
             .generate_embeddings(vec![query], self.embedding_model.clone())

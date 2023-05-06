@@ -1,22 +1,29 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 
 use qdrant_client::{
     client::QdrantClient,
     client::{Payload, QdrantClientConfig},
     qdrant::{
-        value::{self, Kind},
-        vectors_config::Config,
-        with_payload_selector::SelectorOptions, CreateCollection, Distance, PointStruct, SearchPoints, Value, VectorParams,
-        VectorsConfig, WithPayloadSelector,
+        vectors_config::Config, with_payload_selector::SelectorOptions, CreateCollection, Distance,
+        PointStruct, SearchPoints, VectorParams, VectorsConfig, WithPayloadSelector,
     },
 };
 
 use super::{CreateIndexParams, MetricKind, VectorDb, VectorDbError};
-use crate::{QdrantConfig, DOC_PAYLOAD};
+use crate::{QdrantConfig, SearchResult};
 
 pub struct QdrantDb {
     qdrant_config: QdrantConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct QdrantPayload {
+    pub text: String,
+    pub chunk: u64,
+    pub metadata: serde_json::Value,
 }
 
 impl QdrantDb {
@@ -77,35 +84,19 @@ impl VectorDb for QdrantDb {
         texts: Vec<String>,
         attrs: HashMap<String, String>,
     ) -> Result<(), VectorDbError> {
-        let mut common_payload = Payload::new();
-        for (k, v) in attrs {
-            common_payload.insert(
-                k,
-                Value {
-                    kind: Some(Kind::StringValue(v)),
-                },
-            );
-        }
-
         let mut points = Vec::<PointStruct>::new();
         for (i, text) in texts.iter().enumerate() {
-            let mut payload = common_payload.clone();
-            payload.insert(
-                DOC_PAYLOAD,
-                Value {
-                    kind: Some(Kind::StringValue(text.to_owned())),
-                },
-            );
-            payload.insert(
-                "chunk",
-                Value {
-                    kind: Some(Kind::IntegerValue(i as i64)),
-                },
-            );
+            let payload: Payload = json!(QdrantPayload {
+                text: text.to_string(),
+                chunk: i as u64,
+                metadata: json!(attrs.clone()),
+            })
+            .try_into()
+            .unwrap();
             points.push(PointStruct::new(
                 uuid::Uuid::new_v4().to_string(),
                 embeddings[i].clone(),
-                payload.clone(),
+                payload,
             ));
         }
         let _result = self
@@ -122,7 +113,7 @@ impl VectorDb for QdrantDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-    ) -> Result<Vec<String>, VectorDbError> {
+    ) -> Result<Vec<SearchResult>, VectorDbError> {
         let result = self
             .create_client()
             .await?
@@ -137,16 +128,16 @@ impl VectorDb for QdrantDb {
             })
             .await
             .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
-        let document_payloads: Vec<&Value> = result
-            .result
-            .iter()
-            .filter_map(|value| value.payload.get(DOC_PAYLOAD))
-            .collect();
-        let mut documents: Vec<String> = Vec::new();
-        for document_payload in document_payloads {
-            if let Some(value::Kind::StringValue(doc)) = &document_payload.kind {
-                documents.push(doc.clone());
-            }
+        let mut documents: Vec<SearchResult> = Vec::new();
+        for point in result.result {
+            let json_value = serde_json::to_value(point.payload)
+                .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+            let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
+                .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+            documents.push(SearchResult {
+                texts: qdrant_payload.text,
+                metadata: qdrant_payload.metadata,
+            });
         }
         Ok(documents)
     }
@@ -171,11 +162,12 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use crate::{VectorDBTS, DOC_PAYLOAD};
+    use crate::VectorDBTS;
 
     use super::{CreateIndexParams, QdrantDb};
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_qdrant_search_basic() {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
@@ -189,10 +181,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let attrs: HashMap<String, String> = HashMap::from([
-            (DOC_PAYLOAD.into(), "hello".into()),
-            ("user_id".into(), "5".into()),
-        ]);
+        let attrs: HashMap<String, String> = HashMap::from([("user_id".into(), "5".into())]);
         qdrant
             .add_embedding(
                 "hello-index",

@@ -24,6 +24,7 @@ scraper = {version="^0"}
 sea-orm = { version = "^0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros" ] }
 serde = {version="^1", features=["derive"]}
 serde_yaml={version="^0"}
+serde_json={version="^1"}
 smart-default = {version = "^0"}
 strum = { version = "0.24", features = ["derive"] }
 strum_macros = "0.24"

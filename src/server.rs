@@ -127,7 +127,7 @@ struct SearchRequest {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct DocumentFragment {
     text: String,
-    source: HashMap<String, String>,
+    metadata: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -374,8 +374,8 @@ async fn index_search(
         .unwrap()
         .iter()
         .map(|text| DocumentFragment {
-            text: text.to_owned(),
-            source: HashMap::new(),
+            text: text.texts.to_owned(),
+            metadata: text.metadata.to_owned(),
         })
         .collect();
     (

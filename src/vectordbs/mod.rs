@@ -27,6 +27,12 @@ pub struct CreateIndexParams {
     pub metric: MetricKind,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct SearchResult {
+    pub texts: String,
+    pub metadata: serde_json::Value,
+}
+
 /// An enumeration of possible errors that can occur while interacting with the vector database.
 #[derive(Error, Debug)]
 pub enum VectorDbError {
@@ -72,7 +78,7 @@ pub trait VectorDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-    ) -> Result<Vec<String>, VectorDbError>;
+    ) -> Result<Vec<SearchResult>, VectorDbError>;
 
     /// Deletes the specified vector index from the vector database.
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError>;
