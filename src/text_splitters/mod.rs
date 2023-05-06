@@ -46,12 +46,27 @@ pub fn get_splitter(splitter: &str) -> Result<TextSplitterTS, TokenizerError> {
         "recursive" => Ok(Arc::new(SimpleTokenizer {
             separators: vec!["\n\n".into(), "\n".into(), " ".into(), "".into()],
         })),
+        "new_line" => Ok(Arc::new(NewLineTokenizer)),
         "html" => Ok(Arc::new(HTMLSplitter)),
         "custom_dom" => Ok(Arc::new(CustomDomSplitter)),
         "noop" => Ok(Arc::new(NoOpTokenizer)),
         _ => Err(TokenizerError::UnknownTokenizer(splitter.to_owned())),
     }
 }
+
+pub struct NewLineTokenizer;
+
+impl Tokenizer<String> for NewLineTokenizer {
+    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
+        Ok(doc.split('\n').map(|s| s.to_owned()).collect())
+    }
+
+    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
+        Ok(tokens.join("\n"))
+    }
+}
+
+impl TextSplitter<String> for NewLineTokenizer {}
 
 pub struct SimpleTokenizer {
     separators: Vec<String>,

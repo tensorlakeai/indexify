@@ -94,6 +94,10 @@ impl IndexManager {
         embedding_model: String,
         text_splitter: String,
     ) -> Result<(), IndexError> {
+        // This is to ensure the user is not requesting to create an index
+        // with a text splitter that is not supported
+        let _ = text_splitters::get_splitter(&text_splitter)?;
+
         self.repository
             .create_index(
                 embedding_model,
