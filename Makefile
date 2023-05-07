@@ -6,7 +6,7 @@ build-container:
 	docker image prune --force --filter label=stage=builder
 
 entity:
-	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
+	DATABASE_URL="sqlite://indexify.db" sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
 migrate-dev:
 	rm -rf indexify.db
