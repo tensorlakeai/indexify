@@ -35,3 +35,4 @@ tracing = {version="^0"}
 tracing-subscriber = {version="^0"}
 tracing-test = {version = "^0"}
 uuid = {version = "^1", features = ["v4", "fast-rng","macro-diagnostics"]}
+md-5 = {version = "^0"}

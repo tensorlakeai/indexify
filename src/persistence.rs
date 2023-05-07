@@ -22,6 +22,9 @@ pub enum RespositoryError {
 
     #[error("index `{0}` not found")]
     IndexNotFound(String),
+
+    #[error("unable to serialize unique params `{0}`")]
+    UniqueParamsSerializationError(#[from] serde_json::Error),
 }
 
 pub struct Respository {
@@ -45,12 +48,17 @@ impl Respository {
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
     ) -> Result<(), RespositoryError> {
+        let mut unique_params = None;
+        if let Some(u_params) = &index_params.unique_params {
+            unique_params.replace(serde_json::to_string(u_params)?);
+        }
         let index = entity::index::ActiveModel {
             name: Set(index_params.name.clone()),
             embedding_model: Set(embedding_model),
             text_splitter: Set(text_splitter),
             vector_db: Set(vectordb.name()),
             vector_db_params: NotSet,
+            unique_params: Set(unique_params),
         };
         let tx = self.conn.begin().await?;
         let _ = IndexEntity::insert(index).exec(&tx).await?;

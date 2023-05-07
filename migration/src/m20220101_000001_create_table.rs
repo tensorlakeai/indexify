@@ -11,11 +11,17 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Index::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Index::Name).string().primary_key())
+                    .col(
+                        ColumnDef::new(Index::Name)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(Index::EmbeddingModel).string().not_null())
                     .col(ColumnDef::new(Index::TextSplitter).string().not_null())
                     .col(ColumnDef::new(Index::VectorDb).string().not_null())
                     .col(ColumnDef::new(Index::VectorDbParams).json())
+                    .col(ColumnDef::new(Index::UniqueParams).json())
                     .to_owned(),
             )
             .await
@@ -36,4 +42,5 @@ enum Index {
     EmbeddingModel,
     VectorDb,
     VectorDbParams,
+    UniqueParams,
 }

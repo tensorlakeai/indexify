@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -83,6 +84,7 @@ impl VectorDb for QdrantDb {
         embeddings: Vec<Vec<f32>>,
         texts: Vec<String>,
         attrs: HashMap<String, String>,
+        hash_on: Vec<String>,
     ) -> Result<(), VectorDbError> {
         let mut points = Vec::<PointStruct>::new();
         for (i, text) in texts.iter().enumerate() {
@@ -93,11 +95,19 @@ impl VectorDb for QdrantDb {
             })
             .try_into()
             .unwrap();
-            points.push(PointStruct::new(
-                uuid::Uuid::new_v4().to_string(),
-                embeddings[i].clone(),
-                payload,
-            ));
+            let mut hasher = Md5::new();
+            if attrs.is_empty() {
+                hasher.update(text);
+            } else {
+                for (key, value) in attrs.iter() {
+                    if hash_on.contains(key) {
+                        hasher.update(value);
+                    }
+                }
+            }
+            let id = format!("{:x}", hasher.finalize());
+
+            points.push(PointStruct::new(id, embeddings[i].clone(), payload));
         }
         let _result = self
             .create_client()
@@ -156,6 +166,19 @@ impl VectorDb for QdrantDb {
         }
         Ok(())
     }
+
+    async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
+        let result = self
+            .create_client()
+            .await?
+            .collection_info(index)
+            .await
+            .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+        let collection_info = result
+            .result
+            .ok_or(VectorDbError::IndexReadError("index not found".into()))?;
+        Ok(collection_info.points_count)
+    }
 }
 
 #[cfg(test)]
@@ -168,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_qdrant_search_basic() {
+    async fn test_search_basic() {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
@@ -178,6 +201,7 @@ mod tests {
                 name: "hello-index".into(),
                 vector_dim: 2,
                 metric: crate::MetricKind::Cosine,
+                unique_params: None,
             })
             .await
             .unwrap();
@@ -188,6 +212,7 @@ mod tests {
                 vec![vec![0., 2.]],
                 vec!["test".into()],
                 attrs,
+                vec![],
             )
             .await
             .unwrap();
@@ -197,5 +222,53 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_insertion_idempotency() {
+        let index_name = "idempotency-index";
+        let hash_on = vec!["user_id".to_string(), "url".to_string()];
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
+            addr: "http://localhost:6334".into(),
+        }));
+        qdrant.drop_index(index_name.into()).await.unwrap();
+        qdrant
+            .create_index(CreateIndexParams {
+                name: index_name.into(),
+                vector_dim: 2,
+                metric: crate::MetricKind::Cosine,
+                unique_params: Some(hash_on.clone()),
+            })
+            .await
+            .unwrap();
+        let attrs: HashMap<String, String> = HashMap::from([
+            ("user_id".into(), "5".into()),
+            ("url".into(), "https://google.com".into()),
+        ]);
+        qdrant
+            .add_embedding(
+                index_name,
+                vec![vec![0., 2.]],
+                vec!["test".into()],
+                attrs.clone(),
+                hash_on.clone(),
+            )
+            .await
+            .unwrap();
+        qdrant
+            .add_embedding(
+                index_name,
+                vec![vec![1., 3.]],
+                vec!["test1".into()],
+                attrs,
+                hash_on.clone(),
+            )
+            .await
+            .unwrap();
+
+        let num_elements = qdrant.num_vectors(index_name).await.unwrap();
+
+        assert_eq!(num_elements, 1);
     }
 }

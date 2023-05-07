@@ -38,6 +38,9 @@ pub enum IndexError {
 
     #[error(transparent)]
     TextSplitter(#[from] text_splitters::TokenizerError),
+
+    #[error("unable to serialize unique params `{0}`")]
+    UniqueParamsSerializationError(#[from] serde_json::Error),
 }
 
 pub struct IndexManager {
@@ -111,6 +114,10 @@ impl IndexManager {
 
     pub async fn load(&self, index_name: String) -> Result<Option<Index>, IndexError> {
         let index_entity = self.repository.get_index(index_name.clone()).await?;
+        let mut unique_params: Vec<String> = Vec::new();
+        if let Some(params) = index_entity.unique_params {
+            unique_params = serde_json::from_str(&params)?;
+        }
         let splitter = text_splitters::get_splitter(&index_entity.text_splitter)?;
         let index = Index::new(
             index_name.clone(),
@@ -118,6 +125,7 @@ impl IndexManager {
             self.embedding_router.clone(),
             index_entity.embedding_model,
             splitter,
+            unique_params,
         )
         .await?;
         Ok(index)
@@ -129,6 +137,7 @@ pub struct Index {
     embedding_generator: EmbeddingGeneratorTS,
     embedding_model: String,
     text_splitter: TextSplitterTS,
+    hash_on: Vec<String>,
 }
 
 impl Index {
@@ -138,6 +147,7 @@ impl Index {
         embedding_generator: EmbeddingGeneratorTS,
         embedding_model: String,
         text_splitter: TextSplitterTS,
+        hash_on: Vec<String>,
     ) -> Result<Option<Index>, IndexError> {
         Ok(Some(Self {
             name,
@@ -145,6 +155,7 @@ impl Index {
             embedding_generator,
             embedding_model,
             text_splitter,
+            hash_on,
         }))
     }
 
@@ -162,7 +173,13 @@ impl Index {
                 .generate_embeddings(text.texts.clone(), self.embedding_model.clone())
                 .await?;
             self.vectordb
-                .add_embedding(&self.name, embeddings, text.texts, text.metadata)
+                .add_embedding(
+                    &self.name,
+                    embeddings,
+                    text.texts,
+                    text.metadata,
+                    self.hash_on.clone(),
+                )
                 .await?;
         }
         Ok(())
@@ -216,6 +233,7 @@ mod tests {
             name: "hello".into(),
             vector_dim: 384,
             metric: MetricKind::Cosine,
+            unique_params: None,
         };
         let index_config = Some(VectorIndexConfig {
             index_store: crate::IndexStoreKind::Qdrant,

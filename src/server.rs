@@ -93,6 +93,9 @@ struct IndexCreateRequest {
     metric: IndexMetric,
     /// The text splitter to use for splitting text into fragments.
     text_splitter: TextSplitterKind,
+
+    /// Hash on these paramters
+    hash_on: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -249,6 +252,7 @@ async fn index_create(
             IndexMetric::Dot => MetricKind::Dot,
             IndexMetric::Euclidean => MetricKind::Euclidean,
         },
+        unique_params: payload.hash_on,
     };
     let index_manager = index_args.0.as_ref();
     let result = index_manager

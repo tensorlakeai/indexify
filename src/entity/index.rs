@@ -11,7 +11,8 @@ pub struct Model {
     pub embedding_model: String,
     pub text_splitter: String,
     pub vector_db: String,
-    pub vector_db_params: Option<Json>,
+    pub vector_db_params: Option<String>,
+    pub unique_params: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

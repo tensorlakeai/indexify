@@ -25,6 +25,7 @@ pub struct CreateIndexParams {
     pub name: String,
     pub vector_dim: u64,
     pub metric: MetricKind,
+    pub unique_params: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -70,6 +71,7 @@ pub trait VectorDb {
         embeddings: Vec<Vec<f32>>,
         texts: Vec<String>,
         attrs: HashMap<String, String>,
+        hash_on: Vec<String>,
     ) -> Result<(), VectorDbError>;
 
     /// Searches for the nearest neighbors of a query vector in the specified index.
@@ -82,6 +84,9 @@ pub trait VectorDb {
 
     /// Deletes the specified vector index from the vector database.
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError>;
+
+    /// Returns the number of vectors in the specified index.
+    async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError>;
 
     fn name(&self) -> String;
 }
