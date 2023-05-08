@@ -42,8 +42,14 @@ theme:
 
 extra:
   generator: false
+  analytics:
+     provider: google
+     property: G-6BCQ6Z265W
   social:
     - icon: fontawesome/brands/discord
       link: https://discord.gg/mrXrq3DmV8
       name: Indexify Discord Community
+    - icon: fontawesome/solid/paper-plane
+      link: mailto:<diptanuc@gmail.com>
+      name: Email
       
