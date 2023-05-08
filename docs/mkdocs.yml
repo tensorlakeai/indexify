@@ -4,6 +4,15 @@ repo_url: https://github.com/diptanu/indexify
 repo_name: diptanu/indexify
 edit_uri: edit/main/docs/docs
 
+nav:
+  - Home: 'index.md'
+  - Getting Started: 'getting_started.md'
+  - API: 'api.md'
+  - Configuration: 'configuration.md'
+  - Integrations:
+    - Langchain: 'integrations/langchain.md'
+    - Haystack: 'integrations/haystack.md'
+
 theme:
   name: material
   icon:
@@ -13,6 +22,10 @@ theme:
 
   features:
     - content.action.edit
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
 
   palette: 
     - scheme: default
