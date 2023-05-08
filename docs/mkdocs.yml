@@ -3,6 +3,7 @@ site_name: Indexify
 repo_url: https://github.com/diptanu/indexify
 repo_name: diptanu/indexify
 edit_uri: edit/main/docs/docs
+copyright: Copyright &copy; 2023 Indexify
 
 nav:
   - Home: 'index.md'
@@ -39,3 +40,10 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/mrXrq3DmV8
+      name: Indexify Discord Community
+      
