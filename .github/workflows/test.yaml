@@ -1,4 +1,4 @@
-name: build_test_publish
+name: Tests
 on:
   push:
     branches:
