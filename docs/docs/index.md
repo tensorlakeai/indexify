@@ -1,7 +1,8 @@
 # Welcome to Indexify
 
-Indexify is a service which provides APIs to generate embeddings from texts and write to indexes and query them.
-It comes with several state of the art embedding models and also use LLM services like OpenAI. 
+Indexify is a knowledge and memory retrieval service for Large Language Models. It faciliates in-context learning of LLMs by providing relevant context in a prompt or expsing relevant memory to AI agents.
+
+The service facilitates efficient execution of fine tuned/pre-trained embedding models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
 
 ## Why use Indexify
 * Flexibility: An API based embedding serving and index querying approach allows easy integrations without needing native libraries for every language.
@@ -21,10 +22,11 @@ It comes with several state of the art embedding models and also use LLM service
 3. SimCSE (coming soon)
 4. OpenAI
 
-## Available Indexing Datastores
-1. PineCone
-2. Milvus
-3. Faiss(Local)
+## Available Vector Datastores
+1. Qdrant
+2. Pinecone(Coming Soon)
+3. Milvus(Coming Soon)
+4. Ephemeral Storage(Coming Soon).
 
 
 ## HTTP APIs
