@@ -1,4 +1,28 @@
 site_name: Indexify
 
+repo_url: https://github.com/diptanu/indexify
+repo_name: diptanu/indexify
+edit_uri: edit/main/docs/docs
+
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil 
+    view: material/eye
+
+  features:
+    - content.action.edit
+
+  palette: 
+    - scheme: default
+      primary: light blue
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
