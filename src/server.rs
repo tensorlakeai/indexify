@@ -112,7 +112,7 @@ pub struct Document {
 #[derive(Debug, Serialize, Deserialize)]
 struct AddTextsRequest {
     index: String,
-    texts: Vec<Document>,
+    documents: Vec<Document>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -308,7 +308,7 @@ async fn add_texts(
     }
     let index = try_index.unwrap().unwrap();
     let texts = payload
-        .texts
+        .documents
         .iter()
         .map(|d| Text {
             texts: vec![d.text.to_owned()],

@@ -37,13 +37,13 @@ POST /index/add
 
 #### Request Body
 * `index` - Index in which the text belongs to.
-* `texts` - List of document objects. Structure of document objects - 
+* `documents` - List of document objects. Structure of document objects - 
     * `text` - Text of the document
     * `metadata` - Key/Value pair of metadata associated with the text. 
 
 #### Example
 ```
-curl -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "texts": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
+curl -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "documents": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
 ```
 
 ### Index Query
