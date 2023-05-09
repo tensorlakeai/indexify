@@ -14,7 +14,7 @@ Currently for production use-case, the embedding generation APIs are stable, whi
 
 ## Getting Started
 
-To get started follow our (documentation)[https://getindexify.ai/getting_started/].
+To get started follow our [documentation](https://getindexify.ai/getting_started/).
 
 ## Documentation
 
