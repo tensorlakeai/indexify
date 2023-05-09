@@ -7,11 +7,34 @@ Indexify is very easy to get started with Docker Compose.
 git clone https://github.com/diptanu/indexify.git
 ```
 
-### Start the Service
+### Start the Service using Docker Compose
 ```
-docker compose up
+docker compose up indexify
 ```
 
 This starts the following services -
-1. Indexify Server which provides the HTTP APIs to the retreival services.
-2. Qdrant for storing vectors.
+
+* Indexify Server which provides the HTTP APIs to the retreival services.
+* Qdrant for storing vectors.
+
+#### Create an Index
+
+```
+curl -v -X POST http://localhost:8900/index/create   -H "Content-Type: application/json" -d '{"name": "myindex", "embedding_model": "all-minilm-l12-v2","metric": "dot", "text_splitter": "new_line"}'
+```
+
+#### Add some Texts
+```
+curl -v -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "texts": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
+```
+
+#### Query the Index
+```
+curl -v -X GET http://localhost:8900/index/search   -H "Content-Type: application/json" -d '{"index": "myindex", "query": "good", "k": 1}'
+```
+
+#### Generate Embeddings
+```
+ curl -v -X GET http://localhost:8900/embeddings/generate   -H "Content-Type: application/json" -d '{"inputs": ["lol", "world"], "model": "all-minilm-l12-v2"}'
+ ```
+
