@@ -2,18 +2,36 @@ use std::sync::mpsc;
 use std::thread;
 
 use async_trait::async_trait;
+
 use rust_bert::pipelines::sentence_embeddings::{
     SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType,
 };
+use rust_tokenizers::tokenizer::TruncationStrategy;
 
 use super::server_config::{self, EmbeddingModelKind};
 use super::{EmbeddingGenerator, EmbeddingGeneratorError};
 use std::collections::HashMap;
 
+enum ModelOperation {
+    EncodeEmbeddings,
+    Tokenize,
+    TokenizeEncode,
+    TokenizeDecode,
+}
+
+enum ModelResult {
+    Embeddings(Vec<Vec<f32>>),
+    Tokenized(Vec<Vec<String>>),
+    TokenizedDecoded(Vec<String>),
+    TokenizedEncoded(Vec<Vec<i64>>),
+}
+
 type Message = (
     String,
     Vec<String>,
-    oneshot::Sender<Result<Vec<Vec<f32>>, EmbeddingGeneratorError>>,
+    Vec<Vec<i64>>,
+    ModelOperation,
+    oneshot::Sender<Result<ModelResult, EmbeddingGeneratorError>>,
 );
 
 /// A struct that represents a collection of sentence transformer models.
@@ -53,21 +71,9 @@ impl SentenceTransformerModels {
         Ok(SentenceTransformerModels { sender })
     }
 
-    /// Loads the specified models and processes incoming requests for generating embeddings.
-    ///
     /// This method is run in a separate thread and listens for incoming requests to generate
     /// embeddings using the loaded models. It sends the generated embeddings back to the caller
     /// through a one-shot channel.
-    ///
-    /// # Arguments
-    ///
-    /// * `receiver` - A receiver for incoming requests to generate embeddings.
-    /// * `models_to_load` - A vector of `EmbeddingModel` configurations specifying the models
-    ///   to be loaded.
-    ///
-    /// # Returns
-    ///
-    /// * A result indicating success or an `EmbeddingGeneratorError` if an error occurs.
     fn runner(
         receiver: mpsc::Receiver<Message>,
         models_to_load: Vec<server_config::EmbeddingModel>,
@@ -106,17 +112,46 @@ impl SentenceTransformerModels {
                 }
             }
         }
-        for (model_name, inputs, sender) in receiver.iter() {
+        for (model_name, inputs, batched_tokens, model_operation, sender) in receiver.iter() {
             let model = models.get(&model_name);
             if model.is_none() {
                 let _ = sender.send(Err(EmbeddingGeneratorError::ModelNotFound(model_name)));
                 continue;
             }
-            let result = model
-                .unwrap()
-                .encode(&inputs)
-                .map_err(|e| EmbeddingGeneratorError::ModelError(e.to_string()));
-            let _ = sender.send(result);
+            match model_operation {
+                ModelOperation::EncodeEmbeddings => {
+                    let result = model
+                        .unwrap()
+                        .encode(&inputs)
+                        .map(ModelResult::Embeddings)
+                        .map_err(|e| EmbeddingGeneratorError::ModelError(e.to_string()));
+                    let _ = sender.send(result);
+                }
+                ModelOperation::Tokenize => {
+                    let tokenizer = model.unwrap().get_tokenizer();
+                    let mut tokenized_inputs = Vec::new();
+                    for input in &inputs {
+                        tokenized_inputs.push(tokenizer.tokenize(input));
+                    }
+                    let _ = sender.send(Ok(ModelResult::Tokenized(tokenized_inputs)));
+                }
+                ModelOperation::TokenizeEncode => {
+                    let tokenizer = model.unwrap().get_tokenizer();
+                    let result =
+                        tokenizer.encode_list(&inputs, 512, &TruncationStrategy::DoNotTruncate, 0);
+                    let tokens: Vec<Vec<i64>> = result.into_iter().map(|t| t.token_ids).collect();
+                    let _ = sender.send(Ok(ModelResult::TokenizedEncoded(tokens)));
+                }
+                ModelOperation::TokenizeDecode => {
+                    let tokenizer = model.unwrap().get_tokenizer();
+                    let mut results: Vec<String> = Vec::new();
+                    for tokens in batched_tokens {
+                        let result = tokenizer.decode(&tokens, true, true);
+                        results.push(result);
+                    }
+                    let _ = sender.send(Ok(ModelResult::TokenizedDecoded(results)));
+                }
+            }
         }
         Ok(())
     }
@@ -130,9 +165,17 @@ impl EmbeddingGenerator for SentenceTransformerModels {
         model: String,
     ) -> Result<Vec<Vec<f32>>, EmbeddingGeneratorError> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send((model, texts, tx));
+        let _ = self
+            .sender
+            .send((model, texts, vec![], ModelOperation::EncodeEmbeddings, tx));
         match rx.await {
-            Ok(result) => result,
+            Ok(result) => match result {
+                Ok(ModelResult::Embeddings(embeddings)) => Ok(embeddings),
+                Err(err) => Err(err),
+                Ok(_) => Err(EmbeddingGeneratorError::InternalError(
+                    "unexpected tokenized result".into(),
+                )),
+            },
             Err(_) => Err(EmbeddingGeneratorError::InternalError(
                 "channel closed unexpectedly".into(),
             )),
@@ -149,22 +192,97 @@ impl EmbeddingGenerator for SentenceTransformerModels {
             _ => Err(EmbeddingGeneratorError::ModelNotFound(model)),
         }
     }
+
+    async fn tokenize_text(
+        &self,
+        inputs: Vec<String>,
+        model: String,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = self
+            .sender
+            .send((model, inputs, vec![], ModelOperation::Tokenize, tx));
+
+        match rx.await {
+            Ok(result) => match result {
+                Ok(ModelResult::Tokenized(tokenized_texts)) => Ok(tokenized_texts),
+                Err(err) => Err(err),
+                Ok(_) => Err(EmbeddingGeneratorError::InternalError(
+                    "unexpected embeddings result".into(),
+                )),
+            },
+            Err(_) => Err(EmbeddingGeneratorError::InternalError(
+                "channel closed unexpectedly".into(),
+            )),
+        }
+    }
+
+    async fn tokenize_encode(
+        &self,
+        inputs: Vec<String>,
+        model: String,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = self
+            .sender
+            .send((model, inputs, vec![], ModelOperation::TokenizeEncode, tx));
+
+        match rx.await {
+            Ok(result) => match result {
+                Ok(ModelResult::TokenizedEncoded(tokens)) => Ok(tokens),
+                Err(err) => Err(err),
+                Ok(_) => Err(EmbeddingGeneratorError::InternalError(
+                    "unexpected embeddings result".into(),
+                )),
+            },
+            Err(_) => Err(EmbeddingGeneratorError::InternalError(
+                "channel closed unexpectedly".into(),
+            )),
+        }
+    }
+
+    async fn tokenize_decode(
+        &self,
+        inputs: Vec<Vec<i64>>,
+        model: String,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = self
+            .sender
+            .send((model, vec![], inputs, ModelOperation::TokenizeDecode, tx));
+
+        match rx.await {
+            Ok(result) => match result {
+                Ok(ModelResult::TokenizedDecoded(texts)) => Ok(texts),
+                Err(err) => Err(err),
+                Ok(_) => Err(EmbeddingGeneratorError::InternalError(
+                    "unexpected embeddings result".into(),
+                )),
+            },
+            Err(_) => Err(EmbeddingGeneratorError::InternalError(
+                "channel closed unexpectedly".into(),
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
+    use server_config::DeviceKind;
+    use server_config::EmbeddingModelKind::AllMiniLmL12V2;
 
     #[tokio::test]
     async fn test_generate_embeddings_all_mini_lm_l12v2() {
-        use super::*;
-        use server_config::DeviceKind;
-        use server_config::EmbeddingModelKind::AllMiniLmL12V2;
-
         let inputs = vec![
-            "Hello, world!".to_string(),
-            "Hello, NBA!".to_string(),
-            "Hello, NFL!".to_string(),
+            "Hello, world!".into(),
+            "Hello, NBA!".into(),
+            "Hello, NFL!".into(),
         ];
         let embedding_generator =
             SentenceTransformerModels::new(vec![server_config::EmbeddingModel {
@@ -178,5 +296,44 @@ mod tests {
             .unwrap();
         assert_eq!(embeddings.len(), 3);
         assert_eq!(embeddings[0].len(), 384);
+    }
+
+    #[tokio::test]
+    async fn test_tokenization() {
+        let inputs = vec!["hello world so long that it doesn't fit my mind ".repeat(10)];
+        let embedding_generator =
+            SentenceTransformerModels::new(vec![server_config::EmbeddingModel {
+                model_kind: AllMiniLmL12V2,
+                device_kind: DeviceKind::Cpu,
+            }])
+            .unwrap();
+        let tokenized_text = embedding_generator
+            .tokenize_text(inputs, "all-minilm-l12-v2".into())
+            .await
+            .unwrap();
+        assert_eq!(tokenized_text.len(), 1);
+        assert_eq!(tokenized_text[0].len(), 120);
+    }
+
+    #[tokio::test]
+    async fn test_tokenization_encode_decode() {
+        let model: String = "all-minilm-l12-v2".into();
+        let inputs = vec!["embiid is the mvp".into()];
+        let embedding_generator =
+            SentenceTransformerModels::new(vec![server_config::EmbeddingModel {
+                model_kind: AllMiniLmL12V2,
+                device_kind: DeviceKind::Cpu,
+            }])
+            .unwrap();
+        let tokens = embedding_generator
+            .tokenize_encode(inputs.clone(), model.clone())
+            .await
+            .unwrap();
+
+        let tokenized_text = embedding_generator
+            .tokenize_decode(tokens, model.clone())
+            .await
+            .unwrap();
+        assert_eq!(inputs, tokenized_text);
     }
 }

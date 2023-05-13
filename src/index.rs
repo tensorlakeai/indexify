@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr, vec};
 
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::{
     persistence::{Respository, RespositoryError},
-    text_splitters::{self, TextSplitterTS},
+    text_splitters::{self, TextSplitterKind, TextSplitterTS},
     vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, SearchResult,
     VectorDBTS, VectorDbError, VectorIndexConfig,
 };
@@ -37,10 +37,13 @@ pub enum IndexError {
     Persistence(#[from] RespositoryError),
 
     #[error(transparent)]
-    TextSplitter(#[from] text_splitters::TokenizerError),
+    TextSplitter(#[from] text_splitters::TextSplitterError),
 
     #[error("unable to serialize unique params `{0}`")]
     UniqueParamsSerializationError(#[from] serde_json::Error),
+
+    #[error("logic error: `{0}`")]
+    LogicError(String),
 }
 
 pub struct IndexManager {
@@ -95,18 +98,22 @@ impl IndexManager {
         &self,
         vectordb_params: CreateIndexParams,
         embedding_model: String,
-        text_splitter: String,
+        text_splitter: TextSplitterKind,
     ) -> Result<(), IndexError> {
         // This is to ensure the user is not requesting to create an index
         // with a text splitter that is not supported
-        let _ = text_splitters::get_splitter(&text_splitter)?;
+        let _ = text_splitters::get_splitter(
+            text_splitter.clone(),
+            self.embedding_router.clone(),
+            embedding_model.clone(),
+        )?;
 
         self.repository
             .create_index(
                 embedding_model,
                 vectordb_params,
                 self.vectordb.clone(),
-                text_splitter,
+                text_splitter.to_string(),
             )
             .await?;
         Ok(())
@@ -118,7 +125,13 @@ impl IndexManager {
         if let Some(params) = index_entity.unique_params {
             unique_params = serde_json::from_str(&params)?;
         }
-        let splitter = text_splitters::get_splitter(&index_entity.text_splitter)?;
+        let splitter_kind = TextSplitterKind::from_str(&index_entity.text_splitter)
+            .map_err(|e| IndexError::LogicError(e.to_string()))?;
+        let splitter = text_splitters::get_splitter(
+            splitter_kind,
+            self.embedding_router.clone(),
+            index_entity.embedding_model.clone(),
+        )?;
         let index = Index::new(
             index_name.clone(),
             self.vectordb.clone(),
@@ -162,8 +175,9 @@ impl Index {
     pub async fn add_texts(&self, texts: Vec<Text>) -> Result<(), IndexError> {
         for mut text in texts {
             let mut splitted_texts = Vec::new();
+
             for doc in text.texts {
-                let s_text = self.text_splitter.split(&doc, 1000, 1000)?;
+                let s_text = self.text_splitter.split(&doc, 1000, 0).await?;
                 splitted_texts.extend(s_text);
             }
             text.texts = splitted_texts;
@@ -172,6 +186,7 @@ impl Index {
                 .embedding_generator
                 .generate_embeddings(text.texts.clone(), self.embedding_model.clone())
                 .await?;
+
             self.vectordb
                 .add_embedding(
                     &self.name,
@@ -247,7 +262,11 @@ mod tests {
             .unwrap()
             .unwrap();
         index_manager
-            .create_index(index_params, "all-minilm-l12-v2".into(), "noop".into())
+            .create_index(
+                index_params,
+                "all-minilm-l12-v2".into(),
+                TextSplitterKind::Noop,
+            )
             .await
             .unwrap();
         let index = index_manager.load("hello".into()).await.unwrap().unwrap();

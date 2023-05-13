@@ -71,6 +71,26 @@ pub trait EmbeddingGenerator {
     /// * A result containing the number of dimensions if successful, or an `EmbeddingGeneratorError`
     ///   if an error occurs (e.g., the model is not found).
     fn dimensions(&self, model: String) -> Result<u64, EmbeddingGeneratorError>;
+
+    // Tokenizes a list of inputs using the specified model.
+    // This is for splitters to use to split inputs while respecting token boundaries.
+    async fn tokenize_text(
+        &self,
+        inputs: Vec<String>,
+        model: String,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError>;
+
+    async fn tokenize_encode(
+        &self,
+        inputs: Vec<String>,
+        model: String,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError>;
+
+    async fn tokenize_decode(
+        &self,
+        inputs: Vec<Vec<i64>>,
+        model: String,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError>;
 }
 
 /// A struct that represents a router for generating text embeddings using different models.
@@ -175,5 +195,41 @@ impl EmbeddingGenerator for EmbeddingRouter {
             .get(&model)
             .ok_or(EmbeddingGeneratorError::ModelLoadingError(model.clone()))?;
         embedding_model.dimensions(model)
+    }
+
+    async fn tokenize_text(
+        &self,
+        inputs: Vec<String>,
+        model: String,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
+        let embedding_model = self
+            .router
+            .get(&model)
+            .ok_or(EmbeddingGeneratorError::ModelNotFound(model.clone()))?;
+        embedding_model.tokenize_text(inputs, model).await
+    }
+
+    async fn tokenize_encode(
+        &self,
+        inputs: Vec<String>,
+        model: String,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
+        let embedding_model = self
+            .router
+            .get(&model)
+            .ok_or(EmbeddingGeneratorError::ModelNotFound(model.clone()))?;
+        embedding_model.tokenize_encode(inputs, model).await
+    }
+
+    async fn tokenize_decode(
+        &self,
+        inputs: Vec<Vec<i64>>,
+        model: String,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError> {
+        let embedding_model = self
+            .router
+            .get(&model)
+            .ok_or(EmbeddingGeneratorError::ModelNotFound(model.clone()))?;
+        embedding_model.tokenize_decode(inputs, model).await
     }
 }

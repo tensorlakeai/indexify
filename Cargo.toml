@@ -20,6 +20,7 @@ oneshot = {version="^0"}
 qdrant-client = "^1"
 regex = {version="^1"}
 rust-bert = {git = "https://github.com/guillaume-be/rust-bert.git"}
+rust_tokenizers = {version="^8"}
 scraper = {version="^0"}
 sea-orm = { version = "^0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros" ] }
 serde = {version="^1", features=["derive"]}
@@ -35,3 +36,4 @@ tracing-subscriber = {version="^0"}
 tracing-test = {version = "^0"}
 uuid = {version = "^1", features = ["v4", "fast-rng","macro-diagnostics"]}
 md-5 = {version = "^0"}
+tiktoken-rs = {version = "^0"}

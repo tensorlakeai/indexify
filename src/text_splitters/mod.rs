@@ -1,207 +1,303 @@
 use anyhow::Result;
 use regex::Regex;
-use scraper::{Html, Selector};
 use std::{cmp::max, fmt::Debug, sync::Arc};
+use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Error)]
-pub enum TokenizerError {
-    #[error("unknown tokenizer: `{0}`")]
-    UnknownTokenizer(String),
+use crate::{EmbeddingGeneratorError, EmbeddingGeneratorTS};
+
+#[derive(Error, Debug)]
+pub enum TextSplitterError {
+    #[error(transparent)]
+    TokenizerError(#[from] EmbeddingGeneratorError),
 }
 
-pub trait Tokenizer<T: Clone> {
-    fn tokenize(&self, doc: &str) -> Result<Vec<T>, TokenizerError>;
+pub type TextSplitterTS = Arc<dyn TextSplitter + Send + Sync>;
 
-    fn to_string(&self, tokens: Vec<T>) -> Result<String, TokenizerError>;
+#[derive(Display, Clone, Debug, EnumString)]
+pub enum TextSplitterKind {
+    #[strum(serialize = "noop")]
+    Noop,
+
+    #[strum(serialize = "regex")]
+    Regex { pattern: String },
+
+    #[strum(serialize = "new_line")]
+    NewLine,
 }
 
-pub type TextSplitterTS = Arc<dyn TextSplitter<String> + Send + Sync>;
-
-pub trait TextSplitter<T: Clone + Debug>: Tokenizer<T> {
-    fn split(
+#[async_trait::async_trait]
+pub trait TextSplitter {
+    async fn split(
         &self,
         doc: &str,
-        max_tokens_per_chunk: usize,
-        token_overlap: usize,
-    ) -> Result<Vec<String>, TokenizerError> {
-        let tokens = self.tokenize(doc)?;
+        max_tokens: u64,
+        max_token_overlap: u64,
+    ) -> Result<Vec<String>, TextSplitterError>;
+
+    async fn merge(
+        &self,
+        tokens: Vec<i64>,
+        max_tokens_per_chunk: u64,
+        token_overlap: u64,
+    ) -> Result<Vec<String>, TextSplitterError> {
         let step_size = max(
             max_tokens_per_chunk.checked_sub(token_overlap).unwrap_or(1),
             1,
         );
 
-        (0..tokens.len())
-            .step_by(step_size)
+        let chunk_tokens: Vec<Vec<i64>> = (0..tokens.len())
+            .step_by(step_size as usize)
             .map(|start_idx| {
-                let end_idx = usize::min(start_idx + max_tokens_per_chunk, tokens.len());
-                self.to_string(tokens[start_idx..end_idx].to_vec())
+                let end_idx = usize::min(start_idx + max_tokens_per_chunk as usize, tokens.len());
+                tokens[start_idx..end_idx].to_vec()
             })
-            .collect()
+            .collect();
+
+        self.tokenize_decode(chunk_tokens)
+            .await
+            .map_err(|e| e.into())
     }
+
+    async fn tokenize(
+        &self,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError>;
+
+    async fn tokenize_encode(
+        &self,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError>;
+
+    async fn tokenize_decode(
+        &self,
+        input: Vec<Vec<i64>>,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError>;
 }
 
-pub fn get_splitter(splitter: &str) -> Result<TextSplitterTS, TokenizerError> {
-    match splitter {
-        "recursive" => Ok(Arc::new(SimpleTokenizer {
-            separators: vec!["\n\n".into(), "\n".into(), " ".into(), "".into()],
+pub fn get_splitter(
+    kind: TextSplitterKind,
+    embedding_router: EmbeddingGeneratorTS,
+    model: String,
+) -> Result<TextSplitterTS, TextSplitterError> {
+    match kind {
+        TextSplitterKind::NewLine => Ok(Arc::new(NewLineSplitter {
+            embedding_router,
+            model,
         })),
-        "new_line" => Ok(Arc::new(NewLineTokenizer)),
-        "html" => Ok(Arc::new(HTMLSplitter)),
-        "custom_dom" => Ok(Arc::new(CustomDomSplitter)),
-        "noop" => Ok(Arc::new(NoOpTokenizer)),
-        _ => Err(TokenizerError::UnknownTokenizer(splitter.to_owned())),
+        TextSplitterKind::Regex { pattern: p } => Ok(Arc::new(RegexSplitter {
+            pattern: p,
+            embedding_router,
+            model,
+        })),
+        TextSplitterKind::Noop => Ok(Arc::new(NoOpTextSplitter)),
     }
 }
 
-pub struct NewLineTokenizer;
+pub struct NewLineSplitter {
+    embedding_router: EmbeddingGeneratorTS,
+    model: String,
+}
 
-impl Tokenizer<String> for NewLineTokenizer {
-    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
-        Ok(doc.split('\n').map(|s| s.to_owned()).collect())
+#[async_trait::async_trait]
+impl TextSplitter for NewLineSplitter {
+    async fn split(
+        &self,
+        doc: &str,
+        max_tokens: u64,
+        max_token_overlap: u64,
+    ) -> Result<Vec<String>, TextSplitterError> {
+        let split_across_newlines = doc
+            .split('\n')
+            .map(|s| s.to_owned())
+            .collect::<Vec<String>>();
+        let tokens: Vec<Vec<i64>> = self.tokenize_encode(split_across_newlines).await?;
+        let flattened_tokens = tokens.into_iter().flatten().collect();
+        let chunks = self
+            .merge(flattened_tokens, max_tokens, max_token_overlap)
+            .await?;
+        Ok(chunks)
     }
 
-    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
-        Ok(tokens.join("\n"))
+    async fn tokenize(
+        &self,
+        inputs: Vec<String>,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
+        self.embedding_router
+            .tokenize_text(inputs, self.model.clone())
+            .await
+    }
+
+    async fn tokenize_encode(
+        &self,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
+        self.embedding_router
+            .tokenize_encode(input, self.model.clone())
+            .await
+    }
+
+    async fn tokenize_decode(
+        &self,
+        input: Vec<Vec<i64>>,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError> {
+        self.embedding_router
+            .tokenize_decode(input, self.model.clone())
+            .await
     }
 }
 
-impl TextSplitter<String> for NewLineTokenizer {}
+pub struct NoOpTextSplitter;
 
-pub struct SimpleTokenizer {
-    separators: Vec<String>,
-}
-
-impl Tokenizer<String> for SimpleTokenizer {
-    fn tokenize(&self, text: &str) -> Result<Vec<String>, TokenizerError> {
-        let mut texts = vec![text.to_owned()];
-        for sep in &self.separators {
-            let mut new_texts = vec![];
-            for text in texts {
-                if sep.is_empty() {
-                    new_texts.extend(text.chars().map(|c| c.to_string()).collect::<Vec<String>>());
-                } else {
-                    new_texts.extend(
-                        text.split(sep)
-                            .map(|s| s.to_owned())
-                            .collect::<Vec<String>>(),
-                    );
-                }
-            }
-            texts = new_texts;
-        }
-        Ok(texts)
-    }
-
-    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
-        Ok(tokens.join(""))
-    }
-}
-
-impl TextSplitter<String> for SimpleTokenizer {}
-
-pub struct HTMLSplitter;
-
-impl Tokenizer<String> for HTMLSplitter {
-    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
-        let parsed_doc = Html::parse_document(doc);
-        let element_selector = Selector::parse("*").unwrap();
-        let mut tokens: Vec<String> = vec![];
-        for element in parsed_doc.select(&element_selector) {
-            tokens.push(element.text().collect::<String>());
-        }
-        Ok(tokens)
-    }
-    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
-        Ok(tokens.join(""))
-    }
-}
-
-impl TextSplitter<String> for HTMLSplitter {}
-
-pub struct CustomDomSplitter;
-impl CustomDomSplitter {
-    fn split_by_closing_selectors(input: &str) -> Vec<String> {
-        let closing_tag_pattern = Regex::new(r"</[^>]+>").unwrap();
-        let mut result: Vec<String> = Vec::new();
-        let mut start_index = 0;
-
-        for mat in closing_tag_pattern.find_iter(input) {
-            let end_index = mat.end();
-            let part = &input[(start_index + 1)..end_index];
-            result.push(part.to_string());
-            start_index = end_index;
-        }
-
-        result
-    }
-}
-
-impl Tokenizer<String> for CustomDomSplitter {
-    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
-        let tokens = CustomDomSplitter::split_by_closing_selectors(doc);
-        Ok(tokens)
-    }
-    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
-        Ok(tokens.join(""))
-    }
-}
-
-impl TextSplitter<String> for CustomDomSplitter {}
-
-pub struct NoOpTokenizer;
-
-impl Tokenizer<String> for NoOpTokenizer {
-    fn tokenize(&self, doc: &str) -> Result<Vec<String>, TokenizerError> {
+#[async_trait::async_trait]
+impl TextSplitter for NoOpTextSplitter {
+    async fn split(
+        &self,
+        doc: &str,
+        _max_tokens: u64,
+        _max_token_overlap: u64,
+    ) -> Result<Vec<String>, TextSplitterError> {
         Ok(vec![doc.to_owned()])
     }
-    fn to_string(&self, tokens: Vec<String>) -> Result<String, TokenizerError> {
-        Ok(tokens.join(""))
+
+    async fn tokenize(
+        &self,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
+        Ok(vec![input])
+    }
+
+    async fn tokenize_encode(
+        &self,
+        _input: Vec<String>,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
+        Ok(vec![vec![]])
+    }
+
+    async fn tokenize_decode(
+        &self,
+        _input: Vec<Vec<i64>>,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError> {
+        Ok(vec![])
     }
 }
 
-impl TextSplitter<String> for NoOpTokenizer {}
+pub struct RegexSplitter {
+    pub pattern: String,
+    pub embedding_router: EmbeddingGeneratorTS,
+    pub model: String,
+}
+
+#[async_trait::async_trait]
+impl TextSplitter for RegexSplitter {
+    async fn split(
+        &self,
+        doc: &str,
+        max_tokens: u64,
+        max_token_overlap: u64,
+    ) -> Result<Vec<String>, TextSplitterError> {
+        let closing_tag_pattern = Regex::new(&self.pattern).unwrap();
+        let mut splits: Vec<String> = Vec::new();
+        let mut start_index = 0;
+
+        for mat in closing_tag_pattern.find_iter(doc) {
+            let end_index = mat.end();
+            let part = &doc[(start_index + 1)..end_index];
+            splits.push(part.to_string());
+            start_index = end_index;
+        }
+        let mut chunks: Vec<String> = Vec::new();
+        for split in splits {
+            let tokens = self.tokenize_encode(vec![split]).await?;
+            let flattened_tokens = tokens.into_iter().flatten().collect();
+            let split_chunks = self
+                .merge(flattened_tokens, max_tokens, max_token_overlap)
+                .await?;
+            chunks.extend(split_chunks);
+        }
+
+        Ok(chunks)
+    }
+
+    async fn tokenize(
+        &self,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
+        self.embedding_router
+            .tokenize_text(input, self.model.clone())
+            .await
+    }
+
+    async fn tokenize_encode(
+        &self,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
+        self.embedding_router
+            .tokenize_encode(input, self.model.clone())
+            .await
+    }
+
+    async fn tokenize_decode(
+        &self,
+        input: Vec<Vec<i64>>,
+    ) -> Result<Vec<String>, EmbeddingGeneratorError> {
+        self.embedding_router
+            .tokenize_decode(input, self.model.clone())
+            .await
+    }
+}
 
 #[cfg(test)]
 mod tests {
 
+    use std::fs;
+
+    use crate::{EmbeddingRouter, ServerConfig};
+
     use super::*;
 
-    #[test]
-    fn test_basic_flat_xml() {
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_basic_flat_xml() {
+        let embedding_router =
+            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
         let xml = r#"
-<a id=7 role=combobox title=Search type=search aria-label=Search> </a>
-<l id=0>About</l>
-<l id=1>Store</l>
-<l id=2 aria-label=Gmail (opens a new tab)>Gmail</l>
-<l id=3 aria-label=Search for Images (opens a new tab)>Images</l>
-<b id=4 aria-label=Google apps/>
-"#;
-        let splitter = super::CustomDomSplitter {};
-        let tokens = splitter.tokenize(xml).unwrap();
-        assert_eq!(tokens.len(), 5);
-        assert_eq!(tokens[1], "<l id=0>About</l>");
-    }
-
-    #[test]
-    fn test_char_splitter() {
-        let doc1: String = "foo bar baz a a".into();
-        let splitter = super::SimpleTokenizer {
-            separators: vec![" ".into()],
+    <a id=7 role=combobox title=Search type=search aria-label=Search> </a>
+    <l id=0>About</l>
+    <l id=1>Store</l>
+    <l id=2 aria-label=Gmail (opens a new tab)>Gmail</l>
+    <l id=3 aria-label=Search for Images (opens a new tab)>Images</l>
+    <b id=4 aria-label=Google apps/>
+    "#;
+        let splitter = super::RegexSplitter {
+            pattern: r"<\/[^>]+>".into(),
+            embedding_router,
+            model: "all-minilm-l12-v2".into(),
         };
-        let splitter_tokens = splitter.tokenize(&doc1).unwrap();
-        assert_eq!(5, splitter_tokens.len());
-        let result = splitter.split(&doc1, 3, 1).unwrap();
-        assert_eq!(result, vec!["foobarbaz", "bazaa", "a"]);
+        let chunks = splitter.split(xml, 512, 0).await.unwrap();
+        assert_eq!(chunks.len(), 5);
+        // TODO fix the decoding of tokens to exclude all the whitespaces.
+        assert_eq!(chunks[1], "< l id = 0 > about < / l >");
     }
 
-    #[test]
-    fn test_recursive_text_splitter() {
-        let doc1: String = "foo bar baz a a".into();
-        let splitter = get_splitter("recursive").unwrap();
-        let splitter_tokens = splitter.tokenize(&doc1).unwrap();
-        assert_eq!(11, splitter_tokens.len());
-        let result = splitter.split(&doc1, 3, 1).unwrap();
-        assert_eq!(result, vec!["foo", "oba", "arb", "baz", "zaa", "a"]);
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_new_line_splitter() {
+        let embedding_router =
+            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
+        let splitter = get_splitter(
+            TextSplitterKind::NewLine,
+            embedding_router,
+            "all-minilm-l12-v2".into(),
+        )
+        .unwrap();
+        let doc = fs::read_to_string("./src/text_splitters/state_of_the_union.txt").unwrap();
+        let chunks = splitter.split(&doc, 512, 0).await.unwrap();
+        assert_eq!(chunks.len(), 19);
+
+        let doc1 = "embiid is the mvp";
+        let chunks1 = splitter.split(&doc1, 512, 0).await.unwrap();
+        assert_eq!(chunks1[0], doc1);
+        assert_eq!(chunks1.len(), 1);
     }
 }
