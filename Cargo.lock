@@ -1516,12 +1516,6 @@ dependencies = [
 
 [[package]]
 name = "half"
-version = "1.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
-
-[[package]]
-name = "half"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b4af3693f1b705df946e9fe5631932443781d0aabb423b62fcd4d73f6d2fd0"
@@ -1790,7 +1784,6 @@ dependencies = [
  "strum_macros",
  "thiserror",
  "tokio",
- "torch-sys",
  "tracing",
  "tracing-subscriber",
  "tracing-test",
@@ -3035,13 +3028,12 @@ dependencies = [
 
 [[package]]
 name = "rust-bert"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82fc88f12e83c88ec44d2b64eaca46937f3c1159d8b038e1502c897388f7e69b"
+version = "0.20.1-alpha"
+source = "git+https://github.com/guillaume-be/rust-bert.git#5f9500c54a4e06cec3c999e20e91a4ab3f93514a"
 dependencies = [
  "cached-path",
  "dirs",
- "half 2.2.1",
+ "half",
  "lazy_static",
  "ordered-float",
  "regex",
@@ -3073,12 +3065,12 @@ dependencies = [
 
 [[package]]
 name = "rust_tokenizers"
-version = "7.0.2"
+version = "8.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "196e3b77b07fd5bfcbc8187ecaef5d5931820d9abd6c3fe0a9dc6d3ddb035d72"
+checksum = "1f367f6b13bc686e822237b97caeb4b2e366dd1936ec204f11d266ede402c31b"
 dependencies = [
  "csv",
- "hashbrown 0.12.3",
+ "hashbrown 0.13.2",
  "itertools",
  "lazy_static",
  "protobuf",
@@ -3180,6 +3172,16 @@ name = "ryu"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f91339c0467de62360649f8d3e185ca8de4224ff281f66000de5eb2a77a79041"
+
+[[package]]
+name = "safetensors"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1d818a2cb3f564a1844be835011acf5c7ec8ad1986a47f73abc7b5fea91cc3a"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "schannel"
@@ -3856,15 +3858,16 @@ dependencies = [
 
 [[package]]
 name = "tch"
-version = "0.10.3"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7682709b8e3df9bc3d37c07117f5f31373efb855e8b4afb3bcc1cea57fd4b2e"
+checksum = "1d16bd7ae15424f3e0f7c47c86ace947c14005c25340ac8c528b5e0ad001bfc8"
 dependencies = [
- "half 1.8.2",
+ "half",
  "lazy_static",
  "libc",
  "ndarray",
  "rand 0.8.5",
+ "safetensors",
  "thiserror",
  "torch-sys",
  "zip",
@@ -4120,13 +4123,15 @@ dependencies = [
 
 [[package]]
 name = "torch-sys"
-version = "0.10.3"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8dcadb2fd6a5cc22e628fee943842bf7a283723ef1cd9e0bd338f54875315ab"
+checksum = "c9f191dd20c1c765c2a4cf1a0edf9b4f3a2ce7cb81a9c2384cc6a7a69f37f1c5"
 dependencies = [
  "anyhow",
  "cc",
  "libc",
+ "serde",
+ "serde_json",
  "ureq",
  "zip",
 ]
@@ -4350,6 +4355,8 @@ dependencies = [
  "log",
  "once_cell",
  "rustls 0.20.8",
+ "serde",
+ "serde_json",
  "url",
  "webpki",
  "webpki-roots",
