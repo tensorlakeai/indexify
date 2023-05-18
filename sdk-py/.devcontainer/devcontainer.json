@@ -1,0 +1,21 @@
+{
+  "name": "Python",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "POETRY_VERSION": "1.3.1",
+      "VARIANT": "3.11"
+    }
+  },
+  "remoteEnv": {
+    "POETRY_VIRTUALENVS_IN_PROJECT": "true",
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+  },
+  "extensions": [
+    "ms-vsliveshare.vsliveshare",
+    "ms-python.python",
+    "EditorConfig.EditorConfig"
+  ],
+  "postCreateCommand": "poetry install",
+  "remoteUser": "vscode"
+}
