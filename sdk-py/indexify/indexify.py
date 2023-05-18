@@ -12,15 +12,16 @@ class ApiException(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
     
-class Metric(Enum):
-    COSINE = 1
-    DOT = 2
+class Metric(str, Enum):
+    COSINE = 'cosine'
+    DOT = 'dot'
+    EUCLIDEAN = 'euclidean'
 
     def __str__(self) -> str:
         return self.name.lower()
 
 
-class TextSplitter(Enum):
+class TextSplitter(str, Enum):
     NEWLINE = "new_line"
     REGEX = "regex"
     NOOP = "noop"
@@ -44,19 +45,18 @@ class Indexify:
         splitter: Optional[str] = TextSplitter.NEWLINE,
         unique_labels=Optional[List[str]],
     ):
-        request_body = json.dumps({"name": name, "embedding_model": embedding_model, "metric": metric, "splitter": splitter, "unique_labels": unique_labels})
-        resp = requests.post(f"{indexify_url}/index/create", data=request_body)
+        req = {"name": name, "embedding_model": embedding_model, "metric": metric, "text_splitter": splitter, "hash_on": unique_labels}
+        resp = requests.post(f"{indexify_url}/index/create", json=req)
         if resp.status_code == 200:
             return cls(indexify_url, name)
         payload = json.loads(resp.text)        
-        raise ApiException(f"Failed to create index: {payload.errors}")
+        raise ApiException(f"Failed to create index: {payload['errors']}")
 
     @classmethod
     def get_index(cls, name: str, indexify_url: Optional[str]):
         return cls(indexify_url, name)
 
-    def add_document(self, document: str, label: str):
-
+    def add_document(self, document: str, attributes: dict):
         pass
 
     def search(self, query: str, top_k: int):
