@@ -10,9 +10,12 @@ nav:
   - Getting Started: 'getting_started.md'
   - API: 'api.md'
   - Configuration: 'configuration.md'
+  - Python SDK: python_sdk.ipynb
   - Integrations:
     - Langchain: 'integrations/langchain.md'
     - Haystack: 'integrations/haystack.md'
+plugins: 
+  - mkdocs-jupyter
 
 theme:
   name: material
