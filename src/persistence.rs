@@ -23,6 +23,9 @@ pub enum RespositoryError {
     #[error("index `{0}` not found")]
     IndexNotFound(String),
 
+    #[error("index `{0}` already exists")]
+    IndexAlreadyExists(String),
+
     #[error("unable to serialize unique params `{0}`")]
     UniqueParamsSerializationError(#[from] serde_json::Error),
 }
@@ -61,7 +64,15 @@ impl Respository {
             unique_params: Set(unique_params),
         };
         let tx = self.conn.begin().await?;
-        let _ = IndexEntity::insert(index).exec(&tx).await?;
+        let insert_result = IndexEntity::insert(index).exec(&tx).await;
+        if let Err(db_err) = insert_result {
+            // TODO Remvoe this hack and drop down to the underlying sqlx error
+            // and check if the error is due to primary key violation
+            if db_err.to_string().contains("code: 1555") {
+                tx.rollback().await?;
+                return Err(RespositoryError::IndexAlreadyExists(index_params.name));
+            }
+        }
         if let Err(err) = vectordb.create_index(index_params.clone()).await {
             tx.rollback().await?;
             return Err(RespositoryError::VectorDb(err));

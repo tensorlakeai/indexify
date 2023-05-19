@@ -26,6 +26,26 @@ pub enum TextSplitterKind {
     NewLine,
 }
 
+async fn merge_tokens(
+    tokens: Vec<i64>,
+    max_tokens_per_chunk: u64,
+    token_overlap: u64,
+) -> Result<Vec<Vec<i64>>, TextSplitterError> {
+    let step_size = max(
+        max_tokens_per_chunk.checked_sub(token_overlap).unwrap_or(1),
+        1,
+    );
+
+    let chunk_tokens: Vec<Vec<i64>> = (0..tokens.len())
+        .step_by(step_size as usize)
+        .map(|start_idx| {
+            let end_idx = usize::min(start_idx + max_tokens_per_chunk as usize, tokens.len());
+            tokens[start_idx..end_idx].to_vec()
+        })
+        .collect();
+    Ok(chunk_tokens)
+}
+
 #[async_trait::async_trait]
 pub trait TextSplitter {
     async fn split(
@@ -34,30 +54,6 @@ pub trait TextSplitter {
         max_tokens: u64,
         max_token_overlap: u64,
     ) -> Result<Vec<String>, TextSplitterError>;
-
-    async fn merge(
-        &self,
-        tokens: Vec<i64>,
-        max_tokens_per_chunk: u64,
-        token_overlap: u64,
-    ) -> Result<Vec<String>, TextSplitterError> {
-        let step_size = max(
-            max_tokens_per_chunk.checked_sub(token_overlap).unwrap_or(1),
-            1,
-        );
-
-        let chunk_tokens: Vec<Vec<i64>> = (0..tokens.len())
-            .step_by(step_size as usize)
-            .map(|start_idx| {
-                let end_idx = usize::min(start_idx + max_tokens_per_chunk as usize, tokens.len());
-                tokens[start_idx..end_idx].to_vec()
-            })
-            .collect();
-
-        self.tokenize_decode(chunk_tokens)
-            .await
-            .map_err(|e| e.into())
-    }
 
     async fn tokenize(
         &self,
@@ -113,10 +109,10 @@ impl TextSplitter for NewLineSplitter {
             .collect::<Vec<String>>();
         let tokens: Vec<Vec<i64>> = self.tokenize_encode(split_across_newlines).await?;
         let flattened_tokens = tokens.into_iter().flatten().collect();
-        let chunks = self
-            .merge(flattened_tokens, max_tokens, max_token_overlap)
-            .await?;
-        Ok(chunks)
+        let chunk_tokens = merge_tokens(flattened_tokens, max_tokens, max_token_overlap).await?;
+        self.tokenize_decode(chunk_tokens)
+            .await
+            .map_err(|e| e.into())
     }
 
     async fn tokenize(
@@ -210,9 +206,12 @@ impl TextSplitter for RegexSplitter {
         for split in splits {
             let tokens = self.tokenize_encode(vec![split]).await?;
             let flattened_tokens = tokens.into_iter().flatten().collect();
+            let split_chunk_tokens =
+                merge_tokens(flattened_tokens, max_tokens, max_token_overlap).await?;
             let split_chunks = self
-                .merge(flattened_tokens, max_tokens, max_token_overlap)
-                .await?;
+                .tokenize_decode(split_chunk_tokens)
+                .await
+                .map_err(|e| TextSplitterError::TokenizerError(e.into()))?;
             chunks.extend(split_chunks);
         }
 
@@ -296,7 +295,7 @@ mod tests {
         assert_eq!(chunks.len(), 19);
 
         let doc1 = "embiid is the mvp";
-        let chunks1 = splitter.split(&doc1, 512, 0).await.unwrap();
+        let chunks1 = splitter.split(doc1, 512, 0).await.unwrap();
         assert_eq!(chunks1[0], doc1);
         assert_eq!(chunks1.len(), 1);
     }
