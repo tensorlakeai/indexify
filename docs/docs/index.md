@@ -5,9 +5,9 @@ Indexify is a knowledge and memory retrieval service for Large Language Models. 
 The service facilitates efficient execution of fine tuned/pre-trained embedding models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
 
 ## Why use Indexify
-* Flexibility: An API based embedding serving and index querying approach allows easy integrations without needing native libraries for every language.
-* Reduced Application Footprint: Embedding Models and their inference runtime like PyTorch to run them are large, Indexify alleviates the need to package them with applications.
-* Pre-trained or Fine-Tuned Embedding Models - Out of the box support for some of the best pre-trained models or serve fine-tuned embedding models.
+* Knowledge Base for LLMs: Provide LLM based applications and agents with knowledge and context from documents and structured data to improve accuracy of inference queries.
+* Improved Embedding Generation: Out of the box support for state of the art embedding models and improve them further by fine tuning them on the target knowledge base which will be used for queries.
+* Memory Engine for Co-Pilot agents - Provide LLM agents and co-pilot temporal context by storage and retreival of relevant memory for personalization and improved accuracy during a co-pilot session.
 
 ## Road Map 
 * Asynchronous index updates for large corpuses of documents.
