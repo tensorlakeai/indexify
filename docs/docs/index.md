@@ -8,6 +8,7 @@ The service facilitates efficient execution of fine tuned/pre-trained embedding 
 * **Knowledge Base for LLMs:** Provide LLM based applications and agents with knowledge and context from documents and structured data to improve accuracy of inference queries.
 * **Improved Embedding Generation:** Out of the box support for state of the art embedding models and improve them further by fine tuning them on the target knowledge base which will be used for queries.
 * **Memory Engine for Co-Pilot agents:** Provide LLM agents and co-pilot temporal context by storage and retreival of relevant memory for personalization and improved accuracy during a co-pilot session.
+* **Real Time Data:** Indexify will keep indexes updated if the source of the data is known, such as a S3 bucket or a database, so LLM models can answer queries that require real time information about the world.
 
 ## Road Map 
 * Asynchronous index updates for large corpuses of documents.
