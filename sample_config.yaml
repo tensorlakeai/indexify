@@ -27,3 +27,6 @@ index_config:
   db_url: sqlite://indexify.db
   qdrant_config:
     addr: "http://172.20.0.8:6334"
+
+memory_config:
+  policy: simple

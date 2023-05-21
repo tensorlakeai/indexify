@@ -1,8 +1,9 @@
 use crate::index::{IndexManager, Text};
 use crate::text_splitters::TextSplitterKind;
-use crate::{CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig};
+use crate::{CreateIndexParams, EmbeddingRouter, ConversationHistoryRouter, MetricKind, ServerConfig};
 
 use super::embeddings::EmbeddingGenerator;
+use super::memory::ConversationHistory;
 use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
@@ -67,6 +68,18 @@ enum ApiTextSplitterKind {
     Regex { pattern: String },
 }
 
+#[derive(SmartDefault, Debug, Serialize, Deserialize)]
+enum  MemoryPolicy {
+    // Use Simple policy
+    #[default]
+    #[serde(rename = "simple")]
+    Simple,
+
+    // Use Windows
+    #[serde(rename = "window")]
+    Window,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename = "metric")]
 enum IndexMetric {
@@ -125,6 +138,17 @@ struct SearchRequest {
     k: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ConversationHistoryCreateRequest {
+    /// The memory policy for storing and retrieving from conversation history.
+    memory_policy: MemoryPolicy,
+}
+
+struct ConversationHistoryCreateResponse {
+    errors: Vec<String>,
+}
+
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct DocumentFragment {
     text: String,
@@ -138,6 +162,8 @@ struct IndexSearchResponse {
 }
 
 type IndexEndpointState = (Arc<Option<IndexManager>>, Arc<EmbeddingRouter>);
+
+type ConversationHistoryState = (Arc<Option<IndexManager>>, Arc<ConversationHistoryRouter>);
 
 pub struct Server {
     addr: SocketAddr,
@@ -165,6 +191,7 @@ impl Server {
     /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
+        let conversation_history_router = Arc::new(ConversationHistoryRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
@@ -322,6 +349,27 @@ async fn add_texts(
 
     (StatusCode::OK, Json(IndexAdditionResponse::default()))
 }
+
+// #[axum_macros::debug_handler]
+// async fn create_conversation_history(
+//     State(conversation_history_args): State<Arc<dyn ConversationHistory + Sync + Send>>,
+//     Json(payload): Json<ConversationHistoryCreateRequest>,
+// ) -> (StatusCode, Json<ConversationHistoryCreateResponse>) {
+
+//     let result = ConversationHistory::new(payload.name.clone(), payload.memory_policy.clone()).await;
+
+//     if let Err(err) = result {
+//         return (
+//             StatusCode::INTERNAL_SERVER_ERROR,
+//             Json(ConversationHistoryCreateResponse {
+//                 errors: vec![err.to_string()],
+//             }),
+//         );
+//     } else {
+//         result
+//     }
+
+// }
 
 #[axum_macros::debug_handler]
 async fn index_search(
