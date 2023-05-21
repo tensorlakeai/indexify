@@ -3,3 +3,4 @@ target
 *.db
 ve
 site
+*.pyc
