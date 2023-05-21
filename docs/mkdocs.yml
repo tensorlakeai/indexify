@@ -11,6 +11,7 @@ nav:
   - API: 'api.md'
   - Configuration: 'configuration.md'
   - Python SDK: python_sdk.ipynb
+  - Develop Indexify: 'develop.md'
   - Integrations:
     - Langchain: 'integrations/langchain.md'
     - Haystack: 'integrations/haystack.md'
