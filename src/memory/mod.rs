@@ -5,7 +5,7 @@ use super::server_config::{
     self, MemoryPolicyKind::Simple, MemoryPolicyKind::Window,
 };
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::info;
 
@@ -27,9 +27,13 @@ pub enum ConversationHistoryError {
     /// An error that occurs when the required configuration is missing for a memory policy.
     #[error("configuration `{0}`, missing for memory policy `{1}`")]
     ConfigurationError(String, String),
+
+    /// An error that occurs with Mutex.
+    #[error("mutex lock error")]
+    MutexLockError()
 }
 
-pub type ConversationHistoryTS = Arc<dyn ConversationHistory + Sync + Send>;
+pub type ConversationHistoryTS = Arc<Mutex<dyn ConversationHistory + Sync + Send>>;
 
 /// A trait that defines the interface for interacting with conversation history store.
 pub trait ConversationHistory {
@@ -84,11 +88,11 @@ impl ConversationHistoryRouter {
             );
             match policy.policy_kind {
                 Simple => {
-                    let simple_memory_router = Arc::new(SimpleConversationHistory::new());
+                    let simple_memory_router = Arc::new(Mutex::new(SimpleConversationHistory::new()));
                     router.insert(policy.policy_kind.to_string(), simple_memory_router);
                 }
                 Window => {
-                    let window_memory_router = Arc::new(WindowConversationHistory::new(policy.window_size));
+                    let window_memory_router = Arc::new(Mutex::new(WindowConversationHistory::new(policy.window_size)));
                     router.insert(policy.policy_kind.to_string(), window_memory_router);
                 }
                 _ => {
@@ -116,16 +120,23 @@ impl ConversationHistoryRouter {
 }
 
 impl ConversationHistory for ConversationHistoryRouter {
+
     fn add_turn(
         &mut self,
         policy: String,
         turn: String,
     ) -> Result<(), ConversationHistoryError> {
-        let conversation_history = self
+        let conversation_history_mutex = self
             .router
             .get(&policy)
-            .ok_or(ConversationHistoryError::PolicyNotFound(policy.clone()))?;
-        conversation_history.add_turn(policy, turn);
+            .ok_or_else(|| ConversationHistoryError::PolicyNotFound(policy.clone()))?
+            .clone();
+
+        let mut conversation_history_lock = conversation_history_mutex
+            .lock()
+            .map_err(|_| ConversationHistoryError::MutexLockError())?;
+
+        conversation_history_lock.add_turn(policy, turn);
         Ok(())
     }
 
@@ -134,10 +145,16 @@ impl ConversationHistory for ConversationHistoryRouter {
         policy: String,
         query: String,
     ) -> Result<Vec<String>, ConversationHistoryError> {
-        let conversation_history = self
+        let conversation_history_mutex = self
             .router
             .get(&policy)
-            .ok_or(ConversationHistoryError::PolicyNotFound(policy.clone()))?;
-        conversation_history.retrieve_history(policy, query)
+            .ok_or_else(|| ConversationHistoryError::PolicyNotFound(policy.clone()))?
+            .clone();
+
+        let mut conversation_history_lock = conversation_history_mutex
+            .lock()
+            .map_err(|_| ConversationHistoryError::MutexLockError())?;
+
+        conversation_history_lock.retrieve_history(policy, query)
     }
 }

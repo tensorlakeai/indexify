@@ -3,15 +3,15 @@ use std::collections::HashMap;
 struct ListNode {
     key: u64,
     value: String,
-    prev: Option<Box<ListNode>>,
-    next: Option<Box<ListNode>>,
+    prev: Option<Arc<ListNode>>,
+    next: Option<Arc<ListNode>>,
 }
 
 struct LRUCache {
     capacity: usize,
-    map: HashMap<u64, Box<ListNode>>,
-    head: Option<Box<ListNode>>,
-    tail: Option<Box<ListNode>>,
+    map: HashMap<u64, Arc<ListNode>>,
+    head: Option<Arc<ListNode>>,
+    tail: Option<Arc<ListNode>>,
 }
 
 impl LRUCache {
@@ -38,7 +38,7 @@ impl LRUCache {
             node.value = value;
             self.update_usage(node);
         } else {
-            let new_node = Box::new(ListNode {
+            let new_node = Arc::new(ListNode {
                 key,
                 value,
                 prev: None,
@@ -66,7 +66,7 @@ impl LRUCache {
         }
     }
 
-    fn update_usage(&mut self, node: &mut Box<ListNode>) {
+    fn update_usage(&mut self, node: &mut Arc<ListNode>) {
         if let Some(prev) = node.prev.take() {
             prev.next = node.next.take();
             if let Some(next) = prev.next.as_mut() {
