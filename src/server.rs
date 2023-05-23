@@ -150,6 +150,7 @@ struct ConversationHistoryAddRequest {
     turn: String,
 }
 
+#[derive(Serialize, Deserialize)]
 struct ConversationHistoryAddResponse {
     errors: Vec<String>,
 }
@@ -161,6 +162,7 @@ struct ConversationHistoryRetrieveRequest {
     query: String,
 }
 
+#[derive(Serialize, Deserialize)]
 struct ConversationHistoryRetrieveResponse {
     history: Vec<String>,
     errors: Vec<String>,
@@ -179,8 +181,6 @@ struct IndexSearchResponse {
 }
 
 type IndexEndpointState = (Arc<Option<IndexManager>>, Arc<EmbeddingRouter>);
-
-type ConversationHistoryState = (Arc<Option<IndexManager>>, Arc<ConversationHistoryRouter>);
 
 pub struct Server {
     addr: SocketAddr,
@@ -208,7 +208,8 @@ impl Server {
     /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let conversation_history_router = Arc::new(ConversationHistoryRouter::new(self.config.clone())?);
+        let conv_history_router = ConversationHistoryRouter::new(self.config.clone())?;
+        let conversation_history_router = Arc::new(Mutex::new(conv_history_router));
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
@@ -235,8 +236,13 @@ impl Server {
                 get(index_search).with_state((index_manager.clone(), embedding_router.clone())),
             )
             .route(
-                "/conversation_history/add",
+                "/memory/add",
                 get(add_conversation_history).with_state(conversation_history_router.clone()),
+            )
+            .route(
+                "/memory/retrieve",
+                get(retrieve_conversation_history)
+                    .with_state(conversation_history_router.clone()),
             );
 
         info!("server is listening at addr {:?}", &self.addr.to_string());
@@ -409,6 +415,52 @@ async fn add_conversation_history(
             StatusCode::OK,
             Json(ConversationHistoryAddResponse {
                 errors: vec![],
+            }),
+        );
+    }
+
+}
+
+#[axum_macros::debug_handler]
+async fn retrieve_conversation_history(
+    State(conversation_history): State<Arc<Mutex<dyn ConversationHistory + Sync + Send>>>,
+    Json(payload): Json<ConversationHistoryRetrieveRequest>,
+) -> (StatusCode, Json<ConversationHistoryRetrieveResponse>) {
+
+    let memory_policy = match payload.memory_policy {
+        MemoryPolicy::Simple => MemoryPolicyKind::Simple,
+        MemoryPolicy::Window => MemoryPolicyKind::Window,
+        MemoryPolicy::Lru => MemoryPolicyKind::Lru,
+    };
+
+    let conversation_history_lock = conversation_history.lock();
+
+    if let Err(err) = conversation_history_lock {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ConversationHistoryRetrieveResponse {
+                errors: vec![err.to_string()],
+                history: vec![],
+            }),
+        );
+    };
+
+    let result = conversation_history_lock.unwrap().retrieve_history(memory_policy.to_string(), payload.query);
+
+    if let Err(err) = result {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ConversationHistoryRetrieveResponse {
+                errors: vec![err.to_string()],
+                history: vec![],
+            }),
+        );
+    } else {
+        return (
+            StatusCode::OK,
+            Json(ConversationHistoryRetrieveResponse {
+                errors: vec![],
+                history: result.unwrap(),
             }),
         );
     }
