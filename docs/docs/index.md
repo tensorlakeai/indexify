@@ -1,8 +1,8 @@
 # Welcome to Indexify
 
-Indexify is a knowledge and memory retrieval service for Large Language Models. It faciliates in-context learning of LLMs by providing relevant context in a prompt or expsing relevant memory to AI agents.
+Indexify is a knowledge and memory retrieval service for Large Language Models. It faciliates in-context learning of LLMs by providing relevant context in a prompt or relevant memory to AI agents.
 
-The service facilitates efficient execution of fine tuned/pre-trained embedding models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
+The service also facilitates efficient execution of fine tuned/pre-trained embedding and other retreival models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
 
 ## Why use Indexify
 * **Knowledge Base for LLMs:** Provide LLM based applications and agents with knowledge and context from documents and structured data to improve accuracy of inference queries.
