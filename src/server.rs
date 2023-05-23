@@ -1,9 +1,10 @@
 use crate::index::{IndexManager, Text};
 use crate::text_splitters::TextSplitterKind;
-use crate::{CreateIndexParams, EmbeddingRouter, ConversationHistoryRouter, MetricKind, ServerConfig};
+use crate::{CreateIndexParams, EmbeddingRouter, ConversationHistoryRouter, MetricKind, ServerConfig, MemoryPolicyKind};
 
 use super::embeddings::EmbeddingGenerator;
 use super::memory::ConversationHistory;
+
 use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
@@ -15,7 +16,7 @@ use std::collections::HashMap;
 
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Request payload for generating text embeddings.
 #[derive(Debug, Serialize, Deserialize)]
@@ -78,6 +79,10 @@ enum  MemoryPolicy {
     // Use Windows
     #[serde(rename = "window")]
     Window,
+
+    // Use LRU
+    #[serde(rename = "lru")]
+    Lru,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -139,15 +144,27 @@ struct SearchRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ConversationHistoryCreateRequest {
+struct ConversationHistoryAddRequest {
     /// The memory policy for storing and retrieving from conversation history.
     memory_policy: MemoryPolicy,
+    turn: String,
 }
 
-struct ConversationHistoryCreateResponse {
+struct ConversationHistoryAddResponse {
     errors: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ConversationHistoryRetrieveRequest {
+    /// The memory policy for storing and retrieving from conversation history.
+    memory_policy: MemoryPolicy,
+    query: String,
+}
+
+struct ConversationHistoryRetrieveResponse {
+    history: Vec<String>,
+    errors: Vec<String>,
+}
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct DocumentFragment {
@@ -216,6 +233,10 @@ impl Server {
             .route(
                 "/index/search",
                 get(index_search).with_state((index_manager.clone(), embedding_router.clone())),
+            )
+            .route(
+                "/conversation_history/add",
+                get(add_conversation_history).with_state(conversation_history_router.clone()),
             );
 
         info!("server is listening at addr {:?}", &self.addr.to_string());
@@ -350,26 +371,49 @@ async fn add_texts(
     (StatusCode::OK, Json(IndexAdditionResponse::default()))
 }
 
-// #[axum_macros::debug_handler]
-// async fn create_conversation_history(
-//     State(conversation_history_args): State<Arc<dyn ConversationHistory + Sync + Send>>,
-//     Json(payload): Json<ConversationHistoryCreateRequest>,
-// ) -> (StatusCode, Json<ConversationHistoryCreateResponse>) {
 
-//     let result = ConversationHistory::new(payload.name.clone(), payload.memory_policy.clone()).await;
+#[axum_macros::debug_handler]
+async fn add_conversation_history(
+    State(conversation_history): State<Arc<Mutex<dyn ConversationHistory + Sync + Send>>>,
+    Json(payload): Json<ConversationHistoryAddRequest>,
+) -> (StatusCode, Json<ConversationHistoryAddResponse>) {
 
-//     if let Err(err) = result {
-//         return (
-//             StatusCode::INTERNAL_SERVER_ERROR,
-//             Json(ConversationHistoryCreateResponse {
-//                 errors: vec![err.to_string()],
-//             }),
-//         );
-//     } else {
-//         result
-//     }
+    let memory_policy = match payload.memory_policy {
+        MemoryPolicy::Simple => MemoryPolicyKind::Simple,
+        MemoryPolicy::Window => MemoryPolicyKind::Window,
+        MemoryPolicy::Lru => MemoryPolicyKind::Lru,
+    };
 
-// }
+    let conversation_history_lock = conversation_history.lock();
+
+    if let Err(err) = conversation_history_lock {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ConversationHistoryAddResponse {
+                errors: vec![err.to_string()],
+            }),
+        );
+    };
+
+    let result = conversation_history_lock.unwrap().add_turn(memory_policy.to_string(), payload.turn);
+
+    if let Err(err) = result {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ConversationHistoryAddResponse {
+                errors: vec![err.to_string()],
+            }),
+        );
+    } else {
+        return (
+            StatusCode::OK,
+            Json(ConversationHistoryAddResponse {
+                errors: vec![],
+            }),
+        );
+    }
+
+}
 
 #[axum_macros::debug_handler]
 async fn index_search(

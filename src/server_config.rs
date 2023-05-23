@@ -55,6 +55,8 @@ pub enum MemoryPolicyKind {
     Simple,
     #[serde(rename = "window")]
     Window,
+    #[serde(rename = "lru")]
+    Lru,
 }
 
 /// Enum representing the different kinds of devices on which the text embedding models can be run.

@@ -29,8 +29,8 @@ pub enum ConversationHistoryError {
     ConfigurationError(String, String),
 
     /// An error that occurs with Mutex.
-    #[error("mutex lock error")]
-    MutexLockError()
+    #[error("mutex lock error: `{0}`")]
+    MutexLockError(String)
 }
 
 pub type ConversationHistoryTS = Arc<Mutex<dyn ConversationHistory + Sync + Send>>;
@@ -97,7 +97,7 @@ impl ConversationHistoryRouter {
                 }
                 _ => {
                     return Err(ConversationHistoryError::InternalError(format!(
-                        "policy kind `{}` not supported",
+                        "policy `{}` not supported",
                         policy.policy_kind
                     )))
                 }
@@ -134,9 +134,11 @@ impl ConversationHistory for ConversationHistoryRouter {
 
         let mut conversation_history_lock = conversation_history_mutex
             .lock()
-            .map_err(|_| ConversationHistoryError::MutexLockError())?;
+            .map_err(|e| ConversationHistoryError::MutexLockError(e.to_string()))?;
 
-        conversation_history_lock.add_turn(policy, turn);
+        conversation_history_lock.add_turn(policy, turn)
+            .map_err(|e| ConversationHistoryError::InternalError(e.to_string()))?;
+
         Ok(())
     }
 
@@ -151,9 +153,9 @@ impl ConversationHistory for ConversationHistoryRouter {
             .ok_or_else(|| ConversationHistoryError::PolicyNotFound(policy.clone()))?
             .clone();
 
-        let mut conversation_history_lock = conversation_history_mutex
+        let conversation_history_lock = conversation_history_mutex
             .lock()
-            .map_err(|_| ConversationHistoryError::MutexLockError())?;
+            .map_err(|e| ConversationHistoryError::MutexLockError(e.to_string()))?;
 
         conversation_history_lock.retrieve_history(policy, query)
     }
