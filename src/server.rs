@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+
 /// Request payload for generating text embeddings.
 #[derive(Debug, Serialize, Deserialize)]
 struct GenerateEmbeddingRequest {

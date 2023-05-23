@@ -28,5 +28,5 @@ index_config:
   qdrant_config:
     addr: "http://172.20.0.8:6334"
 
-memory_config:
-  policy: simple
+memory_policies:
+- policy: simple
