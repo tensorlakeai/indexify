@@ -32,36 +32,25 @@ enum Commands {
     },
 }
 
-/// The entry point of the Indexify Server CLI.
-/// This function parses the command-line arguments, executes the specified subcommand,
-/// and handles any errors that may occur.
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize the tracing subscriber for logging.
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // Parse the command-line arguments.
     let args = Cli::parse();
-    // Execute the specified subcommand.
     match args.command {
         Commands::Start { config_path } => {
             info!("starting indexify server....");
 
-            // Load the server configuration from the specified file.
             let config = indexify::ServerConfig::from_path(config_path)?;
-            // Create a new server instance with the loaded configuration.
             let server = indexify::Server::new(Arc::new(config))?;
-            // Start the server and wait for it to complete.
             server.run().await?
         }
         Commands::InitConfig { config_path } => {
-            // Print a message indicating the location of the new configuration file.
             println!("Initializing config file at: {}", &config_path);
-            // Generate a new configuration file at the specified path.
             indexify::ServerConfig::generate(config_path).unwrap();
         }
     }
-    // Return success.
     Ok(())
 }

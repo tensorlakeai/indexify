@@ -42,11 +42,10 @@ impl QdrantDb {
         }
     }
 
-    async fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
+    fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
         let client_config = QdrantClientConfig::from_url(&self.qdrant_config.addr);
         let client = QdrantClient::new(Some(client_config))
-            .await
-            .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
+            .map_err(|e| VectorDbError::InternalError(e.to_string()))?;
         Ok(client)
     }
 
@@ -67,12 +66,12 @@ impl VectorDb for QdrantDb {
 
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
         let _collection = self
-            .create_client()
-            .await?
+            .create_client()?
             .create_collection(&CreateCollection {
                 collection_name: index.name,
                 vectors_config: Some(VectorsConfig {
                     config: Some(Config::Params(VectorParams {
+                        on_disk: None,
                         size: index.vector_dim,
                         distance: Self::to_distance(index.metric).into(),
                         hnsw_config: None,
@@ -108,8 +107,7 @@ impl VectorDb for QdrantDb {
             ));
         }
         let _result = self
-            .create_client()
-            .await?
+            .create_client()?
             .upsert_points(&index, points, None)
             .await
             .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
@@ -123,8 +121,7 @@ impl VectorDb for QdrantDb {
         k: u64,
     ) -> Result<Vec<SearchResult>, VectorDbError> {
         let result = self
-            .create_client()
-            .await?
+            .create_client()?
             .search_points(&SearchPoints {
                 collection_name: index,
                 vector: query_embedding,
@@ -151,11 +148,7 @@ impl VectorDb for QdrantDb {
     }
 
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
-        let result = self
-            .create_client()
-            .await?
-            .delete_collection(index.clone())
-            .await;
+        let result = self.create_client()?.delete_collection(index.clone()).await;
         if let Err(err) = result {
             if err.to_string().contains("doesn't exist") {
                 return Ok(());
@@ -167,8 +160,7 @@ impl VectorDb for QdrantDb {
 
     async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
         let result = self
-            .create_client()
-            .await?
+            .create_client()?
             .collection_info(index)
             .await
             .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;

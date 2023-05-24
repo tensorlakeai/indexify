@@ -38,6 +38,10 @@ pub enum EmbeddingModelKind {
     #[serde(rename = "text-embedding-ada-002")]
     #[strum(serialize = "text-embedding-ada-002")]
     OpenAIAda02,
+
+    #[serde(rename = "dpr")]
+    #[strum(serialize = "dpr")]
+    DPRModel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
@@ -221,7 +225,7 @@ mod tests {
     fn pasrse_config() {
         // Uses the sample config file to test the config parsing
         let config = super::ServerConfig::from_path("sample_config.yaml".to_string()).unwrap();
-        assert_eq!(2, config.available_models.len());
+        assert_eq!(3, config.available_models.len());
         assert_eq!(OPENAI_DUMMY_KEY, config.openai.unwrap().api_key);
         assert_eq!(
             config.index_config.clone().unwrap().index_store,

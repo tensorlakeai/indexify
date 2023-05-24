@@ -46,6 +46,9 @@ pub enum VectorDbError {
     #[error("error creating index: `{0}`")]
     IndexCreationError(String),
 
+    #[error("internal error: `{0}")]
+    InternalError(String),
+
     #[error("error writing to index: `{0}`")]
     IndexWriteError(String),
 

@@ -27,9 +27,9 @@ impl MemorySession for WindowMemorySession {
     fn retrieve_history(&mut self, _query: String) -> Result<Vec<String>, MemorySessionError> {
         let total_turns = self.turns.len();
         if total_turns == 0 {
-            return Err(MemorySessionError::InternalError(format!(
-                "No records found in memory."
-            )));
+            Err(MemorySessionError::InternalError(
+                "No records found in memory.".to_string(),
+            ))
         } else if self.window_size <= total_turns {
             let start_index = total_turns - self.window_size;
             Ok(self.turns[start_index..].to_vec())
@@ -55,7 +55,7 @@ mod tests {
         let mut memory = WindowMemorySession::new(session_id, Some(2));
         memory
             .add_turn("Value 1".to_string())
-            .map_err(|e| return MemorySessionError::InternalError(e.to_string()))
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
             .ok();
         memory
             .add_turn("Value 2".to_string())

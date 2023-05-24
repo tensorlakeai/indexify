@@ -6,7 +6,6 @@ use crate::{
     ServerConfig,
 };
 
-use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
@@ -202,25 +201,11 @@ pub struct Server {
     config: Arc<ServerConfig>,
 }
 impl Server {
-    /// Creates a new instance of the `Server`.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - An `Arc` containing the server configuration.
-    ///
-    /// # Returns
-    ///
-    /// * A result containing the new `Server` instance if successful, or an error if the address cannot be parsed.
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
         let addr: SocketAddr = config.listen_addr.parse()?;
         Ok(Self { addr, config })
     }
 
-    /// Starts the server and begins listening for incoming HTTP requests.
-    ///
-    /// # Returns
-    ///
-    /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let memory_session_router: Arc<MemorySessionRouter> =
@@ -262,6 +247,18 @@ impl Server {
                 "/memory/retrieve",
                 get(retrieve_records).with_state(memory_session_router.clone()),
             );
+        //.route(
+        //    "/memory/create",
+        //    get(create_memory_session).with_state(memory_session_router.clone()),
+        //)
+        //.route(
+        //    "/memory/add",
+        //    get(add_record).with_state(memory_session_router.clone()),
+        //)
+        //.route(
+        //    "/memory/retrieve",
+        //    get(retrieve_records).with_state(memory_session_router.clone()),
+        //);
 
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
@@ -305,8 +302,8 @@ async fn index_create(
             }),
         );
     }
-    let try_dim = index_args.1.dimensions(payload.embedding_model.clone());
-    if let Err(err) = try_dim {
+    let try_model = index_args.1.get_model(payload.embedding_model.clone());
+    if let Err(err) = try_model {
         return (
             StatusCode::BAD_REQUEST,
             Json(IndexCreateResponse {
@@ -314,9 +311,10 @@ async fn index_create(
             }),
         );
     }
+    let dim = try_model.unwrap().dimensions();
     let index_params = CreateIndexParams {
         name: payload.name.clone(),
-        vector_dim: try_dim.unwrap(),
+        vector_dim: dim,
         metric: match payload.metric {
             IndexMetric::Cosine => MetricKind::Cosine,
             IndexMetric::Dot => MetricKind::Dot,
@@ -357,7 +355,6 @@ async fn add_texts(
         );
     }
     let index_manager = index_args.0.as_ref().as_ref().unwrap();
-    info!("server handler 1111");
     let try_index = index_manager.load(payload.index).await;
     if let Err(err) = try_index {
         return (
@@ -386,7 +383,6 @@ async fn add_texts(
             metadata: d.metadata.to_owned(),
         })
         .collect();
-    info!("server handler");
     let result = index.add_texts(texts).await;
     if let Err(err) = result {
         return (
@@ -434,17 +430,17 @@ async fn add_record(
     let result = memory_manager.add_turn(payload.session_id, payload.turn);
 
     if let Err(err) = result {
-        return (
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(MemorySessionAddResponse {
                 errors: vec![err.to_string()],
             }),
-        );
+        )
     } else {
-        return (
+        (
             StatusCode::OK,
             Json(MemorySessionAddResponse { errors: vec![] }),
-        );
+        )
     }
 }
 
@@ -456,21 +452,21 @@ async fn retrieve_records(
     let result = memory_manager.retrieve_history(payload.session_id, payload.query);
 
     if let Err(err) = result {
-        return (
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(MemorySessionRetrieveResponse {
                 errors: vec![err.to_string()],
                 history: vec![],
             }),
-        );
+        )
     } else {
-        return (
+        (
             StatusCode::OK,
             Json(MemorySessionRetrieveResponse {
                 errors: vec![],
                 history: result.unwrap(),
             }),
-        );
+        )
     }
 }
 
@@ -556,13 +552,12 @@ async fn list_embedding_models(
     let model_names = embedding_router.list_models();
     let mut models: Vec<EmbeddingModel> = Vec::new();
     // For each model name, retrieve its dimensions and create an EmbeddingModel object.
-    for model in model_names {
-        if let Ok(dimensions) = embedding_router.dimensions(model.clone()) {
-            models.push(EmbeddingModel {
-                name: model.clone(),
-                dimensions,
-            })
-        }
+    for model_name in model_names {
+        let model = embedding_router.get_model(model_name.clone()).unwrap();
+        models.push(EmbeddingModel {
+            name: model_name.clone(),
+            dimensions: model.dimensions(),
+        })
     }
     // Return the list of available models in the response.
     Json(ListEmbeddingModelsResponse { models })
@@ -583,11 +578,22 @@ async fn list_embedding_models(
 ///   contains the generated embeddings if successful, or an error message if an error occurred.
 #[axum_macros::debug_handler]
 async fn generate_embedding(
-    State(embedding_generator): State<Arc<dyn EmbeddingGenerator + Sync + Send>>,
+    State(embedding_router): State<Arc<EmbeddingRouter>>,
     Json(payload): Json<GenerateEmbeddingRequest>,
 ) -> (StatusCode, Json<GenerateEmbeddingResponse>) {
-    let embeddings = embedding_generator
-        .generate_embeddings(payload.inputs, payload.model)
+    let try_embedding_generator = embedding_router.get_model(payload.model);
+    if let Err(err) = &try_embedding_generator {
+        return (
+            StatusCode::NOT_ACCEPTABLE,
+            Json(GenerateEmbeddingResponse {
+                embeddings: None,
+                error: Some(err.to_string()),
+            }),
+        );
+    }
+    let embeddings = try_embedding_generator
+        .unwrap()
+        .generate_embeddings(payload.inputs)
         .await;
 
     if let Err(err) = embeddings {

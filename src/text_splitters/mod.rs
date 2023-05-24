@@ -27,16 +27,16 @@ pub enum TextSplitterKind {
 }
 
 async fn merge_tokens(
-    tokens: Vec<i64>,
+    tokens: Vec<u64>,
     max_tokens_per_chunk: u64,
     token_overlap: u64,
-) -> Result<Vec<Vec<i64>>, TextSplitterError> {
+) -> Result<Vec<Vec<u64>>, TextSplitterError> {
     let step_size = max(
         max_tokens_per_chunk.checked_sub(token_overlap).unwrap_or(1),
         1,
     );
 
-    let chunk_tokens: Vec<Vec<i64>> = (0..tokens.len())
+    let chunk_tokens: Vec<Vec<u64>> = (0..tokens.len())
         .step_by(step_size as usize)
         .map(|start_idx| {
             let end_idx = usize::min(start_idx + max_tokens_per_chunk as usize, tokens.len());
@@ -55,44 +55,35 @@ pub trait TextSplitter {
         max_token_overlap: u64,
     ) -> Result<Vec<String>, TextSplitterError>;
 
-    async fn tokenize(
-        &self,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError>;
-
     async fn tokenize_encode(
         &self,
         input: Vec<String>,
-    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError>;
+    ) -> Result<Vec<Vec<u64>>, EmbeddingGeneratorError>;
 
     async fn tokenize_decode(
         &self,
-        input: Vec<Vec<i64>>,
+        input: Vec<Vec<u64>>,
     ) -> Result<Vec<String>, EmbeddingGeneratorError>;
 }
 
 pub fn get_splitter(
     kind: TextSplitterKind,
-    embedding_router: EmbeddingGeneratorTS,
-    model: String,
+    embedding_generator: EmbeddingGeneratorTS,
 ) -> Result<TextSplitterTS, TextSplitterError> {
     match kind {
         TextSplitterKind::NewLine => Ok(Arc::new(NewLineSplitter {
-            embedding_router,
-            model,
+            embedding_generator,
         })),
         TextSplitterKind::Regex { pattern: p } => Ok(Arc::new(RegexSplitter {
             pattern: p,
-            embedding_router,
-            model,
+            embedding_generator,
         })),
         TextSplitterKind::Noop => Ok(Arc::new(NoOpTextSplitter)),
     }
 }
 
 pub struct NewLineSplitter {
-    embedding_router: EmbeddingGeneratorTS,
-    model: String,
+    embedding_generator: EmbeddingGeneratorTS,
 }
 
 #[async_trait::async_trait]
@@ -107,7 +98,7 @@ impl TextSplitter for NewLineSplitter {
             .split('\n')
             .map(|s| s.to_owned())
             .collect::<Vec<String>>();
-        let tokens: Vec<Vec<i64>> = self.tokenize_encode(split_across_newlines).await?;
+        let tokens: Vec<Vec<u64>> = self.tokenize_encode(split_across_newlines).await?;
         let flattened_tokens = tokens.into_iter().flatten().collect();
         let chunk_tokens = merge_tokens(flattened_tokens, max_tokens, max_token_overlap).await?;
         self.tokenize_decode(chunk_tokens)
@@ -115,31 +106,18 @@ impl TextSplitter for NewLineSplitter {
             .map_err(|e| e.into())
     }
 
-    async fn tokenize(
-        &self,
-        inputs: Vec<String>,
-    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
-        self.embedding_router
-            .tokenize_text(inputs, self.model.clone())
-            .await
-    }
-
     async fn tokenize_encode(
         &self,
         input: Vec<String>,
-    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
-        self.embedding_router
-            .tokenize_encode(input, self.model.clone())
-            .await
+    ) -> Result<Vec<Vec<u64>>, EmbeddingGeneratorError> {
+        self.embedding_generator.tokenize_encode(input).await
     }
 
     async fn tokenize_decode(
         &self,
-        input: Vec<Vec<i64>>,
+        input: Vec<Vec<u64>>,
     ) -> Result<Vec<String>, EmbeddingGeneratorError> {
-        self.embedding_router
-            .tokenize_decode(input, self.model.clone())
-            .await
+        self.embedding_generator.tokenize_decode(input).await
     }
 }
 
@@ -156,23 +134,16 @@ impl TextSplitter for NoOpTextSplitter {
         Ok(vec![doc.to_owned()])
     }
 
-    async fn tokenize(
-        &self,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
-        Ok(vec![input])
-    }
-
     async fn tokenize_encode(
         &self,
         _input: Vec<String>,
-    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
+    ) -> Result<Vec<Vec<u64>>, EmbeddingGeneratorError> {
         Ok(vec![vec![]])
     }
 
     async fn tokenize_decode(
         &self,
-        _input: Vec<Vec<i64>>,
+        _input: Vec<Vec<u64>>,
     ) -> Result<Vec<String>, EmbeddingGeneratorError> {
         Ok(vec![])
     }
@@ -180,8 +151,7 @@ impl TextSplitter for NoOpTextSplitter {
 
 pub struct RegexSplitter {
     pub pattern: String,
-    pub embedding_router: EmbeddingGeneratorTS,
-    pub model: String,
+    pub embedding_generator: EmbeddingGeneratorTS,
 }
 
 #[async_trait::async_trait]
@@ -218,31 +188,18 @@ impl TextSplitter for RegexSplitter {
         Ok(chunks)
     }
 
-    async fn tokenize(
-        &self,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<String>>, EmbeddingGeneratorError> {
-        self.embedding_router
-            .tokenize_text(input, self.model.clone())
-            .await
-    }
-
     async fn tokenize_encode(
         &self,
         input: Vec<String>,
-    ) -> Result<Vec<Vec<i64>>, EmbeddingGeneratorError> {
-        self.embedding_router
-            .tokenize_encode(input, self.model.clone())
-            .await
+    ) -> Result<Vec<Vec<u64>>, EmbeddingGeneratorError> {
+        self.embedding_generator.tokenize_encode(input).await
     }
 
     async fn tokenize_decode(
         &self,
-        input: Vec<Vec<i64>>,
+        input: Vec<Vec<u64>>,
     ) -> Result<Vec<String>, EmbeddingGeneratorError> {
-        self.embedding_router
-            .tokenize_decode(input, self.model.clone())
-            .await
+        self.embedding_generator.tokenize_decode(input).await
     }
 }
 
@@ -251,15 +208,14 @@ mod tests {
 
     use std::fs;
 
-    use crate::{EmbeddingRouter, ServerConfig};
+    use crate::sentence_transformers;
 
     use super::*;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_basic_flat_xml() {
-        let embedding_router =
-            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
+        let model = Arc::new(sentence_transformers::AllMiniLmL6V2::new().unwrap());
         let xml = r#"
     <a id=7 role=combobox title=Search type=search aria-label=Search> </a>
     <l id=0>About</l>
@@ -270,8 +226,7 @@ mod tests {
     "#;
         let splitter = super::RegexSplitter {
             pattern: r"<\/[^>]+>".into(),
-            embedding_router,
-            model: "all-minilm-l12-v2".into(),
+            embedding_generator: model,
         };
         let chunks = splitter.split(xml, 512, 0).await.unwrap();
         assert_eq!(chunks.len(), 5);
@@ -282,14 +237,8 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_new_line_splitter() {
-        let embedding_router =
-            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
-        let splitter = get_splitter(
-            TextSplitterKind::NewLine,
-            embedding_router,
-            "all-minilm-l12-v2".into(),
-        )
-        .unwrap();
+        let model = Arc::new(sentence_transformers::AllMiniLmL6V2::new().unwrap());
+        let splitter = get_splitter(TextSplitterKind::NewLine, model).unwrap();
         let doc = fs::read_to_string("./src/text_splitters/state_of_the_union.txt").unwrap();
         let chunks = splitter.split(&doc, 512, 0).await.unwrap();
         assert_eq!(chunks.len(), 19);

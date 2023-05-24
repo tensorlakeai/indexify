@@ -25,9 +25,9 @@ impl MemorySession for IndefiniteMemorySession {
     fn retrieve_history(&mut self, _query: String) -> Result<Vec<String>, MemorySessionError> {
         let total_turns = self.turns.len();
         if total_turns == 0 {
-            return Err(MemorySessionError::InternalError(format!(
-                "No records found in memory."
-            )));
+            Err(MemorySessionError::InternalError(
+                "No records found in memory.".to_string(),
+            ))
         } else {
             Ok(self.turns.clone())
         }
@@ -50,7 +50,7 @@ mod tests {
         let mut memory = IndefiniteMemorySession::new(session_id);
         memory
             .add_turn("Value 1".to_string())
-            .map_err(|e| return MemorySessionError::InternalError(e.to_string()))
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
             .ok();
         memory
             .add_turn("Value 2".to_string())
