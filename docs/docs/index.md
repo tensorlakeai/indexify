@@ -1,7 +1,7 @@
 # Welcome to Indexify
 
 Indexify is a knowledge and memory retrieval service for Large Language Models. It facilitates LLMs and Agents to respond to queries related to private data that lives in 
-various private databases and documents. LLM applications can use Indexify to get context and memory about a query in real time, and let the service deal with ingesting external data and agent memory reliably and keeping indexes udpated. 
+various private databases and documents. LLM applications can use Indexify to provide context and memory to an LLM about a query in real time, and let the service deal with ingesting external data and agent memory reliably and keeping indexes udpated. 
 
 The service also facilitates efficient execution of fine tuned/pre-trained embedding and other retreival models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
 
