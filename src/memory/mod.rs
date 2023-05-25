@@ -1,8 +1,9 @@
 mod simple;
 mod window;
+mod lru;
 
 use super::server_config::{
-    self, MemoryPolicyKind::Simple, MemoryPolicyKind::Window,
+    self, MemoryPolicyKind::Simple, MemoryPolicyKind::Window, MemoryPolicyKind::Lru
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -11,6 +12,7 @@ use tracing::info;
 
 use simple::SimpleConversationHistory;
 use window::WindowConversationHistory;
+use lru::LRUCache;
 
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from conversation history.
@@ -46,7 +48,7 @@ pub trait ConversationHistory {
 
     // Retrieves records from Conversation History.
     fn retrieve_history(
-        &self,
+        &mut self,
         memory_policy: String,
         query: String,
     ) -> Result<Vec<String>, ConversationHistoryError>;
@@ -95,11 +97,9 @@ impl ConversationHistoryRouter {
                     let window_memory_router = Arc::new(Mutex::new(WindowConversationHistory::new(policy.window_size)));
                     router.insert(policy.policy_kind.to_string(), window_memory_router);
                 }
-                _ => {
-                    return Err(ConversationHistoryError::InternalError(format!(
-                        "policy `{}` not supported",
-                        policy.policy_kind
-                    )))
+                Lru => {
+                    let lru_memory_router = Arc::new(Mutex::new(LRUCache::new(policy.capacity)));
+                    router.insert(policy.policy_kind.to_string(), lru_memory_router);
                 }
             }
         }
@@ -143,7 +143,7 @@ impl ConversationHistory for ConversationHistoryRouter {
     }
 
     fn retrieve_history(
-        &self,
+        &mut self,
         policy: String,
         query: String,
     ) -> Result<Vec<String>, ConversationHistoryError> {
@@ -153,7 +153,7 @@ impl ConversationHistory for ConversationHistoryRouter {
             .ok_or_else(|| ConversationHistoryError::PolicyNotFound(policy.clone()))?
             .clone();
 
-        let conversation_history_lock = conversation_history_mutex
+        let mut conversation_history_lock = conversation_history_mutex
             .lock()
             .map_err(|e| ConversationHistoryError::MutexLockError(e.to_string()))?;
 

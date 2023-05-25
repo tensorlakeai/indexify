@@ -18,7 +18,7 @@ impl ConversationHistory for SimpleConversationHistory {
         Ok(())
     }
 
-    fn retrieve_history(&self, _policy: String, _query: String) -> Result<Vec<String>, ConversationHistoryError>{
+    fn retrieve_history(&mut self, _policy: String, _query: String) -> Result<Vec<String>, ConversationHistoryError>{
         let total_turns = self.turns.len();
         if total_turns == 0 {
             return Err(ConversationHistoryError::InternalError(format!(
@@ -30,20 +30,16 @@ impl ConversationHistory for SimpleConversationHistory {
     }
 }
 
-// fn main() {
-//     // Create a new conversation
-//     let mut conversation = SimpleConversationHistory::new();
+mod tests {
+    use crate::{memory::simple::SimpleConversationHistory, ConversationHistory, ConversationHistoryError};
 
-//     // Add turns to the conversation
-//     conversation.add_turn("Simple".to_string(), "User: Hello!".to_string());
-//     conversation.add_turn("Simple".to_string(), "LLM: Hi, how can I assist you?".to_string());
-//     conversation.add_turn("Simple".to_string(), "User: I have a question about product X.".to_string());
-
-//     // Retrieve the conversation history
-//     let history = conversation.retrieve_history("Simple".to_string(), "query".to_string());
-
-//     // Print the conversation history
-//     for turn in history {
-//         println!("{}", turn);
-//     }
-// }
+    #[test]
+    fn basic_test() {
+        let mut memory = SimpleConversationHistory::new();
+        memory.add_turn("simple".to_string(), "Value 1".to_string()).map_err(|e| return ConversationHistoryError::InternalError(e.to_string())).ok();
+        memory.add_turn("simple".to_string(), "Value 2".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok();
+        let result = memory.retrieve_history("simple".to_string(), "sample_query".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok().unwrap();
+        let target_result = ["Value 1".to_string(), "Value 2".to_string()].to_vec();
+        assert_eq!(result, target_result);
+    }
+}

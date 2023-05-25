@@ -20,7 +20,7 @@ impl ConversationHistory for WindowConversationHistory {
         Ok(())
     }
 
-    fn retrieve_history(&self, _policy: String, _query: String) -> Result<Vec<String>, ConversationHistoryError> {
+    fn retrieve_history(&mut self, _policy: String, _query: String) -> Result<Vec<String>, ConversationHistoryError> {
         let total_turns = self.turns.len();
         if total_turns == 0 {
             return Err(ConversationHistoryError::InternalError(format!(
@@ -35,28 +35,17 @@ impl ConversationHistory for WindowConversationHistory {
     }
 }
 
-// fn main() {
-//     // Specify the window size
-//     let window_size = 3;
+mod tests {
+    use crate::{memory::window::WindowConversationHistory, ConversationHistory, ConversationHistoryError};
 
-//     // Create ConversationHistory object
-//     let mut conversation = WindowConversationHistory::new(window_size);
-
-//     // Add turns to the conversation
-//     conversation.add_turn("User: Hello!".to_string());
-//     conversation.add_turn("LLM: Hi, how can I assist you?".to_string());
-//     conversation.add_turn("User: I have a question about product X.".to_string());
-//     conversation.add_turn("LLM: Sure, what would you like to know?".to_string());
-//     conversation.add_turn("User: How much does it cost?".to_string());
-//     conversation.add_turn("LLM: The price of product X is $100.".to_string());
-
-//     // Retrieve the conversation history
-//     if let Some(history) = conversation.retrieve_history('Window', 'query') {
-//         // Print the conversation history
-//         for turn in history {
-//             println!("{}", turn);
-//         }
-//     } else {
-//         println!("Window size exceeds the total number of turns in the conversation.");
-//     }
-// }
+    #[test]
+    fn window_test() {
+        let mut memory = WindowConversationHistory::new(Some(2));
+        memory.add_turn("simple".to_string(), "Value 1".to_string()).map_err(|e| return ConversationHistoryError::InternalError(e.to_string())).ok();
+        memory.add_turn("simple".to_string(), "Value 2".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok();
+        memory.add_turn("simple".to_string(), "Value 3".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok();
+        let result = memory.retrieve_history("window".to_string(), "sample_query".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok().unwrap();
+        let target_result = ["Value 2".to_string(), "Value 3".to_string()].to_vec();
+        assert_eq!(result, target_result);
+    }
+}

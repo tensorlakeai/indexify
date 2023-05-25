@@ -1,109 +1,80 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
-struct ListNode {
-    key: u64,
-    value: String,
-    prev: Option<Arc<ListNode>>,
-    next: Option<Arc<ListNode>>,
-}
+use crate::{ConversationHistory, ConversationHistoryError};
 
-struct LRUCache {
+pub struct LRUCache {
     capacity: usize,
-    map: HashMap<u64, Arc<ListNode>>,
-    head: Option<Arc<ListNode>>,
-    tail: Option<Arc<ListNode>>,
+    cache: HashMap<String, String>,
+    history: VecDeque<String>,
 }
 
 impl LRUCache {
-    fn new(capacity: usize) -> Self {
+    pub fn new(capacity: Option<usize>) -> LRUCache {
         LRUCache {
-            capacity,
-            map: HashMap::new(),
-            head: None,
-            tail: None,
+            capacity: capacity.unwrap_or(12),
+            cache: HashMap::new(),
+            history: VecDeque::new(),
         }
     }
 
-    fn get(&mut self, key: u64) -> Option<&str> {
-        if let Some(node) = self.map.get(&key) {
-            self.update_usage(node);
-            Some(&node.value)
-        } else {
-            None
+    fn remove_oldest_entry(&mut self) {
+        if let Some(key) = self.history.pop_front() {
+            self.cache.remove(&key);
         }
     }
 
-    fn put(&mut self, key: u64, value: String) {
-        if let Some(node) = self.map.get_mut(&key) {
-            node.value = value;
-            self.update_usage(node);
-        } else {
-            let new_node = Arc::new(ListNode {
-                key,
-                value,
-                prev: None,
-                next: self.head.take(),
-            });
-
-            if let Some(node) = new_node.next.as_mut() {
-                node.prev = Some(new_node.clone());
-            } else {
-                self.tail = Some(new_node.clone());
-            }
-
-            self.head = Some(new_node);
-            self.map.insert(key, self.head.as_mut().unwrap().clone());
-
-            if self.map.len() > self.capacity {
-                if let Some(node) = self.tail.take() {
-                    self.map.remove(&node.key);
-                    if let Some(prev) = node.prev {
-                        self.tail = Some(prev);
-                        self.tail.as_mut().unwrap().next = None;
-                    }
-                }
-            }
-        }
+    /// TODO: Implement calculate_similarity
+    fn calculate_similarity(_query: &str, _turn: &str) -> f64 {
+        0.0
     }
 
-    fn update_usage(&mut self, node: &mut Arc<ListNode>) {
-        if let Some(prev) = node.prev.take() {
-            prev.next = node.next.take();
-            if let Some(next) = prev.next.as_mut() {
-                next.prev = Some(prev.clone());
-            } else {
-                self.tail = Some(prev.clone());
-            }
-            node.next = self.head.take();
-            if let Some(head) = node.next.as_mut() {
-                head.prev = Some(node.clone());
-            } else {
-                self.tail = Some(node.clone());
-            }
-            self.head = Some(node.clone());
-            self.map.insert(node.key, node.clone());
-        }
+    fn get_size(&self) -> usize {
+        self.history.len()
     }
 }
 
-fn main() {
-    let mut cache = LRUCache::new(2);
-    cache.put(1, "Value 1".to_string());
-    cache.put(2, "Value 2".to_string());
+impl ConversationHistory for LRUCache {
+    fn add_turn(
+        &mut self,
+        _memory_policy: String,
+        turn: String,
+    ) -> Result<(), ConversationHistoryError> {
+        if self.get_size() >= self.capacity {
+            self.remove_oldest_entry();
+        }
 
-    // Retrieves the cached values
-    println!("{:?}", cache.get(1)); // Some("Value 1")
-    println!("{:?}", cache.get(2)); // Some("Value 2")
+        self.history.push_back(turn.clone());
+        self.cache.insert(turn.clone(), turn);
+        Ok(())
+    }
 
-    cache.put(3, "Value 3".to_string());
+    fn retrieve_history(
+        &mut self,
+        _memory_policy: String,
+        query: String,
+    ) -> Result<Vec<String>, ConversationHistoryError> {
+        let mut history_scores: Vec<(String, f64)> = self
+            .history
+            .iter()
+            .map(|turn| (turn.clone(), LRUCache::calculate_similarity(&query, turn)))
+            .collect();
 
-    // Accessing key 1 pushes key 2 out of the cache due to limited capacity
-    println!("{:?}", cache.get(1)); // Some("Value 1")
-    println!("{:?}", cache.get(2)); // None
+        history_scores.sort_by(|(_, score1), (_, score2)| score2.partial_cmp(score1).unwrap());
 
-    cache.put(4, "Value 4".to_string());
+        let relevant_history: Vec<String> = history_scores.into_iter().map(|(turn, _)| turn).collect();
+        Ok(relevant_history)
+    }
+}
 
-    // Accessing key 1 and key 3 keeps them in the cache, while key 4 replaces key 1
-    println!("{:?}", cache.get(1)); // None
-    println!("{:?}", cache.get(3)); // Some
+#[cfg(test)]
+mod tests {
+    use crate::{memory::lru::LRUCache, ConversationHistory, ConversationHistoryError};
+
+    #[test]
+    fn test_add_turn() {
+        let mut cache = LRUCache::new(Some(2));
+        cache.add_turn("lru".to_string(), "Value 1".to_string()).map_err(|e| return ConversationHistoryError::InternalError(e.to_string())).ok();
+        cache.add_turn("lru".to_string(), "Value 2".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok();
+        assert_eq!(cache.get_size(), 2);
+    }
 }

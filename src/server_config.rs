@@ -91,6 +91,8 @@ pub struct MemoryPolicy {
     pub policy_kind: MemoryPolicyKind,
     #[serde(rename = "size")]
     pub window_size: Option<usize>,
+    #[serde(rename = "capacity")]
+    pub capacity: Option<usize>,
 }
 
 /// Struct representing the configuration for OpenAI.
@@ -163,6 +165,7 @@ impl Default for ServerConfig {
             memory_policies: vec![MemoryPolicy {
                 policy_kind: MemoryPolicyKind::Simple,
                 window_size: None,
+                capacity: None,
             }],
         }
     }
