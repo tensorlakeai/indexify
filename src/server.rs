@@ -1,10 +1,8 @@
 use crate::index::{IndexManager, Text};
 use crate::text_splitters::TextSplitterKind;
-use crate::{CreateIndexParams, EmbeddingRouter, ConversationHistoryRouter, MetricKind, ServerConfig, MemoryPolicyKind};
+use crate::{CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MetricKind, ServerConfig, MemoryStoragePolicy};
 
 use super::embeddings::EmbeddingGenerator;
-use super::memory::ConversationHistory;
-
 use anyhow::Result;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
@@ -12,6 +10,7 @@ use tracing::info;
 
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
+use uuid::Uuid;
 use std::collections::HashMap;
 
 use std::net::SocketAddr;
@@ -71,11 +70,11 @@ enum ApiTextSplitterKind {
 }
 
 #[derive(SmartDefault, Debug, Serialize, Deserialize)]
-enum  MemoryPolicy {
-    // Use Simple policy
+enum  MemoryPolicyKind {
+    // Use Indefinite policy
     #[default]
-    #[serde(rename = "simple")]
-    Simple,
+    #[serde(rename = "indefinite")]
+    Indefinite,
 
     // Use Windows
     #[serde(rename = "window")]
@@ -145,26 +144,37 @@ struct SearchRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ConversationHistoryAddRequest {
+struct CreateMemorySessionRequest {
+    session_id: Option<Uuid>,
     /// The memory policy for storing and retrieving from conversation history.
-    memory_policy: MemoryPolicy,
+    memory_storage_policy: MemoryStoragePolicy,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CreateMemorySessionResponse {
+    errors: Vec<String>,
+    session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MemorySessionAddRequest {
+    session_id: Uuid,
     turn: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ConversationHistoryAddResponse {
+struct MemorySessionAddResponse {
     errors: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ConversationHistoryRetrieveRequest {
-    /// The memory policy for storing and retrieving from conversation history.
-    memory_policy: MemoryPolicy,
+struct MemorySessionRetrieveRequest {
+    session_id: Uuid,
     query: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ConversationHistoryRetrieveResponse {
+struct MemorySessionRetrieveResponse {
     history: Vec<String>,
     errors: Vec<String>,
 }
@@ -209,8 +219,8 @@ impl Server {
     /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let conv_history_router = ConversationHistoryRouter::new(self.config.clone())?;
-        let conversation_history_router = Arc::new(Mutex::new(conv_history_router));
+        let conv_history_router = MemorySessionRouter::new(self.config.clone())?;
+        let memory_session_router = Arc::new(Mutex::new(conv_history_router));
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
@@ -237,13 +247,17 @@ impl Server {
                 get(index_search).with_state((index_manager.clone(), embedding_router.clone())),
             )
             .route(
+                "/memory/create",
+                get(create_memory_session).with_state(memory_session_router.clone()),
+            )
+            .route(
                 "/memory/add",
-                get(add_conversation_history).with_state(conversation_history_router.clone()),
+                get(add_conversation_history).with_state(memory_session_router.clone()),
             )
             .route(
                 "/memory/retrieve",
                 get(retrieve_conversation_history)
-                    .with_state(conversation_history_router.clone()),
+                    .with_state(memory_session_router.clone()),
             );
 
         info!("server is listening at addr {:?}", &self.addr.to_string());
@@ -255,7 +269,7 @@ impl Server {
 }
 
 /// A basic handler that responds with a static string indicating the name of the server.
-/// This handler is typically used as a health check or a simple endpoint to verify that
+/// This handler is typically used as a health check or a indefinite endpoint to verify that
 /// the server is running and responding to requests.
 async fn root() -> &'static str {
     "Indexify Server"
@@ -378,43 +392,73 @@ async fn add_texts(
     (StatusCode::OK, Json(IndexAdditionResponse::default()))
 }
 
+#[axum_macros::debug_handler]
+async fn create_memory_session(
+    State(conversation_history): State<Arc<Mutex<MemorySessionRouter>>>,
+    Json(payload): Json<CreateMemorySessionRequest>,
+) -> (StatusCode, Json<CreateMemorySessionResponse>) {
+    let conversation_history_lock = conversation_history.lock();
+    if let Err(err) = conversation_history_lock {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(CreateMemorySessionResponse {
+                errors: vec![err.to_string()],
+                session_id: None,
+            }),
+        );
+    };
+    let result = conversation_history_lock
+        .unwrap()
+        .create_session(payload.session_id, payload.memory_storage_policy);
+
+    if let Err(err) = result {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(CreateMemorySessionResponse {
+                errors: vec![err.to_string()],
+                session_id: None,
+            }),
+        );
+    }
+    (
+        StatusCode::OK,
+        Json(CreateMemorySessionResponse {
+            errors: vec![],
+            session_id: Some(result.unwrap()),
+        }),
+    )
+}
 
 #[axum_macros::debug_handler]
 async fn add_conversation_history(
-    State(conversation_history): State<Arc<Mutex<dyn ConversationHistory + Sync + Send>>>,
-    Json(payload): Json<ConversationHistoryAddRequest>,
-) -> (StatusCode, Json<ConversationHistoryAddResponse>) {
-
-    let memory_policy = match payload.memory_policy {
-        MemoryPolicy::Simple => MemoryPolicyKind::Simple,
-        MemoryPolicy::Window => MemoryPolicyKind::Window,
-        MemoryPolicy::Lru => MemoryPolicyKind::Lru,
-    };
+    State(conversation_history): State<Arc<Mutex<MemorySessionRouter>>>,
+    Json(payload): Json<MemorySessionAddRequest>,
+) -> (StatusCode, Json<MemorySessionAddResponse>) {
 
     let conversation_history_lock = conversation_history.lock();
 
     if let Err(err) = conversation_history_lock {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ConversationHistoryAddResponse {
+            Json(MemorySessionAddResponse {
                 errors: vec![err.to_string()],
             }),
         );
     };
 
-    let result = conversation_history_lock.unwrap().add_turn(memory_policy.to_string(), payload.turn);
+    let result = conversation_history_lock.unwrap().add_turn(payload.session_id, payload.turn);
 
     if let Err(err) = result {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ConversationHistoryAddResponse {
+            Json(MemorySessionAddResponse {
                 errors: vec![err.to_string()],
             }),
         );
     } else {
         return (
             StatusCode::OK,
-            Json(ConversationHistoryAddResponse {
+            Json(MemorySessionAddResponse {
                 errors: vec![],
             }),
         );
@@ -424,34 +468,28 @@ async fn add_conversation_history(
 
 #[axum_macros::debug_handler]
 async fn retrieve_conversation_history(
-    State(conversation_history): State<Arc<Mutex<dyn ConversationHistory + Sync + Send>>>,
-    Json(payload): Json<ConversationHistoryRetrieveRequest>,
-) -> (StatusCode, Json<ConversationHistoryRetrieveResponse>) {
-
-    let memory_policy = match payload.memory_policy {
-        MemoryPolicy::Simple => MemoryPolicyKind::Simple,
-        MemoryPolicy::Window => MemoryPolicyKind::Window,
-        MemoryPolicy::Lru => MemoryPolicyKind::Lru,
-    };
+    State(conversation_history): State<Arc<Mutex<MemorySessionRouter>>>,
+    Json(payload): Json<MemorySessionRetrieveRequest>,
+) -> (StatusCode, Json<MemorySessionRetrieveResponse>) {
 
     let conversation_history_lock = conversation_history.lock();
 
     if let Err(err) = conversation_history_lock {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ConversationHistoryRetrieveResponse {
+            Json(MemorySessionRetrieveResponse {
                 errors: vec![err.to_string()],
                 history: vec![],
             }),
         );
     };
 
-    let result = conversation_history_lock.unwrap().retrieve_history(memory_policy.to_string(), payload.query);
+    let result = conversation_history_lock.unwrap().retrieve_history(payload.session_id, payload.query);
 
     if let Err(err) = result {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ConversationHistoryRetrieveResponse {
+            Json(MemorySessionRetrieveResponse {
                 errors: vec![err.to_string()],
                 history: vec![],
             }),
@@ -459,7 +497,7 @@ async fn retrieve_conversation_history(
     } else {
         return (
             StatusCode::OK,
-            Json(ConversationHistoryRetrieveResponse {
+            Json(MemorySessionRetrieveResponse {
                 errors: vec![],
                 history: result.unwrap(),
             }),

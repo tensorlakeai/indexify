@@ -50,9 +50,9 @@ pub enum EmbeddingModelKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
-pub enum MemoryPolicyKind {
-    #[serde(rename = "simple")]
-    Simple,
+pub enum MemoryStoragePolicyKind {
+    #[serde(rename = "indefinite")]
+    Indefinite,
     #[serde(rename = "window")]
     Window,
     #[serde(rename = "lru")]
@@ -86,9 +86,9 @@ pub struct EmbeddingModel {
 /// Struct representing the configuration of a conversation history data structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct MemoryPolicy {
+pub struct MemoryStoragePolicy {
     #[serde(rename = "policy")]
-    pub policy_kind: MemoryPolicyKind,
+    pub policy_kind: MemoryStoragePolicyKind,
     #[serde(rename = "size")]
     pub window_size: Option<usize>,
     #[serde(rename = "capacity")]
@@ -139,7 +139,7 @@ pub struct ServerConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
     pub index_config: Option<VectorIndexConfig>,
-    pub memory_policies: Vec<MemoryPolicy>,
+    pub memory_policies: Vec<MemoryStoragePolicy>,
 }
 
 impl Default for ServerConfig {
@@ -162,8 +162,8 @@ impl Default for ServerConfig {
                 api_key: OPENAI_DUMMY_KEY.into(),
             }),
             index_config: None,
-            memory_policies: vec![MemoryPolicy {
-                policy_kind: MemoryPolicyKind::Simple,
+            memory_policies: vec![MemoryStoragePolicy {
+                policy_kind: MemoryStoragePolicyKind::Indefinite,
                 window_size: None,
                 capacity: None,
             }],
@@ -239,6 +239,6 @@ mod tests {
             config.index_config.unwrap().qdrant_config.unwrap().addr,
             "http://172.20.0.8:6334".to_string()
         );
-        assert_eq!("simple", config.memory_policies[0].policy_kind.to_string());
+        assert_eq!("indefinite", config.memory_policies[0].policy_kind.to_string());
     }
 }

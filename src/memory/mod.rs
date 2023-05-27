@@ -1,23 +1,28 @@
-mod simple;
+mod indefinite;
 mod window;
 mod lru;
 
+use std::option::Option;
+
+use crate::{MemoryStoragePolicyKind, MemoryStoragePolicy};
+
 use super::server_config::{
-    self, MemoryPolicyKind::Simple, MemoryPolicyKind::Window, MemoryPolicyKind::Lru
+    self
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::info;
 
-use simple::SimpleConversationHistory;
-use window::WindowConversationHistory;
+use indefinite::IndefiniteMemorySession;
+use uuid::Uuid;
+use window::WindowMemorySession;
 use lru::LRUCache;
 
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from conversation history.
 #[derive(Error, Debug)]
-pub enum ConversationHistoryError {
+pub enum MemorySessionError {
     /// An error that occurs when the requested policy is not found.
     #[error("policy `{0}` not found")]
     PolicyNotFound(String),
@@ -30,46 +35,46 @@ pub enum ConversationHistoryError {
     #[error("configuration `{0}`, missing for memory policy `{1}`")]
     ConfigurationError(String, String),
 
+    /// An error that occurs when requested session is not found.
+    #[error("session `{0}` not found")]
+    SessionNotFound(Uuid),
+
     /// An error that occurs with Mutex.
     #[error("mutex lock error: `{0}`")]
     MutexLockError(String)
 }
 
-pub type ConversationHistoryTS = Arc<Mutex<dyn ConversationHistory + Sync + Send>>;
+pub type MemorySessionTS = Arc<Mutex<dyn MemorySession + Sync + Send>>;
 
 /// A trait that defines the interface for interacting with conversation history store.
-pub trait ConversationHistory {
-    /// Adds turn to Conversation History store.
+pub trait MemorySession {
+    /// Adds turn to store.
     fn add_turn(
         &mut self,
-        memory_policy: String,
         turn: String,
-    ) -> Result<(), ConversationHistoryError>;
+    ) -> Result<(), MemorySessionError>;
 
-    // Retrieves records from Conversation History.
+    // Retrieves records from session.
     fn retrieve_history(
         &mut self,
-        memory_policy: String,
         query: String,
-    ) -> Result<Vec<String>, ConversationHistoryError>;
+    ) -> Result<Vec<String>, MemorySessionError>;
 }
 
-/// A struct that represents a router for storing and retrieving from Conversation History.
+/// A struct that represents a router for storing and retrieving from memory.
 ///
-/// This struct provides methods for storing and retrieving from Conversation History using different policies.
-/// It maintains a mapping between memory policies and their corresponding `ConversationHistory`
-/// implementations, allowing it to conversation history creation requests to the appropriate method.
-pub struct ConversationHistoryRouter {
-    router: HashMap<String, ConversationHistoryTS>,
-
-    policy_names: Vec<String>,
+/// This struct provides methods for storing and retrieving from memory sessions.
+/// It maintains a mapping between session ids and their corresponding `MemorySession`
+/// implementations, allowing it to route requests to the appropriate session.
+pub struct MemorySessionRouter {
+    router: HashMap<Uuid, MemorySessionTS>,
 }
 
-impl ConversationHistoryRouter {
-    /// Creates a new instance of `ConversationHistoryRouter` with the specified server configuration.
+impl MemorySessionRouter {
+    /// Creates a new instance of `MemorySessionRouter` with the specified server configuration.
     ///
     /// This method initializes the router with the available memory policies and their corresponding
-    /// `ConversationHistory` implementations.
+    /// `MemorySession` implementations.
     ///
     /// # Arguments
     ///
@@ -77,86 +82,89 @@ impl ConversationHistoryRouter {
     ///
     /// # Returns
     ///
-    /// * A result containing an instance of `ConversationHistoryRouter` if successful, or a
-    ///   `ConversationHistoryError` if an error occurs.
-    pub fn new(config: Arc<server_config::ServerConfig>) -> Result<Self, ConversationHistoryError> {
-        let mut router: HashMap<String, ConversationHistoryTS> = HashMap::new();
-        let mut policy_names = Vec::new();
-        for policy in config.memory_policies.clone() {
-            policy_names.push(policy.policy_kind.to_string());
-            info!(
-                "loading store for policy: {:?}",
-                policy.policy_kind.to_string()
-            );
-            match policy.policy_kind {
-                Simple => {
-                    let simple_memory_router = Arc::new(Mutex::new(SimpleConversationHistory::new()));
-                    router.insert(policy.policy_kind.to_string(), simple_memory_router);
-                }
-                Window => {
-                    let window_memory_router = Arc::new(Mutex::new(WindowConversationHistory::new(policy.window_size)));
-                    router.insert(policy.policy_kind.to_string(), window_memory_router);
-                }
-                Lru => {
-                    let lru_memory_router = Arc::new(Mutex::new(LRUCache::new(policy.capacity)));
-                    router.insert(policy.policy_kind.to_string(), lru_memory_router);
-                }
-            }
-        }
+    /// * A result containing an instance of `MemorySessionRouter` if successful, or a
+    ///   `MemorySessionError` if an error occurs.
+    pub fn new(_config: Arc<server_config::ServerConfig>) -> Result<Self, MemorySessionError> {
+        let router: HashMap<Uuid, MemorySessionTS> = HashMap::new();
         Ok(Self {
             router,
-            policy_names,
         })
     }
 
-    /// Returns a list of available memory policies.
-    ///
-    /// # Returns
-    ///
-    /// * A vector of strings representing the names of the supported memory policies.
-    pub fn list_policies(&self) -> Vec<String> {
-        self.policy_names.clone()
+    fn does_session_exist(&self, session_id: Option<Uuid>) -> bool {
+        return session_id.is_some() && self.router.contains_key(&session_id.unwrap())
     }
-}
 
-impl ConversationHistory for ConversationHistoryRouter {
+    fn get_session(&self, session_id: Uuid) -> Option<MemorySessionTS> {
+        if self.does_session_exist(Some(session_id)) == false {
+            return None
+        }
+        self.router.get(&session_id).cloned()
+    }
 
-    fn add_turn(
+    fn create_memory_session(&mut self, memory_storage_policy: MemoryStoragePolicy) ->  Result<MemorySessionTS, MemorySessionError> {
+        let session: MemorySessionTS = match memory_storage_policy.policy_kind {
+            MemoryStoragePolicyKind::Indefinite =>
+                Arc::new(Mutex::new(IndefiniteMemorySession::new())),
+            MemoryStoragePolicyKind::Window =>
+                Arc::new(Mutex::new(WindowMemorySession::new(memory_storage_policy.window_size))),
+            MemoryStoragePolicyKind::Lru =>
+                Arc::new(Mutex::new(LRUCache::new(memory_storage_policy.capacity))),
+        };
+        return Ok(session);
+    }
+
+    pub fn create_session(&mut self, session_id: Option<Uuid>, memory_storage_policy: MemoryStoragePolicy) -> Result<Uuid, MemorySessionError> {
+        if self.does_session_exist(session_id) {
+            info!("Session already exists");
+            return Ok(session_id.unwrap());
+        }
+        let session_id = session_id.unwrap_or(Uuid::new_v4());
+        let session = self.create_memory_session(memory_storage_policy);
+        self.router.insert(session_id, session.unwrap());
+        return Ok(session_id);
+    }
+
+    pub fn add_turn(
         &mut self,
-        policy: String,
+        session_id: Uuid,
         turn: String,
-    ) -> Result<(), ConversationHistoryError> {
-        let conversation_history_mutex = self
-            .router
-            .get(&policy)
-            .ok_or_else(|| ConversationHistoryError::PolicyNotFound(policy.clone()))?
-            .clone();
+    ) -> Result<(), MemorySessionError> {
+        let session = self.get_session(session_id);
 
-        let mut conversation_history_lock = conversation_history_mutex
+        if session.is_none() {
+            return Err(MemorySessionError::SessionNotFound(session_id))
+        }
+
+        let binding = session
+            .unwrap();
+        let mut conversation_history = binding
             .lock()
-            .map_err(|e| ConversationHistoryError::MutexLockError(e.to_string()))?;
+            .map_err(|e| MemorySessionError::MutexLockError(e.to_string()))?;
 
-        conversation_history_lock.add_turn(policy, turn)
-            .map_err(|e| ConversationHistoryError::InternalError(e.to_string()))?;
+        conversation_history.add_turn(turn)
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))?;
 
         Ok(())
     }
 
-    fn retrieve_history(
+    pub fn retrieve_history(
         &mut self,
-        policy: String,
+        session_id: Uuid,
         query: String,
-    ) -> Result<Vec<String>, ConversationHistoryError> {
-        let conversation_history_mutex = self
-            .router
-            .get(&policy)
-            .ok_or_else(|| ConversationHistoryError::PolicyNotFound(policy.clone()))?
-            .clone();
+    ) -> Result<Vec<String>, MemorySessionError> {
+        let session = self.get_session(session_id);
 
-        let mut conversation_history_lock = conversation_history_mutex
+        if session.is_none() {
+            return Err(MemorySessionError::SessionNotFound(session_id))
+        }
+
+        let binding = session
+            .unwrap();
+        let mut conversation_history = binding
             .lock()
-            .map_err(|e| ConversationHistoryError::MutexLockError(e.to_string()))?;
+            .map_err(|e| MemorySessionError::MutexLockError(e.to_string()))?;
 
-        conversation_history_lock.retrieve_history(policy, query)
+        conversation_history.retrieve_history(query)
     }
 }

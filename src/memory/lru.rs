@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::{ConversationHistory, ConversationHistoryError};
+use crate::{MemorySession, MemorySessionError};
 
 pub struct LRUCache {
     capacity: usize,
@@ -10,7 +10,7 @@ pub struct LRUCache {
 
 impl LRUCache {
     pub fn new(capacity: Option<usize>) -> LRUCache {
-        LRUCache {
+        Self {
             capacity: capacity.unwrap_or(12),
             cache: HashMap::new(),
             history: VecDeque::new(),
@@ -33,12 +33,11 @@ impl LRUCache {
     }
 }
 
-impl ConversationHistory for LRUCache {
+impl MemorySession for LRUCache {
     fn add_turn(
         &mut self,
-        _memory_policy: String,
         turn: String,
-    ) -> Result<(), ConversationHistoryError> {
+    ) -> Result<(), MemorySessionError> {
         if self.get_size() >= self.capacity {
             self.remove_oldest_entry();
         }
@@ -50,9 +49,8 @@ impl ConversationHistory for LRUCache {
 
     fn retrieve_history(
         &mut self,
-        _memory_policy: String,
         query: String,
-    ) -> Result<Vec<String>, ConversationHistoryError> {
+    ) -> Result<Vec<String>, MemorySessionError> {
         let mut history_scores: Vec<(String, f64)> = self
             .history
             .iter()
@@ -68,13 +66,13 @@ impl ConversationHistory for LRUCache {
 
 #[cfg(test)]
 mod tests {
-    use crate::{memory::lru::LRUCache, ConversationHistory, ConversationHistoryError};
+    use crate::{memory::lru::LRUCache, MemorySession, MemorySessionError};
 
     #[test]
     fn test_add_turn() {
         let mut cache = LRUCache::new(Some(2));
-        cache.add_turn("lru".to_string(), "Value 1".to_string()).map_err(|e| return ConversationHistoryError::InternalError(e.to_string())).ok();
-        cache.add_turn("lru".to_string(), "Value 2".to_string()).map_err(|e| ConversationHistoryError::InternalError(e.to_string())).ok();
+        cache.add_turn("Value 1".to_string()).map_err(|e| return MemorySessionError::InternalError(e.to_string())).ok();
+        cache.add_turn("Value 2".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();
         assert_eq!(cache.get_size(), 2);
     }
 }
