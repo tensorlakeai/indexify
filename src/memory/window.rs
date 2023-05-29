@@ -1,13 +1,17 @@
 use crate::{MemorySession, MemorySessionError};
 
+use uuid::Uuid;
+
 pub struct WindowMemorySession {
+    session_id: Uuid,
     turns: Vec<String>,
     window_size: usize,
 }
 
 impl WindowMemorySession{
-    pub fn new(window_size: Option<usize>) -> Self {
+    pub fn new(session_id: Uuid, window_size: Option<usize>) -> Self {
         Self {
+            session_id,
             turns: Vec::new(),
             window_size: window_size.unwrap_or(3),
         }
@@ -24,7 +28,7 @@ impl MemorySession for WindowMemorySession {
         let total_turns = self.turns.len();
         if total_turns == 0 {
             return Err(MemorySessionError::InternalError(format!(
-                "No turns found in the conversation history."
+                "No records found in memory."
             )))
         } else if self.window_size <= total_turns {
             let start_index = total_turns - self.window_size;
@@ -33,15 +37,22 @@ impl MemorySession for WindowMemorySession {
             Ok(self.turns.clone())
         }
     }
+
+    fn id(&self) -> Uuid {
+        self.session_id
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::{memory::window::WindowMemorySession, MemorySession, MemorySessionError};
 
     #[test]
     fn window_test() {
-        let mut memory = WindowMemorySession::new(Some(2));
+        let session_id: Uuid = Uuid::new_v4();
+        let mut memory = WindowMemorySession::new(session_id, Some(2));
         memory.add_turn("Value 1".to_string()).map_err(|e| return MemorySessionError::InternalError(e.to_string())).ok();
         memory.add_turn("Value 2".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();
         memory.add_turn("Value 3".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();

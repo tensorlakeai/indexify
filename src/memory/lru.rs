@@ -1,16 +1,20 @@
 use std::collections::{HashMap, VecDeque};
 
+use uuid::Uuid;
+
 use crate::{MemorySession, MemorySessionError};
 
 pub struct LRUCache {
+    session_id: Uuid,
     capacity: usize,
     cache: HashMap<String, String>,
     history: VecDeque<String>,
 }
 
 impl LRUCache {
-    pub fn new(capacity: Option<usize>) -> LRUCache {
+    pub fn new(session_id: Uuid, capacity: Option<usize>) -> LRUCache {
         Self {
+            session_id,
             capacity: capacity.unwrap_or(12),
             cache: HashMap::new(),
             history: VecDeque::new(),
@@ -62,15 +66,22 @@ impl MemorySession for LRUCache {
         let relevant_history: Vec<String> = history_scores.into_iter().map(|(turn, _)| turn).collect();
         Ok(relevant_history)
     }
+
+    fn id(&self) -> Uuid {
+        self.session_id
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::{memory::lru::LRUCache, MemorySession, MemorySessionError};
 
     #[test]
     fn test_add_turn() {
-        let mut cache = LRUCache::new(Some(2));
+        let session_id: Uuid = Uuid::new_v4();
+        let mut cache = LRUCache::new(session_id, Some(2));
         cache.add_turn("Value 1".to_string()).map_err(|e| return MemorySessionError::InternalError(e.to_string())).ok();
         cache.add_turn("Value 2".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();
         assert_eq!(cache.get_size(), 2);

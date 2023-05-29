@@ -40,3 +40,4 @@ uuid = {version = "^1", features = ["v4", "fast-rng","macro-diagnostics"]}
 md-5 = {version = "^0"}
 tiktoken-rs = {version = "^0"}
 pyo3 = {version = "^0", features = ["extension-module", "auto-initialize"], extension-module=["pyo3/extension-module"]}
+dashmap = "5.4.0"

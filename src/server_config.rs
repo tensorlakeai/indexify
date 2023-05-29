@@ -83,7 +83,7 @@ pub struct EmbeddingModel {
     pub device_kind: DeviceKind,
 }
 
-/// Struct representing the configuration of a conversation history data structure.
+/// Struct representing the configuration of memory storage data structures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct MemoryStoragePolicy {

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 
 
 /// Request payload for generating text embeddings.
@@ -146,7 +146,7 @@ struct SearchRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct CreateMemorySessionRequest {
     session_id: Option<Uuid>,
-    /// The memory policy for storing and retrieving from conversation history.
+    /// The memory policy for storing and retrieving from memory
     memory_storage_policy: MemoryStoragePolicy,
 }
 
@@ -219,8 +219,7 @@ impl Server {
     /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let conv_history_router = MemorySessionRouter::new(self.config.clone())?;
-        let memory_session_router = Arc::new(Mutex::new(conv_history_router));
+        let memory_session_router: Arc<MemorySessionRouter> = Arc::new(MemorySessionRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
@@ -252,11 +251,11 @@ impl Server {
             )
             .route(
                 "/memory/add",
-                get(add_conversation_history).with_state(memory_session_router.clone()),
+                get(add_record).with_state(memory_session_router.clone()),
             )
             .route(
                 "/memory/retrieve",
-                get(retrieve_conversation_history)
+                get(retrieve_records)
                     .with_state(memory_session_router.clone()),
             );
 
@@ -394,21 +393,10 @@ async fn add_texts(
 
 #[axum_macros::debug_handler]
 async fn create_memory_session(
-    State(conversation_history): State<Arc<Mutex<MemorySessionRouter>>>,
+    State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> (StatusCode, Json<CreateMemorySessionResponse>) {
-    let conversation_history_lock = conversation_history.lock();
-    if let Err(err) = conversation_history_lock {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(CreateMemorySessionResponse {
-                errors: vec![err.to_string()],
-                session_id: None,
-            }),
-        );
-    };
-    let result = conversation_history_lock
-        .unwrap()
+    let result = memory_manager
         .create_session(payload.session_id, payload.memory_storage_policy);
 
     if let Err(err) = result {
@@ -430,23 +418,12 @@ async fn create_memory_session(
 }
 
 #[axum_macros::debug_handler]
-async fn add_conversation_history(
-    State(conversation_history): State<Arc<Mutex<MemorySessionRouter>>>,
+async fn add_record(
+    State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> (StatusCode, Json<MemorySessionAddResponse>) {
 
-    let conversation_history_lock = conversation_history.lock();
-
-    if let Err(err) = conversation_history_lock {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(MemorySessionAddResponse {
-                errors: vec![err.to_string()],
-            }),
-        );
-    };
-
-    let result = conversation_history_lock.unwrap().add_turn(payload.session_id, payload.turn);
+    let result = memory_manager.add_turn(payload.session_id, payload.turn);
 
     if let Err(err) = result {
         return (
@@ -467,24 +444,12 @@ async fn add_conversation_history(
 }
 
 #[axum_macros::debug_handler]
-async fn retrieve_conversation_history(
-    State(conversation_history): State<Arc<Mutex<MemorySessionRouter>>>,
+async fn retrieve_records(
+    State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<MemorySessionRetrieveRequest>,
 ) -> (StatusCode, Json<MemorySessionRetrieveResponse>) {
 
-    let conversation_history_lock = conversation_history.lock();
-
-    if let Err(err) = conversation_history_lock {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(MemorySessionRetrieveResponse {
-                errors: vec![err.to_string()],
-                history: vec![],
-            }),
-        );
-    };
-
-    let result = conversation_history_lock.unwrap().retrieve_history(payload.session_id, payload.query);
+    let result = memory_manager.retrieve_history(payload.session_id, payload.query);
 
     if let Err(err) = result {
         return (

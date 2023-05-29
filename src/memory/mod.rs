@@ -2,25 +2,24 @@ mod indefinite;
 mod window;
 mod lru;
 
-use std::option::Option;
+use std::{option::Option, sync::Arc};
 
 use crate::{MemoryStoragePolicyKind, MemoryStoragePolicy};
 
-use super::server_config::{
-    self
-};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::info;
+use dashmap::{DashMap, mapref::one::RefMut};
 
 use indefinite::IndefiniteMemorySession;
 use uuid::Uuid;
 use window::WindowMemorySession;
 use lru::LRUCache;
 
+use super::server_config::{
+    self
+};
 
-/// An enumeration of possible errors that can occur while adding to or retrieving from conversation history.
+/// An enumeration of possible errors that can occur while adding to or retrieving from memory.
 #[derive(Error, Debug)]
 pub enum MemorySessionError {
     /// An error that occurs when the requested policy is not found.
@@ -38,15 +37,11 @@ pub enum MemorySessionError {
     /// An error that occurs when requested session is not found.
     #[error("session `{0}` not found")]
     SessionNotFound(Uuid),
-
-    /// An error that occurs with Mutex.
-    #[error("mutex lock error: `{0}`")]
-    MutexLockError(String)
 }
 
-pub type MemorySessionTS = Arc<Mutex<dyn MemorySession + Sync + Send>>;
+pub type MemorySessionTS = Arc<dyn MemorySession + Sync + Send>;
 
-/// A trait that defines the interface for interacting with conversation history store.
+/// A trait that defines the interface for interacting with memory store.
 pub trait MemorySession {
     /// Adds turn to store.
     fn add_turn(
@@ -59,6 +54,8 @@ pub trait MemorySession {
         &mut self,
         query: String,
     ) -> Result<Vec<String>, MemorySessionError>;
+
+    fn id(&self) -> Uuid;
 }
 
 /// A struct that represents a router for storing and retrieving from memory.
@@ -67,7 +64,7 @@ pub trait MemorySession {
 /// It maintains a mapping between session ids and their corresponding `MemorySession`
 /// implementations, allowing it to route requests to the appropriate session.
 pub struct MemorySessionRouter {
-    router: HashMap<Uuid, MemorySessionTS>,
+    router: DashMap<Uuid, MemorySessionTS>,
 }
 
 impl MemorySessionRouter {
@@ -85,7 +82,14 @@ impl MemorySessionRouter {
     /// * A result containing an instance of `MemorySessionRouter` if successful, or a
     ///   `MemorySessionError` if an error occurs.
     pub fn new(_config: Arc<server_config::ServerConfig>) -> Result<Self, MemorySessionError> {
-        let router: HashMap<Uuid, MemorySessionTS> = HashMap::new();
+        let router: DashMap<Uuid, MemorySessionTS> = DashMap::new();
+
+        // for (policy_name, policy) in config.memory_policies.iter() {
+        //     let memory_storage_policy = MemoryStoragePolicy::new(policy_name, policy)?;
+        //     let session = self.create_memory_session(memory_storage_policy)?;
+        //     router.insert(session.id(), session);
+        // }
+
         Ok(Self {
             router,
         })
@@ -95,76 +99,81 @@ impl MemorySessionRouter {
         return session_id.is_some() && self.router.contains_key(&session_id.unwrap())
     }
 
-    fn get_session(&self, session_id: Uuid) -> Option<MemorySessionTS> {
+    fn get_session(&self, session_id: Uuid) -> Option<RefMut<Uuid, Arc<dyn MemorySession + Send + Sync>>> {
         if self.does_session_exist(Some(session_id)) == false {
             return None
         }
-        self.router.get(&session_id).cloned()
+        return self.router.get_mut(&session_id);
     }
 
-    fn create_memory_session(&mut self, memory_storage_policy: MemoryStoragePolicy) ->  Result<MemorySessionTS, MemorySessionError> {
+    fn create_memory_session(&self, session_id: Uuid, memory_storage_policy: MemoryStoragePolicy) ->  Result<MemorySessionTS, MemorySessionError> {
         let session: MemorySessionTS = match memory_storage_policy.policy_kind {
             MemoryStoragePolicyKind::Indefinite =>
-                Arc::new(Mutex::new(IndefiniteMemorySession::new())),
+                Arc::new(IndefiniteMemorySession::new(session_id)),
             MemoryStoragePolicyKind::Window =>
-                Arc::new(Mutex::new(WindowMemorySession::new(memory_storage_policy.window_size))),
+                Arc::new(WindowMemorySession::new(session_id, memory_storage_policy.window_size)),
             MemoryStoragePolicyKind::Lru =>
-                Arc::new(Mutex::new(LRUCache::new(memory_storage_policy.capacity))),
+                Arc::new(LRUCache::new(session_id, memory_storage_policy.capacity)),
         };
         return Ok(session);
     }
 
-    pub fn create_session(&mut self, session_id: Option<Uuid>, memory_storage_policy: MemoryStoragePolicy) -> Result<Uuid, MemorySessionError> {
+    pub fn create_session(&self, session_id: Option<Uuid>, memory_storage_policy: MemoryStoragePolicy) -> Result<Uuid, MemorySessionError> {
         if self.does_session_exist(session_id) {
             info!("Session already exists");
             return Ok(session_id.unwrap());
         }
         let session_id = session_id.unwrap_or(Uuid::new_v4());
-        let session = self.create_memory_session(memory_storage_policy);
+        let session = self.create_memory_session(session_id, memory_storage_policy);
         self.router.insert(session_id, session.unwrap());
         return Ok(session_id);
     }
 
     pub fn add_turn(
-        &mut self,
+        &self,
         session_id: Uuid,
         turn: String,
     ) -> Result<(), MemorySessionError> {
-        let session = self.get_session(session_id);
+        let session_option = self.get_session(session_id);
 
-        if session.is_none() {
-            return Err(MemorySessionError::SessionNotFound(session_id))
+        if session_option.is_none() {
+            return Err(MemorySessionError::SessionNotFound(session_id));
         }
 
-        let binding = session
-            .unwrap();
-        let mut conversation_history = binding
-            .lock()
-            .map_err(|e| MemorySessionError::MutexLockError(e.to_string()))?;
+        let mut session_arc = session_option.unwrap().clone();
+        let session_ref = Arc::get_mut(&mut session_arc)
+            .ok_or_else(|| {
+                MemorySessionError::InternalError("Failed to obtain mutable reference to session".into())
+            })?;
 
-        conversation_history.add_turn(turn)
+        session_ref
+            .add_turn(turn)
             .map_err(|e| MemorySessionError::InternalError(e.to_string()))?;
 
         Ok(())
     }
 
     pub fn retrieve_history(
-        &mut self,
+        &self,
         session_id: Uuid,
         query: String,
     ) -> Result<Vec<String>, MemorySessionError> {
-        let session = self.get_session(session_id);
+        let session_option = self.get_session(session_id);
 
-        if session.is_none() {
-            return Err(MemorySessionError::SessionNotFound(session_id))
+        if session_option.is_none() {
+            return Err(MemorySessionError::SessionNotFound(session_id));
         }
 
-        let binding = session
-            .unwrap();
-        let mut conversation_history = binding
-            .lock()
-            .map_err(|e| MemorySessionError::MutexLockError(e.to_string()))?;
+        let mut session_arc = session_option.unwrap().clone();
+        let session_ref = Arc::get_mut(&mut session_arc)
+            .ok_or_else(|| {
+                MemorySessionError::InternalError("Failed to obtain mutable reference to session".into())
+            })?;
 
-        conversation_history.retrieve_history(query)
+        let history = session_ref
+            .retrieve_history(query)
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))?;
+
+        Ok(history)
     }
 }
