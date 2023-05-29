@@ -50,7 +50,7 @@ mod tests {
     use crate::{memory::window::WindowMemorySession, MemorySession, MemorySessionError};
 
     #[test]
-    fn window_test() {
+    fn simple_add_retrieve_test() {
         let session_id: Uuid = Uuid::new_v4();
         let mut memory = WindowMemorySession::new(session_id, Some(2));
         memory
@@ -70,7 +70,11 @@ mod tests {
             .map_err(|e| MemorySessionError::InternalError(e.to_string()))
             .ok()
             .unwrap();
-        let target_result = ["Value 2".to_string(), "Value 3".to_string()].to_vec();
-        assert_eq!(result, target_result);
+        assert_eq!(
+            result,
+            ["Value 2".to_string(), "Value 3".to_string()].to_vec()
+        );
+        assert_eq!(memory.window_size, 2);
+        assert_eq!(memory.id(), session_id);
     }
 }

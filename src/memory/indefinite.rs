@@ -45,7 +45,7 @@ mod tests {
     use crate::{memory::indefinite::IndefiniteMemorySession, MemorySession, MemorySessionError};
 
     #[test]
-    fn basic_test() {
+    fn simple_add_retrieve_test() {
         let session_id: Uuid = Uuid::new_v4();
         let mut memory = IndefiniteMemorySession::new(session_id);
         memory
@@ -61,7 +61,10 @@ mod tests {
             .map_err(|e| MemorySessionError::InternalError(e.to_string()))
             .ok()
             .unwrap();
-        let target_result = ["Value 1".to_string(), "Value 2".to_string()].to_vec();
-        assert_eq!(result, target_result);
+        assert_eq!(
+            result,
+            ["Value 1".to_string(), "Value 2".to_string()].to_vec()
+        );
+        assert_eq!(memory.id(), session_id);
     }
 }
