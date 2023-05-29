@@ -8,7 +8,7 @@ pub struct WindowMemorySession {
     window_size: usize,
 }
 
-impl WindowMemorySession{
+impl WindowMemorySession {
     pub fn new(session_id: Uuid, window_size: Option<usize>) -> Self {
         Self {
             session_id,
@@ -29,7 +29,7 @@ impl MemorySession for WindowMemorySession {
         if total_turns == 0 {
             return Err(MemorySessionError::InternalError(format!(
                 "No records found in memory."
-            )))
+            )));
         } else if self.window_size <= total_turns {
             let start_index = total_turns - self.window_size;
             Ok(self.turns[start_index..].to_vec())
@@ -53,10 +53,23 @@ mod tests {
     fn window_test() {
         let session_id: Uuid = Uuid::new_v4();
         let mut memory = WindowMemorySession::new(session_id, Some(2));
-        memory.add_turn("Value 1".to_string()).map_err(|e| return MemorySessionError::InternalError(e.to_string())).ok();
-        memory.add_turn("Value 2".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();
-        memory.add_turn("Value 3".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();
-        let result = memory.retrieve_history("sample_query".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok().unwrap();
+        memory
+            .add_turn("Value 1".to_string())
+            .map_err(|e| return MemorySessionError::InternalError(e.to_string()))
+            .ok();
+        memory
+            .add_turn("Value 2".to_string())
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
+            .ok();
+        memory
+            .add_turn("Value 3".to_string())
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
+            .ok();
+        let result = memory
+            .retrieve_history("sample_query".to_string())
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
+            .ok()
+            .unwrap();
         let target_result = ["Value 2".to_string(), "Value 3".to_string()].to_vec();
         assert_eq!(result, target_result);
     }

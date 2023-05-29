@@ -1,6 +1,9 @@
 use crate::index::{IndexManager, Text};
 use crate::text_splitters::TextSplitterKind;
-use crate::{CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MetricKind, ServerConfig, MemoryStoragePolicy};
+use crate::{
+    CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MemoryStoragePolicy, MetricKind,
+    ServerConfig,
+};
 
 use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
@@ -10,13 +13,12 @@ use tracing::info;
 
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
-use uuid::Uuid;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::{Arc};
-
+use std::sync::Arc;
 
 /// Request payload for generating text embeddings.
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,7 +72,7 @@ enum ApiTextSplitterKind {
 }
 
 #[derive(SmartDefault, Debug, Serialize, Deserialize)]
-enum  MemoryPolicyKind {
+enum MemoryPolicyKind {
     // Use Indefinite policy
     #[default]
     #[serde(rename = "indefinite")]
@@ -219,7 +221,8 @@ impl Server {
     /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let memory_session_router: Arc<MemorySessionRouter> = Arc::new(MemorySessionRouter::new(self.config.clone())?);
+        let memory_session_router: Arc<MemorySessionRouter> =
+            Arc::new(MemorySessionRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
@@ -255,8 +258,7 @@ impl Server {
             )
             .route(
                 "/memory/retrieve",
-                get(retrieve_records)
-                    .with_state(memory_session_router.clone()),
+                get(retrieve_records).with_state(memory_session_router.clone()),
             );
 
         info!("server is listening at addr {:?}", &self.addr.to_string());
@@ -396,8 +398,7 @@ async fn create_memory_session(
     State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> (StatusCode, Json<CreateMemorySessionResponse>) {
-    let result = memory_manager
-        .create_session(payload.session_id, payload.memory_storage_policy);
+    let result = memory_manager.create_session(payload.session_id, payload.memory_storage_policy);
 
     if let Err(err) = result {
         return (
@@ -422,7 +423,6 @@ async fn add_record(
     State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> (StatusCode, Json<MemorySessionAddResponse>) {
-
     let result = memory_manager.add_turn(payload.session_id, payload.turn);
 
     if let Err(err) = result {
@@ -435,12 +435,9 @@ async fn add_record(
     } else {
         return (
             StatusCode::OK,
-            Json(MemorySessionAddResponse {
-                errors: vec![],
-            }),
+            Json(MemorySessionAddResponse { errors: vec![] }),
         );
     }
-
 }
 
 #[axum_macros::debug_handler]
@@ -448,7 +445,6 @@ async fn retrieve_records(
     State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<MemorySessionRetrieveRequest>,
 ) -> (StatusCode, Json<MemorySessionRetrieveResponse>) {
-
     let result = memory_manager.retrieve_history(payload.session_id, payload.query);
 
     if let Err(err) = result {
@@ -468,7 +464,6 @@ async fn retrieve_records(
             }),
         );
     }
-
 }
 
 #[axum_macros::debug_handler]

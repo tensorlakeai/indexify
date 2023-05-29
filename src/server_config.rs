@@ -239,6 +239,9 @@ mod tests {
             config.index_config.unwrap().qdrant_config.unwrap().addr,
             "http://172.20.0.8:6334".to_string()
         );
-        assert_eq!("indefinite", config.memory_policies[0].policy_kind.to_string());
+        assert_eq!(
+            "indefinite",
+            config.memory_policies[0].policy_kind.to_string()
+        );
     }
 }

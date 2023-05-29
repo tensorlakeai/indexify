@@ -38,10 +38,7 @@ impl LRUCache {
 }
 
 impl MemorySession for LRUCache {
-    fn add_turn(
-        &mut self,
-        turn: String,
-    ) -> Result<(), MemorySessionError> {
+    fn add_turn(&mut self, turn: String) -> Result<(), MemorySessionError> {
         if self.get_size() >= self.capacity {
             self.remove_oldest_entry();
         }
@@ -51,10 +48,7 @@ impl MemorySession for LRUCache {
         Ok(())
     }
 
-    fn retrieve_history(
-        &mut self,
-        query: String,
-    ) -> Result<Vec<String>, MemorySessionError> {
+    fn retrieve_history(&mut self, query: String) -> Result<Vec<String>, MemorySessionError> {
         let mut history_scores: Vec<(String, f64)> = self
             .history
             .iter()
@@ -63,7 +57,8 @@ impl MemorySession for LRUCache {
 
         history_scores.sort_by(|(_, score1), (_, score2)| score2.partial_cmp(score1).unwrap());
 
-        let relevant_history: Vec<String> = history_scores.into_iter().map(|(turn, _)| turn).collect();
+        let relevant_history: Vec<String> =
+            history_scores.into_iter().map(|(turn, _)| turn).collect();
         Ok(relevant_history)
     }
 
@@ -82,8 +77,14 @@ mod tests {
     fn test_add_turn() {
         let session_id: Uuid = Uuid::new_v4();
         let mut cache = LRUCache::new(session_id, Some(2));
-        cache.add_turn("Value 1".to_string()).map_err(|e| return MemorySessionError::InternalError(e.to_string())).ok();
-        cache.add_turn("Value 2".to_string()).map_err(|e| MemorySessionError::InternalError(e.to_string())).ok();
+        cache
+            .add_turn("Value 1".to_string())
+            .map_err(|e| return MemorySessionError::InternalError(e.to_string()))
+            .ok();
+        cache
+            .add_turn("Value 2".to_string())
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
+            .ok();
         assert_eq!(cache.get_size(), 2);
     }
 }

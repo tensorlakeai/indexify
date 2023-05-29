@@ -1,23 +1,21 @@
 mod indefinite;
-mod window;
 mod lru;
+mod window;
 
 use std::{option::Option, sync::Arc};
 
-use crate::{MemoryStoragePolicyKind, MemoryStoragePolicy};
+use crate::{MemoryStoragePolicy, MemoryStoragePolicyKind};
 
+use dashmap::{mapref::one::RefMut, DashMap};
 use thiserror::Error;
 use tracing::info;
-use dashmap::{DashMap, mapref::one::RefMut};
 
 use indefinite::IndefiniteMemorySession;
+use lru::LRUCache;
 use uuid::Uuid;
 use window::WindowMemorySession;
-use lru::LRUCache;
 
-use super::server_config::{
-    self
-};
+use super::server_config::{self};
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from memory.
 #[derive(Error, Debug)]
@@ -44,16 +42,10 @@ pub type MemorySessionTS = Arc<dyn MemorySession + Sync + Send>;
 /// A trait that defines the interface for interacting with memory store.
 pub trait MemorySession {
     /// Adds turn to store.
-    fn add_turn(
-        &mut self,
-        turn: String,
-    ) -> Result<(), MemorySessionError>;
+    fn add_turn(&mut self, turn: String) -> Result<(), MemorySessionError>;
 
     // Retrieves records from session.
-    fn retrieve_history(
-        &mut self,
-        query: String,
-    ) -> Result<Vec<String>, MemorySessionError>;
+    fn retrieve_history(&mut self, query: String) -> Result<Vec<String>, MemorySessionError>;
 
     fn id(&self) -> Uuid;
 }
@@ -90,35 +82,48 @@ impl MemorySessionRouter {
         //     router.insert(session.id(), session);
         // }
 
-        Ok(Self {
-            router,
-        })
+        Ok(Self { router })
     }
 
     fn does_session_exist(&self, session_id: Option<Uuid>) -> bool {
-        return session_id.is_some() && self.router.contains_key(&session_id.unwrap())
+        return session_id.is_some() && self.router.contains_key(&session_id.unwrap());
     }
 
-    fn get_session(&self, session_id: Uuid) -> Option<RefMut<Uuid, Arc<dyn MemorySession + Send + Sync>>> {
+    fn get_session(
+        &self,
+        session_id: Uuid,
+    ) -> Option<RefMut<Uuid, Arc<dyn MemorySession + Send + Sync>>> {
         if self.does_session_exist(Some(session_id)) == false {
-            return None
+            return None;
         }
         return self.router.get_mut(&session_id);
     }
 
-    fn create_memory_session(&self, session_id: Uuid, memory_storage_policy: MemoryStoragePolicy) ->  Result<MemorySessionTS, MemorySessionError> {
+    fn create_memory_session(
+        &self,
+        session_id: Uuid,
+        memory_storage_policy: MemoryStoragePolicy,
+    ) -> Result<MemorySessionTS, MemorySessionError> {
         let session: MemorySessionTS = match memory_storage_policy.policy_kind {
-            MemoryStoragePolicyKind::Indefinite =>
-                Arc::new(IndefiniteMemorySession::new(session_id)),
-            MemoryStoragePolicyKind::Window =>
-                Arc::new(WindowMemorySession::new(session_id, memory_storage_policy.window_size)),
-            MemoryStoragePolicyKind::Lru =>
-                Arc::new(LRUCache::new(session_id, memory_storage_policy.capacity)),
+            MemoryStoragePolicyKind::Indefinite => {
+                Arc::new(IndefiniteMemorySession::new(session_id))
+            }
+            MemoryStoragePolicyKind::Window => Arc::new(WindowMemorySession::new(
+                session_id,
+                memory_storage_policy.window_size,
+            )),
+            MemoryStoragePolicyKind::Lru => {
+                Arc::new(LRUCache::new(session_id, memory_storage_policy.capacity))
+            }
         };
         return Ok(session);
     }
 
-    pub fn create_session(&self, session_id: Option<Uuid>, memory_storage_policy: MemoryStoragePolicy) -> Result<Uuid, MemorySessionError> {
+    pub fn create_session(
+        &self,
+        session_id: Option<Uuid>,
+        memory_storage_policy: MemoryStoragePolicy,
+    ) -> Result<Uuid, MemorySessionError> {
         if self.does_session_exist(session_id) {
             info!("Session already exists");
             return Ok(session_id.unwrap());
@@ -129,11 +134,7 @@ impl MemorySessionRouter {
         return Ok(session_id);
     }
 
-    pub fn add_turn(
-        &self,
-        session_id: Uuid,
-        turn: String,
-    ) -> Result<(), MemorySessionError> {
+    pub fn add_turn(&self, session_id: Uuid, turn: String) -> Result<(), MemorySessionError> {
         let session_option = self.get_session(session_id);
 
         if session_option.is_none() {
@@ -141,10 +142,11 @@ impl MemorySessionRouter {
         }
 
         let mut session_arc = session_option.unwrap().clone();
-        let session_ref = Arc::get_mut(&mut session_arc)
-            .ok_or_else(|| {
-                MemorySessionError::InternalError("Failed to obtain mutable reference to session".into())
-            })?;
+        let session_ref = Arc::get_mut(&mut session_arc).ok_or_else(|| {
+            MemorySessionError::InternalError(
+                "Failed to obtain mutable reference to session".into(),
+            )
+        })?;
 
         session_ref
             .add_turn(turn)
@@ -165,10 +167,11 @@ impl MemorySessionRouter {
         }
 
         let mut session_arc = session_option.unwrap().clone();
-        let session_ref = Arc::get_mut(&mut session_arc)
-            .ok_or_else(|| {
-                MemorySessionError::InternalError("Failed to obtain mutable reference to session".into())
-            })?;
+        let session_ref = Arc::get_mut(&mut session_arc).ok_or_else(|| {
+            MemorySessionError::InternalError(
+                "Failed to obtain mutable reference to session".into(),
+            )
+        })?;
 
         let history = session_ref
             .retrieve_history(query)
