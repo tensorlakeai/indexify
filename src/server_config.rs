@@ -48,6 +48,17 @@ pub enum EmbeddingModelKind {
     OpenAIAda02,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
+#[strum(serialize_all = "kebab-case")]
+pub enum MemoryStoragePolicyKind {
+    #[serde(rename = "indefinite")]
+    Indefinite,
+    #[serde(rename = "window")]
+    Window,
+    #[serde(rename = "lru")]
+    Lru,
+}
+
 /// Enum representing the different kinds of devices on which the text embedding models can be run.
 /// The available options are CPU, GPU, and Remote (for remote services such as OpenAI).
 #[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
@@ -70,6 +81,18 @@ pub struct EmbeddingModel {
     pub model_kind: EmbeddingModelKind,
     #[serde(rename = "device")]
     pub device_kind: DeviceKind,
+}
+
+/// Struct representing the configuration of memory storage data structures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MemoryStoragePolicy {
+    #[serde(rename = "policy")]
+    pub policy_kind: MemoryStoragePolicyKind,
+    #[serde(rename = "size")]
+    pub window_size: Option<usize>,
+    #[serde(rename = "capacity")]
+    pub capacity: Option<usize>,
 }
 
 /// Struct representing the configuration for OpenAI.
@@ -116,6 +139,7 @@ pub struct ServerConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
     pub index_config: Option<VectorIndexConfig>,
+    pub memory_policies: Vec<MemoryStoragePolicy>,
 }
 
 impl Default for ServerConfig {
@@ -138,6 +162,11 @@ impl Default for ServerConfig {
                 api_key: OPENAI_DUMMY_KEY.into(),
             }),
             index_config: None,
+            memory_policies: vec![MemoryStoragePolicy {
+                policy_kind: MemoryStoragePolicyKind::Indefinite,
+                window_size: None,
+                capacity: None,
+            }],
         }
     }
 }
@@ -209,6 +238,10 @@ mod tests {
         assert_eq!(
             config.index_config.unwrap().qdrant_config.unwrap().addr,
             "http://172.20.0.8:6334".to_string()
+        );
+        assert_eq!(
+            "indefinite",
+            config.memory_policies[0].policy_kind.to_string()
         );
     }
 }

@@ -1,6 +1,9 @@
 use crate::index::{IndexManager, Text};
 use crate::text_splitters::TextSplitterKind;
-use crate::{CreateIndexParams, EmbeddingRouter, MetricKind, ServerConfig};
+use crate::{
+    CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MemoryStoragePolicy, MetricKind,
+    ServerConfig,
+};
 
 use super::embeddings::EmbeddingGenerator;
 use anyhow::Result;
@@ -11,6 +14,7 @@ use tracing::info;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -65,6 +69,22 @@ enum ApiTextSplitterKind {
     /// Split a document across the regex boundary
     #[serde(rename = "regex")]
     Regex { pattern: String },
+}
+
+#[derive(SmartDefault, Debug, Serialize, Deserialize)]
+enum MemoryPolicyKind {
+    // Use Indefinite policy
+    #[default]
+    #[serde(rename = "indefinite")]
+    Indefinite,
+
+    // Use Windows
+    #[serde(rename = "window")]
+    Window,
+
+    // Use LRU
+    #[serde(rename = "lru")]
+    Lru,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -125,6 +145,42 @@ struct SearchRequest {
     k: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct CreateMemorySessionRequest {
+    session_id: Option<Uuid>,
+    /// The memory policy for storing and retrieving from memory
+    memory_storage_policy: MemoryStoragePolicy,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CreateMemorySessionResponse {
+    errors: Vec<String>,
+    session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MemorySessionAddRequest {
+    session_id: Uuid,
+    turn: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MemorySessionAddResponse {
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MemorySessionRetrieveRequest {
+    session_id: Uuid,
+    query: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MemorySessionRetrieveResponse {
+    history: Vec<String>,
+    errors: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct DocumentFragment {
     text: String,
@@ -165,6 +221,8 @@ impl Server {
     /// * A result indicating success or failure of the operation.
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
+        let memory_session_router: Arc<MemorySessionRouter> =
+            Arc::new(MemorySessionRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
@@ -189,6 +247,18 @@ impl Server {
             .route(
                 "/index/search",
                 get(index_search).with_state((index_manager.clone(), embedding_router.clone())),
+            )
+            .route(
+                "/memory/create",
+                get(create_memory_session).with_state(memory_session_router.clone()),
+            )
+            .route(
+                "/memory/add",
+                get(add_record).with_state(memory_session_router.clone()),
+            )
+            .route(
+                "/memory/retrieve",
+                get(retrieve_records).with_state(memory_session_router.clone()),
             );
 
         info!("server is listening at addr {:?}", &self.addr.to_string());
@@ -200,7 +270,7 @@ impl Server {
 }
 
 /// A basic handler that responds with a static string indicating the name of the server.
-/// This handler is typically used as a health check or a simple endpoint to verify that
+/// This handler is typically used as a health check or a indefinite endpoint to verify that
 /// the server is running and responding to requests.
 async fn root() -> &'static str {
     "Indexify Server"
@@ -321,6 +391,79 @@ async fn add_texts(
     }
 
     (StatusCode::OK, Json(IndexAdditionResponse::default()))
+}
+
+#[axum_macros::debug_handler]
+async fn create_memory_session(
+    State(memory_manager): State<Arc<MemorySessionRouter>>,
+    Json(payload): Json<CreateMemorySessionRequest>,
+) -> (StatusCode, Json<CreateMemorySessionResponse>) {
+    let result = memory_manager.create_session(payload.session_id, payload.memory_storage_policy);
+
+    if let Err(err) = result {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(CreateMemorySessionResponse {
+                errors: vec![err.to_string()],
+                session_id: None,
+            }),
+        );
+    }
+    (
+        StatusCode::OK,
+        Json(CreateMemorySessionResponse {
+            errors: vec![],
+            session_id: Some(result.unwrap()),
+        }),
+    )
+}
+
+#[axum_macros::debug_handler]
+async fn add_record(
+    State(memory_manager): State<Arc<MemorySessionRouter>>,
+    Json(payload): Json<MemorySessionAddRequest>,
+) -> (StatusCode, Json<MemorySessionAddResponse>) {
+    let result = memory_manager.add_turn(payload.session_id, payload.turn);
+
+    if let Err(err) = result {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(MemorySessionAddResponse {
+                errors: vec![err.to_string()],
+            }),
+        );
+    } else {
+        return (
+            StatusCode::OK,
+            Json(MemorySessionAddResponse { errors: vec![] }),
+        );
+    }
+}
+
+#[axum_macros::debug_handler]
+async fn retrieve_records(
+    State(memory_manager): State<Arc<MemorySessionRouter>>,
+    Json(payload): Json<MemorySessionRetrieveRequest>,
+) -> (StatusCode, Json<MemorySessionRetrieveResponse>) {
+    let result = memory_manager.retrieve_history(payload.session_id, payload.query);
+
+    if let Err(err) = result {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(MemorySessionRetrieveResponse {
+                errors: vec![err.to_string()],
+                history: vec![],
+            }),
+        );
+    } else {
+        return (
+            StatusCode::OK,
+            Json(MemorySessionRetrieveResponse {
+                errors: vec![],
+                history: result.unwrap(),
+            }),
+        );
+    }
 }
 
 #[axum_macros::debug_handler]
