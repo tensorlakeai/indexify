@@ -24,7 +24,7 @@ tch={version = "0.13.0", features=["download-libtorch"]}
 rust-bert = {git = "https://github.com/guillaume-be/rust-bert.git", branch="master"}
 rust_tokenizers = {version="^8"}
 scraper = {version="^0"}
-sea-orm = { version = "^0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "sqlx-dep"] }
+sea-orm = { version = "^0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "sqlx-dep", "debug-print", "with-json", "with-time"] }
 serde = {version="^1", features=["derive"]}
 serde_yaml={version="^0"}
 serde_json={version="^1"}
@@ -41,3 +41,4 @@ md-5 = {version = "^0"}
 tiktoken-rs = {version = "^0"}
 pyo3 = {version = "^0", features = ["extension-module", "auto-initialize"], extension-module=["pyo3/extension-module"]}
 dashmap = "5.4.0"
+time = { version = "0.3", features = ["macros"] }

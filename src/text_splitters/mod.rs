@@ -211,7 +211,7 @@ impl TextSplitter for RegexSplitter {
             let split_chunks = self
                 .tokenize_decode(split_chunk_tokens)
                 .await
-                .map_err(|e| TextSplitterError::TokenizerError(e.into()))?;
+                .map_err(TextSplitterError::TokenizerError)?;
             chunks.extend(split_chunks);
         }
 
