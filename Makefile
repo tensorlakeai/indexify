@@ -1,6 +1,15 @@
 DOCKER_USERNAME ?= diptanu
 APPLICATION_NAME ?= indexify
 
+build:
+	cargo build
+
+build-release:
+	cargo build --release
+
+clean:
+	cargo clean
+
 build-container:
 	docker build --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune --force --filter label=stage=builder

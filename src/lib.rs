@@ -1,3 +1,4 @@
+mod embedding_worker;
 mod embeddings;
 mod entity;
 mod index;

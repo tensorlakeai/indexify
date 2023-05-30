@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -57,6 +57,22 @@ pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 
 pub const DOC_PAYLOAD: &str = "___document";
 
+#[derive(Debug, Clone)]
+pub struct VectorChunk {
+    pub chunk_id: String,
+    pub text: String,
+    pub embeddings: Vec<f32>,
+}
+impl VectorChunk {
+    pub fn new(chunk_id: String, text: String, embeddings: Vec<f32>) -> Self {
+        Self {
+            chunk_id,
+            text,
+            embeddings,
+        }
+    }
+}
+
 /// A trait that defines the interface for interacting with a vector database.
 /// The vector database is responsible for storing and querying vector embeddings.
 #[async_trait]
@@ -68,10 +84,7 @@ pub trait VectorDb {
     async fn add_embedding(
         &self,
         index: &str,
-        embeddings: Vec<Vec<f32>>,
-        texts: Vec<String>,
-        attrs: HashMap<String, String>,
-        hash_on: Vec<String>,
+        chunks: Vec<VectorChunk>,
     ) -> Result<(), VectorDbError>;
 
     /// Searches for the nearest neighbors of a query vector in the specified index.

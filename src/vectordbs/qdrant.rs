@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -14,7 +13,16 @@ use qdrant_client::{
 };
 
 use super::{CreateIndexParams, MetricKind, VectorDb, VectorDbError};
-use crate::{QdrantConfig, SearchResult};
+use crate::{QdrantConfig, SearchResult, VectorChunk};
+
+fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
+    u64::from_str_radix(hex, 16)
+}
+
+#[allow(dead_code)]
+fn u64_to_hex(number: u64) -> String {
+    format!("{:x}", number)
+}
 
 pub struct QdrantDb {
     qdrant_config: QdrantConfig,
@@ -23,7 +31,7 @@ pub struct QdrantDb {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QdrantPayload {
     pub text: String,
-    pub chunk: u64,
+    pub chunk: String,
     pub metadata: serde_json::Value,
 }
 
@@ -81,33 +89,23 @@ impl VectorDb for QdrantDb {
     async fn add_embedding(
         &self,
         index: &str,
-        embeddings: Vec<Vec<f32>>,
-        texts: Vec<String>,
-        attrs: HashMap<String, String>,
-        hash_on: Vec<String>,
+        chunks: Vec<VectorChunk>,
     ) -> Result<(), VectorDbError> {
         let mut points = Vec::<PointStruct>::new();
-        for (i, text) in texts.iter().enumerate() {
+        for chunk in chunks {
+            let chunk_id = chunk.chunk_id.clone();
             let payload: Payload = json!(QdrantPayload {
-                text: text.to_string(),
-                chunk: i as u64,
-                metadata: json!(attrs.clone()),
+                text: chunk.text.clone(),
+                chunk: chunk_id.clone(),
+                metadata: json!(HashMap::<String, String>::new()),
             })
             .try_into()
             .unwrap();
-            let mut hasher = Md5::new();
-            if attrs.is_empty() {
-                hasher.update(text);
-            } else {
-                for (key, value) in attrs.iter() {
-                    if hash_on.contains(key) {
-                        hasher.update(value);
-                    }
-                }
-            }
-            let id = format!("{:x}", hasher.finalize());
-
-            points.push(PointStruct::new(id, embeddings[i].clone(), payload));
+            points.push(PointStruct::new(
+                hex_to_u64(&chunk_id).unwrap(),
+                chunk.embeddings.clone(),
+                payload,
+            ));
         }
         let _result = self
             .create_client()
@@ -183,9 +181,9 @@ impl VectorDb for QdrantDb {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::sync::Arc;
 
-    use crate::VectorDBTS;
+    use crate::{VectorChunk, VectorDBTS};
 
     use super::{CreateIndexParams, QdrantDb};
 
@@ -205,15 +203,13 @@ mod tests {
             })
             .await
             .unwrap();
-        let attrs: HashMap<String, String> = HashMap::from([("user_id".into(), "5".into())]);
+        let chunk = VectorChunk {
+            chunk_id: "0".into(),
+            text: "test".into(),
+            embeddings: vec![0., 2.],
+        };
         qdrant
-            .add_embedding(
-                "hello-index",
-                vec![vec![0., 2.]],
-                vec!["test".into()],
-                attrs,
-                vec![],
-            )
+            .add_embedding("hello-index", vec![chunk])
             .await
             .unwrap();
 
@@ -242,31 +238,16 @@ mod tests {
             })
             .await
             .unwrap();
-        let attrs: HashMap<String, String> = HashMap::from([
-            ("user_id".into(), "5".into()),
-            ("url".into(), "https://google.com".into()),
-        ]);
+        let chunk = VectorChunk {
+            chunk_id: "0".into(),
+            text: "test".into(),
+            embeddings: vec![0., 2.],
+        };
         qdrant
-            .add_embedding(
-                index_name,
-                vec![vec![0., 2.]],
-                vec!["test".into()],
-                attrs.clone(),
-                hash_on.clone(),
-            )
+            .add_embedding(index_name, vec![chunk.clone()])
             .await
             .unwrap();
-        qdrant
-            .add_embedding(
-                index_name,
-                vec![vec![1., 3.]],
-                vec!["test1".into()],
-                attrs,
-                hash_on.clone(),
-            )
-            .await
-            .unwrap();
-
+        qdrant.add_embedding(index_name, vec![chunk]).await.unwrap();
         let num_elements = qdrant.num_vectors(index_name).await.unwrap();
 
         assert_eq!(num_elements, 1);

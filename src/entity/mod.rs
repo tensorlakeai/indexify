@@ -2,4 +2,6 @@
 
 pub mod prelude;
 
+pub mod content;
 pub mod index;
+pub mod index_chunks;

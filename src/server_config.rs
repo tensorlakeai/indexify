@@ -5,46 +5,38 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
+use strum_macros::Display;
 
 const OPENAI_DUMMY_KEY: &str = "xxxxx";
 
 /// Enum representing the different kinds of text embedding models available for use.
 /// Each variant is associated with specific dimensions, which represent the size of the embeddings.
-#[derive(
-    Debug, Clone, Serialize, Deserialize, strum_macros::Display, strum_macros::EnumProperty,
-)]
-#[strum(serialize_all = "kebab-case")]
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
 pub enum EmbeddingModelKind {
-    #[strum(props(dimensions = "384"))]
-    #[strum(serialize = "all-minilm-l12-v2")]
     #[serde(rename = "all-minilm-l12-v2")]
+    #[strum(serialize = "all-minilm-l12-v2")]
     AllMiniLmL12V2,
 
-    #[strum(props(dimensions = "384"))]
-    #[strum(serialize = "all-minilm-l6-v2")]
     #[serde(rename = "all-minilm-l6-v2")]
+    #[strum(serialize = "all-minilm-l6-v2")]
     AllMiniLmL6V2,
 
-    #[strum(props(dimensions = "768"))]
-    #[strum(serialize = "all-mpnet-base-v2")]
     #[serde(rename = "all-mpnet-base-v2")]
+    #[strum(serialize = "all-mpnet-base-v2")]
     AllMpnetBaseV2,
 
-    #[strum(props(dimensions = "768"))]
-    #[strum(serialize = "all-distilroberta-v1")]
     #[serde(rename = "all-distilroberta-v1")]
+    #[strum(serialize = "all-distilroberta-v1")]
     AllDistilrobertaV1,
 
     /// T5 Model
-    #[strum(props(dimensions = "768"))]
-    #[strum(serialize = "t5-base")]
     #[serde(rename = "t5-base")]
+    #[strum(serialize = "t5-base")]
     T5Base,
 
     /// OpenAI Ada Model
-    #[strum(props(dimensions = "1536"))]
-    #[strum(serialize = "text-embedding-ada-002")]
     #[serde(rename = "text-embedding-ada-002")]
+    #[strum(serialize = "text-embedding-ada-002")]
     OpenAIAda02,
 }
 
