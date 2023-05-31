@@ -1,4 +1,5 @@
-use crate::index::{IndexManager, Text};
+use crate::index::IndexManager;
+use crate::persistence::Text;
 use crate::text_splitters::TextSplitterKind;
 use crate::{
     CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MemoryStoragePolicy, MetricKind,
@@ -135,6 +136,7 @@ struct AddTextsRequest {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexAdditionResponse {
+    sequence: u64,
     errors: Vec<String>,
 }
 
@@ -350,16 +352,19 @@ async fn add_texts(
             StatusCode::BAD_REQUEST,
             Json(IndexAdditionResponse {
                 errors: vec!["server is not configured to have indexes".into()],
+                ..Default::default()
             }),
         );
     }
     let index_manager = index_args.0.as_ref().as_ref().unwrap();
+    info!("server handler 1111");
     let try_index = index_manager.load(payload.index).await;
     if let Err(err) = try_index {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(IndexAdditionResponse {
                 errors: vec![err.to_string()],
+                ..Default::default()
             }),
         );
     }
@@ -368,6 +373,7 @@ async fn add_texts(
             StatusCode::BAD_REQUEST,
             Json(IndexAdditionResponse {
                 errors: vec!["index does not exist".into()],
+                ..Default::default()
             }),
         );
     }
@@ -376,16 +382,18 @@ async fn add_texts(
         .documents
         .iter()
         .map(|d| Text {
-            texts: vec![d.text.to_owned()],
+            text: d.text.to_owned(),
             metadata: d.metadata.to_owned(),
         })
         .collect();
+    info!("server handler");
     let result = index.add_texts(texts).await;
     if let Err(err) = result {
         return (
             StatusCode::BAD_REQUEST,
             Json(IndexAdditionResponse {
                 errors: vec![err.to_string()],
+                ..Default::default()
             }),
         );
     }
