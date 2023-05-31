@@ -42,8 +42,8 @@ class CreateIndexArgs:
     text_splitter: TextSplitter
     hash_on: Optional[List[str]]
     unique_labels: Optional[List[str]]
-    
-    
+
+
 @dataclass
 class TextChunk:
     text: str
@@ -70,12 +70,12 @@ class MemoryStoragePolicy:
     policy_kind: str
     window_size: Optional[int]
     capacity: Optional[int]
-    
+
 
 @dataclass
 class MemoryResult:
     history: List[str]
-    
+
 
 class Indexify:
     def __init__(self, url, index) -> None:
@@ -125,24 +125,37 @@ class Indexify:
             result.results.append(TextChunk(text=res["text"], metadata=res["metadata"]))
         return result
 
-    def create_memory_session(self, session_id: Optional[UUID], memory_storage_policy_kind: str, window_size: Optional[int], capacity: Optional[int]):
-        req = MemoryStoragePolicy(policy_kind=memory_storage_policy_kind, window_size=window_size, capacity=capacity)
-        req = {"session_id": session_id, "memory_storage_policy": dataclasses.asdict(req)}
+    def create_memory_session(
+        self,
+        session_id: Optional[UUID],
+        memory_storage_policy_kind: str,
+        window_size: Optional[int],
+        capacity: Optional[int],
+    ):
+        req = MemoryStoragePolicy(
+            policy_kind=memory_storage_policy_kind,
+            window_size=window_size,
+            capacity=capacity,
+        )
+        req = {
+            "session_id": session_id,
+            "memory_storage_policy": dataclasses.asdict(req),
+        }
         resp = requests.post("self._url/memory/create", json=dataclasses.asdict(req))
         payload = self._get_payload(resp)
         return str(payload["results"]["session_id"])
-    
+
     def add_to_memory(self, session_id: UUID, key: str, value: str):
         req = {"session_id": session_id, "key": key, value: "value"}
         resp = requests.post(f"{self._url}/memory/add", json=req)
         if resp.status_code == 200:
             return
         self._get_payload(resp)
-    
+
     def retrieve_records(self, session_id: UUID, query: str):
         req = {"session_id": session_id, "query": query}
         resp = requests.post(f"{self._url}/memory/retrieve", json=req)
-        payload = self._get_payload(resp)    
+        payload = self._get_payload(resp)
         return MemoryResult(history=payload["results"]["history"])
 
     @staticmethod
