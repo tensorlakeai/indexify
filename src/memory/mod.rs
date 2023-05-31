@@ -76,12 +76,6 @@ impl MemorySessionRouter {
     pub fn new(_config: Arc<server_config::ServerConfig>) -> Result<Self, MemorySessionError> {
         let router: DashMap<Uuid, MemorySessionTS> = DashMap::new();
 
-        // for (policy_name, policy) in config.memory_policies.iter() {
-        //     let memory_storage_policy = MemoryStoragePolicy::new(policy_name, policy)?;
-        //     let session = self.create_memory_session(memory_storage_policy)?;
-        //     router.insert(session.id(), session);
-        // }
-
         Ok(Self { router })
     }
 

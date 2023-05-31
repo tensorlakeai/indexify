@@ -1,5 +1,6 @@
 from typing import Optional, List
 from enum import Enum
+from uuid import UUID
 import requests
 import json
 import dataclasses
@@ -54,6 +55,18 @@ class SearchResult:
     results: List[TextChunk]
 
 
+@dataclass
+class MemoryStoragePolicy:
+    policy_kind: str
+    window_size: Optional[int]
+    capacity: Optional[int]
+    
+
+@dataclass
+class MemoryResult:
+    history: List[str]
+    
+
 class Indexify:
     def __init__(self, url, index) -> None:
         self._url = url
@@ -101,6 +114,26 @@ class Indexify:
         for res in payload["results"]:
             result.results.append(TextChunk(text=res["text"], metadata=res["metadata"]))
         return result
+
+    def create_memory_session(self, session_id: Optional[UUID], memory_storage_policy_kind: str, window_size: Optional[int], capacity: Optional[int]):
+        req = MemoryStoragePolicy(policy_kind=memory_storage_policy_kind, window_size=window_size, capacity=capacity)
+        req = {"session_id": session_id, "memory_storage_policy": dataclasses.asdict(req)}
+        resp = requests.post("self._url/memory/create", json=dataclasses.asdict(req))
+        payload = self._get_payload(resp)
+        return str(payload["results"]["session_id"])
+    
+    def add_memory_chunk(self, session_id: UUID, turn: str):
+        req = {"session_id": session_id, "turn": turn}
+        resp = requests.post(f"{self._url}/memory/add", json=dataclasses.asdict(req))
+        if resp.status_code == 200:
+            return
+        self._get_payload(resp)
+    
+    def retrieve_memory_chunk(self, session_id: UUID, query: str):
+        req = {"session_id": session_id, "query": query}
+        resp = requests.post(f"{self._url}/memory/retrieve", json=req)
+        payload = self._get_payload(resp)    
+        return MemoryResult(history=payload["results"]["history"])
 
     @staticmethod
     def _get_payload(response):
