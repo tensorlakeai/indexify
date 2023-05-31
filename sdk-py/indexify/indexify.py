@@ -34,6 +34,16 @@ class TextSplitter(str, Enum):
         return self.value.lower()
 
 
+class CreateIndexArgs:
+    name: str
+    indexify_url: str
+    embedding_model: str
+    metric: Metric
+    text_splitter: TextSplitter
+    hash_on: Optional[List[str]]
+    unique_labels: Optional[List[str]]
+    
+    
 @dataclass
 class TextChunk:
     text: str
@@ -122,14 +132,14 @@ class Indexify:
         payload = self._get_payload(resp)
         return str(payload["results"]["session_id"])
     
-    def add_memory_chunk(self, session_id: UUID, turn: str):
-        req = {"session_id": session_id, "turn": turn}
-        resp = requests.post(f"{self._url}/memory/add", json=dataclasses.asdict(req))
+    def add_to_memory(self, session_id: UUID, key: str, value: str):
+        req = {"session_id": session_id, "key": key, value: "value"}
+        resp = requests.post(f"{self._url}/memory/add", json=req)
         if resp.status_code == 200:
             return
         self._get_payload(resp)
     
-    def retrieve_memory_chunk(self, session_id: UUID, query: str):
+    def retrieve_records(self, session_id: UUID, query: str):
         req = {"session_id": session_id, "query": query}
         resp = requests.post(f"{self._url}/memory/retrieve", json=req)
         payload = self._get_payload(resp)    
