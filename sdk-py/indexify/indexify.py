@@ -68,6 +68,8 @@ class SearchResult:
 @dataclass
 class MemoryStoragePolicy:
     policy_kind: str
+    index_name: Optional[str]
+    db_url: Optional[str]
     window_size: Optional[int]
     capacity: Optional[int]
 
@@ -129,11 +131,15 @@ class Indexify:
         self,
         session_id: Optional[UUID],
         memory_storage_policy_kind: str,
+        index_name: Optional[str],
+        db_url: Optional[str],
         window_size: Optional[int],
         capacity: Optional[int],
     ):
         req = MemoryStoragePolicy(
             policy_kind=memory_storage_policy_kind,
+            index_name=index_name,
+            db_url=db_url,
             window_size=window_size,
             capacity=capacity,
         )

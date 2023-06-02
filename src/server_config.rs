@@ -42,13 +42,34 @@ pub enum EmbeddingModelKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
-pub enum MemoryStoragePolicyKind {
+pub enum MemoryPolicyKind {
     #[serde(rename = "indefinite")]
     Indefinite,
     #[serde(rename = "window")]
-    Window,
+    Window { size: Option<usize> },
     #[serde(rename = "lru")]
-    Lru,
+    Lru { capacity: Option<usize> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
+#[strum(serialize_all = "kebab-case")]
+pub enum StoragePolicy {
+    #[serde(rename = "in_memory")]
+    InMemory,
+    #[serde(rename = "sqlite")]
+    Sqlite { db_url: String },
+    #[serde(rename = "vector_db")]
+    VectorDB { index_name: String, db_url: String }
+}
+
+/// Struct representing the configuration of memory storage data structures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MemoryStoragePolicy {
+    #[serde(rename = "policy")]
+    pub policy_kind: MemoryPolicyKind,
+    #[serde(rename = "storage")]
+    pub storage_policy: StoragePolicy,
 }
 
 /// Enum representing the different kinds of devices on which the text embedding models can be run.
@@ -73,18 +94,6 @@ pub struct EmbeddingModel {
     pub model_kind: EmbeddingModelKind,
     #[serde(rename = "device")]
     pub device_kind: DeviceKind,
-}
-
-/// Struct representing the configuration of memory storage data structures.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct MemoryStoragePolicy {
-    #[serde(rename = "policy")]
-    pub policy_kind: MemoryStoragePolicyKind,
-    #[serde(rename = "size")]
-    pub window_size: Option<usize>,
-    #[serde(rename = "capacity")]
-    pub capacity: Option<usize>,
 }
 
 /// Struct representing the configuration for OpenAI.
@@ -155,9 +164,8 @@ impl Default for ServerConfig {
             }),
             index_config: None,
             memory_policies: vec![MemoryStoragePolicy {
-                policy_kind: MemoryStoragePolicyKind::Indefinite,
-                window_size: None,
-                capacity: None,
+                policy_kind: MemoryPolicyKind::Indefinite,
+                storage_policy: StoragePolicy::InMemory,
             }],
         }
     }

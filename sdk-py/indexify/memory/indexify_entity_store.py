@@ -14,16 +14,17 @@ class IndexifyEntityStore(BaseEntityStore):
 
     def __init__(
         self,
+        db_url: str,
+        index_name: Optional[str],
         session_id: Optional[UUID],
         window_size: Optional[int],
         capacity: Optional[int],
-        db_url: str = "sqlite://memory.db",
         *args: Any,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
         self.session_id = Indexify.create_memory_session(
-            session_id, db_url, window_size, capacity
+            session_id, db_url, index_name, window_size, capacity
         )
 
     @property

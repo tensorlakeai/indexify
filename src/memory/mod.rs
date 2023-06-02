@@ -4,7 +4,7 @@ mod window;
 
 use std::{option::Option, sync::Arc};
 
-use crate::{MemoryStoragePolicy, MemoryStoragePolicyKind};
+use crate::{MemoryStoragePolicy, MemoryPolicyKind};
 
 use dashmap::{mapref::one::RefMut, DashMap};
 use thiserror::Error;
@@ -96,19 +96,19 @@ impl MemorySessionRouter {
     fn create_memory_session(
         &self,
         session_id: Uuid,
-        memory_storage_policy: MemoryStoragePolicy,
+        policy: MemoryStoragePolicy,
     ) -> Result<MemorySessionTS, MemorySessionError> {
-        let session: MemorySessionTS = match memory_storage_policy.policy_kind {
-            MemoryStoragePolicyKind::Indefinite => {
-                Arc::new(IndefiniteMemorySession::new(session_id))
-            }
-            MemoryStoragePolicyKind::Window => Arc::new(WindowMemorySession::new(
-                session_id,
-                memory_storage_policy.window_size,
-            )),
-            MemoryStoragePolicyKind::Lru => {
-                Arc::new(LRUCache::new(session_id, memory_storage_policy.capacity))
-            }
+        let session: MemorySessionTS = match policy.policy_kind {
+            MemoryPolicyKind::Indefinite =>
+                Arc::new(IndefiniteMemorySession::new(session_id, policy.storage_policy)),
+            MemoryPolicyKind::Window { size } =>
+                Arc::new(WindowMemorySession::new(
+                    session_id,
+                    size,
+                    policy.storage_policy,
+                )),
+            MemoryPolicyKind::Lru { capacity } =>
+                Arc::new(LRUCache::new(session_id, capacity, policy.storage_policy)),
         };
         return Ok(session);
     }
@@ -123,8 +123,8 @@ impl MemorySessionRouter {
             return Ok(session_id.unwrap());
         }
         let session_id = session_id.unwrap_or(Uuid::new_v4());
-        let session = self.create_memory_session(session_id, memory_storage_policy);
-        self.router.insert(session_id, session.unwrap());
+        let session = self.create_memory_session(session_id, memory_storage_policy)?;
+        self.router.insert(session_id, session);
         return Ok(session_id);
     }
 
