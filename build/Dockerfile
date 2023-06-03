@@ -1,4 +1,4 @@
-FROM rust:latest AS builder
+FROM --platform=linux/amd64 rust:latest AS builder
 
 RUN update-ca-certificates
 
@@ -10,6 +10,4 @@ RUN ./setup_libtorch_cpu.sh
 
 RUN apt update
 
-RUN apt -y install protobuf-compiler protobuf-compiler-grpc sqlite3 python3-dev
-
-RUN cargo install sea-orm-cli
+RUN apt -y install protobuf-compiler protobuf-compiler-grpc sqlite3 python3-dev pip virtualenv python3

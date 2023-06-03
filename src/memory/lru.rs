@@ -79,7 +79,7 @@ mod tests {
         let mut cache = LRUCache::new(session_id, Some(2));
         cache
             .add_turn("Value 1".to_string())
-            .map_err(|e| return MemorySessionError::InternalError(e.to_string()))
+            .map_err(|e| MemorySessionError::InternalError(e.to_string()))
             .ok();
         cache
             .add_turn("Value 2".to_string())

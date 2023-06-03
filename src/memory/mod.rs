@@ -86,14 +86,14 @@ impl MemorySessionRouter {
     }
 
     fn does_session_exist(&self, session_id: Option<Uuid>) -> bool {
-        return session_id.is_some() && self.router.contains_key(&session_id.unwrap());
+        session_id.is_some() && self.router.contains_key(&session_id.unwrap())
     }
 
     fn get_session(
         &self,
         session_id: Uuid,
     ) -> Option<RefMut<Uuid, Arc<dyn MemorySession + Send + Sync>>> {
-        if self.does_session_exist(Some(session_id)) == false {
+        if !self.does_session_exist(Some(session_id)) {
             return None;
         }
         return self.router.get_mut(&session_id);
@@ -116,7 +116,7 @@ impl MemorySessionRouter {
                 Arc::new(LRUCache::new(session_id, memory_storage_policy.capacity))
             }
         };
-        return Ok(session);
+        Ok(session)
     }
 
     pub fn create_session(
@@ -131,7 +131,7 @@ impl MemorySessionRouter {
         let session_id = session_id.unwrap_or(Uuid::new_v4());
         let session = self.create_memory_session(session_id, memory_storage_policy);
         self.router.insert(session_id, session.unwrap());
-        return Ok(session_id);
+        Ok(session_id)
     }
 
     pub fn add_turn(&self, session_id: Uuid, turn: String) -> Result<(), MemorySessionError> {

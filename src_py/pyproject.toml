@@ -7,11 +7,7 @@ readme = "README.md"
 packages = [{include = "indexify_py"}]
 
 [tool.poetry.dependencies]
-python = "^3.10"
-urllib3 = {version = "1.26.15", source = "PyPI"}
-transformers = {extras = ["torch"], version = "^4.29.2", source="PyPI"}
-optimum = {extras = ["onnxruntime"], version = "^1.8.6", source="PyPI"}
-torch = {version = "^2.0.1+cpu", source = "pytorch-cpu"}
+python = "^3.9"
 
 
 [build-system]
@@ -23,14 +19,3 @@ optional = true
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.3.1"
-
-[[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "secondary"
-
-
-[[tool.poetry.source]]
-name = "PyPI"
-priority = "primary"
-

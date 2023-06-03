@@ -27,7 +27,11 @@ until curl --output /dev/null --silent --get --fail http://$QDRANT_HOST/collecti
   sleep 5
 done
 
-cargo test --all
+./install_python_deps.sh
+
+(cd src_py && pip install .)
+
+cargo test -- --test-threads 1
 
 echo "Ok, that is enough"
 

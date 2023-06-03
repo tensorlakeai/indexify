@@ -12,7 +12,6 @@ use sea_orm::{
 };
 use thiserror::Error;
 
-
 use crate::entity;
 use crate::entity::index;
 use crate::vectordbs::{self, CreateIndexParams};
@@ -119,12 +118,11 @@ impl Respository {
     }
 
     pub async fn get_index(&self, index: String) -> Result<IndexModel, RespositoryError> {
-        let result = IndexEntity::find()
+        IndexEntity::find()
             .filter(index::Column::Name.eq(&index))
             .one(&self.conn)
             .await?
-            .ok_or(RespositoryError::IndexNotFound(index));
-        result
+            .ok_or(RespositoryError::IndexNotFound(index))
     }
 
     pub async fn add_to_index(

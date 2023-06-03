@@ -12,7 +12,6 @@ pub struct EmbeddingWorker {
     repository: Arc<Respository>,
     vectordb: VectorDBTS,
     embedding_generator: EmbeddingGeneratorTS,
-    embedding_model: String,
     text_splitter: TextSplitterTS,
 }
 
@@ -21,14 +20,12 @@ impl EmbeddingWorker {
         repository: Arc<Respository>,
         vectordb: VectorDBTS,
         embedding_generator: EmbeddingGeneratorTS,
-        embedding_model: String,
         text_splitter: TextSplitterTS,
     ) -> Self {
         Self {
             repository,
             vectordb,
             embedding_generator,
-            embedding_model,
             text_splitter,
         }
     }
@@ -41,7 +38,7 @@ impl EmbeddingWorker {
             let splitted_texts = self.text_splitter.split(&text, 1000, 0).await?;
             let embeddings = self
                 .embedding_generator
-                .generate_embeddings(splitted_texts.clone(), self.embedding_model.to_string())
+                .generate_embeddings(splitted_texts.clone())
                 .await?;
             let mut chunks: Vec<Chunk> = Vec::new();
             let mut vector_chunks: Vec<VectorChunk> = Vec::new();

@@ -9,8 +9,8 @@ use crate::{
     embedding_worker::EmbeddingWorker,
     persistence::{Respository, RespositoryError, Text},
     text_splitters::{self, TextSplitterKind},
-    vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, SearchResult,
-    VectorDBTS, VectorDbError, VectorIndexConfig,
+    vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, EmbeddingRouter,
+    SearchResult, VectorDBTS, VectorDbError, VectorIndexConfig,
 };
 
 #[async_trait::async_trait]
@@ -43,14 +43,14 @@ pub enum IndexError {
 
 pub struct IndexManager {
     vectordb: VectorDBTS,
-    embedding_router: EmbeddingGeneratorTS,
+    embedding_router: Arc<EmbeddingRouter>,
     repository: Arc<Respository>,
 }
 
 impl IndexManager {
     pub async fn new(
         index_config: Option<VectorIndexConfig>,
-        embedding_router: EmbeddingGeneratorTS,
+        embedding_router: Arc<EmbeddingRouter>,
     ) -> Result<Option<Self>, IndexError> {
         if index_config.is_none() {
             info!("indexing feature is not configured");
@@ -69,7 +69,7 @@ impl IndexManager {
     fn _new(
         repository: Arc<Respository>,
         index_config: VectorIndexConfig,
-        embedding_router: EmbeddingGeneratorTS,
+        embedding_router: Arc<EmbeddingRouter>,
     ) -> Result<Option<Self>, IndexError> {
         let vectordb = vectordbs::create_vectordb(index_config)?;
         Ok(Some(IndexManager {
@@ -82,7 +82,7 @@ impl IndexManager {
     #[allow(dead_code)]
     pub fn new_with_db(
         index_config: Option<VectorIndexConfig>,
-        embedding_router: EmbeddingGeneratorTS,
+        embedding_router: Arc<EmbeddingRouter>,
         db: DatabaseConnection,
     ) -> Result<Option<Self>, IndexError> {
         let repository = Arc::new(Respository::new_with_db(db));
@@ -95,13 +95,10 @@ impl IndexManager {
         embedding_model: String,
         text_splitter: TextSplitterKind,
     ) -> Result<(), IndexError> {
+        let model = self.embedding_router.get_model(embedding_model.clone())?;
         // This is to ensure the user is not requesting to create an index
         // with a text splitter that is not supported
-        let _ = text_splitters::get_splitter(
-            text_splitter.clone(),
-            self.embedding_router.clone(),
-            embedding_model.clone(),
-        )?;
+        let _ = text_splitters::get_splitter(text_splitter.clone(), model)?;
 
         self.repository
             .create_index(
@@ -118,16 +115,14 @@ impl IndexManager {
         let index_entity = self.repository.get_index(index_name.clone()).await?;
         let splitter_kind = TextSplitterKind::from_str(&index_entity.text_splitter)
             .map_err(|e| IndexError::LogicError(e.to_string()))?;
-        let splitter = text_splitters::get_splitter(
-            splitter_kind,
-            self.embedding_router.clone(),
-            index_entity.embedding_model.clone(),
-        )?;
+        let model = self
+            .embedding_router
+            .get_model(index_entity.embedding_model)?;
+        let splitter = text_splitters::get_splitter(splitter_kind, model.clone())?;
         let embedding_worker = Arc::new(EmbeddingWorker::new(
             self.repository.clone(),
             self.vectordb.clone(),
-            self.embedding_router.clone(),
-            index_entity.embedding_model.clone(),
+            model.clone(),
             splitter.clone(),
         ));
         let index = Index::new(
@@ -135,8 +130,7 @@ impl IndexManager {
             embedding_worker,
             self.vectordb.clone(),
             self.repository.clone(),
-            self.embedding_router.clone(),
-            index_entity.embedding_model,
+            model.clone(),
         )
         .await?;
         Ok(index)
@@ -148,7 +142,6 @@ pub struct Index {
     vectordb: VectorDBTS,
     repository: Arc<Respository>,
     embedding_generator: EmbeddingGeneratorTS,
-    embedding_model: String,
 }
 
 impl Index {
@@ -158,7 +151,6 @@ impl Index {
         vectordb: VectorDBTS,
         repository: Arc<Respository>,
         embedding_generator: EmbeddingGeneratorTS,
-        embedding_model: String,
     ) -> Result<Option<Index>, IndexError> {
         Ok(Some(Self {
             name,
@@ -166,17 +158,13 @@ impl Index {
             vectordb,
             repository,
             embedding_generator,
-            embedding_model,
         }))
     }
 
     pub async fn add_texts(&self, texts: Vec<Text>) -> Result<(), IndexError> {
-        info!("adding texts to index {}", self.name);
-        self
-            .repository
+        self.repository
             .add_to_index(self.name.clone(), texts)
             .await?;
-        info!("running embedding");
         self.embedding_worker
             .run_once()
             .await
@@ -187,7 +175,7 @@ impl Index {
     pub async fn search(&self, query: String, k: u64) -> Result<Vec<SearchResult>, IndexError> {
         let query_embedding = self
             .embedding_generator
-            .generate_embeddings(vec![query], self.embedding_model.clone())
+            .generate_embeddings(vec![query])
             .await?
             .get(0)
             .unwrap()
