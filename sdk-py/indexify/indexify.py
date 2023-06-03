@@ -68,15 +68,20 @@ class SearchResult:
 @dataclass
 class MemoryStoragePolicy:
     policy_kind: str
-    index_name: Optional[str]
-    db_url: Optional[str]
+    data_storage_kind: str
     window_size: Optional[int]
     capacity: Optional[int]
 
 
 @dataclass
+class Message:
+    text: str
+    role: str
+    metadata: Optional[dict]
+    
+@dataclass
 class MemoryResult:
-    history: List[str]
+    history: List[Message]
 
 
 class Indexify:
@@ -130,37 +135,44 @@ class Indexify:
     def create_memory_session(
         self,
         session_id: Optional[UUID],
-        memory_storage_policy_kind: str,
-        index_name: Optional[str],
-        db_url: Optional[str],
         window_size: Optional[int],
         capacity: Optional[int],
+        memory_storage_policy_kind: str = 'indefinite',
+        data_storage_kind: str = 'embedded',
     ):
-        req = MemoryStoragePolicy(
-            policy_kind=memory_storage_policy_kind,
-            index_name=index_name,
-            db_url=db_url,
-            window_size=window_size,
-            capacity=capacity,
-        )
         req = {
             "session_id": session_id,
-            "memory_storage_policy": dataclasses.asdict(req),
+            "memory_storage_policy": dataclasses.asdict(
+                MemoryStoragePolicy(
+                    policy_kind=memory_storage_policy_kind,
+                    data_storage_kind=data_storage_kind,
+                    window_size=window_size,
+                    capacity=capacity,
+                )),
         }
         resp = requests.post("self._url/memory/create", json=dataclasses.asdict(req))
         payload = self._get_payload(resp)
         return str(payload["results"]["session_id"])
 
-    def add_to_memory(self, session_id: UUID, key: str, value: str):
-        req = {"session_id": session_id, "key": key, value: "value"}
+    def add_memory(self, session_id: UUID, messages: List[Message]):
+        req = {
+            "session_id": session_id, 
+            "messages": messages,
+        }
         resp = requests.post(f"{self._url}/memory/add", json=req)
         if resp.status_code == 200:
             return
         self._get_payload(resp)
 
-    def retrieve_records(self, session_id: UUID, query: str):
-        req = {"session_id": session_id, "query": query}
+    def retrieve_memory(self, session_id: UUID):
+        req = {"session_id": session_id}
         resp = requests.post(f"{self._url}/memory/retrieve", json=req)
+        payload = self._get_payload(resp)
+        return MemoryResult(history=payload["results"]["history"])
+    
+    def search_memory(self, session_id: UUID, query: str, topk: Optional[int]):
+        req = {"session_id": session_id, "query": query}
+        resp = requests.post(f"{self._url}/memory/search", json=req)
         payload = self._get_payload(resp)
         return MemoryResult(history=payload["results"]["history"])
 
