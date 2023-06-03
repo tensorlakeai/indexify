@@ -10,6 +10,8 @@ use anyhow::Result;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, routing::get, routing::post, Json, Router};
+use pyo3::Python;
+use tokio::signal;
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
@@ -261,6 +263,7 @@ impl Server {
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
+            .with_graceful_shutdown(shutdown_signal())
             .await?;
         Ok(())
     }
@@ -504,4 +507,33 @@ async fn generate_embedding(
     Ok(Json(GenerateEmbeddingResponse {
         embeddings: Some(embeddings.unwrap()),
     }))
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            let _ = Python::with_gil(|py| py.check_signals());
+        },
+        _ = terminate => {
+            let _ = Python::with_gil(|py| py.check_signals());
+        },
+    }
+    info!("signal received, shutting down server gracefully");
 }
