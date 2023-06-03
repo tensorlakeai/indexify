@@ -8,6 +8,7 @@ use crate::{
 
 use anyhow::Result;
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use tracing::info;
 
@@ -32,10 +33,7 @@ struct GenerateEmbeddingRequest {
 /// Response payload for generating text embeddings.
 #[derive(Debug, Serialize, Deserialize)]
 struct GenerateEmbeddingResponse {
-    /// Generated embeddings, if successful.
     embeddings: Option<Vec<Vec<f32>>>,
-    /// Error message, if an error occurred.
-    error: Option<String>,
 }
 
 /// An embedding model and its properties.
@@ -117,9 +115,7 @@ struct IndexCreateRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct IndexCreateResponse {
-    errors: Vec<String>,
-}
+struct IndexCreateResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Document {
@@ -155,7 +151,6 @@ struct CreateMemorySessionRequest {
 
 #[derive(Serialize, Deserialize)]
 struct CreateMemorySessionResponse {
-    errors: Vec<String>,
     session_id: Option<Uuid>,
 }
 
@@ -166,9 +161,7 @@ struct MemorySessionAddRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-struct MemorySessionAddResponse {
-    errors: Vec<String>,
-}
+struct MemorySessionAddResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionRetrieveRequest {
@@ -179,7 +172,6 @@ struct MemorySessionRetrieveRequest {
 #[derive(Serialize, Deserialize)]
 struct MemorySessionRetrieveResponse {
     history: Vec<String>,
-    errors: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -191,7 +183,26 @@ struct DocumentFragment {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexSearchResponse {
     results: Vec<DocumentFragment>,
-    errors: Vec<String>,
+}
+
+pub struct IndexifyAPIError {
+    status_code: StatusCode,
+    message: String,
+}
+
+impl IndexifyAPIError {
+    fn new(status_code: StatusCode, message: String) -> Self {
+        return Self {
+            status_code,
+            message,
+        };
+    }
+}
+
+impl IntoResponse for IndexifyAPIError {
+    fn into_response(self) -> Response {
+        (self.status_code, self.message).into_response()
+    }
 }
 
 type IndexEndpointState = (Arc<Option<IndexManager>>, Arc<EmbeddingRouter>);
@@ -247,19 +258,6 @@ impl Server {
                 "/memory/retrieve",
                 get(retrieve_records).with_state(memory_session_router.clone()),
             );
-        //.route(
-        //    "/memory/create",
-        //    get(create_memory_session).with_state(memory_session_router.clone()),
-        //)
-        //.route(
-        //    "/memory/add",
-        //    get(add_record).with_state(memory_session_router.clone()),
-        //)
-        //.route(
-        //    "/memory/retrieve",
-        //    get(retrieve_records).with_state(memory_session_router.clone()),
-        //);
-
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
@@ -268,48 +266,27 @@ impl Server {
     }
 }
 
-/// A basic handler that responds with a static string indicating the name of the server.
-/// This handler is typically used as a health check or a indefinite endpoint to verify that
-/// the server is running and responding to requests.
 async fn root() -> &'static str {
     "Indexify Server"
 }
 
-/// A handler for creating a new vector index in the vector database. This handler is responsible
-/// for processing incoming requests to create new vector indices, which are used to store and
-/// query vector embeddings. The request payload contains the name of the new index, the name of
-/// the embedding model to use for indexing, and the text splitter to use when indexing text.
-///
-/// # Parameters
-///
-/// * `State(index)`: The current state of the vector database.
-/// * `Json(payload)`: The request payload containing the details for creating the new index.
-///
-/// # Returns
-///
-/// * A tuple containing an HTTP status code and a JSON response payload. The response payload
-///   contains an empty object, as no additional information is returned for this operation.
 #[axum_macros::debug_handler]
 async fn index_create(
     State(index_args): State<IndexEndpointState>,
     Json(payload): Json<IndexCreateRequest>,
-) -> (StatusCode, Json<IndexCreateResponse>) {
+) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
     if index_args.0.is_none() {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexCreateResponse {
-                errors: vec!["server is not configured to have indexes".into()],
-            }),
-        );
+            "server is not configured to have indexes".into(),
+        ));
     }
     let try_model = index_args.1.get_model(payload.embedding_model.clone());
     if let Err(err) = try_model {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexCreateResponse {
-                errors: vec![err.to_string()],
-            }),
-        );
+            err.to_string(),
+        ));
     }
     let dim = try_model.unwrap().dimensions();
     let index_params = CreateIndexParams {
@@ -330,49 +307,38 @@ async fn index_create(
         .create_index(index_params, payload.embedding_model, splitter_kind)
         .await;
     if let Err(err) = result {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(IndexCreateResponse {
-                errors: vec![err.to_string()],
-            }),
-        );
+            err.to_string(),
+        ));
     }
-    (StatusCode::OK, Json(IndexCreateResponse { errors: vec![] }))
+    Ok(Json(IndexCreateResponse {}))
 }
 
 #[axum_macros::debug_handler]
 async fn add_texts(
     State(index_args): State<IndexEndpointState>,
     Json(payload): Json<AddTextsRequest>,
-) -> (StatusCode, Json<IndexAdditionResponse>) {
+) -> Result<Json<IndexAdditionResponse>, IndexifyAPIError> {
     if index_args.0.is_none() {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexAdditionResponse {
-                errors: vec!["server is not configured to have indexes".into()],
-                ..Default::default()
-            }),
-        );
+            "server is not configured to have indexes".into(),
+        ));
     }
     let index_manager = index_args.0.as_ref().as_ref().unwrap();
     let try_index = index_manager.load(payload.index).await;
     if let Err(err) = try_index {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(IndexAdditionResponse {
-                errors: vec![err.to_string()],
-                ..Default::default()
-            }),
-        );
+            err.to_string(),
+        ));
     }
     if try_index.as_ref().unwrap().is_none() {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexAdditionResponse {
-                errors: vec!["index does not exist".into()],
-                ..Default::default()
-            }),
-        );
+            "index does not exist".into(),
+        ));
     }
     let index = try_index.unwrap().unwrap();
     let texts = payload
@@ -385,62 +351,47 @@ async fn add_texts(
         .collect();
     let result = index.add_texts(texts).await;
     if let Err(err) = result {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexAdditionResponse {
-                errors: vec![err.to_string()],
-                ..Default::default()
-            }),
-        );
+            err.to_string(),
+        ));
     }
 
-    (StatusCode::OK, Json(IndexAdditionResponse::default()))
+    Ok(Json(IndexAdditionResponse::default()))
 }
 
 #[axum_macros::debug_handler]
 async fn create_memory_session(
     State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<CreateMemorySessionRequest>,
-) -> (StatusCode, Json<CreateMemorySessionResponse>) {
+) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
     let result = memory_manager.create_session(payload.session_id, payload.memory_storage_policy);
 
     if let Err(err) = result {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(CreateMemorySessionResponse {
-                errors: vec![err.to_string()],
-                session_id: None,
-            }),
-        );
+            err.to_string(),
+        ));
     }
-    (
-        StatusCode::OK,
-        Json(CreateMemorySessionResponse {
-            errors: vec![],
-            session_id: Some(result.unwrap()),
-        }),
-    )
+    Ok(Json(CreateMemorySessionResponse {
+        session_id: Some(result.unwrap()),
+    }))
 }
 
 #[axum_macros::debug_handler]
 async fn add_record(
     State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<MemorySessionAddRequest>,
-) -> (StatusCode, Json<MemorySessionAddResponse>) {
+) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     let result = memory_manager.add_turn(payload.session_id, payload.turn);
 
     if let Err(err) = result {
-        (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(MemorySessionAddResponse {
-                errors: vec![err.to_string()],
-            }),
-        )
+            err.to_string(),
+        ));
     } else {
-        (
-            StatusCode::OK,
-            Json(MemorySessionAddResponse { errors: vec![] }),
-        )
+        Ok(Json(MemorySessionAddResponse {}))
     }
 }
 
@@ -448,25 +399,18 @@ async fn add_record(
 async fn retrieve_records(
     State(memory_manager): State<Arc<MemorySessionRouter>>,
     Json(payload): Json<MemorySessionRetrieveRequest>,
-) -> (StatusCode, Json<MemorySessionRetrieveResponse>) {
+) -> Result<Json<MemorySessionRetrieveResponse>, IndexifyAPIError> {
     let result = memory_manager.retrieve_history(payload.session_id, payload.query);
 
     if let Err(err) = result {
-        (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(MemorySessionRetrieveResponse {
-                errors: vec![err.to_string()],
-                history: vec![],
-            }),
-        )
+            err.to_string(),
+        ));
     } else {
-        (
-            StatusCode::OK,
-            Json(MemorySessionRetrieveResponse {
-                errors: vec![],
-                history: result.unwrap(),
-            }),
-        )
+        Ok(Json(MemorySessionRetrieveResponse {
+            history: result.unwrap(),
+        }))
     }
 }
 
@@ -474,47 +418,35 @@ async fn retrieve_records(
 async fn index_search(
     State(index_args): State<IndexEndpointState>,
     Json(query): Json<SearchRequest>,
-) -> (StatusCode, Json<IndexSearchResponse>) {
+) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
     if index_args.0.is_none() {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexSearchResponse {
-                errors: vec!["server is not configured to have indexes".into()],
-                ..Default::default()
-            }),
-        );
+            "server is not configured to have indexes".into(),
+        ));
     }
 
     let index_manager = index_args.0.as_ref().as_ref().unwrap();
     let try_index = index_manager.load(query.index.clone()).await;
     if let Err(err) = try_index {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(IndexSearchResponse {
-                results: vec![],
-                errors: vec![err.to_string()],
-            }),
-        );
+            err.to_string(),
+        ));
     }
     if try_index.as_ref().unwrap().is_none() {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
-            Json(IndexSearchResponse {
-                results: vec![],
-                errors: vec!["index does not exist".into()],
-            }),
-        );
+            "index does not exist".into(),
+        ));
     }
     let index = try_index.unwrap().unwrap();
     let results = index.search(query.query, query.k).await;
     if let Err(err) = results {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(IndexSearchResponse {
-                results: vec![],
-                errors: vec![err.to_string()],
-            }),
-        );
+            err.to_string(),
+        ));
     }
     let document_fragments: Vec<DocumentFragment> = results
         .unwrap()
@@ -524,34 +456,17 @@ async fn index_search(
             metadata: text.metadata.to_owned(),
         })
         .collect();
-    (
-        StatusCode::OK,
-        Json(IndexSearchResponse {
-            results: document_fragments,
-            errors: vec![],
-        }),
-    )
+    Ok(Json(IndexSearchResponse {
+        results: document_fragments,
+    }))
 }
 
-/// A handler for listing the available embedding models supported by the server. This handler
-/// retrieves the list of available models from the embedding router and returns it in the response.
-/// The response includes the name and dimensions of each available model.
-///
-/// # Parameters
-///
-/// * `State(embedding_router)`: The current state of the embedding router.
-///
-/// # Returns
-///
-/// * A JSON response payload containing a list of available embedding models and their properties.
 #[axum_macros::debug_handler]
 async fn list_embedding_models(
     State(embedding_router): State<Arc<EmbeddingRouter>>,
 ) -> Json<ListEmbeddingModelsResponse> {
-    // Retrieve the list of available model names.
     let model_names = embedding_router.list_models();
     let mut models: Vec<EmbeddingModel> = Vec::new();
-    // For each model name, retrieve its dimensions and create an EmbeddingModel object.
     for model_name in model_names {
         let model = embedding_router.get_model(model_name.clone()).unwrap();
         models.push(EmbeddingModel {
@@ -559,37 +474,20 @@ async fn list_embedding_models(
             dimensions: model.dimensions(),
         })
     }
-    // Return the list of available models in the response.
     Json(ListEmbeddingModelsResponse { models })
 }
 
-/// A handler for generating text embeddings using a specified model. This handler processes
-/// incoming requests to generate embeddings for a list of input texts. The request payload
-/// specifies the input texts and the name of the model to use for generating embeddings.
-///
-/// # Parameters
-///
-/// * `State(embedding_generator)`: The current state of the embedding generator.
-/// * `Json(payload)`: The request payload containing the input texts and model name.
-///
-/// # Returns
-///
-/// * A tuple containing an HTTP status code and a JSON response payload. The response payload
-///   contains the generated embeddings if successful, or an error message if an error occurred.
 #[axum_macros::debug_handler]
 async fn generate_embedding(
     State(embedding_router): State<Arc<EmbeddingRouter>>,
     Json(payload): Json<GenerateEmbeddingRequest>,
-) -> (StatusCode, Json<GenerateEmbeddingResponse>) {
+) -> Result<Json<GenerateEmbeddingResponse>, IndexifyAPIError> {
     let try_embedding_generator = embedding_router.get_model(payload.model);
     if let Err(err) = &try_embedding_generator {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::NOT_ACCEPTABLE,
-            Json(GenerateEmbeddingResponse {
-                embeddings: None,
-                error: Some(err.to_string()),
-            }),
-        );
+            err.to_string(),
+        ));
     }
     let embeddings = try_embedding_generator
         .unwrap()
@@ -597,20 +495,13 @@ async fn generate_embedding(
         .await;
 
     if let Err(err) = embeddings {
-        return (
+        return Err(IndexifyAPIError::new(
             StatusCode::EXPECTATION_FAILED,
-            Json(GenerateEmbeddingResponse {
-                embeddings: None,
-                error: Some(err.to_string()),
-            }),
-        );
+            err.to_string(),
+        ));
     }
 
-    (
-        StatusCode::OK,
-        Json(GenerateEmbeddingResponse {
-            embeddings: Some(embeddings.unwrap()),
-            error: None,
-        }),
-    )
+    Ok(Json(GenerateEmbeddingResponse {
+        embeddings: Some(embeddings.unwrap()),
+    }))
 }
