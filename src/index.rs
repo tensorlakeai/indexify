@@ -227,8 +227,7 @@ mod tests {
             }),
         };
         let db = create_db().await.unwrap();
-        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db)
-            .unwrap();
+        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db).unwrap();
         index_manager
             .create_index(
                 index_params,

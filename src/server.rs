@@ -207,7 +207,7 @@ impl IntoResponse for IndexifyAPIError {
 }
 
 #[derive(Clone)]
-pub struct IndexEndpointState  {
+pub struct IndexEndpointState {
     index_manager: Arc<IndexManager>,
     embedding_router: Arc<EmbeddingRouter>,
 }
@@ -234,7 +234,7 @@ impl Server {
             )
             .await?,
         );
-        let index_state = IndexEndpointState{
+        let index_state = IndexEndpointState {
             index_manager: index_manager,
             embedding_router: embedding_router.clone(),
         };
@@ -290,14 +290,11 @@ async fn index_create(
     State(state): State<IndexEndpointState>,
     Json(payload): Json<IndexCreateRequest>,
 ) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
-    let try_model = state.embedding_router.get_model(payload.embedding_model.clone());
-    if let Err(err) = try_model {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            err.to_string(),
-        ));
-    }
-    let dim = try_model.unwrap().dimensions();
+    let model = state
+        .embedding_router
+        .get_model(payload.embedding_model.clone())
+        .map_err(|e| IndexifyAPIError::new(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let dim = model.dimensions();
     let index_params = CreateIndexParams {
         name: payload.name.clone(),
         vector_dim: dim,
@@ -309,7 +306,8 @@ async fn index_create(
         unique_params: payload.hash_on,
     };
     let splitter_kind = TextSplitterKind::from_str(&payload.text_splitter.to_string()).unwrap();
-    let result = state.index_manager 
+    let result = state
+        .index_manager
         .create_index(index_params, payload.embedding_model, splitter_kind)
         .await;
     if let Err(err) = result {
@@ -326,7 +324,8 @@ async fn add_texts(
     State(state): State<IndexEndpointState>,
     Json(payload): Json<AddTextsRequest>,
 ) -> Result<Json<IndexAdditionResponse>, IndexifyAPIError> {
-    let may_be_index = state.index_manager 
+    let may_be_index = state
+        .index_manager
         .load(payload.index)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
