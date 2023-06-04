@@ -1,5 +1,5 @@
 mod utils;
-use std::sync::Arc;
+use std::{sync::{Arc, Mutex}, collections::HashMap};
 
 use anyhow::Result;
 
@@ -46,18 +46,32 @@ pub struct Message {
 /// Each message has a corresponding point in vector DB and row in content table.
 pub struct MemoryManager {
     index_manager: Arc<IndexManager>,
+    temp_session_id_index_map: Mutex<HashMap<Uuid, String>>,
 }
 
 impl MemoryManager {
     pub async fn new(index_manager: Arc<IndexManager>) -> Result<Self, MemoryError> {
-        // TODO: Create memory_sessions DB table to persist session_id and index_name
-        Ok(Self { index_manager })
+        // TODO: replace temp_session_id_index_map with memory_sessions DB table to persist session_id and index_name
+        let temp_session_id_index_map = Mutex::new(HashMap::new());
+        Ok(Self { index_manager, temp_session_id_index_map })
     }
 
     fn _get_index_name(&self, session_id: Uuid) -> Result<String, MemoryError> {
         // TODO: Create better default index name without exposing session_id
         // TODO: Retrieve index_name from memory_sessions DB table
-        Ok(format!("{}", session_id))
+        let binding = self.temp_session_id_index_map
+            .lock()
+            .unwrap();
+        let index_name = binding
+            .get(&session_id);
+        Ok(index_name.unwrap().into())
+    }
+
+    fn _set_index_name(&self, session_id: Uuid, index_name: String) {
+        self.temp_session_id_index_map
+            .lock()
+            .unwrap()
+            .insert(session_id, index_name);
     }
 
     async fn _get_index(&self, session_id: Uuid) -> Result<Index, MemoryError> {
@@ -78,7 +92,8 @@ impl MemoryManager {
     ) -> Result<Uuid, MemoryError> {
         // TODO: Persist session_id and index_name to memory_sessions DB table
         let session_id = session_id.unwrap_or(Uuid::new_v4());
-        let _index_name = vectordb_params.name.clone();
+        let index_name = vectordb_params.name.clone();
+        self._set_index_name(session_id, index_name);
         self.index_manager
             .create_index(vectordb_params, embedding_model, text_splitter)
             .await
