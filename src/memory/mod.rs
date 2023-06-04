@@ -8,7 +8,11 @@ use thiserror::Error;
 use utils::{get_messages_from_search_results, get_messages_from_texts, get_texts_from_messages};
 use uuid::Uuid;
 
-use crate::{index::{Index,IndexManager}, text_splitters::TextSplitterKind, CreateIndexParams};
+use crate::{
+    index::{Index, IndexManager},
+    text_splitters::TextSplitterKind,
+    CreateIndexParams,
+};
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from memory.
 #[derive(Error, Debug)]
@@ -26,7 +30,7 @@ pub enum MemoryError {
     IndexNotFound(String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Message {
     text: String,
     role: String,
@@ -58,8 +62,7 @@ impl MemoryManager {
 
     async fn _get_index(&self, session_id: Uuid) -> Result<Index, MemoryError> {
         let index_name = &self._get_index_name(session_id)?;
-        self
-            .index_manager
+        self.index_manager
             .load(index_name.into())
             .await
             .map_err(|e| MemoryError::IndexNotFound(e.to_string()))?
@@ -120,5 +123,125 @@ impl MemoryManager {
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
         let messages = get_messages_from_search_results(results);
         Ok(messages)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::entity::content::Entity as ContentEntity;
+    use super::super::entity::index::Entity as IndexEntity;
+    use super::super::entity::index_chunks::Entity as IndexChunkEntity;
+    use sea_orm::entity::prelude::*;
+    use sea_orm::{
+        sea_query::TableCreateStatement, Database, DatabaseConnection, DbBackend, DbConn, DbErr,
+        Schema,
+    };
+    use serde_json::json;
+
+    use super::*;
+    use std::env;
+    use std::sync::Arc;
+
+    use crate::VectorDBTS;
+    use crate::{
+        qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, MetricKind, QdrantConfig,
+        ServerConfig, VectorIndexConfig,
+    };
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_basic_search() {
+        env::set_var("RUST_LOG", "debug");
+        let session_id = Uuid::new_v4();
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
+            addr: "http://localhost:6334".into(),
+        }));
+        qdrant.drop_index("hello".into()).await.unwrap();
+        let embedding_router =
+            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
+
+        let index_params = CreateIndexParams {
+            name: "hello".into(),
+            vector_dim: 384,
+            metric: MetricKind::Cosine,
+            unique_params: None,
+        };
+        let index_config = VectorIndexConfig {
+            index_store: crate::IndexStoreKind::Qdrant,
+            qdrant_config: Some(QdrantConfig {
+                addr: "http://localhost:6334".into(),
+            }),
+        };
+        let db = create_db().await.unwrap();
+        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db).unwrap();
+
+        let memory_manager = MemoryManager::new(Arc::new(index_manager)).await.unwrap();
+
+        memory_manager
+            .create_session_index(
+                Some(session_id),
+                index_params,
+                "all-minilm-l12-v2".into(),
+                TextSplitterKind::Noop,
+            )
+            .await
+            .unwrap();
+
+        let messages: Vec<Message> = vec![
+            Message {
+                text: "hello world".into(),
+                role: "human".into(),
+                metadata: json!({}),
+            },
+            Message {
+                text: "hello friend".into(),
+                role: "AI".into(),
+                metadata: json!({}),
+            },
+            Message {
+                text: "how are you".into(),
+                role: "human".into(),
+                metadata: json!({}),
+            },
+        ];
+
+        memory_manager
+            .add_messages(session_id, messages.clone())
+            .await
+            .unwrap();
+
+        let retrieve_result = memory_manager.retrieve_messages(session_id).await.unwrap();
+        let search_result = memory_manager
+            .search(session_id, "friend".into(), 1)
+            .await
+            .unwrap();
+
+        assert_eq!(retrieve_result, messages.clone());
+        assert_eq!(search_result.len(), 1);
+        assert_eq!(search_result[0].text, "hello friend".to_string());
+    }
+
+    async fn create_db() -> Result<DatabaseConnection, DbErr> {
+        let db = Database::connect("sqlite::memory:").await?;
+
+        setup_schema(&db).await?;
+
+        Ok(db)
+    }
+
+    async fn setup_schema(db: &DbConn) -> Result<(), DbErr> {
+        // Setup Schema helper
+        let schema = Schema::new(DbBackend::Sqlite);
+
+        // Derive from Entity
+        let stmt1: TableCreateStatement = schema.create_table_from_entity(IndexEntity);
+        let stmt2: TableCreateStatement = schema.create_table_from_entity(ContentEntity);
+        let stmt3: TableCreateStatement = schema.create_table_from_entity(IndexChunkEntity);
+
+        // Execute create table statement
+        db.execute(db.get_database_backend().build(&stmt1)).await?;
+        db.execute(db.get_database_backend().build(&stmt2)).await?;
+        db.execute(db.get_database_backend().build(&stmt3)).await?;
+        Ok(())
     }
 }

@@ -312,7 +312,10 @@ async fn get_index_creation_args(
         unique_params: payload.hash_on,
     };
     let splitter_kind = TextSplitterKind::from_str(&payload.text_splitter.to_string()).unwrap();
-    Ok(IndexCreationArgs{ index_params: index_params, text_splitter: splitter_kind })
+    Ok(IndexCreationArgs {
+        index_params: index_params,
+        text_splitter: splitter_kind,
+    })
 }
 
 #[axum_macros::debug_handler]
@@ -324,7 +327,11 @@ async fn index_create(
 
     let result = state
         .index_manager
-        .create_index(args.index_params, payload.embedding_model, args.text_splitter)
+        .create_index(
+            args.index_params,
+            payload.embedding_model,
+            args.text_splitter,
+        )
         .await;
 
     if let Err(err) = result {
@@ -375,16 +382,21 @@ async fn create_memory_session(
     State(state): State<MemoryEndpointState>,
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
-    let args = get_index_creation_args(state.embedding_router.clone(), payload.index_args.clone()).await?;
+    let args =
+        get_index_creation_args(state.embedding_router.clone(), payload.index_args.clone()).await?;
 
-    let session_id = state.memory_manager
-        .create_session_index(payload.session_id, args.index_params, payload.index_args.embedding_model, args.text_splitter)
+    let session_id = state
+        .memory_manager
+        .create_session_index(
+            payload.session_id,
+            args.index_params,
+            payload.index_args.embedding_model,
+            args.text_splitter,
+        )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(CreateMemorySessionResponse {
-        session_id,
-    }))
+    Ok(Json(CreateMemorySessionResponse { session_id }))
 }
 
 #[axum_macros::debug_handler]
@@ -410,9 +422,7 @@ async fn get_from_memory_session(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(MemorySessionRetrieveResponse {
-        messages,
-    }))
+    Ok(Json(MemorySessionRetrieveResponse { messages }))
 }
 
 #[axum_macros::debug_handler]
@@ -425,9 +435,7 @@ async fn search_memory_session(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(MemorySessionSearchResponse {
-        messages,
-    }))
+    Ok(Json(MemorySessionSearchResponse { messages }))
 }
 
 #[axum_macros::debug_handler]
