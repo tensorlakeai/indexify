@@ -6,7 +6,7 @@ use crate::{
     EmbeddingGeneratorTS, VectorChunk, VectorDBTS,
 };
 use anyhow::Result;
-use tracing::{debug};
+use tracing::debug;
 
 pub struct EmbeddingWorker {
     repository: Arc<Respository>,

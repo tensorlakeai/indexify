@@ -68,8 +68,6 @@ pub enum DeviceKind {
     Remote,
 }
 
-/// Struct representing the configuration of a text embedding model.
-/// It includes the kind of model being used (e.g., AllMiniLmL12V2) and the kind of device on which the model will run (e.g., CPU).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct EmbeddingModel {
@@ -79,7 +77,6 @@ pub struct EmbeddingModel {
     pub device_kind: DeviceKind,
 }
 
-/// Struct representing the configuration of memory storage data structures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct MemoryStoragePolicy {
@@ -91,38 +88,46 @@ pub struct MemoryStoragePolicy {
     pub capacity: Option<usize>,
 }
 
-/// Struct representing the configuration for OpenAI.
-/// It includes the API key required for accessing OpenAI's services.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct OpenAIConfig {
     pub api_key: String,
 }
 
-/// Enum representing the different kinds of index stores available for use.
-/// The available options include Qdrant, which is a vector search engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
 }
 
-/// Struct representing the configuration for Qdrant, a vector search engine.
-/// It includes the address of the Qdrant service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct QdrantConfig {
     pub addr: String,
 }
 
-/// Struct representing the configuration for the vector index.
-/// It includes the kind of index store being used (e.g., Qdrant) and any additional configuration specific to that index store.
+impl Default for QdrantConfig {
+    fn default() -> Self {
+        Self {
+            addr: "http://127.0.0.1:6334".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
-    pub db_url: String,
+}
+
+impl Default for VectorIndexConfig {
+    fn default() -> Self {
+        Self {
+            index_store: IndexStoreKind::Qdrant,
+            qdrant_config: Some(QdrantConfig::default()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,8 +137,9 @@ pub struct ServerConfig {
     pub available_models: Vec<EmbeddingModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
-    pub index_config: Option<VectorIndexConfig>,
+    pub index_config: VectorIndexConfig,
     pub memory_policies: Vec<MemoryStoragePolicy>,
+    pub db_url: String,
 }
 
 impl Default for ServerConfig {
@@ -153,12 +159,13 @@ impl Default for ServerConfig {
             openai: Some(OpenAIConfig {
                 api_key: OPENAI_DUMMY_KEY.into(),
             }),
-            index_config: None,
+            index_config: VectorIndexConfig::default(),
             memory_policies: vec![MemoryStoragePolicy {
                 policy_kind: MemoryStoragePolicyKind::Indefinite,
                 window_size: None,
                 capacity: None,
             }],
+            db_url: "sqlite://indexify.db".into(),
         }
     }
 }
@@ -201,11 +208,11 @@ mod tests {
         assert_eq!(3, config.available_models.len());
         assert_eq!(OPENAI_DUMMY_KEY, config.openai.unwrap().api_key);
         assert_eq!(
-            config.index_config.clone().unwrap().index_store,
+            config.index_config.clone().index_store,
             super::IndexStoreKind::Qdrant
         );
         assert_eq!(
-            config.index_config.unwrap().qdrant_config.unwrap().addr,
+            config.index_config.qdrant_config.unwrap().addr,
             "http://172.20.0.8:6334".to_string()
         );
         assert_eq!(
