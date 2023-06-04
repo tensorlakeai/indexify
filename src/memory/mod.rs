@@ -37,22 +37,12 @@ pub struct Message {
 /// Each memory session will have a corresponding row in the memory_sessions table and index.
 /// Each message has a corresponding point in vector DB and row in content table.
 pub struct MemoryManager {
-    index_manager: IndexManager,
+    index_manager: Arc<IndexManager>,
 }
 
 impl MemoryManager {
-    pub async fn new(
-        index_manager: Arc<Option<IndexManager>>,
-    ) -> Result<Option<Self>, MemoryError> {
+    pub async fn new(index_manager: Arc<IndexManager>) -> Result<Option<Self>, MemoryError> {
         // TODO: Create memory_sessions DB table to persist session_id and index_name
-        let index_manager = Arc::try_unwrap(index_manager)
-            .map_err(|_| {
-                MemoryError::InternalError("Unable to retrieve index manager".to_string())
-            })?
-            .ok_or(MemoryError::InternalError(
-                "Unable to retrieve index manager".to_string(),
-            ))?;
-
         Ok(Some(Self { index_manager }))
     }
 
