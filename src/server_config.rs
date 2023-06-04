@@ -125,8 +125,6 @@ pub struct VectorIndexConfig {
     pub db_url: String,
 }
 
-/// Struct representing the server configuration.
-/// It includes the address on which the server will listen, the available text embedding models, the OpenAI configuration (if applicable), and the vector index configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
@@ -139,8 +137,6 @@ pub struct ServerConfig {
 }
 
 impl Default for ServerConfig {
-    /// Provides default values for the server configuration.
-    /// The default configuration includes a default listening address, a set of available models, and an OpenAI configuration with a dummy API key.
     fn default() -> Self {
         Self {
             listen_addr: "0.0.0.0:8900".to_string(),
@@ -168,18 +164,6 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Loads the server configuration from a file specified by the given path.
-    /// The configuration file should be in YAML format and should contain the necessary configuration options.
-    /// The configuration file can also be overridden by environment variables prefixed with `INDEXIFY_`.
-    /// Note that a configuration file must exist, otherwise an error will be returned (even if the environment variables are set)
-    ///
-    /// # Arguments
-    ///
-    /// * path - The path to the configuration file.
-    ///
-    /// # Returns
-    ///
-    /// * A result containing the server configuration if successful, or an error if loading fails.
     pub fn from_path(path: String) -> Result<Self> {
         let config_str: String = fs::read_to_string(path)?;
         let mut config: ServerConfig = Figment::new()
@@ -198,17 +182,6 @@ impl ServerConfig {
         Ok(config)
     }
 
-    /// Generates a default server configuration and writes it to a file specified by the given path.
-    /// The default configuration includes a default listening address, a set of available models, and an OpenAI configuration with a dummy API key.
-    /// This method is useful for generating an initial configuration file that can be manually edited later.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path to the file where the default configuration will be written.
-    ///
-    /// # Returns
-    ///
-    /// * A result indicating success or failure of the operation.
     pub fn generate(path: String) -> Result<()> {
         let config = ServerConfig::default();
         let str = serde_yaml::to_string(&config)?;

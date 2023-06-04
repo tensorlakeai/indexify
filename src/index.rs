@@ -264,6 +264,13 @@ mod tests {
             ])
             .await
             .unwrap();
+        index
+            .add_texts(vec![Text {
+                text: "hello world".into(),
+                metadata: HashMap::new(),
+            }])
+            .await
+            .unwrap();
         let result = index.search("pipe".into(), 1).await.unwrap();
         assert_eq!(1, result.len())
     }

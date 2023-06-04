@@ -194,10 +194,10 @@ pub struct IndexifyAPIError {
 
 impl IndexifyAPIError {
     fn new(status_code: StatusCode, message: String) -> Self {
-        return Self {
+        Self {
             status_code,
             message,
-        };
+        }
     }
 }
 
@@ -389,10 +389,10 @@ async fn add_record(
     let result = memory_manager.add_turn(payload.session_id, payload.turn);
 
     if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
+        Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
-        ));
+        ))
     } else {
         Ok(Json(MemorySessionAddResponse {}))
     }
@@ -406,10 +406,10 @@ async fn retrieve_records(
     let result = memory_manager.retrieve_history(payload.session_id, payload.query);
 
     if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
+        Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
-        ));
+        ))
     } else {
         Ok(Json(MemorySessionRetrieveResponse {
             history: result.unwrap(),
