@@ -6,7 +6,7 @@ use crate::{
     EmbeddingGeneratorTS, VectorChunk, VectorDBTS,
 };
 use anyhow::Result;
-use tracing::info;
+use tracing::{debug};
 
 pub struct EmbeddingWorker {
     repository: Arc<Respository>,
@@ -43,6 +43,7 @@ impl EmbeddingWorker {
             let mut chunks: Vec<Chunk> = Vec::new();
             let mut vector_chunks: Vec<VectorChunk> = Vec::new();
             for (text, embedding) in splitted_texts.iter().zip(embeddings.iter()) {
+                debug!("adding to index {}, text: {}", index, text);
                 let chunk = Chunk::new(text.to_string(), content.id.clone());
                 let vector_chunk =
                     VectorChunk::new(chunk.chunk_id.clone(), text.to_string(), embedding.to_vec());
@@ -50,7 +51,6 @@ impl EmbeddingWorker {
                 vector_chunks.push(vector_chunk);
             }
             self.vectordb.add_embedding(&index, vector_chunks).await?;
-            info!("adding to index {}", index);
             self.repository
                 .create_chunks(content.id, chunks, index.clone())
                 .await?;
