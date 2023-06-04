@@ -1,182 +1,144 @@
-mod indefinite;
-mod lru;
-mod window;
+mod utils;
+use std::sync::Arc;
 
-use std::{option::Option, sync::Arc};
+use anyhow::Result;
 
-use crate::{MemoryStoragePolicy, MemoryStoragePolicyKind};
-
-use dashmap::{mapref::one::RefMut, DashMap};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::info;
-
-use indefinite::IndefiniteMemorySession;
-use lru::LRUCache;
+use utils::{get_messages_from_search_results, get_messages_from_texts, get_texts_from_messages};
 use uuid::Uuid;
-use window::WindowMemorySession;
 
-use super::server_config::{self};
+use crate::{index::IndexManager, text_splitters::TextSplitterKind, CreateIndexParams, MetricKind};
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from memory.
 #[derive(Error, Debug)]
-pub enum MemorySessionError {
-    /// An error that occurs when the requested policy is not found.
-    #[error("policy `{0}` not found")]
-    PolicyNotFound(String),
-
+pub enum MemoryError {
     /// An internal error that occurs during the operation.
     #[error("internal error: `{0}`")]
     InternalError(String),
-
-    /// An error that occurs when the required configuration is missing for a memory policy.
-    #[error("configuration `{0}`, missing for memory policy `{1}`")]
-    ConfigurationError(String, String),
 
     /// An error that occurs when requested session is not found.
     #[error("session `{0}` not found")]
     SessionNotFound(Uuid),
 }
 
-pub type MemorySessionTS = Arc<dyn MemorySession + Sync + Send>;
-
-/// A trait that defines the interface for interacting with memory store.
-pub trait MemorySession {
-    /// Adds turn to store.
-    fn add_turn(&mut self, turn: String) -> Result<(), MemorySessionError>;
-
-    // Retrieves records from session.
-    fn retrieve_history(&mut self, query: String) -> Result<Vec<String>, MemorySessionError>;
-
-    fn id(&self) -> Uuid;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Message {
+    text: String,
+    role: String,
+    metadata: serde_json::Value,
 }
 
-/// A struct that represents a router for storing and retrieving from memory.
+/// A struct that represents a manager for storing and retrieving from memory.
 ///
-/// This struct provides methods for storing and retrieving from memory sessions.
-/// It maintains a mapping between session ids and their corresponding `MemorySession`
-/// implementations, allowing it to route requests to the appropriate session.
-pub struct MemorySessionRouter {
-    router: DashMap<Uuid, MemorySessionTS>,
+/// This struct provides methods for creating, storing, retrieving, and searching from memory sessions.
+/// It persists the relationship between session ids and their corresponding indexes and persistent storage
+/// implementations.
+/// Each memory session will have a corresponding row in the memory_sessions table and index.
+/// Each message has a corresponding point in vector DB and row in content table.
+pub struct MemoryManager {
+    index_manager: IndexManager,
 }
 
-impl MemorySessionRouter {
-    /// Creates a new instance of `MemorySessionRouter` with the specified server configuration.
-    ///
-    /// This method initializes the router with the available memory policies and their corresponding
-    /// `MemorySession` implementations.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - The server configuration specifying the available models and their settings.
-    ///
-    /// # Returns
-    ///
-    /// * A result containing an instance of `MemorySessionRouter` if successful, or a
-    ///   `MemorySessionError` if an error occurs.
-    pub fn new(_config: Arc<server_config::ServerConfig>) -> Result<Self, MemorySessionError> {
-        let router: DashMap<Uuid, MemorySessionTS> = DashMap::new();
+impl MemoryManager {
+    pub async fn new(
+        index_manager: Arc<Option<IndexManager>>,
+    ) -> Result<Option<Self>, MemoryError> {
+        // TODO: Create memory_sessions DB table to persist session_id and index_name
+        let index_manager = Arc::try_unwrap(index_manager)
+            .map_err(|_| {
+                MemoryError::InternalError("Unable to retrieve index manager".to_string())
+            })?
+            .ok_or(MemoryError::InternalError(
+                "Unable to retrieve index manager".to_string(),
+            ))?;
 
-        // for (policy_name, policy) in config.memory_policies.iter() {
-        //     let memory_storage_policy = MemoryStoragePolicy::new(policy_name, policy)?;
-        //     let session = self.create_memory_session(memory_storage_policy)?;
-        //     router.insert(session.id(), session);
-        // }
-
-        Ok(Self { router })
+        Ok(Some(Self { index_manager }))
     }
 
-    fn does_session_exist(&self, session_id: Option<Uuid>) -> bool {
-        session_id.is_some() && self.router.contains_key(&session_id.unwrap())
+    fn _get_index_name(&self, session_id: Uuid) -> Result<String, MemoryError> {
+        // TODO: Create better default index name without exposing session_id
+        // TODO: Retrieve index_name from memory_sessions DB table
+        return Ok(format!("{}", session_id));
     }
 
-    fn get_session(
-        &self,
-        session_id: Uuid,
-    ) -> Option<RefMut<Uuid, Arc<dyn MemorySession + Send + Sync>>> {
-        if !self.does_session_exist(Some(session_id)) {
-            return None;
-        }
-        return self.router.get_mut(&session_id);
-    }
-
-    fn create_memory_session(
-        &self,
-        session_id: Uuid,
-        memory_storage_policy: MemoryStoragePolicy,
-    ) -> Result<MemorySessionTS, MemorySessionError> {
-        let session: MemorySessionTS = match memory_storage_policy.policy_kind {
-            MemoryStoragePolicyKind::Indefinite => {
-                Arc::new(IndefiniteMemorySession::new(session_id))
-            }
-            MemoryStoragePolicyKind::Window => Arc::new(WindowMemorySession::new(
-                session_id,
-                memory_storage_policy.window_size,
-            )),
-            MemoryStoragePolicyKind::Lru => {
-                Arc::new(LRUCache::new(session_id, memory_storage_policy.capacity))
-            }
-        };
-        Ok(session)
-    }
-
-    pub fn create_session(
+    pub async fn create_session_index(
         &self,
         session_id: Option<Uuid>,
-        memory_storage_policy: MemoryStoragePolicy,
-    ) -> Result<Uuid, MemorySessionError> {
-        if self.does_session_exist(session_id) {
-            info!("Session already exists");
-            return Ok(session_id.unwrap());
-        }
+    ) -> Result<Uuid, MemoryError> {
         let session_id = session_id.unwrap_or(Uuid::new_v4());
-        let session = self.create_memory_session(session_id, memory_storage_policy);
-        self.router.insert(session_id, session.unwrap());
+        let index_name = self._get_index_name(session_id)?;
+        // TODO: Persist session_id and index_name to memory_sessions DB table
+        self.index_manager
+            .create_index(
+                CreateIndexParams {
+                    name: index_name.into(),
+                    vector_dim: 384,
+                    metric: MetricKind::Cosine,
+                    unique_params: None,
+                },
+                "all-minilm-l12-v2".into(),
+                TextSplitterKind::Noop,
+            )
+            .await
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
         Ok(session_id)
     }
 
-    pub fn add_turn(&self, session_id: Uuid, turn: String) -> Result<(), MemorySessionError> {
-        let session_option = self.get_session(session_id);
-
-        if session_option.is_none() {
-            return Err(MemorySessionError::SessionNotFound(session_id));
-        }
-
-        let mut session_arc = session_option.unwrap().clone();
-        let session_ref = Arc::get_mut(&mut session_arc).ok_or_else(|| {
-            MemorySessionError::InternalError(
-                "Failed to obtain mutable reference to session".into(),
-            )
-        })?;
-
-        session_ref
-            .add_turn(turn)
-            .map_err(|e| MemorySessionError::InternalError(e.to_string()))?;
-
+    pub async fn add_messages(
+        &self,
+        session_id: Uuid,
+        messages: Vec<Message>,
+    ) -> Result<(), MemoryError> {
+        let index_name = self._get_index_name(session_id)?;
+        let texts = get_texts_from_messages(session_id, messages);
+        let index = self
+            .index_manager
+            .load(index_name.into())
+            .await
+            .unwrap()
+            .unwrap();
+        index
+            .add_texts(texts)
+            .await
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
         Ok(())
     }
 
-    pub fn retrieve_history(
+    pub async fn retrieve_messages(&self, session_id: Uuid) -> Result<Vec<Message>, MemoryError> {
+        let index_name = self._get_index_name(session_id)?;
+        let index = self
+            .index_manager
+            .load(index_name.into())
+            .await
+            .unwrap()
+            .unwrap();
+        let texts = index
+            .get_texts()
+            .await
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
+        let messages = get_messages_from_texts(texts);
+        Ok(messages)
+    }
+
+    pub async fn search(
         &self,
         session_id: Uuid,
         query: String,
-    ) -> Result<Vec<String>, MemorySessionError> {
-        let session_option = self.get_session(session_id);
-
-        if session_option.is_none() {
-            return Err(MemorySessionError::SessionNotFound(session_id));
-        }
-
-        let mut session_arc = session_option.unwrap().clone();
-        let session_ref = Arc::get_mut(&mut session_arc).ok_or_else(|| {
-            MemorySessionError::InternalError(
-                "Failed to obtain mutable reference to session".into(),
-            )
-        })?;
-
-        let history = session_ref
-            .retrieve_history(query)
-            .map_err(|e| MemorySessionError::InternalError(e.to_string()))?;
-
-        Ok(history)
+        k: u64,
+    ) -> Result<Vec<Message>, MemoryError> {
+        let index_name = self._get_index_name(session_id)?;
+        let index = self
+            .index_manager
+            .load(index_name.into())
+            .await
+            .unwrap()
+            .unwrap();
+        let results = index
+            .search(query, k)
+            .await
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
+        let messages = get_messages_from_search_results(results);
+        Ok(messages)
     }
 }

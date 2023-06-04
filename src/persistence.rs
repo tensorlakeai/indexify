@@ -125,6 +125,28 @@ impl Respository {
             .ok_or(RespositoryError::IndexNotFound(index))
     }
 
+    pub async fn get_texts(&self, index_name: String) -> Result<Vec<Text>, RespositoryError> {
+        let index = self.get_index(index_name).await?;
+        let contents = entity::content::Entity::find()
+            .filter(entity::content::Column::IndexName.eq(&index.name))
+            .all(&self.conn)
+            .await?;
+        let mut texts = Vec::new();
+        for content in contents {
+            let metadata: HashMap<String, String> = serde_json::from_str(
+                content
+                    .metadata
+                    .as_ref()
+                    .ok_or(RespositoryError::ContentNotFound(content.id))?,
+            )?;
+            texts.push(Text {
+                text: content.text,
+                metadata,
+            });
+        }
+        Ok(texts)
+    }
+
     pub async fn add_to_index(
         &self,
         index_name: String,

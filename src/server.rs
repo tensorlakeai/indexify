@@ -1,10 +1,7 @@
 use crate::index::IndexManager;
 use crate::persistence::Text;
 use crate::text_splitters::TextSplitterKind;
-use crate::{
-    CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MemoryStoragePolicy, MetricKind,
-    ServerConfig,
-};
+use crate::{CreateIndexParams, EmbeddingRouter, MemoryManager, Message, MetricKind, ServerConfig};
 
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -71,22 +68,6 @@ enum ApiTextSplitterKind {
     Regex { pattern: String },
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize)]
-enum MemoryPolicyKind {
-    // Use Indefinite policy
-    #[default]
-    #[serde(rename = "indefinite")]
-    Indefinite,
-
-    // Use Windows
-    #[serde(rename = "window")]
-    Window,
-
-    // Use LRU
-    #[serde(rename = "lru")]
-    Lru,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename = "metric")]
 enum IndexMetric {
@@ -112,7 +93,7 @@ struct IndexCreateRequest {
     /// The text splitter to use for splitting text into fragments.
     text_splitter: ApiTextSplitterKind,
 
-    /// Hash on these paramters
+    /// Hash on these parameters
     hash_on: Option<Vec<String>>,
 }
 
@@ -147,8 +128,6 @@ struct SearchRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct CreateMemorySessionRequest {
     session_id: Option<Uuid>,
-    /// The memory policy for storing and retrieving from memory
-    memory_storage_policy: MemoryStoragePolicy,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -159,7 +138,7 @@ struct CreateMemorySessionResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionAddRequest {
     session_id: Uuid,
-    turn: String,
+    messages: Vec<Message>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -168,12 +147,23 @@ struct MemorySessionAddResponse {}
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionRetrieveRequest {
     session_id: Uuid,
-    query: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct MemorySessionRetrieveResponse {
-    history: Vec<String>,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MemorySessionSearchRequest {
+    session_id: Uuid,
+    query: String,
+    k: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MemorySessionSearchResponse {
+    messages: Vec<Message>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -221,11 +211,10 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let memory_session_router: Arc<MemorySessionRouter> =
-            Arc::new(MemorySessionRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
             IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
         );
+        let memory_manager = Arc::new(MemoryManager::new(index_manager.clone()).await?);
         let app = Router::new()
             .route("/", get(root))
             .route(
@@ -250,15 +239,19 @@ impl Server {
             )
             .route(
                 "/memory/create",
-                get(create_memory_session).with_state(memory_session_router.clone()),
+                get(create_memory_session).with_state(memory_manager.clone()),
             )
             .route(
                 "/memory/add",
-                get(add_record).with_state(memory_session_router.clone()),
+                get(add_to_memory_session).with_state(memory_manager.clone()),
             )
             .route(
-                "/memory/retrieve",
-                get(retrieve_records).with_state(memory_session_router.clone()),
+                "/memory/get",
+                get(get_from_memory_session).with_state(memory_manager.clone()),
+            )
+            .route(
+                "/memory/search",
+                get(search_memory_session).with_state(memory_manager.clone()),
             );
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
@@ -365,10 +358,13 @@ async fn add_texts(
 
 #[axum_macros::debug_handler]
 async fn create_memory_session(
-    State(memory_manager): State<Arc<MemorySessionRouter>>,
+    State(memory_manager): State<Arc<Option<MemoryManager>>>,
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
-    let result = memory_manager.create_session(payload.session_id, payload.memory_storage_policy);
+    let memory_manager = memory_manager.as_ref().as_ref().unwrap();
+    let result = memory_manager
+        .create_session_index(payload.session_id)
+        .await;
 
     if let Err(err) = result {
         return Err(IndexifyAPIError::new(
@@ -382,11 +378,14 @@ async fn create_memory_session(
 }
 
 #[axum_macros::debug_handler]
-async fn add_record(
-    State(memory_manager): State<Arc<MemorySessionRouter>>,
+async fn add_to_memory_session(
+    State(memory_manager): State<Arc<Option<MemoryManager>>>,
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
-    let result = memory_manager.add_turn(payload.session_id, payload.turn);
+    let memory_manager = memory_manager.as_ref().as_ref().unwrap();
+    let result = memory_manager
+        .add_messages(payload.session_id, payload.messages)
+        .await;
 
     if let Err(err) = result {
         return Err(IndexifyAPIError::new(
@@ -399,11 +398,12 @@ async fn add_record(
 }
 
 #[axum_macros::debug_handler]
-async fn retrieve_records(
-    State(memory_manager): State<Arc<MemorySessionRouter>>,
+async fn get_from_memory_session(
+    State(memory_manager): State<Arc<Option<MemoryManager>>>,
     Json(payload): Json<MemorySessionRetrieveRequest>,
 ) -> Result<Json<MemorySessionRetrieveResponse>, IndexifyAPIError> {
-    let result = memory_manager.retrieve_history(payload.session_id, payload.query);
+    let memory_manager = memory_manager.as_ref().as_ref().unwrap();
+    let result = memory_manager.retrieve_messages(payload.session_id).await;
 
     if let Err(err) = result {
         return Err(IndexifyAPIError::new(
@@ -412,7 +412,29 @@ async fn retrieve_records(
         ));
     } else {
         Ok(Json(MemorySessionRetrieveResponse {
-            history: result.unwrap(),
+            messages: result.unwrap(),
+        }))
+    }
+}
+
+#[axum_macros::debug_handler]
+async fn search_memory_session(
+    State(memory_manager): State<Arc<Option<MemoryManager>>>,
+    Json(payload): Json<MemorySessionSearchRequest>,
+) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
+    let memory_manager = memory_manager.as_ref().as_ref().unwrap();
+    let result = memory_manager
+        .search(payload.session_id, payload.query, payload.k)
+        .await;
+
+    if let Err(err) = result {
+        return Err(IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            err.to_string(),
+        ));
+    } else {
+        Ok(Json(MemorySessionSearchResponse {
+            messages: result.unwrap(),
         }))
     }
 }
