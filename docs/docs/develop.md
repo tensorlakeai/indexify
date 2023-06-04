@@ -8,6 +8,10 @@ Install various rust related tools -
 * Cargo tools - clippy, rustfmt is very helpful for formating and fixing warnings.
 
 ### Python Dependencies
+Create a virtual env 
+```
+virtualenv ve
+```
 Install the python server dependencies 
 ```
 ./install_python_deps.sh
