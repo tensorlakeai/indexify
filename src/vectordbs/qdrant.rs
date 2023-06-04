@@ -45,10 +45,7 @@ impl QdrantDb {
     fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
         let client_config = QdrantClientConfig::from_url(&self.qdrant_config.addr);
         let client = QdrantClient::new(Some(client_config)).map_err(|e| {
-            VectorDbError::InternalError(format!(
-                "unable to create a new quadrant index: {}",
-                e.to_string()
-            ))
+            VectorDbError::InternalError(format!("unable to create a new quadrant index: {}", e))
         })?;
         Ok(client)
     }

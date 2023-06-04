@@ -1,3 +1,4 @@
 #!/bin/sh
 
-pip install torch torchvision torchaudio transformers optimum onnx onnxruntime
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install transformers[torch] optimum[onnxruntime] onnx onnxruntime

@@ -115,7 +115,6 @@ struct AddTextsRequest {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexAdditionResponse {
     sequence: u64,
-    errors: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,10 +183,10 @@ pub struct IndexifyAPIError {
 
 impl IndexifyAPIError {
     fn new(status_code: StatusCode, message: String) -> Self {
-        return Self {
+        Self {
             status_code,
             message,
-        };
+        }
     }
 }
 
@@ -197,7 +196,11 @@ impl IntoResponse for IndexifyAPIError {
     }
 }
 
-type IndexEndpointState = (Arc<Option<IndexManager>>, Arc<EmbeddingRouter>);
+#[derive(Clone)]
+pub struct IndexEndpointState {
+    index_manager: Arc<IndexManager>,
+    embedding_router: Arc<EmbeddingRouter>,
+}
 
 pub struct Server {
     addr: SocketAddr,
@@ -212,9 +215,18 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
-            IndexManager::new(self.config.index_config.clone(), embedding_router.clone()).await?,
+            IndexManager::new(
+                self.config.index_config.clone(),
+                embedding_router.clone(),
+                self.config.db_url.clone(),
+            )
+            .await?,
         );
         let memory_manager = Arc::new(MemoryManager::new(index_manager.clone()).await?);
+        let index_state = IndexEndpointState {
+            index_manager: index_manager,
+            embedding_router: embedding_router.clone(),
+        };
         let app = Router::new()
             .route("/", get(root))
             .route(
@@ -227,15 +239,15 @@ impl Server {
             )
             .route(
                 "/index/create",
-                post(index_create).with_state((index_manager.clone(), embedding_router.clone())),
+                post(index_create).with_state(index_state.clone()),
             )
             .route(
                 "/index/add",
-                post(add_texts).with_state((index_manager.clone(), embedding_router.clone())),
+                post(add_texts).with_state(index_state.clone()),
             )
             .route(
                 "/index/search",
-                get(index_search).with_state((index_manager.clone(), embedding_router.clone())),
+                get(index_search).with_state(index_state.clone()),
             )
             .route(
                 "/memory/create",
@@ -268,23 +280,14 @@ async fn root() -> &'static str {
 
 #[axum_macros::debug_handler]
 async fn index_create(
-    State(index_args): State<IndexEndpointState>,
+    State(state): State<IndexEndpointState>,
     Json(payload): Json<IndexCreateRequest>,
 ) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
-    if index_args.0.is_none() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "server is not configured to have indexes".into(),
-        ));
-    }
-    let try_model = index_args.1.get_model(payload.embedding_model.clone());
-    if let Err(err) = try_model {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            err.to_string(),
-        ));
-    }
-    let dim = try_model.unwrap().dimensions();
+    let model = state
+        .embedding_router
+        .get_model(payload.embedding_model.clone())
+        .map_err(|e| IndexifyAPIError::new(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let dim = model.dimensions();
     let index_params = CreateIndexParams {
         name: payload.name.clone(),
         vector_dim: dim,
@@ -295,11 +298,9 @@ async fn index_create(
         },
         unique_params: payload.hash_on,
     };
-    let index_manager = index_args.0.as_ref();
     let splitter_kind = TextSplitterKind::from_str(&payload.text_splitter.to_string()).unwrap();
-    let result = index_manager
-        .as_ref()
-        .unwrap()
+    let result = state
+        .index_manager
         .create_index(index_params, payload.embedding_model, splitter_kind)
         .await;
     if let Err(err) = result {
@@ -313,30 +314,19 @@ async fn index_create(
 
 #[axum_macros::debug_handler]
 async fn add_texts(
-    State(index_args): State<IndexEndpointState>,
+    State(state): State<IndexEndpointState>,
     Json(payload): Json<AddTextsRequest>,
 ) -> Result<Json<IndexAdditionResponse>, IndexifyAPIError> {
-    if index_args.0.is_none() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "server is not configured to have indexes".into(),
-        ));
-    }
-    let index_manager = index_args.0.as_ref().as_ref().unwrap();
-    let try_index = index_manager.load(payload.index).await;
-    if let Err(err) = try_index {
-        return Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ));
-    }
-    if try_index.as_ref().unwrap().is_none() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "index does not exist".into(),
-        ));
-    }
-    let index = try_index.unwrap().unwrap();
+    let may_be_index = state
+        .index_manager
+        .load(payload.index)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let index = may_be_index.ok_or(IndexifyAPIError::new(
+        StatusCode::BAD_REQUEST,
+        "index doesn't exist".into(),
+    ))?;
     let texts = payload
         .documents
         .iter()
@@ -388,10 +378,10 @@ async fn add_to_memory_session(
         .await;
 
     if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
+        Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
-        ));
+        ))
     } else {
         Ok(Json(MemorySessionAddResponse {}))
     }
@@ -406,10 +396,10 @@ async fn get_from_memory_session(
     let result = memory_manager.retrieve_messages(payload.session_id).await;
 
     if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
+        Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
-        ));
+        ))
     } else {
         Ok(Json(MemorySessionRetrieveResponse {
             messages: result.unwrap(),
@@ -441,18 +431,10 @@ async fn search_memory_session(
 
 #[axum_macros::debug_handler]
 async fn index_search(
-    State(index_args): State<IndexEndpointState>,
+    State(state): State<IndexEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
-    if index_args.0.is_none() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "server is not configured to have indexes".into(),
-        ));
-    }
-
-    let index_manager = index_args.0.as_ref().as_ref().unwrap();
-    let try_index = index_manager.load(query.index.clone()).await;
+    let try_index = state.index_manager.load(query.index.clone()).await;
     if let Err(err) = try_index {
         return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,

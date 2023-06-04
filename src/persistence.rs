@@ -5,8 +5,9 @@ use std::hash::{Hash, Hasher};
 use anyhow::Result;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
-use sea_orm::ColumnTrait;
+use sea_orm::sea_query::OnConflict;
 use sea_orm::QueryFilter;
+use sea_orm::{ActiveModelTrait, ColumnTrait};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
@@ -166,9 +167,14 @@ impl Respository {
                 content_type: Set("document".to_string()),
             });
         }
-        entity::content::Entity::insert_many(content_list)
+        let _ = entity::content::Entity::insert_many(content_list)
+            .on_conflict(
+                OnConflict::column(entity::content::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
             .exec(&tx)
-            .await?;
+            .await;
         tx.commit().await?;
         Ok(())
     }
@@ -189,9 +195,14 @@ impl Respository {
                 index_name: Set(index_name.clone()),
             })
             .collect();
-        entity::index_chunks::Entity::insert_many(chunk_models)
+        let _ = entity::index_chunks::Entity::insert_many(chunk_models)
+            .on_conflict(
+                OnConflict::column(entity::index_chunks::Column::ChunkId)
+                    .do_nothing()
+                    .to_owned(),
+            )
             .exec(&tx)
-            .await?;
+            .await;
 
         // Mark the content as indexed
         let content_entity = entity::content::Entity::find()
@@ -202,6 +213,7 @@ impl Respository {
         let now = OffsetDateTime::now_utc();
         let mut content_entity: entity::content::ActiveModel = content_entity.into();
         content_entity.embedding_status = Set(Some(now.to_string()));
+        content_entity.update(&tx).await?;
         tx.commit().await?;
         Ok(())
     }

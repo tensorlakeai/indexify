@@ -55,44 +55,37 @@ impl fmt::Debug for IndexManager {
 
 impl IndexManager {
     pub async fn new(
-        index_config: Option<VectorIndexConfig>,
+        index_config: VectorIndexConfig,
         embedding_router: Arc<EmbeddingRouter>,
-    ) -> Result<Option<Self>, IndexError> {
-        if index_config.is_none() {
-            info!("indexing feature is not configured");
-            return Ok(None);
-        }
-        let db_url = &index_config.clone().unwrap().db_url;
-        info!("persistence: using database: {:?}", db_url);
-        let repository = Arc::new(Respository::new(db_url).await?);
-        info!(
-            "vector database backend: {:?}",
-            index_config.as_ref().unwrap().index_store
-        );
-        IndexManager::_new(repository, index_config.unwrap(), embedding_router)
+        db_url: String,
+    ) -> Result<Self, IndexError> {
+        info!("persistence: using database: {}", &db_url);
+        let repository = Arc::new(Respository::new(&db_url).await?);
+        info!("vector database backend: {}", index_config.index_store);
+        IndexManager::_new(repository, index_config, embedding_router)
     }
 
     fn _new(
         repository: Arc<Respository>,
         index_config: VectorIndexConfig,
         embedding_router: Arc<EmbeddingRouter>,
-    ) -> Result<Option<Self>, IndexError> {
+    ) -> Result<Self, IndexError> {
         let vectordb = vectordbs::create_vectordb(index_config)?;
-        Ok(Some(IndexManager {
+        Ok(IndexManager {
             vectordb,
             embedding_router,
             repository,
-        }))
+        })
     }
 
     #[allow(dead_code)]
     pub fn new_with_db(
-        index_config: Option<VectorIndexConfig>,
+        index_config: VectorIndexConfig,
         embedding_router: Arc<EmbeddingRouter>,
         db: DatabaseConnection,
-    ) -> Result<Option<Self>, IndexError> {
+    ) -> Result<Self, IndexError> {
         let repository = Arc::new(Respository::new_with_db(db));
-        IndexManager::_new(repository, index_config.unwrap(), embedding_router)
+        IndexManager::_new(repository, index_config, embedding_router)
     }
 
     pub async fn create_index(
@@ -238,17 +231,14 @@ mod tests {
             metric: MetricKind::Cosine,
             unique_params: None,
         };
-        let index_config = Some(VectorIndexConfig {
+        let index_config = VectorIndexConfig {
             index_store: crate::IndexStoreKind::Qdrant,
             qdrant_config: Some(QdrantConfig {
                 addr: "http://localhost:6334".into(),
             }),
-            db_url: "sqlite::memory:".into(),
-        });
+        };
         let db = create_db().await.unwrap();
-        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db)
-            .unwrap()
-            .unwrap();
+        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db).unwrap();
         index_manager
             .create_index(
                 index_params,
@@ -273,6 +263,13 @@ mod tests {
                     metadata: HashMap::new(),
                 },
             ])
+            .await
+            .unwrap();
+        index
+            .add_texts(vec![Text {
+                text: "hello world".into(),
+                metadata: HashMap::new(),
+            }])
             .await
             .unwrap();
         let result = index.search("pipe".into(), 1).await.unwrap();

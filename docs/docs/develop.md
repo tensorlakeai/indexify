@@ -1,32 +1,31 @@
 # Developing Indexify
 
-## Install LibTorch
-Libtorch is required. It has to be manually downloaded for now.
+## Install Dependencies
 
-### M1 Macs
-PyTorch doesn't list the Libtorch packages on their homepages so libtorch has to be installed through homebrew
-```
-brew install pytorch
-```
-Once libtorch is installed, set the following paths 
-```
-export LIBTORCH=/opt/homebrew/Cellar/pytorch/2.0.0/
-export LD_LIBRARY_PATH=${LIBTORCH}/lib:$LD_LIBRARY_PATH
-```
+### Rust Compiler
+Install various rust related tools - 
+* Rust Compiler - http://rustup.rs
+* Cargo tools - clippy, rustfmt is very helpful for formating and fixing warnings.
 
-### Linux 
-Download from Pytorch homepage and unzip locally
+### Python Dependencies
+Create a virtual env 
 ```
-wget https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.0.1%2Bcpu.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.0.1+cpu.zip
+virtualenv ve
 ```
-
-Set the paths 
+Install the python server dependencies 
 ```
-export LIBTORCH=/path/to/libtorch/
-export LD_LIBRARY_PATH=${LIBTORCH}/lib:$LD_LIBRARY_PATH
+./install_python_deps.sh
+```
+Once the dependencies are installed install the server libs 
+```
+(cd src_py && pip install .)
 ```
 
+### MAC OS
+The following workaround is needed until PyO3 can detect virtualenvs in OSX
+```
+ export PYTHONPATH=${PYTHONPATH}:${PWD}/ve/lib/python3.11/site-packages
+```
 
 ## Running Tests
 We currently have a hard dependency on the Qdrant VectorDB to test Indexify. 
@@ -60,3 +59,6 @@ Once the binary is built start it with a default config -
 ```
 ./target/debug/indexify start -c ./local_config.yaml
 ```
+
+## Visual Studio DevContainer
+Visual Studio Code Devcontainers have been setup as well. Opening the codebase in VS Studio Code should prompt opening the project in a container.

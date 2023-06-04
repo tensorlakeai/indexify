@@ -68,8 +68,6 @@ pub enum DeviceKind {
     Remote,
 }
 
-/// Struct representing the configuration of a text embedding model.
-/// It includes the kind of model being used (e.g., AllMiniLmL12V2) and the kind of device on which the model will run (e.g., CPU).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct EmbeddingModel {
@@ -79,7 +77,6 @@ pub struct EmbeddingModel {
     pub device_kind: DeviceKind,
 }
 
-/// Struct representing the configuration of memory storage data structures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct MemoryStoragePolicy {
@@ -91,42 +88,48 @@ pub struct MemoryStoragePolicy {
     pub capacity: Option<usize>,
 }
 
-/// Struct representing the configuration for OpenAI.
-/// It includes the API key required for accessing OpenAI's services.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct OpenAIConfig {
     pub api_key: String,
 }
 
-/// Enum representing the different kinds of index stores available for use.
-/// The available options include Qdrant, which is a vector search engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
 }
 
-/// Struct representing the configuration for Qdrant, a vector search engine.
-/// It includes the address of the Qdrant service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct QdrantConfig {
     pub addr: String,
 }
 
-/// Struct representing the configuration for the vector index.
-/// It includes the kind of index store being used (e.g., Qdrant) and any additional configuration specific to that index store.
+impl Default for QdrantConfig {
+    fn default() -> Self {
+        Self {
+            addr: "http://127.0.0.1:6334".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
-    pub db_url: String,
 }
 
-/// Struct representing the server configuration.
-/// It includes the address on which the server will listen, the available text embedding models, the OpenAI configuration (if applicable), and the vector index configuration.
+impl Default for VectorIndexConfig {
+    fn default() -> Self {
+        Self {
+            index_store: IndexStoreKind::Qdrant,
+            qdrant_config: Some(QdrantConfig::default()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
@@ -134,13 +137,12 @@ pub struct ServerConfig {
     pub available_models: Vec<EmbeddingModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
-    pub index_config: Option<VectorIndexConfig>,
+    pub index_config: VectorIndexConfig,
     pub memory_policies: Vec<MemoryStoragePolicy>,
+    pub db_url: String,
 }
 
 impl Default for ServerConfig {
-    /// Provides default values for the server configuration.
-    /// The default configuration includes a default listening address, a set of available models, and an OpenAI configuration with a dummy API key.
     fn default() -> Self {
         Self {
             listen_addr: "0.0.0.0:8900".to_string(),
@@ -157,29 +159,18 @@ impl Default for ServerConfig {
             openai: Some(OpenAIConfig {
                 api_key: OPENAI_DUMMY_KEY.into(),
             }),
-            index_config: None,
+            index_config: VectorIndexConfig::default(),
             memory_policies: vec![MemoryStoragePolicy {
                 policy_kind: MemoryStoragePolicyKind::Indefinite,
                 window_size: None,
                 capacity: None,
             }],
+            db_url: "sqlite://indexify.db".into(),
         }
     }
 }
 
 impl ServerConfig {
-    /// Loads the server configuration from a file specified by the given path.
-    /// The configuration file should be in YAML format and should contain the necessary configuration options.
-    /// The configuration file can also be overridden by environment variables prefixed with `INDEXIFY_`.
-    /// Note that a configuration file must exist, otherwise an error will be returned (even if the environment variables are set)
-    ///
-    /// # Arguments
-    ///
-    /// * path - The path to the configuration file.
-    ///
-    /// # Returns
-    ///
-    /// * A result containing the server configuration if successful, or an error if loading fails.
     pub fn from_path(path: String) -> Result<Self> {
         let config_str: String = fs::read_to_string(path)?;
         let mut config: ServerConfig = Figment::new()
@@ -198,17 +189,6 @@ impl ServerConfig {
         Ok(config)
     }
 
-    /// Generates a default server configuration and writes it to a file specified by the given path.
-    /// The default configuration includes a default listening address, a set of available models, and an OpenAI configuration with a dummy API key.
-    /// This method is useful for generating an initial configuration file that can be manually edited later.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path to the file where the default configuration will be written.
-    ///
-    /// # Returns
-    ///
-    /// * A result indicating success or failure of the operation.
     pub fn generate(path: String) -> Result<()> {
         let config = ServerConfig::default();
         let str = serde_yaml::to_string(&config)?;
@@ -228,11 +208,11 @@ mod tests {
         assert_eq!(3, config.available_models.len());
         assert_eq!(OPENAI_DUMMY_KEY, config.openai.unwrap().api_key);
         assert_eq!(
-            config.index_config.clone().unwrap().index_store,
+            config.index_config.clone().index_store,
             super::IndexStoreKind::Qdrant
         );
         assert_eq!(
-            config.index_config.unwrap().qdrant_config.unwrap().addr,
+            config.index_config.qdrant_config.unwrap().addr,
             "http://172.20.0.8:6334".to_string()
         );
         assert_eq!(
