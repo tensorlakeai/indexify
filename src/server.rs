@@ -1,10 +1,7 @@
 use crate::index::IndexManager;
 use crate::persistence::Text;
 use crate::text_splitters::TextSplitterKind;
-use crate::{
-    CreateIndexParams, EmbeddingRouter, MemorySessionRouter, MemoryStoragePolicy, MetricKind,
-    ServerConfig,
-};
+use crate::{CreateIndexParams, EmbeddingRouter, MemoryManager, Message, MetricKind, ServerConfig};
 
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -54,7 +51,7 @@ struct ListEmbeddingModelsResponse {
     models: Vec<EmbeddingModel>,
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display)]
+#[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display, Clone)]
 #[strum(serialize_all = "snake_case")]
 enum ApiTextSplitterKind {
     // Do not split text.
@@ -71,23 +68,7 @@ enum ApiTextSplitterKind {
     Regex { pattern: String },
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize)]
-enum MemoryPolicyKind {
-    // Use Indefinite policy
-    #[default]
-    #[serde(rename = "indefinite")]
-    Indefinite,
-
-    // Use Windows
-    #[serde(rename = "window")]
-    Window,
-
-    // Use LRU
-    #[serde(rename = "lru")]
-    Lru,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename = "metric")]
 enum IndexMetric {
     #[serde(rename = "dot")]
@@ -101,7 +82,7 @@ enum IndexMetric {
 }
 
 /// Request payload for creating a new vector index.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct IndexCreateRequest {
     /// Name of the new vector index.
     name: String,
@@ -112,12 +93,17 @@ struct IndexCreateRequest {
     /// The text splitter to use for splitting text into fragments.
     text_splitter: ApiTextSplitterKind,
 
-    /// Hash on these paramters
+    /// Hash on these parameters
     hash_on: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexCreateResponse {}
+
+struct IndexCreationArgs {
+    index_params: CreateIndexParams,
+    text_splitter: TextSplitterKind,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Document {
@@ -146,19 +132,18 @@ struct SearchRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct CreateMemorySessionRequest {
     session_id: Option<Uuid>,
-    /// The memory policy for storing and retrieving from memory
-    memory_storage_policy: MemoryStoragePolicy,
+    index_args: IndexCreateRequest,
 }
 
 #[derive(Serialize, Deserialize)]
 struct CreateMemorySessionResponse {
-    session_id: Option<Uuid>,
+    session_id: Uuid,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionAddRequest {
     session_id: Uuid,
-    turn: String,
+    messages: Vec<Message>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -167,12 +152,23 @@ struct MemorySessionAddResponse {}
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionRetrieveRequest {
     session_id: Uuid,
-    query: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct MemorySessionRetrieveResponse {
-    history: Vec<String>,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MemorySessionSearchRequest {
+    session_id: Uuid,
+    query: String,
+    k: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MemorySessionSearchResponse {
+    messages: Vec<Message>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -212,6 +208,12 @@ pub struct IndexEndpointState {
     embedding_router: Arc<EmbeddingRouter>,
 }
 
+#[derive(Clone)]
+pub struct MemoryEndpointState {
+    memory_manager: Arc<MemoryManager>,
+    embedding_router: Arc<EmbeddingRouter>,
+}
+
 pub struct Server {
     addr: SocketAddr,
     config: Arc<ServerConfig>,
@@ -224,8 +226,6 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let memory_session_router: Arc<MemorySessionRouter> =
-            Arc::new(MemorySessionRouter::new(self.config.clone())?);
         let index_manager = Arc::new(
             IndexManager::new(
                 self.config.index_config.clone(),
@@ -234,8 +234,13 @@ impl Server {
             )
             .await?,
         );
+        let memory_manager = Arc::new(MemoryManager::new(index_manager.clone()).await?);
         let index_state = IndexEndpointState {
             index_manager: index_manager,
+            embedding_router: embedding_router.clone(),
+        };
+        let memory_state = MemoryEndpointState {
+            memory_manager: memory_manager.clone(),
             embedding_router: embedding_router.clone(),
         };
         let app = Router::new()
@@ -262,15 +267,19 @@ impl Server {
             )
             .route(
                 "/memory/create",
-                get(create_memory_session).with_state(memory_session_router.clone()),
+                get(create_memory_session).with_state(memory_state.clone()),
             )
             .route(
                 "/memory/add",
-                get(add_record).with_state(memory_session_router.clone()),
+                get(add_to_memory_session).with_state(memory_manager.clone()),
             )
             .route(
-                "/memory/retrieve",
-                get(retrieve_records).with_state(memory_session_router.clone()),
+                "/memory/get",
+                get(get_from_memory_session).with_state(memory_manager.clone()),
+            )
+            .route(
+                "/memory/search",
+                get(search_memory_session).with_state(memory_manager.clone()),
             );
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
@@ -285,19 +294,16 @@ async fn root() -> &'static str {
     "Indexify Server"
 }
 
-#[axum_macros::debug_handler]
-async fn index_create(
-    State(state): State<IndexEndpointState>,
-    Json(payload): Json<IndexCreateRequest>,
-) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
-    let model = state
-        .embedding_router
-        .get_model(payload.embedding_model.clone())
+async fn get_index_creation_args(
+    embedding_router: Arc<EmbeddingRouter>,
+    payload: IndexCreateRequest,
+) -> Result<IndexCreationArgs, IndexifyAPIError> {
+    let model = embedding_router
+        .get_model(payload.embedding_model)
         .map_err(|e| IndexifyAPIError::new(StatusCode::BAD_REQUEST, e.to_string()))?;
-    let dim = model.dimensions();
     let index_params = CreateIndexParams {
-        name: payload.name.clone(),
-        vector_dim: dim,
+        name: payload.name,
+        vector_dim: model.dimensions(),
         metric: match payload.metric {
             IndexMetric::Cosine => MetricKind::Cosine,
             IndexMetric::Dot => MetricKind::Dot,
@@ -306,10 +312,28 @@ async fn index_create(
         unique_params: payload.hash_on,
     };
     let splitter_kind = TextSplitterKind::from_str(&payload.text_splitter.to_string()).unwrap();
+    Ok(IndexCreationArgs {
+        index_params: index_params,
+        text_splitter: splitter_kind,
+    })
+}
+
+#[axum_macros::debug_handler]
+async fn index_create(
+    State(state): State<IndexEndpointState>,
+    Json(payload): Json<IndexCreateRequest>,
+) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
+    let args = get_index_creation_args(state.embedding_router.clone(), payload.clone()).await?;
+
     let result = state
         .index_manager
-        .create_index(index_params, payload.embedding_model, splitter_kind)
+        .create_index(
+            args.index_params,
+            payload.embedding_model,
+            args.text_splitter,
+        )
         .await;
+
     if let Err(err) = result {
         return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -355,56 +379,63 @@ async fn add_texts(
 
 #[axum_macros::debug_handler]
 async fn create_memory_session(
-    State(memory_manager): State<Arc<MemorySessionRouter>>,
+    State(state): State<MemoryEndpointState>,
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
-    let result = memory_manager.create_session(payload.session_id, payload.memory_storage_policy);
+    let args =
+        get_index_creation_args(state.embedding_router.clone(), payload.index_args.clone()).await?;
 
-    if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ));
-    }
-    Ok(Json(CreateMemorySessionResponse {
-        session_id: Some(result.unwrap()),
-    }))
+    let session_id = state
+        .memory_manager
+        .create_session_index(
+            payload.session_id,
+            args.index_params,
+            payload.index_args.embedding_model,
+            args.text_splitter,
+        )
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(CreateMemorySessionResponse { session_id }))
 }
 
 #[axum_macros::debug_handler]
-async fn add_record(
-    State(memory_manager): State<Arc<MemorySessionRouter>>,
+async fn add_to_memory_session(
+    State(memory_manager): State<Arc<MemoryManager>>,
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
-    let result = memory_manager.add_turn(payload.session_id, payload.turn);
+    memory_manager
+        .add_messages(payload.session_id, payload.messages)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Err(err) = result {
-        Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ))
-    } else {
-        Ok(Json(MemorySessionAddResponse {}))
-    }
+    Ok(Json(MemorySessionAddResponse {}))
 }
 
 #[axum_macros::debug_handler]
-async fn retrieve_records(
-    State(memory_manager): State<Arc<MemorySessionRouter>>,
+async fn get_from_memory_session(
+    State(memory_manager): State<Arc<MemoryManager>>,
     Json(payload): Json<MemorySessionRetrieveRequest>,
 ) -> Result<Json<MemorySessionRetrieveResponse>, IndexifyAPIError> {
-    let result = memory_manager.retrieve_history(payload.session_id, payload.query);
+    let messages = memory_manager
+        .retrieve_messages(payload.session_id)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Err(err) = result {
-        Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ))
-    } else {
-        Ok(Json(MemorySessionRetrieveResponse {
-            history: result.unwrap(),
-        }))
-    }
+    Ok(Json(MemorySessionRetrieveResponse { messages }))
+}
+
+#[axum_macros::debug_handler]
+async fn search_memory_session(
+    State(memory_manager): State<Arc<MemoryManager>>,
+    Json(payload): Json<MemorySessionSearchRequest>,
+) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
+    let messages = memory_manager
+        .search(payload.session_id, payload.query, payload.k)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(MemorySessionSearchResponse { messages }))
 }
 
 #[axum_macros::debug_handler]

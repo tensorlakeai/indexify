@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, vec};
+use std::{fmt, str::FromStr, sync::Arc, vec};
 
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
@@ -45,6 +45,12 @@ pub struct IndexManager {
     vectordb: VectorDBTS,
     embedding_router: Arc<EmbeddingRouter>,
     repository: Arc<Respository>,
+}
+
+impl fmt::Debug for IndexManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "IndexManager {{ /* fields go here */ }}")
+    }
 }
 
 impl IndexManager {
@@ -163,6 +169,11 @@ impl Index {
             .await
             .map_err(|e| IndexError::LogicError(e.to_string()))?;
         Ok(())
+    }
+
+    pub async fn get_texts(&self) -> Result<Vec<Text>, IndexError> {
+        let texts = self.repository.get_texts(self.name.clone()).await?;
+        Ok(texts)
     }
 
     pub async fn search(&self, query: String, k: u64) -> Result<Vec<SearchResult>, IndexError> {
