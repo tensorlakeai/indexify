@@ -14,6 +14,9 @@ available_models:
 openai:
   api_key: xxxxx
 
+# Database URL for storing document and memory
+db_url: sqlite://indexify.db
+
 # Vector index configuration for the service. The index_store parameter
 # specifies the type of index to use. Currently, only Qdrant is supported.
 #

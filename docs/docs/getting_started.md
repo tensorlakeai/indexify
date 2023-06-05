@@ -25,7 +25,7 @@ curl -v -X POST http://localhost:8900/index/create   -H "Content-Type: applicati
 
 #### Add some Texts
 ```
-curl -v -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "texts": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
+curl -v -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "documents": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
 ```
 
 #### Query the Index
