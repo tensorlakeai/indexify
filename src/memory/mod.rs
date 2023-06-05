@@ -231,7 +231,33 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(retrieve_result, messages.clone());
+        let target_retrieve_result: Vec<Message> = vec![
+            Message {
+                text: "hello world".into(),
+                role: "human".into(),
+                metadata: json!({
+                    "role": "human",
+                    "session_id": session_id.to_string(),
+                }),
+            },
+            Message {
+                text: "hello friend".into(),
+                role: "AI".into(),
+                metadata: json!({
+                    "role": "AI",
+                    "session_id": session_id.to_string(),
+                }),
+            },
+            Message {
+                text: "how are you".into(),
+                role: "human".into(),
+                metadata: json!({
+                    "role": "human",
+                    "session_id": session_id.to_string(),
+                }),
+            },
+        ];
+        assert_eq!(retrieve_result, target_retrieve_result);
         assert_eq!(search_result.len(), 1);
         assert_eq!(search_result[0].text, "hello friend".to_string());
     }
