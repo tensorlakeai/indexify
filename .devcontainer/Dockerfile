@@ -1,12 +1,6 @@
-FROM --platform=linux/amd64 rust:latest AS builder
+FROM rust:latest AS builder
 
 RUN update-ca-certificates
-
-WORKDIR /indexify-build
-
-COPY ./ .
-
-RUN ./setup_libtorch_cpu.sh
 
 RUN apt update
 

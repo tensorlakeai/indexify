@@ -1,40 +1,51 @@
-FROM diptanu/indexify-build AS builder
+FROM ubuntu:22.04 AS builder
 LABEL stage=builder
 
-WORKDIR /indexify-build/indexify
+WORKDIR /indexify-build
 
 COPY ./ .
 
-ENV LIBTORCH=/indexify-build/libtorch
+RUN apt-get update
 
-ENV LD_LIBRARY_PATH=${LIBTORCH}/lib:$LD_LIBRARY_PATH
+RUN apt-get install -y \
+    build-essential \
+    curl pkg-config python3 python3-dev
+
+RUN apt -y install protobuf-compiler protobuf-compiler-grpc sqlite3 libssl-dev
+
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN sqlite3 new_indexify.db "VACUUM;"
 
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
 RUN cargo build --release
 
-RUN DATABASE_URL=sqlite://new_indexify.db sea-orm-cli migrate up
+FROM ubuntu:22.04
 
-RUN ["./target/release/indexify", "init-config", "indexify.yaml"]
+RUN apt update
 
+RUN apt install -y libssl-dev python3-venv python3-dev
 
-# FROM ubuntu:20.04
-# apt update && apt install -y libgomp1 libssl-dev
-FROM gcr.io/distroless/cc
+RUN python3 -m "venv" /venv && /venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+RUN /venv/bin/pip install transformers[torch] optimum[onnxruntime] onnx onnxruntime
 
 WORKDIR /indexify
 
-COPY --from=builder /indexify-build/indexify/target/release/indexify ./
+COPY --from=builder /indexify-build/target/release/indexify ./
 
-COPY --from=builder /indexify-build/libtorch ./libtorch
+COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
-COPY --from=builder /indexify-build/indexify/sample_config.yaml ./config/indexify.yaml
+COPY --from=builder /indexify-build/new_indexify.db ./indexify.db
 
-COPY --from=builder /indexify-build/indexify/new_indexify.db ./indexify.db
+COPY --from=builder /indexify-build/src_py/ /indexify/src_py/
 
-ENV LIBTORCH=/indexify/libtorch
+RUN cd src_py && /venv/bin/pip install .
 
-ENV LD_LIBRARY_PATH=${LIBTORCH}/lib:$LD_LIBRARY_PATH
+ENV PATH=/venv/bin:$PATH
 
 ENTRYPOINT [ "/indexify/indexify" ]
 
