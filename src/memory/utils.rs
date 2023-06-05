@@ -6,14 +6,14 @@ use uuid::Uuid;
 use crate::{persistence::Text, Message, SearchResult};
 
 pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
+    let default_role = &"unkown".to_string();
     let messages: Vec<Message> = texts
         .iter()
         .map(|text| {
-            let mut metadata = text.metadata.to_owned();
-            let role = metadata.remove("role").unwrap();
+            let metadata = text.metadata.clone();
             Message {
                 text: text.text.to_owned(),
-                role: role,
+                role: metadata.get("role").unwrap_or(default_role).into(),
                 metadata: json!(metadata),
             }
         })
@@ -22,14 +22,16 @@ pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
 }
 
 pub fn get_messages_from_search_results(results: Vec<SearchResult>) -> Vec<Message> {
+    let default_role = &"unkown".to_string();
     let messages: Vec<Message> = results
         .iter()
         .map(|text| {
-            let mut metadata: HashMap<String, String> =
+            let metadata: HashMap<String, String> =
                 serde_json::from_value(text.metadata.to_owned()).unwrap();
+
             Message {
                 text: text.texts.to_owned(),
-                role: metadata.remove("role").unwrap(),
+                role: metadata.get("role").unwrap_or(default_role).into(),
                 metadata: text.metadata.to_owned(),
             }
         })
