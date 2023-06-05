@@ -11,6 +11,7 @@ Install various rust related tools -
 Create a virtual env 
 ```
 virtualenv ve
+source ve/bin/activate
 ```
 Install the python server dependencies 
 ```
