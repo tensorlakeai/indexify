@@ -17,7 +17,7 @@ Install the python server dependencies
 ```
 ./install_python_deps.sh
 ```
-Once the dependencies are installed install the server libs 
+Install the server libs 
 ```
 (cd src_py && pip install .)
 ```
