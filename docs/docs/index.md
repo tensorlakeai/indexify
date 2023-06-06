@@ -12,22 +12,5 @@ The service also facilitates efficient execution of fine tuned/pre-trained embed
 * **Real Time Data:** Indexify will keep indexes updated if the source of the data is known, such as a S3 bucket or a database, so LLM models can answer queries that require real time information about the world.
 * **Secure Access:** Indexes can be put behind RBAC so that sensistive data is exposed to only certain applications. 
 
-## Road Map 
-* Asynchronous index updates for large corpuses of documents.
-* Real time index updates from documents stored in databases and object stores.
-* Retrieval strategies for dense embeddings, and a plugin mechanism to add new strategies.
-* Suppport for hardware acceleration, and using ONNX runtime for faster execution on CPUs.
-* Resource Usage of Embedding Models.
-* Support for more vector stores - PineCone, Milvus, etc. (contributions welcome).
-
 ## Next Steps
 Read the [Getting Started](getting_started.md) to learn how to use Indexify.
-
-## Available Embedding Models 
-1. all-MiniLM-L12-v2/all-MiniLM-L6-v2
-2. sentence-t5-base
-3. SimCSE (coming soon)
-4. OpenAI
-
-## Available Vector Datastores
-1. Qdrant

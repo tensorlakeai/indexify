@@ -46,7 +46,7 @@ impl MigrationTrait for Migration {
             )
             .await;
 
-        manager
+        let _ = manager
             .create_table(
                 Table::create()
                     .table(IndexChunks::Table)
@@ -62,12 +62,35 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(IndexChunks::IndexName).string().not_null())
                     .to_owned(),
             )
+            .await;
+        manager
+            .create_table(
+                Table::create()
+                    .table(MemorySessions::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(MemorySessions::SessionId)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(MemorySessions::IndexName)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(MemorySessions::Metadata).json())
+                    .to_owned(),
+            )
             .await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
+        let _ = manager
             .drop_table(Table::drop().table(Index::Table).to_owned())
+            .await;
+        manager
+            .drop_table(Table::drop().table(MemorySessions::Table).to_owned())
             .await
     }
 }
@@ -101,4 +124,12 @@ enum Content {
     Text,
     Metadata,
     EmbeddingStatus,
+}
+
+#[derive(Iden)]
+enum MemorySessions {
+    Table,
+    SessionId,
+    IndexName,
+    Metadata,
 }

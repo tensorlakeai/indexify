@@ -2,7 +2,7 @@
 name = "indexify-py"
 version = "0.0.1"
 description = "Python sources for indexify"
-authors = ["diptanu <diptanuc@gmail.com>"]
+authors = ["diptanu <diptanuc@gmail.com>", "Kanchi Shah <kanchi.shah957@gmail.com>"]
 readme = "README.md"
 packages = [{include = "indexify_py"}]
 
