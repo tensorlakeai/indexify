@@ -1,8 +1,5 @@
 mod utils;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
@@ -23,10 +20,6 @@ pub enum MemoryError {
     /// An internal error that occurs during the operation.
     #[error("internal error: `{0}`")]
     InternalError(String),
-
-    /// An error that occurs when requested session is not found.
-    #[error("session `{0}` not found")]
-    SessionNotFound(Uuid),
 
     /// An error that occurs when corresponding index is not found.
     #[error("index `{0}` not found")]
@@ -49,40 +42,41 @@ pub struct Message {
 /// Each message has a corresponding point in vector DB and row in content table.
 pub struct MemoryManager {
     index_manager: Arc<IndexManager>,
-    temp_session_id_index_map: Mutex<HashMap<Uuid, String>>,
 }
 
 impl MemoryManager {
     pub async fn new(index_manager: Arc<IndexManager>) -> Result<Self, MemoryError> {
-        // TODO: replace temp_session_id_index_map with memory_sessions DB table to persist session_id and index_name
-        let temp_session_id_index_map = Mutex::new(HashMap::new());
-        Ok(Self {
-            index_manager,
-            temp_session_id_index_map,
-        })
+        Ok(Self { index_manager })
     }
 
-    fn _get_index_name(&self, session_id: Uuid) -> Result<String, MemoryError> {
-        // TODO: Create better default index name without exposing session_id
-        // TODO: Retrieve index_name from memory_sessions DB table
-        let binding = self.temp_session_id_index_map.lock().unwrap();
-        let index_name = binding.get(&session_id);
-        Ok(index_name.unwrap().into())
+    async fn _get_index_name(&self, session_id: Uuid) -> Result<String, MemoryError> {
+        let index_name = self
+            .index_manager
+            .get_index_name_for_memory_session(session_id)
+            .await
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
+        Ok(index_name)
     }
 
-    fn _set_index_name(&self, session_id: Uuid, index_name: String) {
-        self.temp_session_id_index_map
-            .lock()
-            .unwrap()
-            .insert(session_id, index_name);
+    async fn _set_index_name(
+        &self,
+        session_id: Uuid,
+        index_name: String,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), MemoryError> {
+        self.index_manager
+            .create_index_for_memory_session(session_id, index_name, metadata)
+            .await
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
+        Ok(())
     }
 
     async fn _get_index(&self, session_id: Uuid) -> Result<Index, MemoryError> {
-        let index_name = &self._get_index_name(session_id)?;
+        let index_name = &self._get_index_name(session_id).await?;
         self.index_manager
             .load(index_name.into())
             .await
-            .map_err(|e| MemoryError::IndexNotFound(e.to_string()))?
+            .map_err(|e| MemoryError::InternalError(e.to_string()))?
             .ok_or(MemoryError::IndexNotFound(index_name.into()))
     }
 
@@ -92,11 +86,13 @@ impl MemoryManager {
         vectordb_params: CreateIndexParams,
         embedding_model: String,
         text_splitter: TextSplitterKind,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<Uuid, MemoryError> {
         // TODO: Persist session_id and index_name to memory_sessions DB table
         let session_id = session_id.unwrap_or(Uuid::new_v4());
         let index_name = vectordb_params.name.clone();
-        self._set_index_name(session_id, index_name);
+        self._set_index_name(session_id, index_name, metadata)
+            .await?;
         self.index_manager
             .create_index(vectordb_params, embedding_model, text_splitter)
             .await
@@ -149,6 +145,7 @@ mod tests {
     use super::super::entity::content::Entity as ContentEntity;
     use super::super::entity::index::Entity as IndexEntity;
     use super::super::entity::index_chunks::Entity as IndexChunkEntity;
+    use super::super::entity::memory_sessions::Entity as MemorySessionEntity;
     use sea_orm::entity::prelude::*;
     use sea_orm::{
         sea_query::TableCreateStatement, Database, DatabaseConnection, DbBackend, DbConn, DbErr,
@@ -171,15 +168,16 @@ mod tests {
     async fn test_basic_search() {
         env::set_var("RUST_LOG", "debug");
         let session_id = Uuid::new_v4();
+        let index_name = &"test_memory_index".to_string();
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
-        qdrant.drop_index("hello".into()).await.unwrap();
+        qdrant.drop_index(index_name.into()).await.unwrap();
         let embedding_router =
             Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
 
         let index_params = CreateIndexParams {
-            name: "hello".into(),
+            name: index_name.into(),
             vector_dim: 384,
             metric: MetricKind::Cosine,
             unique_params: None,
@@ -201,6 +199,7 @@ mod tests {
                 index_params,
                 "all-minilm-l12-v2".into(),
                 TextSplitterKind::Noop,
+                None,
             )
             .await
             .unwrap();
@@ -281,11 +280,13 @@ mod tests {
         let stmt1: TableCreateStatement = schema.create_table_from_entity(IndexEntity);
         let stmt2: TableCreateStatement = schema.create_table_from_entity(ContentEntity);
         let stmt3: TableCreateStatement = schema.create_table_from_entity(IndexChunkEntity);
+        let stm4: TableCreateStatement = schema.create_table_from_entity(MemorySessionEntity);
 
         // Execute create table statement
         db.execute(db.get_database_backend().build(&stmt1)).await?;
         db.execute(db.get_database_backend().build(&stmt2)).await?;
         db.execute(db.get_database_backend().build(&stmt3)).await?;
+        db.execute(db.get_database_backend().build(&stm4)).await?;
         Ok(())
     }
 }

@@ -1,9 +1,10 @@
-use std::{fmt, str::FromStr, sync::Arc, vec};
+use std::{collections::HashMap, fmt, str::FromStr, sync::Arc, vec};
 
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use thiserror::Error;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     embedding_worker::EmbeddingWorker,
@@ -133,6 +134,28 @@ impl IndexManager {
         )
         .await?;
         Ok(index)
+    }
+
+    pub async fn create_index_for_memory_session(
+        &self,
+        session_id: Uuid,
+        index_name: String,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), IndexError> {
+        self.repository
+            .create_memory_session(session_id, index_name, metadata)
+            .await
+            .map_err(|e| IndexError::Persistence(e))
+    }
+
+    pub async fn get_index_name_for_memory_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<String, IndexError> {
+        self.repository
+            .get_index_name_for_memory_session(session_id)
+            .await
+            .map_err(|e| IndexError::Persistence(e))
     }
 }
 pub struct Index {

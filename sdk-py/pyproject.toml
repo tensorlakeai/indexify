@@ -2,7 +2,7 @@
 name = "indexify"
 version = "0.0.1"
 description = "Python Client for Indexify"
-authors = ["Diptanu Gon Choudhury <diptanuc@gmail.com>"]
+authors = ["Diptanu Gon Choudhury <diptanuc@gmail.com>", "Kanchi Shah <kanchi.shah957@gmail.com>"]
 license = "Apache 2.0"
 readme = "README.rst"
 homepage = "https://github.com/diptanu/indexify"
