@@ -1,5 +1,8 @@
 mod utils;
-use std::{sync::{Arc, Mutex}, collections::HashMap};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 
@@ -53,17 +56,17 @@ impl MemoryManager {
     pub async fn new(index_manager: Arc<IndexManager>) -> Result<Self, MemoryError> {
         // TODO: replace temp_session_id_index_map with memory_sessions DB table to persist session_id and index_name
         let temp_session_id_index_map = Mutex::new(HashMap::new());
-        Ok(Self { index_manager, temp_session_id_index_map })
+        Ok(Self {
+            index_manager,
+            temp_session_id_index_map,
+        })
     }
 
     fn _get_index_name(&self, session_id: Uuid) -> Result<String, MemoryError> {
         // TODO: Create better default index name without exposing session_id
         // TODO: Retrieve index_name from memory_sessions DB table
-        let binding = self.temp_session_id_index_map
-            .lock()
-            .unwrap();
-        let index_name = binding
-            .get(&session_id);
+        let binding = self.temp_session_id_index_map.lock().unwrap();
+        let index_name = binding.get(&session_id);
         Ok(index_name.unwrap().into())
     }
 
