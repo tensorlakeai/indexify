@@ -133,6 +133,7 @@ struct SearchRequest {
 struct CreateMemorySessionRequest {
     session_id: Option<Uuid>,
     index_args: IndexCreateRequest,
+    metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -392,6 +393,7 @@ async fn create_memory_session(
             args.index_params,
             payload.index_args.embedding_model,
             args.text_splitter,
+            payload.metadata,
         )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

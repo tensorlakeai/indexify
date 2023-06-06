@@ -11,7 +11,9 @@ use sea_orm::{ActiveModelTrait, ColumnTrait};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
+use serde_json::json;
 use thiserror::Error;
+use uuid::Uuid;
 
 use crate::entity;
 use crate::entity::index;
@@ -64,6 +66,9 @@ pub enum RespositoryError {
 
     #[error("unable to serialize unique params `{0}`")]
     UniqueParamsSerializationError(#[from] serde_json::Error),
+
+    #[error("session `{0}` not found")]
+    SessionNotFound(String),
 }
 
 pub struct Respository {
@@ -226,6 +231,43 @@ impl Respository {
             .all(&self.conn)
             .await?;
         Ok(result)
+    }
+
+    pub async fn create_memory_session(
+        &self,
+        session_id: Uuid,
+        index_name: String,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), RespositoryError> {
+        let tx = self.conn.begin().await?;
+        let metadata = Some(json!(metadata).to_string());
+        let memory_session = entity::memory_sessions::ActiveModel {
+            session_id: Set(session_id.to_string()),
+            index_name: Set(index_name),
+            metadata: Set(metadata),
+        };
+        let _ = entity::memory_sessions::Entity::insert(memory_session)
+            .on_conflict(
+                OnConflict::column(entity::memory_sessions::Column::SessionId)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&tx)
+            .await;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn get_index_name_for_memory_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<String, RespositoryError> {
+        let session = entity::memory_sessions::Entity::find()
+            .filter(entity::memory_sessions::Column::SessionId.eq(session_id.to_string()))
+            .one(&self.conn)
+            .await?
+            .ok_or(RespositoryError::SessionNotFound(session_id.to_string()))?;
+        Ok(session.index_name)
     }
 }
 
