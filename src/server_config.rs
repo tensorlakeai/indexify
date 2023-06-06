@@ -138,7 +138,6 @@ pub struct ServerConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
     pub index_config: VectorIndexConfig,
-    pub memory_policies: Vec<MemoryStoragePolicy>,
     pub db_url: String,
 }
 
@@ -160,11 +159,6 @@ impl Default for ServerConfig {
                 api_key: OPENAI_DUMMY_KEY.into(),
             }),
             index_config: VectorIndexConfig::default(),
-            memory_policies: vec![MemoryStoragePolicy {
-                policy_kind: MemoryStoragePolicyKind::Indefinite,
-                window_size: None,
-                capacity: None,
-            }],
             db_url: "sqlite://indexify.db".into(),
         }
     }
@@ -214,10 +208,6 @@ mod tests {
         assert_eq!(
             config.index_config.qdrant_config.unwrap().addr,
             "http://172.20.0.8:6334".to_string()
-        );
-        assert_eq!(
-            "indefinite",
-            config.memory_policies[0].policy_kind.to_string()
         );
     }
 }

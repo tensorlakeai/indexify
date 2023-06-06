@@ -3,13 +3,12 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "index_chunks")]
+#[sea_orm(table_name = "memory_sessions")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub chunk_id: String,
-    pub content_id: String,
-    pub text: String,
+    pub session_id: String,
     pub index_name: String,
+    pub metadata: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
