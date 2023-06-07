@@ -78,7 +78,14 @@ impl MemoryManager {
         let session_id = session_id.unwrap_or(Uuid::new_v4());
         let index_name = vectordb_params.name.clone();
         self.index_manager
-            .create_index_for_memory_session(session_id, index_name, metadata, vectordb_params, embedding_model, text_splitter)
+            .create_index_for_memory_session(
+                session_id,
+                index_name,
+                metadata,
+                vectordb_params,
+                embedding_model,
+                text_splitter,
+            )
             .await
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
         Ok(session_id)

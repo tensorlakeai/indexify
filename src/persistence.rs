@@ -6,11 +6,11 @@ use anyhow::Result;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{QueryFilter, DatabaseTransaction};
 use sea_orm::{ActiveModelTrait, ColumnTrait};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
+use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde_json::json;
 use thiserror::Error;
 use uuid::Uuid;
@@ -129,7 +129,9 @@ impl Respository {
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
     ) -> Result<(), RespositoryError> {
-        let tx = self.get_create_index_transaction(embedding_model, index_params, vectordb, text_splitter).await?;
+        let tx = self
+            .get_create_index_transaction(embedding_model, index_params, vectordb, text_splitter)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -254,7 +256,9 @@ impl Respository {
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
     ) -> Result<(), RespositoryError> {
-        let tx = self.get_create_index_transaction(embedding_model, vectordb_params, vectordb, text_splitter).await?;
+        let tx = self
+            .get_create_index_transaction(embedding_model, vectordb_params, vectordb, text_splitter)
+            .await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),

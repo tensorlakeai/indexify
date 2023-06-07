@@ -147,7 +147,15 @@ impl IndexManager {
     ) -> Result<(), IndexError> {
         let vectordb = self.vectordb.clone();
         self.repository
-            .create_memory_session(session_id, index_name, metadata, vectordb_params, embedding_model, vectordb, text_splitter.to_string())
+            .create_memory_session(
+                session_id,
+                index_name,
+                metadata,
+                vectordb_params,
+                embedding_model,
+                vectordb,
+                text_splitter.to_string(),
+            )
             .await
             .map_err(|e| IndexError::Persistence(e))
     }
