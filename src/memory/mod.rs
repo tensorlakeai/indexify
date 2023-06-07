@@ -58,19 +58,6 @@ impl MemoryManager {
         Ok(index_name)
     }
 
-    async fn _set_index_name(
-        &self,
-        session_id: Uuid,
-        index_name: String,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), MemoryError> {
-        self.index_manager
-            .create_index_for_memory_session(session_id, index_name, metadata)
-            .await
-            .map_err(|e| MemoryError::InternalError(e.to_string()))?;
-        Ok(())
-    }
-
     async fn _get_index(&self, session_id: Uuid) -> Result<Index, MemoryError> {
         let index_name = &self._get_index_name(session_id).await?;
         self.index_manager
@@ -86,15 +73,12 @@ impl MemoryManager {
         vectordb_params: CreateIndexParams,
         embedding_model: String,
         text_splitter: TextSplitterKind,
-        metadata: Option<HashMap<String, String>>,
+        metadata: HashMap<String, String>,
     ) -> Result<Uuid, MemoryError> {
-        // TODO: Persist session_id and index_name to memory_sessions DB table
         let session_id = session_id.unwrap_or(Uuid::new_v4());
         let index_name = vectordb_params.name.clone();
-        self._set_index_name(session_id, index_name, metadata)
-            .await?;
         self.index_manager
-            .create_index(vectordb_params, embedding_model, text_splitter)
+            .create_index_for_memory_session(session_id, index_name, metadata, vectordb_params, embedding_model, text_splitter)
             .await
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
         Ok(session_id)
@@ -199,7 +183,7 @@ mod tests {
                 index_params,
                 "all-minilm-l12-v2".into(),
                 TextSplitterKind::Noop,
-                None,
+                HashMap::new(),
             )
             .await
             .unwrap();

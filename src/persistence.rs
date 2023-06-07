@@ -6,7 +6,7 @@ use anyhow::Result;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::QueryFilter;
+use sea_orm::{QueryFilter, DatabaseTransaction};
 use sea_orm::{ActiveModelTrait, ColumnTrait};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
@@ -85,13 +85,13 @@ impl Respository {
         Self { conn: db }
     }
 
-    pub async fn create_index(
+    async fn get_create_index_transaction(
         &self,
         embedding_model: String,
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
-    ) -> Result<(), RespositoryError> {
+    ) -> Result<DatabaseTransaction, RespositoryError> {
         let mut unique_params = None;
         if let Some(u_params) = &index_params.unique_params {
             unique_params.replace(serde_json::to_string(u_params)?);
@@ -119,6 +119,17 @@ impl Respository {
             return Err(RespositoryError::VectorDb(err));
         }
 
+        Ok(tx)
+    }
+
+    pub async fn create_index(
+        &self,
+        embedding_model: String,
+        index_params: CreateIndexParams,
+        vectordb: vectordbs::VectorDBTS,
+        text_splitter: String,
+    ) -> Result<(), RespositoryError> {
+        let tx = self.get_create_index_transaction(embedding_model, index_params, vectordb, text_splitter).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -237,9 +248,13 @@ impl Respository {
         &self,
         session_id: Uuid,
         index_name: String,
-        metadata: Option<HashMap<String, String>>,
+        metadata: HashMap<String, String>,
+        vectordb_params: CreateIndexParams,
+        embedding_model: String,
+        vectordb: vectordbs::VectorDBTS,
+        text_splitter: String,
     ) -> Result<(), RespositoryError> {
-        let tx = self.conn.begin().await?;
+        let tx = self.get_create_index_transaction(embedding_model, vectordb_params, vectordb, text_splitter).await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),

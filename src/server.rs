@@ -393,7 +393,7 @@ async fn create_memory_session(
             args.index_params,
             payload.index_args.embedding_model,
             args.text_splitter,
-            payload.metadata,
+            payload.metadata.unwrap_or(HashMap::new()),
         )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
