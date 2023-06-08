@@ -17,7 +17,7 @@ pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
             }
         })
         .collect();
-    return messages;
+    messages
 }
 
 pub fn get_messages_from_search_results(results: Vec<SearchResult>) -> Vec<Message> {
@@ -35,7 +35,7 @@ pub fn get_messages_from_search_results(results: Vec<SearchResult>) -> Vec<Messa
             }
         })
         .collect();
-    return messages;
+    messages
 }
 
 pub fn get_texts_from_messages(session_id: &String, messages: Vec<Message>) -> Vec<Text> {
@@ -50,8 +50,8 @@ pub fn get_texts_from_messages(session_id: &String, messages: Vec<Message>) -> V
         metadata.extend(message_metadata);
         texts.push(Text {
             text: message.text,
-            metadata: metadata,
+            metadata,
         });
     }
-    return texts;
+    texts
 }

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::{cmp::max, fmt::Debug, sync::Arc};
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
@@ -14,7 +15,7 @@ pub enum TextSplitterError {
 
 pub type TextSplitterTS = Arc<dyn TextSplitter + Send + Sync>;
 
-#[derive(Display, Clone, Debug, EnumString)]
+#[derive(Display, Serialize, Deserialize, Clone, Debug, EnumString)]
 pub enum TextSplitterKind {
     #[strum(serialize = "noop")]
     Noop,

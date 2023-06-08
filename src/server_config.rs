@@ -196,13 +196,13 @@ mod tests {
     use crate::server_config::OPENAI_DUMMY_KEY;
 
     #[test]
-    fn pasrse_config() {
+    fn parse_config() {
         // Uses the sample config file to test the config parsing
         let config = super::ServerConfig::from_path("sample_config.yaml".to_string()).unwrap();
         assert_eq!(3, config.available_models.len());
         assert_eq!(OPENAI_DUMMY_KEY, config.openai.unwrap().api_key);
         assert_eq!(
-            config.index_config.clone().index_store,
+            config.index_config.index_store,
             super::IndexStoreKind::Qdrant
         );
         assert_eq!(

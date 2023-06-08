@@ -10,6 +10,7 @@ nav:
   - Getting Started: 'getting_started.md'
   - APIs:
     - Overview: 'apis/index.md'
+    - Data Repository: 'apis/data_repository.md'
     - Retrieval: 'apis/retrieval.md'
     - Memory: 'apis/memory.md'
     - Embeddings: 'apis/embeddings.md'

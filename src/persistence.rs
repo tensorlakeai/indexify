@@ -14,10 +14,12 @@ use sea_orm::{
 use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
 use crate::entity;
 use crate::entity::index;
+use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
 use time::OffsetDateTime;
 
@@ -27,13 +29,24 @@ pub struct Text {
     pub metadata: HashMap<String, String>,
 }
 
+#[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
+pub enum IndexDistance {
+    #[strum(serialize = "cosine")]
+    Cosine,
+    #[strum(serialize = "dot")]
+    Dot,
+    #[strum(serialize = "euclidean")]
+    Euclidean,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "extractor_type")]
 pub enum ExtractorType {
     #[serde(rename = "embedding")]
     Embedding {
         model: String,
-        text_splitter: String,
+        text_splitter: TextSplitterKind,
+        distance: IndexDistance,
     },
 }
 
@@ -153,7 +166,7 @@ impl Repository {
         };
         let insert_result = IndexEntity::insert(index).exec(&tx).await;
         if let Err(db_err) = insert_result {
-            // TODO Remvoe this hack and drop down to the underlying sqlx error
+            // TODO Remove this hack and drop down to the underlying sqlx error
             // and check if the error is due to primary key violation
             if db_err.to_string().contains("code: 1555") {
                 tx.rollback().await?;
