@@ -94,10 +94,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(DataRepository::Extractors)
-                            .json(),
-                    )
+                    .col(ColumnDef::new(DataRepository::Extractors).json())
                     .col(ColumnDef::new(DataRepository::Metadata).json())
                     .to_owned(),
             )
@@ -108,12 +105,18 @@ impl MigrationTrait for Migration {
         let _ = manager
             .drop_table(Table::drop().table(Index::Table).to_owned())
             .await;
-        let _ = manager.drop_table(Table::drop().table(IndexChunks::Table).to_owned()).await;
-        let _ = manager.drop_table(Table::drop().table(Content::Table).to_owned()).await;
+        let _ = manager
+            .drop_table(Table::drop().table(IndexChunks::Table).to_owned())
+            .await;
+        let _ = manager
+            .drop_table(Table::drop().table(Content::Table).to_owned())
+            .await;
         let _ = manager
             .drop_table(Table::drop().table(MemorySessions::Table).to_owned())
             .await;
-        manager.drop_table(Table::drop().table(DataRepository::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(DataRepository::Table).to_owned())
+            .await
     }
 }
 
