@@ -1,5 +1,6 @@
 use crate::index::IndexManager;
 use crate::persistence::Text;
+use crate::repository_manager::{self, DataRepositoryManager};
 use crate::text_splitters::TextSplitterKind;
 use crate::{CreateIndexParams, EmbeddingRouter, MemoryManager, Message, MetricKind, ServerConfig};
 
@@ -20,7 +21,60 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-/// Request payload for generating text embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "extractor_type")]
+enum ApiExtractorType {
+    #[serde(rename = "embedding")]
+    Embedding {
+        model: String,
+        //TODO: Rename this to distance
+        metric: IndexMetric,
+        text_splitter: ApiTextSplitterKind,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "extractor")]
+struct ApiExtractor {
+    pub name: String,
+    pub extractor_type: ApiExtractorType,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct ApiDataRepository {
+    pub name: String,
+    pub extractors: Vec<ApiExtractor>,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncRepository {
+    pub name: String,
+    pub extractors: Vec<ApiExtractor>,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncRepositoryResponse {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GetRepository {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GetRepositoryResponse {
+    pub repository: ApiDataRepository,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ListRepositories {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ListRepositoriesResponse {
+    pub repositories: Vec<ApiDataRepository>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct GenerateEmbeddingRequest {
     /// Input texts for which embeddings will be generated.
@@ -215,6 +269,11 @@ pub struct MemoryEndpointState {
     embedding_router: Arc<EmbeddingRouter>,
 }
 
+#[derive(Clone)]
+pub struct RepositoryEndpointState {
+    repository_manager: Arc<DataRepositoryManager>,
+}
+
 pub struct Server {
     addr: SocketAddr,
     config: Arc<ServerConfig>,
@@ -227,6 +286,10 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
+        let repository_manager = DataRepositoryManager::new(&self.config.db_url).await?;
+        let respository_endpoint_state = RepositoryEndpointState {
+            repository_manager: Arc::new(repository_manager),
+        };
         let index_manager = Arc::new(
             IndexManager::new(
                 self.config.index_config.clone(),
@@ -281,6 +344,18 @@ impl Server {
             .route(
                 "/memory/search",
                 get(search_memory_session).with_state(memory_manager.clone()),
+            )
+            .route(
+                "/repository/sync",
+                post(sync_repository).with_state(respository_endpoint_state.clone()),
+            )
+            .route(
+                "/repository/list",
+                post(list_repositories).with_state(respository_endpoint_state.clone()),
+            )
+            .route(
+                "/repository/get",
+                post(get_repository).with_state(respository_endpoint_state.clone()),
             );
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
@@ -293,6 +368,35 @@ impl Server {
 
 async fn root() -> &'static str {
     "Indexify Server"
+}
+
+#[axum_macros::debug_handler]
+async fn sync_repository(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<SyncRepository>,
+) -> Result<Json<SyncRepositoryResponse>, IndexifyAPIError> {
+    Ok(Json(SyncRepositoryResponse {}))
+}
+
+async fn list_repositories(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<ListRepositories>,
+) -> Result<Json<ListRepositoriesResponse>, IndexifyAPIError> {
+    Ok(Json(ListRepositoriesResponse {
+        repositories: vec![],
+    }))
+}
+
+async fn get_repository(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<GetRepository>,
+) -> Result<Json<GetRepositoryResponse>, IndexifyAPIError> {
+    Ok(Json(GetRepositoryResponse {
+        repository: ApiDataRepository {
+            name: "test".to_string(),
+            ..Default::default()
+        },
+    }))
 }
 
 async fn get_index_creation_args(
