@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{persistence::Text, Message, SearchResult};
 
 pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
-    let default_role = &"unkown".to_string();
+    let default_role = &"unknown".to_string();
     let messages: Vec<Message> = texts
         .iter()
         .map(|text| {
@@ -22,7 +22,7 @@ pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
 }
 
 pub fn get_messages_from_search_results(results: Vec<SearchResult>) -> Vec<Message> {
-    let default_role = &"unkown".to_string();
+    let default_role = &"unknown".to_string();
     let messages: Vec<Message> = results
         .iter()
         .map(|text| {

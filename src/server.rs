@@ -148,7 +148,9 @@ struct MemorySessionAddRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-struct MemorySessionAddResponse {}
+struct MemorySessionAddResponse {
+    successful: bool
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionRetrieveRequest {
@@ -268,11 +270,11 @@ impl Server {
             )
             .route(
                 "/memory/create",
-                get(create_memory_session).with_state(memory_state.clone()),
+                post(create_memory_session).with_state(memory_state.clone()),
             )
             .route(
                 "/memory/add",
-                get(add_to_memory_session).with_state(memory_manager.clone()),
+                post(add_to_memory_session).with_state(memory_manager.clone()),
             )
             .route(
                 "/memory/get",
@@ -411,7 +413,9 @@ async fn add_to_memory_session(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(MemorySessionAddResponse {}))
+    Ok(Json(MemorySessionAddResponse {
+        successful: true
+    }))
 }
 
 #[axum_macros::debug_handler]
