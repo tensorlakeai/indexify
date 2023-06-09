@@ -72,7 +72,8 @@ enum ApiTextSplitterKind {
 #[serde(rename = "metric")]
 enum IndexMetric {
     #[serde(rename = "dot")]
-    #[default] Dot,
+    #[default]
+    Dot,
 
     #[serde(rename = "cosine")]
     Cosine,
