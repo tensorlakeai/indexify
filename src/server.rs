@@ -68,10 +68,11 @@ enum ApiTextSplitterKind {
     Regex { pattern: String },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename = "metric")]
 enum IndexMetric {
     #[serde(rename = "dot")]
+    #[default]
     Dot,
 
     #[serde(rename = "cosine")]
@@ -82,7 +83,7 @@ enum IndexMetric {
 }
 
 /// Request payload for creating a new vector index.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct IndexCreateRequest {
     /// Name of the new vector index.
     name: String,
@@ -129,7 +130,7 @@ struct SearchRequest {
     k: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct CreateMemorySessionRequest {
     session_id: Option<Uuid>,
     index_args: IndexCreateRequest,
@@ -393,7 +394,7 @@ async fn create_memory_session(
             args.index_params,
             payload.index_args.embedding_model,
             args.text_splitter,
-            payload.metadata,
+            payload.metadata.unwrap(),
         )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

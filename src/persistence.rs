@@ -7,11 +7,11 @@ use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::QueryFilter;
 use sea_orm::{ActiveModelTrait, ColumnTrait};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
+use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
@@ -132,13 +132,14 @@ impl Repository {
         Self { conn: db }
     }
 
-    pub async fn create_index(
+    async fn _create_index(
         &self,
+        tx: DatabaseTransaction,
         embedding_model: String,
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<DatabaseTransaction, RepositoryError> {
         let mut unique_params = None;
         if let Some(u_params) = &index_params.unique_params {
             unique_params.replace(serde_json::to_string(u_params)?);
@@ -151,7 +152,6 @@ impl Repository {
             vector_db_params: NotSet,
             unique_params: Set(unique_params),
         };
-        let tx = self.conn.begin().await?;
         let insert_result = IndexEntity::insert(index).exec(&tx).await;
         if let Err(db_err) = insert_result {
             // TODO Remvoe this hack and drop down to the underlying sqlx error
@@ -166,6 +166,20 @@ impl Repository {
             return Err(RepositoryError::VectorDb(err));
         }
 
+        Ok(tx)
+    }
+
+    pub async fn create_index(
+        &self,
+        embedding_model: String,
+        index_params: CreateIndexParams,
+        vectordb: vectordbs::VectorDBTS,
+        text_splitter: String,
+    ) -> Result<(), RepositoryError> {
+        let tx = self.conn.begin().await?;
+        let tx = self
+            ._create_index(tx, embedding_model, index_params, vectordb, text_splitter)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -284,9 +298,22 @@ impl Repository {
         &self,
         session_id: Uuid,
         index_name: String,
-        metadata: Option<HashMap<String, String>>,
+        metadata: HashMap<String, String>,
+        vectordb_params: CreateIndexParams,
+        embedding_model: String,
+        vectordb: vectordbs::VectorDBTS,
+        text_splitter: String,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
+        let tx = self
+            ._create_index(
+                tx,
+                embedding_model,
+                vectordb_params,
+                vectordb,
+                text_splitter,
+            )
+            .await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),

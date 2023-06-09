@@ -140,10 +140,22 @@ impl IndexManager {
         &self,
         session_id: Uuid,
         index_name: String,
-        metadata: Option<HashMap<String, String>>,
+        metadata: HashMap<String, String>,
+        vectordb_params: CreateIndexParams,
+        embedding_model: String,
+        text_splitter: TextSplitterKind,
     ) -> Result<(), IndexError> {
+        let vectordb = self.vectordb.clone();
         self.repository
-            .create_memory_session(session_id, index_name, metadata)
+            .create_memory_session(
+                session_id,
+                index_name,
+                metadata,
+                vectordb_params,
+                embedding_model,
+                vectordb,
+                text_splitter.to_string(),
+            )
             .await
             .map_err(|e| IndexError::Persistence(e))
     }
