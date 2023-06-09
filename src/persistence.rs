@@ -7,7 +7,7 @@ use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ActiveModelTrait, ColumnTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, InsertResult};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
@@ -134,12 +134,12 @@ impl Repository {
 
     async fn _create_index(
         &self,
-        tx: DatabaseTransaction,
+        tx: &DatabaseTransaction,
         embedding_model: String,
-        index_params: CreateIndexParams,
-        vectordb: vectordbs::VectorDBTS,
+        index_params: &CreateIndexParams,
+        vectordb: &vectordbs::VectorDBTS,
         text_splitter: String,
-    ) -> Result<DatabaseTransaction, RepositoryError> {
+    ) -> Result<InsertResult<index::ActiveModel>, RepositoryError> {
         let mut unique_params = None;
         if let Some(u_params) = &index_params.unique_params {
             unique_params.replace(serde_json::to_string(u_params)?);
@@ -152,22 +152,10 @@ impl Repository {
             vector_db_params: NotSet,
             unique_params: Set(unique_params),
         };
-        let insert_result = IndexEntity::insert(index).exec(&tx).await;
-        if let Err(db_err) = insert_result {
-            // TODO Remvoe this hack and drop down to the underlying sqlx error
-            // and check if the error is due to primary key violation
-            if db_err.to_string().contains("code: 1555") {
-                tx.rollback().await?;
-                return Err(RepositoryError::IndexAlreadyExists(index_params.name));
-            }
-        }
-        if let Err(err) = vectordb.create_index(index_params.clone()).await {
-            tx.rollback().await?;
-            return Err(RepositoryError::VectorDb(err));
-        }
-
-        Ok(tx)
+        let insert_result = IndexEntity::insert(index).exec(tx).await?;
+        Ok(insert_result)
     }
+
 
     pub async fn create_index(
         &self,
@@ -176,10 +164,29 @@ impl Repository {
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
     ) -> Result<(), RepositoryError> {
+        let index_name = index_params.clone().name.clone();
         let tx = self.conn.begin().await?;
-        let tx = self
-            ._create_index(tx, embedding_model, index_params, vectordb, text_splitter)
-            .await?;
+        let result = self
+            ._create_index(
+                &tx,
+                embedding_model,
+                &index_params,
+                &vectordb,
+                text_splitter,
+            )
+            .await;
+        if let Err(db_err) = result {
+            // TODO Remvoe this hack and drop down to the underlying sqlx error
+            // and check if the error is due to primary key violation
+            if db_err.to_string().contains("code: 1555") {
+                tx.rollback().await?;
+                return Err(RepositoryError::IndexAlreadyExists(index_name));
+            }
+        }
+        if let Err(err) = vectordb.create_index(index_params.clone()).await {
+            tx.rollback().await?;
+            return Err(RepositoryError::VectorDb(err));
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -305,21 +312,34 @@ impl Repository {
         text_splitter: String,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
-        let tx = self
-            ._create_index(
-                tx,
-                embedding_model,
-                vectordb_params,
-                vectordb,
-                text_splitter,
-            )
-            .await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),
-            index_name: Set(index_name),
+            index_name: Set(index_name.clone()),
             metadata: Set(metadata),
         };
+
+        let result = self
+            ._create_index(
+                &tx,
+                embedding_model,
+                &vectordb_params,
+                &vectordb,
+                text_splitter,
+            )
+            .await;
+        if let Err(db_err) = result {
+            // TODO Remvoe this hack and drop down to the underlying sqlx error
+            // and check if the error is due to primary key violation
+            if db_err.to_string().contains("code: 1555") {
+                tx.rollback().await?;
+                return Err(RepositoryError::IndexAlreadyExists(index_name.clone()));
+            }
+        }
+        if let Err(err) = vectordb.create_index(vectordb_params.clone()).await {
+            tx.rollback().await?;
+            return Err(RepositoryError::VectorDb(err));
+        }
         let _ = entity::memory_sessions::Entity::insert(memory_session)
             .on_conflict(
                 OnConflict::column(entity::memory_sessions::Column::SessionId)
