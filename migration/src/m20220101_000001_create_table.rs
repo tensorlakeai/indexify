@@ -63,7 +63,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await;
-        manager
+        let _ = manager
             .create_table(
                 Table::create()
                     .table(MemorySessions::Table)
@@ -82,6 +82,22 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(MemorySessions::Metadata).json())
                     .to_owned(),
             )
+            .await;
+        manager
+            .create_table(
+                Table::create()
+                    .table(DataRepository::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(DataRepository::Name)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(DataRepository::Extractors).json())
+                    .col(ColumnDef::new(DataRepository::Metadata).json())
+                    .to_owned(),
+            )
             .await
     }
 
@@ -89,8 +105,17 @@ impl MigrationTrait for Migration {
         let _ = manager
             .drop_table(Table::drop().table(Index::Table).to_owned())
             .await;
-        manager
+        let _ = manager
+            .drop_table(Table::drop().table(IndexChunks::Table).to_owned())
+            .await;
+        let _ = manager
+            .drop_table(Table::drop().table(Content::Table).to_owned())
+            .await;
+        let _ = manager
             .drop_table(Table::drop().table(MemorySessions::Table).to_owned())
+            .await;
+        manager
+            .drop_table(Table::drop().table(DataRepository::Table).to_owned())
             .await
     }
 }
@@ -131,5 +156,13 @@ enum MemorySessions {
     Table,
     SessionId,
     IndexName,
+    Metadata,
+}
+
+#[derive(Iden)]
+enum DataRepository {
+    Table,
+    Name,
+    Extractors,
     Metadata,
 }

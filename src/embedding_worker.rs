@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    persistence::{Chunk, Respository},
+    persistence::{Chunk, Repository},
     text_splitters::TextSplitterTS,
     EmbeddingGeneratorTS, VectorChunk, VectorDBTS,
 };
@@ -9,7 +9,7 @@ use anyhow::Result;
 use tracing::debug;
 
 pub struct EmbeddingWorker {
-    repository: Arc<Respository>,
+    repository: Arc<Repository>,
     vectordb: VectorDBTS,
     embedding_generator: EmbeddingGeneratorTS,
     text_splitter: TextSplitterTS,
@@ -17,7 +17,7 @@ pub struct EmbeddingWorker {
 
 impl EmbeddingWorker {
     pub fn new(
-        repository: Arc<Respository>,
+        repository: Arc<Repository>,
         vectordb: VectorDBTS,
         embedding_generator: EmbeddingGeneratorTS,
         text_splitter: TextSplitterTS,

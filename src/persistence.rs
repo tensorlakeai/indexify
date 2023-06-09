@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use anyhow::Result;
+use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
@@ -11,6 +12,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 use uuid::Uuid;
@@ -24,6 +26,48 @@ use time::OffsetDateTime;
 pub struct Text {
     pub text: String,
     pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "extractor_type")]
+pub enum ExtractorType {
+    #[serde(rename = "embedding")]
+    Embedding {
+        model: String,
+        text_splitter: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "extractor")]
+pub struct Extractor {
+    pub name: String,
+    pub extractor_type: ExtractorType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataRepository {
+    pub name: String,
+    pub extractors: Vec<Extractor>,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl From<entity::data_repository::Model> for DataRepository {
+    fn from(model: entity::data_repository::Model) -> Self {
+        let extractors = model
+            .extractors
+            .map(|s| serde_json::from_str(&s).unwrap())
+            .unwrap_or_default();
+        let metadata = model
+            .metadata
+            .map(|s| serde_json::from_str(&s).unwrap())
+            .unwrap_or_default();
+        Self {
+            name: model.name,
+            extractors,
+            metadata,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -48,12 +92,15 @@ impl Chunk {
 }
 
 #[derive(Debug, Error)]
-pub enum RespositoryError {
+pub enum RepositoryError {
     #[error(transparent)]
     DatabaseError(#[from] DbErr),
 
     #[error(transparent)]
     VectorDb(#[from] vectordbs::VectorDbError),
+
+    #[error("repository `{0}` not found")]
+    RepositoryNotFound(String),
 
     #[error("index `{0}` not found")]
     IndexNotFound(String),
@@ -71,12 +118,12 @@ pub enum RespositoryError {
     SessionNotFound(String),
 }
 
-pub struct Respository {
+pub struct Repository {
     conn: DatabaseConnection,
 }
 
-impl Respository {
-    pub async fn new(db_url: &str) -> Result<Self, RespositoryError> {
+impl Repository {
+    pub async fn new(db_url: &str) -> Result<Self, RepositoryError> {
         let db = Database::connect(db_url).await?;
         Ok(Self { conn: db })
     }
@@ -91,7 +138,7 @@ impl Respository {
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
-    ) -> Result<(), RespositoryError> {
+    ) -> Result<(), RepositoryError> {
         let mut unique_params = None;
         if let Some(u_params) = &index_params.unique_params {
             unique_params.replace(serde_json::to_string(u_params)?);
@@ -111,27 +158,27 @@ impl Respository {
             // and check if the error is due to primary key violation
             if db_err.to_string().contains("code: 1555") {
                 tx.rollback().await?;
-                return Err(RespositoryError::IndexAlreadyExists(index_params.name));
+                return Err(RepositoryError::IndexAlreadyExists(index_params.name));
             }
         }
         if let Err(err) = vectordb.create_index(index_params.clone()).await {
             tx.rollback().await?;
-            return Err(RespositoryError::VectorDb(err));
+            return Err(RepositoryError::VectorDb(err));
         }
 
         tx.commit().await?;
         Ok(())
     }
 
-    pub async fn get_index(&self, index: String) -> Result<IndexModel, RespositoryError> {
+    pub async fn get_index(&self, index: String) -> Result<IndexModel, RepositoryError> {
         IndexEntity::find()
             .filter(index::Column::Name.eq(&index))
             .one(&self.conn)
             .await?
-            .ok_or(RespositoryError::IndexNotFound(index))
+            .ok_or(RepositoryError::IndexNotFound(index))
     }
 
-    pub async fn get_texts(&self, index_name: String) -> Result<Vec<Text>, RespositoryError> {
+    pub async fn get_texts(&self, index_name: String) -> Result<Vec<Text>, RepositoryError> {
         let index = self.get_index(index_name).await?;
         let contents = entity::content::Entity::find()
             .filter(entity::content::Column::IndexName.eq(&index.name))
@@ -143,7 +190,7 @@ impl Respository {
                 content
                     .metadata
                     .as_ref()
-                    .ok_or(RespositoryError::ContentNotFound(content.id))?,
+                    .ok_or(RepositoryError::ContentNotFound(content.id))?,
             )?;
             texts.push(Text {
                 text: content.text,
@@ -157,7 +204,7 @@ impl Respository {
         &self,
         index_name: String,
         texts: Vec<Text>,
-    ) -> Result<(), RespositoryError> {
+    ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let mut content_list = Vec::new();
         for text in texts {
@@ -189,7 +236,7 @@ impl Respository {
         content_id: String,
         chunks: Vec<Chunk>,
         index_name: String,
-    ) -> Result<(), RespositoryError> {
+    ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let chunk_models: Vec<entity::index_chunks::ActiveModel> = chunks
             .iter()
@@ -214,7 +261,7 @@ impl Respository {
             .filter(entity::content::Column::Id.eq(&content_id))
             .one(&tx)
             .await?
-            .ok_or(RespositoryError::ContentNotFound(content_id.to_string()))?;
+            .ok_or(RepositoryError::ContentNotFound(content_id.to_string()))?;
         let now = OffsetDateTime::now_utc();
         let mut content_entity: entity::content::ActiveModel = content_entity.into();
         content_entity.embedding_status = Set(Some(now.to_string()));
@@ -225,7 +272,7 @@ impl Respository {
 
     pub async fn not_indexed_content(
         &self,
-    ) -> Result<Vec<entity::content::Model>, RespositoryError> {
+    ) -> Result<Vec<entity::content::Model>, RepositoryError> {
         let result = entity::content::Entity::find()
             .filter(entity::content::Column::EmbeddingStatus.is_null())
             .all(&self.conn)
@@ -238,7 +285,7 @@ impl Respository {
         session_id: Uuid,
         index_name: String,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), RespositoryError> {
+    ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
@@ -261,13 +308,60 @@ impl Respository {
     pub async fn get_index_name_for_memory_session(
         &self,
         session_id: Uuid,
-    ) -> Result<String, RespositoryError> {
+    ) -> Result<String, RepositoryError> {
         let session = entity::memory_sessions::Entity::find()
             .filter(entity::memory_sessions::Column::SessionId.eq(session_id.to_string()))
             .one(&self.conn)
             .await?
-            .ok_or(RespositoryError::SessionNotFound(session_id.to_string()))?;
+            .ok_or(RepositoryError::SessionNotFound(session_id.to_string()))?;
         Ok(session.index_name)
+    }
+
+    pub async fn upsert_repository(
+        &self,
+        repository: DataRepository,
+    ) -> Result<(), RepositoryError> {
+        let tx = self.conn.begin().await?;
+        let repository = entity::data_repository::ActiveModel {
+            name: Set(repository.name),
+            extractors: Set(Some(serde_json::to_string(&repository.extractors)?)),
+            metadata: Set(Some(serde_json::to_string(&repository.metadata)?)),
+        };
+        let _ = DataRepositoryEntity::insert(repository)
+            .on_conflict(
+                OnConflict::column(entity::data_repository::Column::Name)
+                    .update_columns(vec![
+                        entity::data_repository::Column::Extractors,
+                        entity::data_repository::Column::Metadata,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn repositories(&self) -> Result<Vec<DataRepository>, RepositoryError> {
+        let repository_models: Vec<DataRepository> = DataRepositoryEntity::find()
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|r| r.into())
+            .collect();
+        Ok(repository_models)
+    }
+
+    pub async fn repository_by_name(
+        &self,
+        name: String,
+    ) -> Result<DataRepository, RepositoryError> {
+        let repository_model = DataRepositoryEntity::find()
+            .filter(entity::data_repository::Column::Name.eq(&name))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::RepositoryNotFound(name.clone()))?;
+        Ok(repository_model.into())
     }
 }
 
