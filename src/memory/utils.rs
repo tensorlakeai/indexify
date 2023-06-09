@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use serde_json::json;
-use uuid::Uuid;
 
 use crate::{persistence::Text, Message, SearchResult};
 
@@ -39,7 +38,7 @@ pub fn get_messages_from_search_results(results: Vec<SearchResult>) -> Vec<Messa
     return messages;
 }
 
-pub fn get_texts_from_messages(session_id: Uuid, messages: Vec<Message>) -> Vec<Text> {
+pub fn get_texts_from_messages(session_id: &String, messages: Vec<Message>) -> Vec<Text> {
     let mut texts = vec![];
     for message in messages {
         let mut metadata = HashMap::from([

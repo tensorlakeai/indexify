@@ -14,7 +14,6 @@ use tracing::info;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -131,30 +130,28 @@ struct SearchRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CreateMemorySessionRequest {
-    session_id: Option<Uuid>,
+    session_id: Option<String>,
     index_args: IndexCreateRequest,
     metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct CreateMemorySessionResponse {
-    session_id: Uuid,
+    session_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionAddRequest {
-    session_id: Uuid,
+    session_id: String,
     messages: Vec<Message>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct MemorySessionAddResponse {
-    successful: bool
-}
+struct MemorySessionAddResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionRetrieveRequest {
-    session_id: Uuid,
+    session_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -164,7 +161,7 @@ struct MemorySessionRetrieveResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionSearchRequest {
-    session_id: Uuid,
+    session_id: String,
     query: String,
     k: u64,
 }
@@ -409,13 +406,11 @@ async fn add_to_memory_session(
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     memory_manager
-        .add_messages(payload.session_id, payload.messages)
+        .add_messages(&payload.session_id, payload.messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(MemorySessionAddResponse {
-        successful: true
-    }))
+    Ok(Json(MemorySessionAddResponse {}))
 }
 
 #[axum_macros::debug_handler]
@@ -437,7 +432,7 @@ async fn search_memory_session(
     Json(payload): Json<MemorySessionSearchRequest>,
 ) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
     let messages = memory_manager
-        .search(payload.session_id, payload.query, payload.k)
+        .search(&payload.session_id, payload.query, payload.k)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

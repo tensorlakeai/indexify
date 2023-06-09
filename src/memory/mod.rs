@@ -49,7 +49,7 @@ impl MemoryManager {
         Ok(Self { index_manager })
     }
 
-    async fn _get_index_name(&self, session_id: Uuid) -> Result<String, MemoryError> {
+    async fn _get_index_name(&self, session_id: String) -> Result<String, MemoryError> {
         let index_name = self
             .index_manager
             .get_index_name_for_memory_session(session_id)
@@ -58,8 +58,8 @@ impl MemoryManager {
         Ok(index_name)
     }
 
-    async fn _get_index(&self, session_id: Uuid) -> Result<Index, MemoryError> {
-        let index_name = &self._get_index_name(session_id).await?;
+    async fn _get_index(&self, session_id: &String) -> Result<Index, MemoryError> {
+        let index_name = &self._get_index_name(session_id.into()).await?;
         self.index_manager
             .load(index_name.into())
             .await
@@ -69,17 +69,17 @@ impl MemoryManager {
 
     pub async fn create_session_index(
         &self,
-        session_id: Option<Uuid>,
+        session_id: Option<String>,
         vectordb_params: CreateIndexParams,
         embedding_model: String,
         text_splitter: TextSplitterKind,
         metadata: HashMap<String, String>,
-    ) -> Result<Uuid, MemoryError> {
-        let session_id = session_id.unwrap_or(Uuid::new_v4());
+    ) -> Result<String, MemoryError> {
+        let session_id = session_id.unwrap_or(Uuid::new_v4().to_string());
         let index_name = vectordb_params.name.clone();
         self.index_manager
             .create_index_for_memory_session(
-                session_id,
+                &session_id,
                 index_name,
                 metadata,
                 vectordb_params,
@@ -88,12 +88,12 @@ impl MemoryManager {
             )
             .await
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
-        Ok(session_id)
+        Ok(session_id.to_string())
     }
 
     pub async fn add_messages(
         &self,
-        session_id: Uuid,
+        session_id: &String,
         messages: Vec<Message>,
     ) -> Result<(), MemoryError> {
         let texts = get_texts_from_messages(session_id, messages);
@@ -105,8 +105,8 @@ impl MemoryManager {
         Ok(())
     }
 
-    pub async fn retrieve_messages(&self, session_id: Uuid) -> Result<Vec<Message>, MemoryError> {
-        let index = self._get_index(session_id).await?;
+    pub async fn retrieve_messages(&self, session_id: String) -> Result<Vec<Message>, MemoryError> {
+        let index = self._get_index(&session_id).await?;
         let texts = index
             .get_texts()
             .await
@@ -117,7 +117,7 @@ impl MemoryManager {
 
     pub async fn search(
         &self,
-        session_id: Uuid,
+        session_id: &String,
         query: String,
         k: u64,
     ) -> Result<Vec<Message>, MemoryError> {
@@ -158,7 +158,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_basic_search() {
         env::set_var("RUST_LOG", "debug");
-        let session_id = Uuid::new_v4();
+        let session_id = &Uuid::new_v4().to_string();
         let index_name = &"test_memory_index".to_string();
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
@@ -186,7 +186,7 @@ mod tests {
 
         memory_manager
             .create_session_index(
-                Some(session_id),
+                Some(session_id.into()),
                 index_params,
                 "all-minilm-l12-v2".into(),
                 TextSplitterKind::Noop,
@@ -214,11 +214,14 @@ mod tests {
         ];
 
         memory_manager
-            .add_messages(session_id, messages.clone())
+            .add_messages(&session_id, messages.clone())
             .await
             .unwrap();
 
-        let retrieve_result = memory_manager.retrieve_messages(session_id).await.unwrap();
+        let retrieve_result = memory_manager
+            .retrieve_messages(session_id.into())
+            .await
+            .unwrap();
         let search_result = memory_manager
             .search(session_id, "friend".into(), 1)
             .await
