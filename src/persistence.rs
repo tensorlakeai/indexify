@@ -85,8 +85,9 @@ impl Respository {
         Self { conn: db }
     }
 
-    async fn get_create_index_transaction(
+    async fn _create_index(
         &self,
+        tx: DatabaseTransaction,
         embedding_model: String,
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
@@ -104,7 +105,6 @@ impl Respository {
             vector_db_params: NotSet,
             unique_params: Set(unique_params),
         };
-        let tx = self.conn.begin().await?;
         let insert_result = IndexEntity::insert(index).exec(&tx).await;
         if let Err(db_err) = insert_result {
             // TODO Remvoe this hack and drop down to the underlying sqlx error
@@ -129,8 +129,9 @@ impl Respository {
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
     ) -> Result<(), RespositoryError> {
+        let tx = self.conn.begin().await?;
         let tx = self
-            .get_create_index_transaction(embedding_model, index_params, vectordb, text_splitter)
+            ._create_index(tx, embedding_model, index_params, vectordb, text_splitter)
             .await?;
         tx.commit().await?;
         Ok(())
@@ -256,8 +257,9 @@ impl Respository {
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
     ) -> Result<(), RespositoryError> {
+        let tx = self.conn.begin().await?;
         let tx = self
-            .get_create_index_transaction(embedding_model, vectordb_params, vectordb, text_splitter)
+            ._create_index(tx, embedding_model, vectordb_params, vectordb, text_splitter)
             .await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
