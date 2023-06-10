@@ -12,8 +12,8 @@ use qdrant_client::{
     },
 };
 
-use super::{CreateIndexParams, MetricKind, VectorDb, VectorDbError};
-use crate::{QdrantConfig, SearchResult, VectorChunk};
+use super::{CreateIndexParams, VectorDb, VectorDbError};
+use crate::{IndexDistance, QdrantConfig, SearchResult, VectorChunk};
 
 fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
     u64::from_str_radix(hex, 16)
@@ -50,11 +50,11 @@ impl QdrantDb {
         Ok(client)
     }
 
-    fn to_distance(metric_kind: MetricKind) -> Distance {
-        match metric_kind {
-            MetricKind::Cosine => Distance::Cosine,
-            MetricKind::Dot => Distance::Dot,
-            MetricKind::Euclidean => Distance::Euclid,
+    fn to_distance(distance: IndexDistance) -> Distance {
+        match distance {
+            IndexDistance::Cosine => Distance::Cosine,
+            IndexDistance::Dot => Distance::Dot,
+            IndexDistance::Euclidean => Distance::Euclid,
         }
     }
 }
@@ -74,7 +74,7 @@ impl VectorDb for QdrantDb {
                     config: Some(Config::Params(VectorParams {
                         on_disk: None,
                         size: index.vector_dim,
-                        distance: Self::to_distance(index.metric).into(),
+                        distance: Self::to_distance(index.distance).into(),
                         hnsw_config: None,
                         quantization_config: None,
                     })),
@@ -176,7 +176,7 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::sync::Arc;
 
-    use crate::{VectorChunk, VectorDBTS};
+    use crate::{IndexDistance, VectorChunk, VectorDBTS};
 
     use super::{CreateIndexParams, QdrantDb};
 
@@ -191,7 +191,7 @@ mod tests {
             .create_index(CreateIndexParams {
                 name: "hello-index".into(),
                 vector_dim: 2,
-                metric: crate::MetricKind::Cosine,
+                distance: IndexDistance::Cosine,
                 unique_params: None,
             })
             .await
@@ -215,8 +215,8 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_insertion_idempotency() {
-        let index_name = "idempotency-index";
+    async fn test_insertion_idempotent() {
+        let index_name = "idempotent-index";
         let hash_on = vec!["user_id".to_string(), "url".to_string()];
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
@@ -226,7 +226,7 @@ mod tests {
             .create_index(CreateIndexParams {
                 name: index_name.into(),
                 vector_dim: 2,
-                metric: crate::MetricKind::Cosine,
+                distance: IndexDistance::Cosine,
                 unique_params: Some(hash_on.clone()),
             })
             .await

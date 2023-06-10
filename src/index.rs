@@ -236,9 +236,10 @@ mod tests {
     use std::env;
     use std::sync::Arc;
 
+    use crate::IndexDistance;
     use crate::{
-        qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, MetricKind, QdrantConfig,
-        ServerConfig, VectorIndexConfig,
+        qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, QdrantConfig, ServerConfig,
+        VectorIndexConfig,
     };
 
     #[tokio::test]
@@ -255,7 +256,7 @@ mod tests {
         let index_params = CreateIndexParams {
             name: "hello".into(),
             vector_dim: 384,
-            metric: MetricKind::Cosine,
+            distance: IndexDistance::Cosine,
             unique_params: None,
         };
         let index_config = VectorIndexConfig {
