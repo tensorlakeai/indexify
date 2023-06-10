@@ -3,6 +3,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 
+use serde::{Deserialize, Serialize};
+use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
 use crate::VectorIndexConfig;
@@ -11,12 +13,14 @@ pub mod qdrant;
 
 use qdrant::QdrantDb;
 
-/// The type of distance metric to use when comparing vectors in the vector database.
-#[derive(Clone)]
-pub enum MetricKind {
-    Dot,
-    Euclidean,
+#[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
+pub enum IndexDistance {
+    #[strum(serialize = "cosine")]
     Cosine,
+    #[strum(serialize = "dot")]
+    Dot,
+    #[strum(serialize = "euclidean")]
+    Euclidean,
 }
 
 /// A request to create a new vector index in the vector database.
@@ -24,7 +28,7 @@ pub enum MetricKind {
 pub struct CreateIndexParams {
     pub name: String,
     pub vector_dim: u64,
-    pub metric: MetricKind,
+    pub distance: IndexDistance,
     pub unique_params: Option<Vec<String>>,
 }
 

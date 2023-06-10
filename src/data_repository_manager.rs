@@ -53,8 +53,9 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use crate::persistence::{Extractor, ExtractorType, IndexDistance};
+    use crate::persistence::{Extractor, ExtractorType};
     use crate::text_splitters::TextSplitterKind;
+    use crate::IndexDistance;
     use sea_orm::entity::prelude::*;
     use sea_orm::{
         sea_query::TableCreateStatement, Database, DatabaseConnection, DbBackend, DbConn, DbErr,

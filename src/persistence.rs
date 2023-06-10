@@ -14,29 +14,18 @@ use sea_orm::{
 use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
-use crate::entity;
 use crate::entity::index;
 use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
+use crate::{entity, IndexDistance};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
 pub struct Text {
     pub text: String,
     pub metadata: HashMap<String, String>,
-}
-
-#[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
-pub enum IndexDistance {
-    #[strum(serialize = "cosine")]
-    Cosine,
-    #[strum(serialize = "dot")]
-    Dot,
-    #[strum(serialize = "euclidean")]
-    Euclidean,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
