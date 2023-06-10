@@ -85,6 +85,7 @@ mod tests {
                 },
             }],
             metadata: meta.clone(),
+            data_connectors: vec![],
         };
         repository_manager.sync(&repository).await.unwrap();
         let repositories = repository_manager.list_repositories().await.unwrap();
