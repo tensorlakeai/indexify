@@ -47,9 +47,27 @@ pub struct Extractor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "source_type")]
+pub enum SourceType {
+    // todo: replace metadata with actual request parameters for GoogleContactApi
+    #[serde(rename = "google_contact")]
+    GoogleContact { metadata: Option<String> },
+    // todo: replace metadata with actual request parameters for gmail API
+    #[serde(rename = "gmail")]
+    Gmail { metadata: Option<String> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "data_connector")]
+pub struct DataConnector {
+    pub source: SourceType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataRepository {
     pub name: String,
     pub extractors: Vec<Extractor>,
+    pub data_connectors: Vec<DataConnector>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -59,6 +77,10 @@ impl From<entity::data_repository::Model> for DataRepository {
             .extractors
             .map(|s| serde_json::from_str(&s).unwrap())
             .unwrap_or_default();
+        let data_connectors = model
+            .data_connectors
+            .map(|s| serde_json::from_str(&s).unwrap())
+            .unwrap_or_default();
         let metadata = model
             .metadata
             .map(|s| serde_json::from_str(&s).unwrap())
@@ -66,6 +88,7 @@ impl From<entity::data_repository::Model> for DataRepository {
         Self {
             name: model.name,
             extractors,
+            data_connectors,
             metadata,
         }
     }
@@ -354,6 +377,7 @@ impl Repository {
             name: Set(repository.name),
             extractors: Set(Some(serde_json::to_string(&repository.extractors)?)),
             metadata: Set(Some(serde_json::to_string(&repository.metadata)?)),
+            data_connectors: Set(Some(serde_json::to_string(&repository.data_connectors)?)),
         };
         let _ = DataRepositoryEntity::insert(repository)
             .on_conflict(

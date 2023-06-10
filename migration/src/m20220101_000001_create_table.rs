@@ -96,6 +96,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(DataRepository::Extractors).json())
                     .col(ColumnDef::new(DataRepository::Metadata).json())
+                    .col(ColumnDef::new(DataRepository::DataConnectors).json())
                     .to_owned(),
             )
             .await
@@ -165,4 +166,5 @@ enum DataRepository {
     Name,
     Extractors,
     Metadata,
+    DataConnectors,
 }

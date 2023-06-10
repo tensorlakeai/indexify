@@ -1,6 +1,8 @@
 use crate::data_repository_manager::DataRepositoryManager;
 use crate::index::IndexManager;
-use crate::persistence::{DataRepository, Extractor, ExtractorType, Text};
+use crate::persistence::{
+    DataConnector, DataRepository, Extractor, ExtractorType, SourceType, Text,
+};
 use crate::text_splitters::TextSplitterKind;
 use crate::{
     CreateIndexParams, EmbeddingRouter, IndexDistance, MemoryManager, Message, ServerConfig,
@@ -105,10 +107,45 @@ impl From<DataRepository> for ApiDataRepository {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "source_type")]
+pub enum ApiSourceType {
+    // todo: replace metadata with actual request parameters for GoogleContactApi
+    #[serde(rename = "google_contact")]
+    GoogleContact { metadata: Option<String> },
+    // todo: replace metadata with actual request parameters for gmail API
+    #[serde(rename = "gmail")]
+    Gmail { metadata: Option<String> },
+}
+
+impl From<ApiSourceType> for SourceType {
+    fn from(value: ApiSourceType) -> Self {
+        match value {
+            ApiSourceType::GoogleContact { metadata } => SourceType::GoogleContact { metadata },
+            ApiSourceType::Gmail { metadata } => SourceType::Gmail { metadata },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "data_connector")]
+pub struct ApiDataConnector {
+    pub source: ApiSourceType,
+}
+
+impl From<ApiDataConnector> for DataConnector {
+    fn from(value: ApiDataConnector) -> Self {
+        Self {
+            source: value.source.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SmartDefault)]
 struct SyncRepository {
     pub name: String,
     pub extractors: Vec<ApiExtractor>,
     pub metadata: HashMap<String, serde_json::Value>,
+    pub data_connectors: Vec<ApiDataConnector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,6 +402,8 @@ pub struct MemoryEndpointState {
     embedding_router: Arc<EmbeddingRouter>,
 }
 
+pub struct DataSync {}
+
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
@@ -477,9 +516,16 @@ async fn sync_repository(
         .into_iter()
         .map(|e| e.into())
         .collect();
+    let data_connectors = payload
+        .data_connectors
+        .clone()
+        .into_iter()
+        .map(|dc| dc.into())
+        .collect();
     let data_repository = &DataRepository {
         name: payload.name.clone(),
         extractors,
+        data_connectors,
         metadata: payload.metadata.clone(),
     };
     state
