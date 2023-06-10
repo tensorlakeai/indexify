@@ -4,13 +4,12 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "index_chunks")]
+#[sea_orm(table_name = "data_repository")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub chunk_id: String,
-    pub content_id: String,
-    pub text: String,
-    pub index_name: String,
+    pub name: String,
+    pub extractors: Option<String>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

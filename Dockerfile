@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS builder
+FROM --platform=linux/amd64 ubuntu:22.04 AS builder
 LABEL stage=builder
 
 WORKDIR /indexify-build
@@ -23,7 +23,11 @@ ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 RUN cargo build --release
 
-FROM ubuntu:22.04
+RUN cargo install sea-orm-cli
+
+RUN DATABASE_URL=sqlite://new_indexify.db sea-orm-cli migrate up
+
+FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt update
 

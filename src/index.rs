@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::{
     embedding_worker::EmbeddingWorker,
-    persistence::{Respository, RespositoryError, Text},
+    persistence::{Repository, RepositoryError, Text},
     text_splitters::{self, TextSplitterKind},
     vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, EmbeddingRouter,
     SearchResult, VectorDBTS, VectorDbError, VectorIndexConfig,
@@ -29,7 +29,7 @@ pub enum IndexError {
     VectorDb(#[from] VectorDbError),
 
     #[error(transparent)]
-    Persistence(#[from] RespositoryError),
+    Persistence(#[from] RepositoryError),
 
     #[error(transparent)]
     TextSplitter(#[from] text_splitters::TextSplitterError),
@@ -44,7 +44,7 @@ pub enum IndexError {
 pub struct IndexManager {
     vectordb: VectorDBTS,
     embedding_router: Arc<EmbeddingRouter>,
-    repository: Arc<Respository>,
+    repository: Arc<Repository>,
 }
 
 impl fmt::Debug for IndexManager {
@@ -60,13 +60,13 @@ impl IndexManager {
         db_url: String,
     ) -> Result<Self, IndexError> {
         info!("persistence: using database: {}", &db_url);
-        let repository = Arc::new(Respository::new(&db_url).await?);
+        let repository = Arc::new(Repository::new(&db_url).await?);
         info!("vector database backend: {}", index_config.index_store);
         IndexManager::_new(repository, index_config, embedding_router)
     }
 
     fn _new(
-        repository: Arc<Respository>,
+        repository: Arc<Repository>,
         index_config: VectorIndexConfig,
         embedding_router: Arc<EmbeddingRouter>,
     ) -> Result<Self, IndexError> {
@@ -84,7 +84,7 @@ impl IndexManager {
         embedding_router: Arc<EmbeddingRouter>,
         db: DatabaseConnection,
     ) -> Result<Self, IndexError> {
-        let repository = Arc::new(Respository::new_with_db(db));
+        let repository = Arc::new(Repository::new_with_db(db));
         IndexManager::_new(repository, index_config, embedding_router)
     }
 
@@ -173,7 +173,7 @@ pub struct Index {
     name: String,
     embedding_worker: Arc<EmbeddingWorker>,
     vectordb: VectorDBTS,
-    repository: Arc<Respository>,
+    repository: Arc<Repository>,
     embedding_generator: EmbeddingGeneratorTS,
 }
 
@@ -182,7 +182,7 @@ impl Index {
         name: String,
         embedding_worker: Arc<EmbeddingWorker>,
         vectordb: VectorDBTS,
-        repository: Arc<Respository>,
+        repository: Arc<Repository>,
         embedding_generator: EmbeddingGeneratorTS,
     ) -> Result<Option<Index>, IndexError> {
         Ok(Some(Self {
