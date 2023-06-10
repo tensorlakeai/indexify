@@ -8,7 +8,8 @@ copyright: Copyright &copy; 2023 Indexify
 nav:
   - Home: 'index.md'
   - Getting Started: 'getting_started.md'
-  - APIs: 'apis/index.md'
+  - APIs:
+    - Overview: 'apis/index.md'
     - Retrieval: 'apis/retrieval.md'
     - Memory: 'apis/memory.md'
     - Embeddings: 'apis/embeddings.md'
