@@ -13,13 +13,6 @@ use crate::{
     SearchResult, VectorDBTS, VectorDbError, VectorIndexConfig,
 };
 
-#[async_trait::async_trait]
-pub trait Indexstore {
-    async fn get_index(name: String) -> Result<Index, IndexError>;
-
-    async fn store_index(name: String, splitter: String) -> Result<(), IndexError>;
-}
-
 #[derive(Error, Debug)]
 pub enum IndexError {
     #[error(transparent)]
@@ -156,7 +149,7 @@ impl IndexManager {
                 text_splitter.to_string(),
             )
             .await
-            .map_err(|e| IndexError::Persistence(e))
+            .map_err(IndexError::Persistence)
     }
 
     pub async fn get_index_name_for_memory_session(
@@ -166,7 +159,7 @@ impl IndexManager {
         self.repository
             .get_index_name_for_memory_session(session_id)
             .await
-            .map_err(|e| IndexError::Persistence(e))
+            .map_err(IndexError::Persistence)
     }
 }
 pub struct Index {

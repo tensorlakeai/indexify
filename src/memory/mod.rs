@@ -214,7 +214,7 @@ mod tests {
         ];
 
         memory_manager
-            .add_messages(&session_id, messages.clone())
+            .add_messages(session_id, messages.clone())
             .await
             .unwrap();
 

@@ -9,8 +9,6 @@ available_models:
   device: cpu
 - model: text-embedding-ada-002
   device: remote
-- model: dpr
-  device: cpu
 # OpenAI key. Either set it here or set via the OPENAI_API_KEY
 # environment variable
 openai:
@@ -30,5 +28,5 @@ db_url: sqlite://indexify.db
 index_config:
   index_store: Qdrant
   qdrant_config:
-    addr: "http://172.20.0.8:6334"
+    addr: "http://127.0.0.1:6334"
     
