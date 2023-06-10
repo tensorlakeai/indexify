@@ -53,7 +53,7 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use crate::persistence::{Extractor, ExtractorType};
+    use crate::persistence::{DataConnector, Extractor, ExtractorType, SourceType};
     use crate::text_splitters::TextSplitterKind;
     use crate::IndexDistance;
     use sea_orm::entity::prelude::*;
@@ -85,13 +85,18 @@ mod tests {
                 },
             }],
             metadata: meta.clone(),
-            data_connectors: vec![],
+            data_connectors: vec![DataConnector {
+                source: SourceType::GoogleContact {
+                    metadata: Some("data_connector_meta".to_string()),
+                },
+            }],
         };
         repository_manager.sync(&repository).await.unwrap();
         let repositories = repository_manager.list_repositories().await.unwrap();
         assert_eq!(repositories.len(), 1);
         assert_eq!(repositories[0].name, "test");
         assert_eq!(repositories[0].extractors.len(), 1);
+        assert_eq!(repositories[0].data_connectors.len(), 1);
         assert_eq!(repositories[0].metadata, meta);
     }
 

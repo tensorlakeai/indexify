@@ -1,7 +1,7 @@
 use crate::data_repository_manager::DataRepositoryManager;
 use crate::index::IndexManager;
 use crate::persistence::{
-    ContentType, DataConnector, DataRepository, Extractor, ExtractorType, SourceType, Text,
+    DataConnector, DataRepository, Extractor, ExtractorType, SourceType, Text,
 };
 use crate::text_splitters::TextSplitterKind;
 use crate::{
@@ -109,8 +109,10 @@ impl From<DataRepository> for ApiDataRepository {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "source_type")]
 pub enum ApiSourceType {
+    // todo: replace metadata with actual request parameters for GoogleContactApi
     #[serde(rename = "google_contact")]
     GoogleContact { metadata: Option<String> },
+    // todo: replace metadata with actual request parameters for gmail API
     #[serde(rename = "gmail")]
     Gmail { metadata: Option<String> },
 }
@@ -125,32 +127,15 @@ impl From<ApiSourceType> for SourceType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename = "content_type")]
-pub enum ApiContentType {
-    #[serde(rename = "document")]
-    Document,
-}
-
-impl From<ApiContentType> for ContentType {
-    fn from(value: ApiContentType) -> Self {
-        match value {
-            ApiContentType::Document => ContentType::Document,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename = "data_connector")]
 pub struct ApiDataConnector {
     pub source: ApiSourceType,
-    pub content_type: ApiContentType,
 }
 
 impl From<ApiDataConnector> for DataConnector {
     fn from(value: ApiDataConnector) -> Self {
         Self {
             source: value.source.into(),
-            content_type: value.content_type.into(),
         }
     }
 }
@@ -416,6 +401,8 @@ pub struct MemoryEndpointState {
     memory_manager: Arc<MemoryManager>,
     embedding_router: Arc<EmbeddingRouter>,
 }
+
+pub struct DataSync {}
 
 #[derive(Clone)]
 pub struct RepositoryEndpointState {

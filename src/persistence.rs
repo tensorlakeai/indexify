@@ -49,24 +49,18 @@ pub struct Extractor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "source_type")]
 pub enum SourceType {
+    // todo: replace metadata with actual request parameters for GoogleContactApi
     #[serde(rename = "google_contact")]
     GoogleContact { metadata: Option<String> },
+    // todo: replace metadata with actual request parameters for gmail API
     #[serde(rename = "gmail")]
     Gmail { metadata: Option<String> },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename = "content_type")]
-pub enum ContentType {
-    #[serde(rename = "document")]
-    Document,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "data_connector")]
 pub struct DataConnector {
     pub source: SourceType,
-    pub content_type: ContentType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
