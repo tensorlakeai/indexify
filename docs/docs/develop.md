@@ -10,7 +10,7 @@ Install various rust related tools -
 ### Python Dependencies
 Create a virtual env 
 ```
-virtualenv ve
+python3.11 -m venv ve
 source ve/bin/activate
 ```
 Install the python server dependencies 
@@ -20,6 +20,12 @@ Install the python server dependencies
 Install the server libs 
 ```
 (cd src_py && pip install .)
+```
+
+### Running in dev mode:
+Run:
+```
+cargo watch -x run
 ```
 
 ### MAC OS

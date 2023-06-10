@@ -15,7 +15,6 @@ use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
-use uuid::Uuid;
 
 use crate::entity;
 use crate::entity::index;
@@ -296,7 +295,7 @@ impl Repository {
 
     pub async fn create_memory_session(
         &self,
-        session_id: Uuid,
+        session_id: &String,
         index_name: String,
         metadata: HashMap<String, String>,
         vectordb_params: CreateIndexParams,
@@ -334,7 +333,7 @@ impl Repository {
 
     pub async fn get_index_name_for_memory_session(
         &self,
-        session_id: Uuid,
+        session_id: String,
     ) -> Result<String, RepositoryError> {
         let session = entity::memory_sessions::Entity::find()
             .filter(entity::memory_sessions::Column::SessionId.eq(session_id.to_string()))

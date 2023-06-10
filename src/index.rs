@@ -4,7 +4,6 @@ use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use thiserror::Error;
 use tracing::info;
-use uuid::Uuid;
 
 use crate::{
     embedding_worker::EmbeddingWorker,
@@ -138,7 +137,7 @@ impl IndexManager {
 
     pub async fn create_index_for_memory_session(
         &self,
-        session_id: Uuid,
+        session_id: &String,
         index_name: String,
         metadata: HashMap<String, String>,
         vectordb_params: CreateIndexParams,
@@ -162,7 +161,7 @@ impl IndexManager {
 
     pub async fn get_index_name_for_memory_session(
         &self,
-        session_id: Uuid,
+        session_id: String,
     ) -> Result<String, IndexError> {
         self.repository
             .get_index_name_for_memory_session(session_id)
