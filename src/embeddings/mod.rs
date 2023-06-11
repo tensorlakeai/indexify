@@ -148,11 +148,11 @@ impl EmbeddingRouter {
         })
     }
 
-    pub fn get_model(&self, name: String) -> Result<EmbeddingGeneratorTS, EmbeddingGeneratorError> {
+    pub fn get_model(&self, name: &str) -> Result<EmbeddingGeneratorTS, EmbeddingGeneratorError> {
         let embedding_model = self
             .router
-            .get(&name)
-            .ok_or(EmbeddingGeneratorError::ModelNotFound(name.clone()))?;
+            .get(name)
+            .ok_or(EmbeddingGeneratorError::ModelNotFound(name.into()))?;
         Ok(embedding_model.clone())
     }
 

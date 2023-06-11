@@ -1,12 +1,14 @@
 mod data_repository_manager;
-mod embedding_worker;
+//mod embedding_worker;
 mod embeddings;
 mod entity;
+mod extractors;
 mod index;
 mod memory;
 mod persistence;
 mod server;
 mod server_config;
+mod test_util;
 mod text_splitters;
 mod vectordbs;
 

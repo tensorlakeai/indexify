@@ -31,7 +31,7 @@ pub struct QdrantDb {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QdrantPayload {
     pub text: String,
-    pub chunk: String,
+    pub chunk_id: String,
     pub metadata: serde_json::Value,
 }
 
@@ -66,7 +66,7 @@ impl VectorDb for QdrantDb {
     }
 
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
-        let _collection = self
+        let result = self
             .create_client()?
             .create_collection(&CreateCollection {
                 collection_name: index.name,
@@ -81,9 +81,15 @@ impl VectorDb for QdrantDb {
                 }),
                 ..Default::default()
             })
-            .await
-            .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
-        Ok(())
+            .await;
+        if let Err(err) = &result {
+            if err.to_string().contains("already exists") {
+                return Ok(());
+            }
+        }
+        result
+            .map(|_| ())
+            .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))
     }
 
     async fn add_embedding(
@@ -96,7 +102,7 @@ impl VectorDb for QdrantDb {
             let chunk_id = chunk.chunk_id.clone();
             let payload: Payload = json!(QdrantPayload {
                 text: chunk.text.clone(),
-                chunk: chunk_id.clone(),
+                chunk_id: chunk_id.clone(),
                 metadata: json!(HashMap::<String, String>::new()),
             })
             .try_into()
@@ -141,8 +147,8 @@ impl VectorDb for QdrantDb {
             let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
                 .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
             documents.push(SearchResult {
-                texts: qdrant_payload.text,
-                metadata: qdrant_payload.metadata,
+                text: qdrant_payload.text,
+                chunk_id: qdrant_payload.chunk_id,
             });
         }
         Ok(documents)

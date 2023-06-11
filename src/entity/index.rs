@@ -12,6 +12,7 @@ pub struct Model {
     pub vector_db: String,
     pub vector_db_params: Option<String>,
     pub unique_params: Option<String>,
+    pub repository_id: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

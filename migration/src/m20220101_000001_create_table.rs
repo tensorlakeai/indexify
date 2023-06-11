@@ -22,6 +22,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Index::VectorDb).string().not_null())
                     .col(ColumnDef::new(Index::VectorDbParams).json())
                     .col(ColumnDef::new(Index::UniqueParams).json())
+                    .col(ColumnDef::new(Index::RepositoryId).string().not_null())
                     .to_owned(),
             )
             .await?;
@@ -37,11 +38,12 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Content::IndexName).string().not_null())
                     .col(ColumnDef::new(Content::Text).text().not_null())
                     .col(ColumnDef::new(Content::ContentType).string().not_null())
                     .col(ColumnDef::new(Content::Metadata).json())
-                    .col(ColumnDef::new(Content::EmbeddingStatus).string())
+                    .col(ColumnDef::new(Content::RepositoryId).string().not_null())
+                    .col(ColumnDef::new(Content::MemorySessionId).string())
+                    .col(ColumnDef::new(Content::ExtractorsState).json())
                     .to_owned(),
             )
             .await;
@@ -75,7 +77,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(MemorySessions::IndexName)
+                        ColumnDef::new(MemorySessions::RepositoryId)
                             .string()
                             .not_null(),
                     )
@@ -130,6 +132,7 @@ enum Index {
     VectorDb,
     VectorDbParams,
     UniqueParams,
+    RepositoryId,
 }
 
 #[derive(Iden)]
@@ -145,18 +148,19 @@ enum IndexChunks {
 enum Content {
     Table,
     Id,
-    IndexName,
     ContentType,
     Text,
     Metadata,
-    EmbeddingStatus,
+    RepositoryId,
+    MemorySessionId,
+    ExtractorsState,
 }
 
 #[derive(Iden)]
 enum MemorySessions {
     Table,
     SessionId,
-    IndexName,
+    RepositoryId,
     Metadata,
 }
 
