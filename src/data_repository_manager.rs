@@ -73,6 +73,10 @@ mod tests {
         let db = create_db().await.unwrap();
         let repository_manager = DataRepositoryManager::new_with_db(db);
         let mut meta = HashMap::new();
+        let source = SourceType::GoogleContact {
+            access_token: "a".into(),
+            refresh_token: "b".into(),
+        };
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
             name: "test".to_string(),
@@ -86,10 +90,7 @@ mod tests {
             }],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {
-                source: SourceType::GoogleContact {
-                    access_token: "a".into(),
-                    refresh_token: "b".into(),
-                },
+                source: source.clone(),
             }],
         };
         repository_manager.sync(&repository).await.unwrap();
@@ -98,6 +99,7 @@ mod tests {
         assert_eq!(repositories[0].name, "test");
         assert_eq!(repositories[0].extractors.len(), 1);
         assert_eq!(repositories[0].data_connectors.len(), 1);
+        assert_eq!(repositories[0].data_connectors[0].source, source.clone());
         assert_eq!(repositories[0].metadata, meta);
     }
 

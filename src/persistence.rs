@@ -46,7 +46,7 @@ pub struct Extractor {
     pub extractor_type: ExtractorType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename = "source_type")]
 pub enum SourceType {
     #[serde(rename = "google_contact")]
