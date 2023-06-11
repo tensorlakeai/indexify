@@ -87,7 +87,8 @@ mod tests {
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {
                 source: SourceType::GoogleContact {
-                    metadata: Some("data_connector_meta".to_string()),
+                    access_token: "a".into(),
+                    refresh_token: "b".into(),
                 },
             }],
         };

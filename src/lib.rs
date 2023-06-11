@@ -1,3 +1,4 @@
+mod data_connectors;
 mod data_repository_manager;
 mod embedding_worker;
 mod embeddings;
@@ -10,4 +11,4 @@ mod server_config;
 mod text_splitters;
 mod vectordbs;
 
-pub use {embeddings::*, memory::*, server::*, server_config::*, vectordbs::*};
+pub use {data_connectors::*, embeddings::*, memory::*, server::*, server_config::*, vectordbs::*};

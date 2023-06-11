@@ -35,3 +35,5 @@ tiktoken-rs = {version = "^0"}
 dashmap = "5.4.0"
 time = { version = "0.3", features = ["macros"] }
 pyo3 = {version="^0", features=["auto-initialize"]}
+reqwest = { version = "0.11.6", features = ["blocking", "json"] }
+url = "2.2.2"

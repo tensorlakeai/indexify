@@ -109,19 +109,35 @@ impl From<DataRepository> for ApiDataRepository {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "source_type")]
 pub enum ApiSourceType {
-    // todo: replace metadata with actual request parameters for GoogleContactApi
     #[serde(rename = "google_contact")]
-    GoogleContact { metadata: Option<String> },
-    // todo: replace metadata with actual request parameters for gmail API
+    GoogleContact {
+        access_token: String,
+        refresh_token: String,
+    },
     #[serde(rename = "gmail")]
-    Gmail { metadata: Option<String> },
+    Gmail {
+        access_token: String,
+        refresh_token: String,
+    },
 }
 
 impl From<ApiSourceType> for SourceType {
     fn from(value: ApiSourceType) -> Self {
         match value {
-            ApiSourceType::GoogleContact { metadata } => SourceType::GoogleContact { metadata },
-            ApiSourceType::Gmail { metadata } => SourceType::Gmail { metadata },
+            ApiSourceType::GoogleContact {
+                access_token,
+                refresh_token,
+            } => SourceType::GoogleContact {
+                access_token,
+                refresh_token,
+            },
+            ApiSourceType::Gmail {
+                access_token,
+                refresh_token,
+            } => SourceType::Gmail {
+                access_token,
+                refresh_token,
+            },
         }
     }
 }

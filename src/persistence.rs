@@ -49,12 +49,16 @@ pub struct Extractor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "source_type")]
 pub enum SourceType {
-    // todo: replace metadata with actual request parameters for GoogleContactApi
     #[serde(rename = "google_contact")]
-    GoogleContact { metadata: Option<String> },
-    // todo: replace metadata with actual request parameters for gmail API
+    GoogleContact {
+        access_token: String,
+        refresh_token: String,
+    },
     #[serde(rename = "gmail")]
-    Gmail { metadata: Option<String> },
+    Gmail {
+        access_token: String,
+        refresh_token: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -414,6 +418,19 @@ impl Repository {
             .await?
             .ok_or(RepositoryError::RepositoryNotFound(name.clone()))?;
         Ok(repository_model.into())
+    }
+
+    pub async fn get_data_connectors(
+        &self,
+        repository_name: String,
+    ) -> Result<Vec<DataConnector>, RepositoryError> {
+        let repository_model = DataRepositoryEntity::find()
+            .filter(entity::data_repository::Column::Name.eq(&repository_name))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::RepositoryNotFound(repository_name.clone()))?;
+        let repository: DataRepository = repository_model.into();
+        Ok(repository.data_connectors)
     }
 }
 
