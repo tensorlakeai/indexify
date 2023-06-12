@@ -326,7 +326,7 @@ pub struct ApiText {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TextAddRequest {
-    repository: String,
+    repository: Option<String>,
     documents: Vec<ApiText>,
 }
 
@@ -664,6 +664,7 @@ async fn add_texts(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<IndexAdditionResponse>, IndexifyAPIError> {
+    let repo = get_or_default_repository(payload.repository);
     let texts = payload
         .documents
         .iter()
@@ -674,7 +675,7 @@ async fn add_texts(
         .collect();
     state
         .repository_manager
-        .add_texts(&payload.repository, texts, None)
+        .add_texts(&repo, texts, None)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -683,7 +684,7 @@ async fn add_texts(
             )
         })?;
 
-    state.extractor_worker.sync_repo(&payload.repository).await;
+    state.extractor_worker.sync_repo(&repo).await;
     Ok(Json(IndexAdditionResponse::default()))
 }
 
