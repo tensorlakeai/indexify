@@ -1,4 +1,9 @@
-use crate::{DataConnector, DataConnectorError};
+use std::{collections::HashMap, sync::Arc};
+
+use crate::{
+    persistence::{Repository, Text},
+    DataConnector, DataConnectorError,
+};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, ACCEPT, AUTHORIZATION};
 use serde::Deserialize;
@@ -27,7 +32,7 @@ struct Contact {
     phone: Vec<PhoneNumber>,
 }
 
-impl From<Contact> for String {
+impl From<Contact> for Text {
     fn from(contact: Contact) -> Self {
         let name = contact.name.value;
         let mut emails = "".to_string();
@@ -38,10 +43,13 @@ impl From<Contact> for String {
         for phone_number in contact.phone {
             phone_numbers = format!("{}, {}", phone_numbers, phone_number.value);
         }
-        format!(
-            "name: {}\nemails: {}\nphone: {}",
-            name, emails, phone_numbers
-        )
+        Text {
+            text: format!(
+                "name: {}\nemails: {}\nphone: {}",
+                name, emails, phone_numbers
+            ),
+            metadata: HashMap::new(),
+        }
     }
 }
 
@@ -49,14 +57,23 @@ pub struct GoogleContactsDataConnector {
     access_token: String,
     // TODO: Implement refresh token usage when access_token expires
     _refresh_token: String,
+    repository: Arc<Repository>,
+    repository_name: String,
 }
 
 impl GoogleContactsDataConnector {
     // Client will initiate OAuth flow and provide the access and refresh tokens
-    pub fn new(access_token: String, refresh_token: String) -> Self {
+    pub fn new(
+        access_token: String,
+        refresh_token: String,
+        repository: Arc<Repository>,
+        repository_name: &String,
+    ) -> Self {
         Self {
             access_token,
             _refresh_token: refresh_token,
+            repository,
+            repository_name: repository_name.into(),
         }
     }
 
@@ -138,9 +155,16 @@ impl GoogleContactsDataConnector {
 
 #[async_trait]
 impl DataConnector for GoogleContactsDataConnector {
-    async fn fetch_data(&self) -> Result<Vec<String>, DataConnectorError> {
+    async fn fetch_data(&self) -> Result<Vec<Text>, DataConnectorError> {
         let contacts = self.fetch_data_internal().await?;
-        let data: Vec<String> = contacts.into_iter().map(|contact| contact.into()).collect();
+        let data: Vec<Text> = contacts.into_iter().map(|contact| contact.into()).collect();
         Ok(data)
+    }
+
+    async fn index_data(&self, data: Vec<Text>) -> Result<(), DataConnectorError> {
+        self.repository
+            .add_to_index(&self.repository_name, data)
+            .await?;
+        Ok(())
     }
 }

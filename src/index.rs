@@ -188,9 +188,7 @@ impl Index {
     }
 
     pub async fn add_texts(&self, texts: Vec<Text>) -> Result<(), IndexError> {
-        self.repository
-            .add_to_index(self.name.clone(), texts)
-            .await?;
+        self.repository.add_to_index(&self.name, texts).await?;
         self.embedding_worker
             .run_once()
             .await

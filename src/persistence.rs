@@ -244,14 +244,14 @@ impl Repository {
 
     pub async fn add_to_index(
         &self,
-        index_name: String,
+        index_name: &String,
         texts: Vec<Text>,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let mut content_list = Vec::new();
         for text in texts {
             let meta = serde_json::to_string(&text.metadata)?;
-            let content_id = create_content_id(&index_name, &text.text);
+            let content_id = create_content_id(index_name, &text.text);
             content_list.push(entity::content::ActiveModel {
                 id: Set(content_id),
                 index_name: Set(index_name.clone()),
