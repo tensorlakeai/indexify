@@ -14,13 +14,13 @@ docker compose up indexify
 
 This starts the following services -
 
-* Indexify Server which provides the HTTP APIs to the retreival services.
+* Indexify Server which provides the HTTP APIs to the retrieval services.
 * Qdrant for storing vectors.
 
 #### Create an Index
 
 ```
-curl -v -X POST http://localhost:8900/index/create   -H "Content-Type: application/json" -d '{"name": "myindex", "embedding_model": "all-minilm-l12-v2","metric": "dot", "text_splitter": "new_line"}'
+curl -v -X POST http://localhost:8900/index/create   -H "Content-Type: application/json" -d '{"name": "myindex", "embedding_model": "all-minilm-l12-v2","distance": "dot", "text_splitter": "new_line"}'
 ```
 
 #### Add some Texts
