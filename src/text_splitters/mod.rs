@@ -11,6 +11,9 @@ use crate::{EmbeddingGeneratorError, EmbeddingGeneratorTS};
 pub enum TextSplitterError {
     #[error(transparent)]
     TokenizerError(#[from] EmbeddingGeneratorError),
+
+    #[error("unknown splitter kind: `{0}`")]
+    UnknownSplitterKind(String),
 }
 
 pub type TextSplitterTS = Arc<dyn TextSplitter + Send + Sync>;

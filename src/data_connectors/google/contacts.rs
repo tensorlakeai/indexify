@@ -163,7 +163,7 @@ impl DataConnector for GoogleContactsDataConnector {
 
     async fn index_data(&self, data: Vec<Text>) -> Result<(), DataConnectorError> {
         self.repository
-            .add_to_index(&self.repository_name, data)
+            .add_text_to_repo(&self.repository_name, data, None)
             .await?;
         Ok(())
     }

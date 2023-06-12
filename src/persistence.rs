@@ -14,18 +14,40 @@ use sea_orm::{
 use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
 use crate::entity::index;
 use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
 use crate::{entity, IndexDistance};
-use time::OffsetDateTime;
+
+#[derive(Serialize, Deserialize, Default)]
+struct ExtractorsState {
+    #[serde(default)]
+    state: HashMap<String, u64>,
+}
+
+impl ExtractorsState {
+    fn update(&mut self, extractor_name: &str) {
+        let current_state = self.state.entry(extractor_name.to_string()).or_insert(0);
+        *current_state += 1;
+    }
+}
+
+#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize)]
+pub enum ContentType {
+    #[strum(serialize = "text")]
+    Text,
+
+    #[strum(serialize = "memory")]
+    Memory,
+}
 
 #[derive(Debug, Clone)]
 pub struct Text {
     pub text: String,
-    pub metadata: HashMap<String, String>,
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,13 +59,31 @@ pub enum ExtractorType {
         text_splitter: TextSplitterKind,
         distance: IndexDistance,
     },
+
+    #[serde(rename = "ner")]
+    Ner { model: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "extractor")]
-pub struct Extractor {
+pub struct ExtractorConfig {
     pub name: String,
     pub extractor_type: ExtractorType,
+    pub content_type: ContentType,
+}
+
+impl Default for ExtractorConfig {
+    fn default() -> Self {
+        Self {
+            name: "default".to_string(),
+            content_type: ContentType::Text,
+            extractor_type: ExtractorType::Embedding {
+                model: "all-minilm-l12-v2".to_string(),
+                text_splitter: TextSplitterKind::Noop,
+                distance: IndexDistance::Cosine,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -70,9 +110,20 @@ pub struct DataConnector {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataRepository {
     pub name: String,
-    pub extractors: Vec<Extractor>,
     pub data_connectors: Vec<DataConnector>,
+    pub extractors: Vec<ExtractorConfig>,
     pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl Default for DataRepository {
+    fn default() -> Self {
+        Self {
+            name: "default".to_string(),
+            data_connectors: vec![],
+            extractors: vec![ExtractorConfig::default()],
+            metadata: HashMap::new(),
+        }
+    }
 }
 
 impl From<entity::data_repository::Model> for DataRepository {
@@ -96,6 +147,12 @@ impl From<entity::data_repository::Model> for DataRepository {
             metadata,
         }
     }
+}
+
+pub struct ChunkWithMetadata {
+    pub chunk_id: String,
+    pub text: String,
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +193,9 @@ pub enum RepositoryError {
     #[error("content`{0}` not found")]
     ContentNotFound(String),
 
+    #[error("chunk `{0}` not found")]
+    ChunkNotFound(String),
+
     #[error("index `{0}` already exists")]
     IndexAlreadyExists(String),
 
@@ -144,6 +204,9 @@ pub enum RepositoryError {
 
     #[error("session `{0}` not found")]
     SessionNotFound(String),
+
+    #[error("internal application error `{0}`")]
+    LogicError(String),
 }
 
 pub struct Repository {
@@ -167,6 +230,7 @@ impl Repository {
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
+        repository_id: String,
     ) -> Result<DatabaseTransaction, RepositoryError> {
         let mut unique_params = None;
         if let Some(u_params) = &index_params.unique_params {
@@ -179,14 +243,20 @@ impl Repository {
             vector_db: Set(vectordb.name()),
             vector_db_params: NotSet,
             unique_params: Set(unique_params),
+            repository_id: Set(repository_id),
         };
-        let insert_result = IndexEntity::insert(index).exec(&tx).await;
-        if let Err(db_err) = insert_result {
-            // TODO Remove this hack and drop down to the underlying sqlx error
-            // and check if the error is due to primary key violation
-            if db_err.to_string().contains("code: 1555") {
+        let insert_result = IndexEntity::insert(index)
+            .on_conflict(
+                OnConflict::column(entity::index::Column::Name)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&tx)
+            .await;
+        if let Err(err) = insert_result {
+            if err != DbErr::RecordNotInserted {
                 tx.rollback().await?;
-                return Err(RepositoryError::IndexAlreadyExists(index_params.name));
+                return Err(RepositoryError::DatabaseError(err));
             }
         }
         if let Err(err) = vectordb.create_index(index_params.clone()).await {
@@ -203,37 +273,47 @@ impl Repository {
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
+        repository_name: &str,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let tx = self
-            ._create_index(tx, embedding_model, index_params, vectordb, text_splitter)
+            ._create_index(
+                tx,
+                embedding_model,
+                index_params,
+                vectordb,
+                text_splitter,
+                repository_name.into(),
+            )
             .await?;
         tx.commit().await?;
         Ok(())
     }
 
-    pub async fn get_index(&self, index: String) -> Result<IndexModel, RepositoryError> {
+    pub async fn get_index(&self, index: &str) -> Result<IndexModel, RepositoryError> {
         IndexEntity::find()
-            .filter(index::Column::Name.eq(&index))
+            .filter(index::Column::Name.eq(index))
             .one(&self.conn)
             .await?
-            .ok_or(RepositoryError::IndexNotFound(index))
+            .ok_or(RepositoryError::IndexNotFound(index.into()))
     }
 
-    pub async fn get_texts(&self, index_name: String) -> Result<Vec<Text>, RepositoryError> {
-        let index = self.get_index(index_name).await?;
+    pub async fn get_texts_for_memory_session(
+        &self,
+        repository_name: &str,
+        session_id: &str,
+    ) -> Result<Vec<Text>, RepositoryError> {
         let contents = entity::content::Entity::find()
-            .filter(entity::content::Column::IndexName.eq(&index.name))
+            .filter(entity::content::Column::RepositoryId.eq(repository_name))
+            .filter(entity::content::Column::MemorySessionId.eq(session_id))
             .all(&self.conn)
             .await?;
         let mut texts = Vec::new();
         for content in contents {
-            let metadata: HashMap<String, String> = serde_json::from_str(
-                content
-                    .metadata
-                    .as_ref()
-                    .ok_or(RepositoryError::ContentNotFound(content.id))?,
-            )?;
+            let metadata: HashMap<String, serde_json::Value> = content
+                .metadata
+                .map(|s| serde_json::from_str(&s).unwrap())
+                .unwrap_or_default();
             texts.push(Text {
                 text: content.text,
                 metadata,
@@ -242,23 +322,29 @@ impl Repository {
         Ok(texts)
     }
 
-    pub async fn add_to_index(
+    pub async fn add_text_to_repo(
         &self,
-        index_name: &String,
+        repository_name: &str,
         texts: Vec<Text>,
+        memory_session: Option<&str>,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let mut content_list = Vec::new();
         for text in texts {
             let meta = serde_json::to_string(&text.metadata)?;
-            let content_id = create_content_id(index_name, &text.text);
+            let content_id = create_content_id(repository_name, &text.text);
+            let content_type = match memory_session {
+                Some(_) => ContentType::Memory,
+                None => ContentType::Text,
+            };
             content_list.push(entity::content::ActiveModel {
                 id: Set(content_id),
-                index_name: Set(index_name.clone()),
+                repository_id: Set(repository_name.into()),
+                memory_session_id: Set(memory_session.map(|s| s.into())),
                 text: Set(text.text),
                 metadata: Set(Some(meta)),
-                embedding_status: NotSet,
-                content_type: Set("document".to_string()),
+                content_type: Set(content_type.to_string()),
+                extractors_state: Set(Some(json!(ExtractorsState::default()).to_string())),
             });
         }
         let _ = entity::content::Entity::insert_many(content_list)
@@ -275,18 +361,18 @@ impl Repository {
 
     pub async fn create_chunks(
         &self,
-        content_id: String,
+        content_id: &str,
         chunks: Vec<Chunk>,
-        index_name: String,
+        index_name: &str,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let chunk_models: Vec<entity::index_chunks::ActiveModel> = chunks
             .iter()
             .map(|chunk| entity::index_chunks::ActiveModel {
                 chunk_id: Set(chunk.chunk_id.clone()),
-                content_id: Set(content_id.clone()),
+                content_id: Set(content_id.into()),
                 text: Set(chunk.text.clone()),
-                index_name: Set(index_name.clone()),
+                index_name: Set(index_name.into()),
             })
             .collect();
         let _ = entity::index_chunks::Entity::insert_many(chunk_models)
@@ -300,23 +386,60 @@ impl Repository {
 
         // Mark the content as indexed
         let content_entity = entity::content::Entity::find()
-            .filter(entity::content::Column::Id.eq(&content_id))
+            .filter(entity::content::Column::Id.eq(content_id))
             .one(&tx)
             .await?
             .ok_or(RepositoryError::ContentNotFound(content_id.to_string()))?;
-        let now = OffsetDateTime::now_utc();
+        let mut extractors_state: ExtractorsState = serde_json::from_str(
+            &content_entity
+                .extractors_state
+                .clone()
+                .unwrap_or("{}".into()),
+        )
+        .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        extractors_state.update(index_name);
+        let extractor_state_str = serde_json::to_string(&extractors_state)
+            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
         let mut content_entity: entity::content::ActiveModel = content_entity.into();
-        content_entity.embedding_status = Set(Some(now.to_string()));
+        content_entity.extractors_state = Set(Some(extractor_state_str));
         content_entity.update(&tx).await?;
         tx.commit().await?;
         Ok(())
     }
 
-    pub async fn not_indexed_content(
+    pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata, RepositoryError> {
+        let chunk = entity::index_chunks::Entity::find()
+            .filter(entity::index_chunks::Column::ChunkId.eq(id))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::ChunkNotFound(id.to_string()))?;
+        let content = entity::content::Entity::find()
+            .filter(entity::content::Column::Id.eq(&chunk.content_id))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::ContentNotFound(
+                chunk.content_id.to_string(),
+            ))?;
+        Ok(ChunkWithMetadata {
+            chunk_id: chunk.chunk_id,
+            text: chunk.text,
+            metadata: content
+                .metadata
+                .map(|s| serde_json::from_str(&s).unwrap())
+                .unwrap_or_default(),
+        })
+    }
+
+    pub async fn content_with_unapplied_extractor(
         &self,
+        repo_id: &str,
+        extractor: &str,
+        extractor_content_type: ContentType,
     ) -> Result<Vec<entity::content::Model>, RepositoryError> {
         let result = entity::content::Entity::find()
-            .filter(entity::content::Column::EmbeddingStatus.is_null())
+            .filter(entity::content::Column::RepositoryId.eq(repo_id))
+            .filter(entity::content::Column::ExtractorsState.not_like(&format!("%{}%", extractor)))
+            .filter(entity::content::Column::ContentType.eq(extractor_content_type.to_string()))
             .all(&self.conn)
             .await?;
         Ok(result)
@@ -324,28 +447,15 @@ impl Repository {
 
     pub async fn create_memory_session(
         &self,
-        session_id: &String,
-        index_name: String,
-        metadata: HashMap<String, String>,
-        vectordb_params: CreateIndexParams,
-        embedding_model: String,
-        vectordb: vectordbs::VectorDBTS,
-        text_splitter: String,
+        session_id: &str,
+        repo_id: &str,
+        metadata: HashMap<String, serde_json::Value>,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
-        let tx = self
-            ._create_index(
-                tx,
-                embedding_model,
-                vectordb_params,
-                vectordb,
-                text_splitter,
-            )
-            .await?;
         let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),
-            index_name: Set(index_name),
+            repository_id: Set(repo_id.into()),
             metadata: Set(metadata),
         };
         let _ = entity::memory_sessions::Entity::insert(memory_session)
@@ -358,18 +468,6 @@ impl Repository {
             .await;
         tx.commit().await?;
         Ok(())
-    }
-
-    pub async fn get_index_name_for_memory_session(
-        &self,
-        session_id: String,
-    ) -> Result<String, RepositoryError> {
-        let session = entity::memory_sessions::Entity::find()
-            .filter(entity::memory_sessions::Column::SessionId.eq(session_id.to_string()))
-            .one(&self.conn)
-            .await?
-            .ok_or(RepositoryError::SessionNotFound(session_id.to_string()))?;
-        Ok(session.index_name)
     }
 
     pub async fn upsert_repository(
@@ -408,15 +506,12 @@ impl Repository {
         Ok(repository_models)
     }
 
-    pub async fn repository_by_name(
-        &self,
-        name: String,
-    ) -> Result<DataRepository, RepositoryError> {
+    pub async fn repository_by_name(&self, name: &str) -> Result<DataRepository, RepositoryError> {
         let repository_model = DataRepositoryEntity::find()
-            .filter(entity::data_repository::Column::Name.eq(&name))
+            .filter(entity::data_repository::Column::Name.eq(name))
             .one(&self.conn)
             .await?
-            .ok_or(RepositoryError::RepositoryNotFound(name.clone()))?;
+            .ok_or(RepositoryError::RepositoryNotFound(name.to_owned()))?;
         Ok(repository_model.into())
     }
 

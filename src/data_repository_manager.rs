@@ -1,29 +1,80 @@
 use sea_orm::DbConn;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use tracing::log::info;
 
-use crate::persistence::{DataRepository, Repository, RepositoryError};
+use crate::{
+    index::{CreateIndexArgs, IndexError, IndexManager},
+    persistence::{
+        ContentType, DataRepository, ExtractorConfig, ExtractorType, Repository, RepositoryError,
+        Text,
+    },
+    text_splitters::TextSplitterKind,
+    ServerConfig,
+};
 
 #[derive(Error, Debug)]
 pub enum DataRepositoryError {
     #[error(transparent)]
     Persistence(#[from] RepositoryError),
+
+    #[error("unable to create index: `{0}`")]
+    IndexCreation(String),
+
+    #[error(transparent)]
+    RetrievalError(#[from] IndexError),
 }
 
 pub struct DataRepositoryManager {
     repository: Arc<Repository>,
+    index_manager: Arc<IndexManager>,
 }
 
 impl DataRepositoryManager {
-    pub async fn new(db_url: &str) -> Result<Self, RepositoryError> {
+    pub async fn new(
+        db_url: &str,
+        index_manager: Arc<IndexManager>,
+    ) -> Result<Self, RepositoryError> {
         let repository = Arc::new(Repository::new(db_url).await?);
-        Ok(Self { repository })
+        Ok(Self {
+            repository,
+            index_manager,
+        })
     }
 
     #[allow(dead_code)]
-    fn new_with_db(db: DbConn) -> Self {
+    pub fn new_with_db(db: DbConn, index_manager: Arc<IndexManager>) -> Self {
         let repository = Arc::new(Repository::new_with_db(db));
-        Self { repository }
+        Self {
+            repository,
+            index_manager,
+        }
+    }
+
+    pub async fn create_default_repository(
+        &self,
+        server_config: &ServerConfig,
+    ) -> Result<(), DataRepositoryError> {
+        let resp = self.repository.repository_by_name("default").await;
+        if resp.is_err() {
+            info!("creating default repository");
+            let default_repo = DataRepository {
+                name: "default".into(),
+                extractors: vec![ExtractorConfig {
+                    name: "default".into(),
+                    content_type: ContentType::Text,
+                    extractor_type: ExtractorType::Embedding {
+                        model: server_config.default_model().model_kind.to_string(),
+                        text_splitter: TextSplitterKind::Noop,
+                        distance: crate::IndexDistance::Cosine,
+                    },
+                }],
+                data_connectors: vec![],
+                metadata: HashMap::new(),
+            };
+            return self.sync(&default_repo).await;
+        }
+        Ok(())
     }
 
     pub async fn list_repositories(&self) -> Result<Vec<DataRepository>, DataRepositoryError> {
@@ -34,44 +85,124 @@ impl DataRepositoryManager {
     }
 
     pub async fn sync(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
+        let _ = self
+            .repository
+            .upsert_repository(repository.clone())
+            .await
+            .map_err(DataRepositoryError::Persistence);
+        for extractor in &repository.extractors {
+            if let ExtractorType::Embedding {
+                model,
+                text_splitter,
+                distance,
+            } = extractor.extractor_type.clone()
+            {
+                let index_name = format!("{}/{}", repository.name, extractor.name);
+                self.index_manager
+                    .create_index(
+                        CreateIndexArgs {
+                            name: index_name,
+                            distance,
+                        },
+                        &repository.name,
+                        model,
+                        text_splitter,
+                    )
+                    .await
+                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get(&self, name: &str) -> Result<DataRepository, DataRepositoryError> {
         self.repository
-            .upsert_repository(repository.to_owned())
+            .repository_by_name(name)
             .await
             .map_err(DataRepositoryError::Persistence)
     }
 
-    pub async fn get(&self, name: String) -> Result<DataRepository, DataRepositoryError> {
+    pub async fn add_texts(
+        &self,
+        repo_name: &str,
+        texts: Vec<Text>,
+        memory_session: Option<&str>,
+    ) -> Result<(), DataRepositoryError> {
+        let _ = self.repository.repository_by_name(repo_name).await?;
         self.repository
-            .repository_by_name(name.clone())
+            .add_text_to_repo(repo_name, texts, memory_session)
             .await
             .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn create_memory_session(
+        &self,
+        session_id: &str,
+        repository_id: &str,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Result<(), DataRepositoryError> {
+        let _ = self.repository.repository_by_name(repository_id).await?;
+        self.repository
+            .create_memory_session(session_id, repository_id, metadata)
+            .await
+            .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn memory_messages_for_session(
+        &self,
+        repository: &str,
+        id: &str,
+    ) -> Result<Vec<Text>, DataRepositoryError> {
+        self.repository
+            .get_texts_for_memory_session(repository, id)
+            .await
+            .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn search(
+        &self,
+        index_name: &str,
+        query: &str,
+        k: u64,
+    ) -> Result<Vec<Text>, DataRepositoryError> {
+        let index = self.index_manager.load(index_name).await?;
+        index
+            .search(query, k)
+            .await
+            .map_err(DataRepositoryError::RetrievalError)
+    }
+
+    pub async fn search_memory_session(
+        &self,
+        repository: &str,
+        session_id: &str,
+        query: &str,
+        k: u64,
+    ) -> Result<Vec<Text>, DataRepositoryError> {
+        let index = format!("{}/{}", repository, session_id);
+        self.search(&index, query, k).await
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use std::collections::HashMap;
 
-    use crate::persistence::{DataConnector, Extractor, ExtractorType, SourceType};
+    use crate::persistence::{DataConnector, ExtractorConfig, ExtractorType, SourceType};
     use crate::text_splitters::TextSplitterKind;
-    use crate::IndexDistance;
-    use sea_orm::entity::prelude::*;
-    use sea_orm::{
-        sea_query::TableCreateStatement, Database, DatabaseConnection, DbBackend, DbConn, DbErr,
-        Schema,
-    };
+    use crate::{test_util, IndexDistance};
     use serde_json::json;
-
-    use super::super::entity::data_repository::Entity as DataRepositoryEntity;
 
     use super::*;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_sync_repository() {
-        let db = create_db().await.unwrap();
-        let repository_manager = DataRepositoryManager::new_with_db(db);
+        let db = test_util::db_utils::create_db().await.unwrap();
+        let index_name = "hello";
+        let (index_manager, _) =
+            test_util::db_utils::create_index_manager(db.clone(), "test/hello").await;
+        let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         let mut meta = HashMap::new();
         let source = SourceType::GoogleContact {
             access_token: "a".into(),
@@ -80,10 +211,11 @@ mod tests {
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
             name: "test".to_string(),
-            extractors: vec![Extractor {
-                name: "test".to_string(),
+            extractors: vec![ExtractorConfig {
+                name: index_name.into(),
+                content_type: ContentType::Text,
                 extractor_type: ExtractorType::Embedding {
-                    model: "m1".into(),
+                    model: "all-minilm-l12-v2".into(),
                     text_splitter: TextSplitterKind::Noop,
                     distance: IndexDistance::Cosine,
                 },
@@ -101,25 +233,5 @@ mod tests {
         assert_eq!(repositories[0].data_connectors.len(), 1);
         assert_eq!(repositories[0].data_connectors[0].source, source.clone());
         assert_eq!(repositories[0].metadata, meta);
-    }
-
-    async fn create_db() -> Result<DatabaseConnection, DbErr> {
-        let db = Database::connect("sqlite::memory:").await?;
-
-        setup_schema(&db).await?;
-
-        Ok(db)
-    }
-
-    async fn setup_schema(db: &DbConn) -> Result<(), DbErr> {
-        // Setup Schema helper
-        let schema = Schema::new(DbBackend::Sqlite);
-
-        // Derive from Entity
-        let stmt1: TableCreateStatement = schema.create_table_from_entity(DataRepositoryEntity);
-
-        // Execute create table statement
-        db.execute(db.get_database_backend().build(&stmt1)).await?;
-        Ok(())
     }
 }

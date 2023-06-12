@@ -110,6 +110,7 @@ mod tests {
             crate::EmbeddingModel {
                 model_kind: crate::EmbeddingModelKind::OpenAIAda02,
                 device_kind: crate::DeviceKind::Remote,
+                default: false,
             },
         )
         .unwrap();
@@ -130,6 +131,7 @@ mod tests {
             crate::EmbeddingModel {
                 model_kind: crate::EmbeddingModelKind::OpenAIAda02,
                 device_kind: crate::DeviceKind::Remote,
+                default: false,
             },
         )
         .unwrap();

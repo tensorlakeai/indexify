@@ -1,13 +1,13 @@
 use crate::data_repository_manager::DataRepositoryManager;
-use crate::index::IndexManager;
+use crate::extractors::ExtractorRunner;
+use crate::index::{CreateIndexArgs, IndexManager};
 use crate::persistence::{
-    DataConnector, DataRepository, Extractor, ExtractorType, SourceType, Text,
+    ContentType, DataConnector, DataRepository, ExtractorConfig, ExtractorType, Repository,
+    SourceType, Text,
 };
 use crate::text_splitters::TextSplitterKind;
-use crate::{
-    CreateIndexParams, EmbeddingRouter, IndexDistance, MemoryManager, Message, ServerConfig,
-};
-use strum_macros::Display;
+use crate::{EmbeddingRouter, IndexDistance, MemoryManager, Message, ServerConfig};
+use strum_macros::{Display, EnumString};
 
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -22,7 +22,6 @@ use smart_default::SmartDefault;
 use std::collections::HashMap;
 
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +48,34 @@ impl From<ExtractorType> for ApiExtractorType {
                 distance: distance.into(),
                 text_splitter: text_splitter.into(),
             },
+            _ => unimplemented!(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, EnumString, Serialize, Deserialize)]
+enum ApiExtractorContentType {
+    #[strum(serialize = "text")]
+    Text,
+
+    #[strum(serialize = "memory")]
+    Memory,
+}
+
+impl From<ContentType> for ApiExtractorContentType {
+    fn from(value: ContentType) -> Self {
+        match value {
+            ContentType::Text => ApiExtractorContentType::Text,
+            ContentType::Memory => ApiExtractorContentType::Memory,
+        }
+    }
+}
+
+impl From<ApiExtractorContentType> for ContentType {
+    fn from(val: ApiExtractorContentType) -> Self {
+        match val {
+            ApiExtractorContentType::Text => ContentType::Text,
+            ApiExtractorContentType::Memory => ContentType::Memory,
         }
     }
 }
@@ -58,20 +85,22 @@ impl From<ExtractorType> for ApiExtractorType {
 struct ApiExtractor {
     pub name: String,
     pub extractor_type: ApiExtractorType,
+    pub content_type: ApiExtractorContentType,
 }
 
-impl From<Extractor> for ApiExtractor {
-    fn from(value: Extractor) -> Self {
+impl From<ExtractorConfig> for ApiExtractor {
+    fn from(value: ExtractorConfig) -> Self {
         Self {
             name: value.name,
             extractor_type: value.extractor_type.into(),
+            content_type: value.content_type.into(),
         }
     }
 }
 
-impl From<ApiExtractor> for Extractor {
+impl From<ApiExtractor> for ExtractorConfig {
     fn from(val: ApiExtractor) -> Self {
-        Extractor {
+        ExtractorConfig {
             name: val.name,
             extractor_type: match val.extractor_type {
                 ApiExtractorType::Embedding {
@@ -84,6 +113,7 @@ impl From<ApiExtractor> for Extractor {
                     text_splitter: text_splitter.into(),
                 },
             },
+            content_type: val.content_type.into(),
         }
     }
 }
@@ -293,6 +323,7 @@ impl From<IndexDistance> for ApiIndexDistance {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct IndexCreateRequest {
     name: String,
+    repository: Option<String>,
     embedding_model: String,
     distance: ApiIndexDistance,
     text_splitter: ApiTextSplitterKind,
@@ -303,21 +334,16 @@ struct IndexCreateRequest {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct IndexCreateResponse {}
 
-struct IndexCreationArgs {
-    index_params: CreateIndexParams,
-    text_splitter: TextSplitterKind,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Document {
+pub struct ApiText {
     pub text: String,
-    pub metadata: HashMap<String, String>,
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct AddTextsRequest {
-    index: String,
-    documents: Vec<Document>,
+struct TextAddRequest {
+    repository: String,
+    documents: Vec<ApiText>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -335,8 +361,9 @@ struct SearchRequest {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct CreateMemorySessionRequest {
     session_id: Option<String>,
+    repository: Option<String>,
     index_args: IndexCreateRequest,
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -347,6 +374,7 @@ struct CreateMemorySessionResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionAddRequest {
     session_id: String,
+    repository: Option<String>,
     messages: Vec<Message>,
 }
 
@@ -356,6 +384,7 @@ struct MemorySessionAddResponse {}
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionRetrieveRequest {
     session_id: String,
+    repository: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -366,6 +395,7 @@ struct MemorySessionRetrieveResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct MemorySessionSearchRequest {
     session_id: String,
+    repository: Option<String>,
     query: String,
     k: u64,
 }
@@ -378,7 +408,7 @@ struct MemorySessionSearchResponse {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct DocumentFragment {
     text: String,
-    metadata: serde_json::Value,
+    metadata: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -415,7 +445,7 @@ pub struct IndexEndpointState {
 #[derive(Clone)]
 pub struct MemoryEndpointState {
     memory_manager: Arc<MemoryManager>,
-    embedding_router: Arc<EmbeddingRouter>,
+    extractor_runner: Arc<ExtractorRunner>,
 }
 
 pub struct DataSync {}
@@ -423,6 +453,7 @@ pub struct DataSync {}
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
+    extractor_worker: Arc<ExtractorRunner>,
 }
 
 pub struct Server {
@@ -437,10 +468,7 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
-        let repository_manager = DataRepositoryManager::new(&self.config.db_url).await?;
-        let repository_endpoint_state = RepositoryEndpointState {
-            repository_manager: Arc::new(repository_manager),
-        };
+        let repository = Arc::new(Repository::new(&self.config.db_url).await?);
         let index_manager = Arc::new(
             IndexManager::new(
                 self.config.index_config.clone(),
@@ -449,14 +477,33 @@ impl Server {
             )
             .await?,
         );
-        let memory_manager = Arc::new(MemoryManager::new(index_manager.clone()).await?);
+        let extractor_runner = Arc::new(ExtractorRunner::new(
+            repository.clone(),
+            index_manager.clone(),
+        ));
+        let repository_manager =
+            Arc::new(DataRepositoryManager::new(&self.config.db_url, index_manager.clone()).await?);
+        repository_manager
+            .create_default_repository(&self.config)
+            .await?;
+        let repository_endpoint_state = RepositoryEndpointState {
+            repository_manager: repository_manager.clone(),
+            extractor_worker: extractor_runner.clone(),
+        };
+        let memory_manager = Arc::new(
+            MemoryManager::new(
+                repository_manager.clone(),
+                &self.config.default_model().model_kind.to_string(),
+            )
+            .await?,
+        );
         let index_state = IndexEndpointState {
-            index_manager,
+            index_manager: index_manager.clone(),
             embedding_router: embedding_router.clone(),
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
-            embedding_router: embedding_router.clone(),
+            extractor_runner: extractor_runner.clone(),
         };
         let app = Router::new()
             .route("/", get(root))
@@ -473,8 +520,8 @@ impl Server {
                 post(index_create).with_state(index_state.clone()),
             )
             .route(
-                "/index/add",
-                post(add_texts).with_state(index_state.clone()),
+                "/content/add_text",
+                post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/index/search",
@@ -583,7 +630,7 @@ async fn get_repository(
 ) -> Result<Json<GetRepositoryResponse>, IndexifyAPIError> {
     let data_repo = state
         .repository_manager
-        .get(payload.name)
+        .get(&payload.name)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -596,39 +643,26 @@ async fn get_repository(
     }))
 }
 
-async fn get_index_creation_args(
-    embedding_router: Arc<EmbeddingRouter>,
-    payload: IndexCreateRequest,
-) -> Result<IndexCreationArgs, IndexifyAPIError> {
-    let model = embedding_router
-        .get_model(payload.embedding_model)
-        .map_err(|e| IndexifyAPIError::new(StatusCode::BAD_REQUEST, e.to_string()))?;
-    let index_params = CreateIndexParams {
-        name: payload.name,
-        vector_dim: model.dimensions(),
-        distance: payload.distance.into(),
-        unique_params: payload.hash_on,
-    };
-    let splitter_kind = TextSplitterKind::from_str(&payload.text_splitter.to_string()).unwrap();
-    Ok(IndexCreationArgs {
-        index_params,
-        text_splitter: splitter_kind,
-    })
-}
-
 #[axum_macros::debug_handler]
 async fn index_create(
     State(state): State<IndexEndpointState>,
     Json(payload): Json<IndexCreateRequest>,
 ) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
-    let args = get_index_creation_args(state.embedding_router.clone(), payload.clone()).await?;
-
+    let _ = state
+        .embedding_router
+        .get_model(&payload.embedding_model)
+        .map_err(|e| IndexifyAPIError::new(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let index_args = CreateIndexArgs {
+        name: payload.name,
+        distance: payload.distance.into(),
+    };
     let result = state
         .index_manager
         .create_index(
-            args.index_params,
+            index_args,
+            &payload.repository.unwrap_or("default".into()),
             payload.embedding_model,
-            args.text_splitter,
+            payload.text_splitter.into(),
         )
         .await;
 
@@ -643,19 +677,9 @@ async fn index_create(
 
 #[axum_macros::debug_handler]
 async fn add_texts(
-    State(state): State<IndexEndpointState>,
-    Json(payload): Json<AddTextsRequest>,
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<IndexAdditionResponse>, IndexifyAPIError> {
-    let may_be_index = state
-        .index_manager
-        .load(payload.index)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let index = may_be_index.ok_or(IndexifyAPIError::new(
-        StatusCode::BAD_REQUEST,
-        "index doesn't exist".into(),
-    ))?;
     let texts = payload
         .documents
         .iter()
@@ -664,14 +688,18 @@ async fn add_texts(
             metadata: d.metadata.to_owned(),
         })
         .collect();
-    let result = index.add_texts(texts).await;
-    if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            err.to_string(),
-        ));
-    }
+    state
+        .repository_manager
+        .add_texts(&payload.repository, texts, None)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                format!("failed to add text: {}", e),
+            )
+        })?;
 
+    state.extractor_worker.sync_repo(&payload.repository).await;
     Ok(Json(IndexAdditionResponse::default()))
 }
 
@@ -680,20 +708,14 @@ async fn create_memory_session(
     State(state): State<MemoryEndpointState>,
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
-    let args =
-        get_index_creation_args(state.embedding_router.clone(), payload.index_args.clone()).await?;
-
+    let repo = &get_or_default_repository(payload.repository);
     let session_id = state
         .memory_manager
-        .create_session_index(
-            payload.session_id,
-            args.index_params,
-            payload.index_args.embedding_model,
-            args.text_splitter,
-            payload.metadata.unwrap(),
-        )
+        .create_session(repo, payload.session_id, payload.metadata.unwrap())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    state.extractor_runner.sync_repo(repo).await;
 
     Ok(Json(CreateMemorySessionResponse { session_id }))
 }
@@ -703,8 +725,9 @@ async fn add_to_memory_session(
     State(memory_manager): State<Arc<MemoryManager>>,
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
+    let repo = get_or_default_repository(payload.repository);
     memory_manager
-        .add_messages(&payload.session_id, payload.messages)
+        .add_messages(&payload.session_id, &repo, payload.messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -716,8 +739,9 @@ async fn get_from_memory_session(
     State(memory_manager): State<Arc<MemoryManager>>,
     Json(payload): Json<MemorySessionRetrieveRequest>,
 ) -> Result<Json<MemorySessionRetrieveResponse>, IndexifyAPIError> {
+    let repo = get_or_default_repository(payload.repository);
     let messages = memory_manager
-        .retrieve_messages(payload.session_id)
+        .retrieve_messages(&repo, payload.session_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -729,8 +753,9 @@ async fn search_memory_session(
     State(memory_manager): State<Arc<MemoryManager>>,
     Json(payload): Json<MemorySessionSearchRequest>,
 ) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
+    let repo = get_or_default_repository(payload.repository);
     let messages = memory_manager
-        .search(&payload.session_id, payload.query, payload.k)
+        .search(&repo, &payload.session_id, &payload.query, payload.k)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -742,32 +767,24 @@ async fn index_search(
     State(state): State<IndexEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
-    let try_index = state.index_manager.load(query.index.clone()).await;
-    if let Err(err) = try_index {
-        return Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ));
-    }
-    if try_index.as_ref().unwrap().is_none() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "index does not exist".into(),
-        ));
-    }
-    let index = try_index.unwrap().unwrap();
-    let results = index.search(query.query, query.k).await;
+    let index = state
+        .index_manager
+        .load(&query.index)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let results = index.search(&query.query, query.k).await;
     if let Err(err) = results {
         return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
         ));
     }
+
     let document_fragments: Vec<DocumentFragment> = results
         .unwrap()
         .iter()
         .map(|text| DocumentFragment {
-            text: text.texts.to_owned(),
+            text: text.text.to_owned(),
             metadata: text.metadata.to_owned(),
         })
         .collect();
@@ -783,7 +800,7 @@ async fn list_embedding_models(
     let model_names = embedding_router.list_models();
     let mut models: Vec<EmbeddingModel> = Vec::new();
     for model_name in model_names {
-        let model = embedding_router.get_model(model_name.clone()).unwrap();
+        let model = embedding_router.get_model(&model_name).unwrap();
         models.push(EmbeddingModel {
             name: model_name.clone(),
             dimensions: model.dimensions(),
@@ -797,7 +814,7 @@ async fn generate_embedding(
     State(embedding_router): State<Arc<EmbeddingRouter>>,
     Json(payload): Json<GenerateEmbeddingRequest>,
 ) -> Result<Json<GenerateEmbeddingResponse>, IndexifyAPIError> {
-    let try_embedding_generator = embedding_router.get_model(payload.model);
+    let try_embedding_generator = embedding_router.get_model(&payload.model);
     if let Err(err) = &try_embedding_generator {
         return Err(IndexifyAPIError::new(
             StatusCode::NOT_ACCEPTABLE,
@@ -848,4 +865,8 @@ async fn shutdown_signal() {
         },
     }
     info!("signal received, shutting down server gracefully");
+}
+
+fn get_or_default_repository(repo: Option<String>) -> String {
+    repo.unwrap_or("default".into())
 }

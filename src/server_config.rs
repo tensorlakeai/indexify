@@ -75,6 +75,9 @@ pub struct EmbeddingModel {
     pub model_kind: EmbeddingModelKind,
     #[serde(rename = "device")]
     pub device_kind: DeviceKind,
+
+    #[serde(default)]
+    pub default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,10 +152,12 @@ impl Default for ServerConfig {
                 EmbeddingModel {
                     model_kind: EmbeddingModelKind::AllMiniLmL12V2,
                     device_kind: DeviceKind::Cpu,
+                    default: true,
                 },
                 EmbeddingModel {
                     model_kind: EmbeddingModelKind::OpenAIAda02,
                     device_kind: DeviceKind::Remote,
+                    default: false,
                 },
             ],
             openai: Some(OpenAIConfig {
@@ -188,6 +193,14 @@ impl ServerConfig {
         let str = serde_yaml::to_string(&config)?;
         std::fs::write(path, str)?;
         Ok(())
+    }
+
+    pub fn default_model(&self) -> EmbeddingModel {
+        self.available_models
+            .iter()
+            .find(|model| model.default)
+            .cloned()
+            .expect("no default embedding model found")
     }
 }
 

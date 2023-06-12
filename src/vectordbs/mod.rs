@@ -34,8 +34,8 @@ pub struct CreateIndexParams {
 
 #[derive(Debug, Default, Clone)]
 pub struct SearchResult {
-    pub texts: String,
-    pub metadata: serde_json::Value,
+    pub text: String,
+    pub chunk_id: String,
 }
 
 /// An enumeration of possible errors that can occur while interacting with the vector database.
