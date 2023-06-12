@@ -29,7 +29,7 @@ By default LLMs are stateless; memory sessions can be utilized for applications 
 ## Python Library
 
 ### Getting started
-``
+```
 pip install indexify
 ```
 
