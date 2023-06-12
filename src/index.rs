@@ -1,16 +1,16 @@
-use std::{collections::HashMap, fmt, str::FromStr, sync::Arc, vec};
+use std::{fmt, str::FromStr, sync::Arc, vec};
 
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use thiserror::Error;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
-    embedding_worker::EmbeddingWorker,
-    persistence::{Repository, RepositoryError, Text},
-    text_splitters::{self, TextSplitterKind},
+    entity,
+    persistence::{Chunk, Repository, RepositoryError, Text},
+    text_splitters::{self, TextSplitterError, TextSplitterKind, TextSplitterTS},
     vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, EmbeddingRouter,
-    SearchResult, VectorDBTS, VectorDbError, VectorIndexConfig,
+    IndexDistance, VectorChunk, VectorDBTS, VectorDbError, VectorIndexConfig,
 };
 
 #[derive(Error, Debug)]
@@ -29,9 +29,6 @@ pub enum IndexError {
 
     #[error("unable to serialize unique params `{0}`")]
     UniqueParamsSerializationError(#[from] serde_json::Error),
-
-    #[error("logic error: `{0}`")]
-    LogicError(String),
 }
 
 pub struct IndexManager {
@@ -44,6 +41,11 @@ impl fmt::Debug for IndexManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "IndexManager {{ /* fields go here */ }}")
     }
+}
+
+pub struct CreateIndexArgs {
+    pub name: String,
+    pub distance: IndexDistance,
 }
 
 impl IndexManager {
@@ -83,14 +85,21 @@ impl IndexManager {
 
     pub async fn create_index(
         &self,
-        vectordb_params: CreateIndexParams,
+        index_args: CreateIndexArgs,
+        repository_name: &str,
         embedding_model: String,
         text_splitter: TextSplitterKind,
     ) -> Result<(), IndexError> {
-        let model = self.embedding_router.get_model(embedding_model.clone())?;
+        let model = self.embedding_router.get_model(&embedding_model)?;
         // This is to ensure the user is not requesting to create an index
         // with a text splitter that is not supported
-        let _ = text_splitters::get_splitter(text_splitter.clone(), model)?;
+        let _ = text_splitters::get_splitter(text_splitter.clone(), model.clone())?;
+        let vectordb_params = CreateIndexParams {
+            name: index_args.name,
+            vector_dim: model.dimensions(),
+            distance: index_args.distance,
+            unique_params: None,
+        };
 
         self.repository
             .create_index(
@@ -98,233 +107,168 @@ impl IndexManager {
                 vectordb_params,
                 self.vectordb.clone(),
                 text_splitter.to_string(),
+                repository_name,
             )
             .await?;
         Ok(())
     }
 
-    pub async fn load(&self, index_name: String) -> Result<Option<Index>, IndexError> {
-        let index_entity = self.repository.get_index(index_name.clone()).await?;
-        let splitter_kind = TextSplitterKind::from_str(&index_entity.text_splitter)
-            .map_err(|e| IndexError::LogicError(e.to_string()))?;
+    pub async fn load(&self, index_name: &str) -> Result<Index, IndexError> {
+        let index_entity = self.repository.get_index(index_name).await?;
         let model = self
             .embedding_router
-            .get_model(index_entity.embedding_model)?;
-        let splitter = text_splitters::get_splitter(splitter_kind, model.clone())?;
-        let embedding_worker = Arc::new(EmbeddingWorker::new(
-            self.repository.clone(),
-            self.vectordb.clone(),
-            model.clone(),
-            splitter.clone(),
-        ));
-        let index = Index::new(
-            index_name.clone(),
-            embedding_worker,
+            .get_model(&index_entity.embedding_model)?;
+        let text_splitter_kind = TextSplitterKind::from_str(&index_entity.text_splitter)
+            .map_err(|e| TextSplitterError::UnknownSplitterKind(e.to_string()))?;
+        let text_splitter = text_splitters::get_splitter(text_splitter_kind, model.clone())?;
+
+        Index::new(
+            index_name.into(),
             self.vectordb.clone(),
             self.repository.clone(),
+            text_splitter,
             model.clone(),
         )
-        .await?;
-        Ok(index)
-    }
-
-    pub async fn create_index_for_memory_session(
-        &self,
-        session_id: &String,
-        index_name: String,
-        metadata: HashMap<String, String>,
-        vectordb_params: CreateIndexParams,
-        embedding_model: String,
-        text_splitter: TextSplitterKind,
-    ) -> Result<(), IndexError> {
-        let vectordb = self.vectordb.clone();
-        self.repository
-            .create_memory_session(
-                session_id,
-                index_name,
-                metadata,
-                vectordb_params,
-                embedding_model,
-                vectordb,
-                text_splitter.to_string(),
-            )
-            .await
-            .map_err(IndexError::Persistence)
-    }
-
-    pub async fn get_index_name_for_memory_session(
-        &self,
-        session_id: String,
-    ) -> Result<String, IndexError> {
-        self.repository
-            .get_index_name_for_memory_session(session_id)
-            .await
-            .map_err(IndexError::Persistence)
+        .await
     }
 }
 pub struct Index {
     name: String,
-    embedding_worker: Arc<EmbeddingWorker>,
     vectordb: VectorDBTS,
     repository: Arc<Repository>,
+    text_splitter: TextSplitterTS,
     embedding_generator: EmbeddingGeneratorTS,
 }
 
 impl Index {
     pub async fn new(
         name: String,
-        embedding_worker: Arc<EmbeddingWorker>,
         vectordb: VectorDBTS,
         repository: Arc<Repository>,
+        text_splitter: TextSplitterTS,
         embedding_generator: EmbeddingGeneratorTS,
-    ) -> Result<Option<Index>, IndexError> {
-        Ok(Some(Self {
+    ) -> Result<Index, IndexError> {
+        Ok(Self {
             name,
-            embedding_worker,
             vectordb,
             repository,
+            text_splitter,
             embedding_generator,
-        }))
+        })
     }
 
-    pub async fn add_texts(&self, texts: Vec<Text>) -> Result<(), IndexError> {
-        self.repository
-            .add_to_index(self.name.clone(), texts)
+    pub async fn add_to_index(&self, content: entity::content::Model) -> Result<(), IndexError> {
+        let text = content.text;
+        let splitted_texts = self.text_splitter.split(&text, 1000, 0).await?;
+        let embeddings = self
+            .embedding_generator
+            .generate_embeddings(splitted_texts.clone())
             .await?;
-        self.embedding_worker
-            .run_once()
-            .await
-            .map_err(|e| IndexError::LogicError(e.to_string()))?;
+        let mut chunks: Vec<Chunk> = Vec::new();
+        let mut vector_chunks: Vec<VectorChunk> = Vec::new();
+        for (text, embedding) in splitted_texts.iter().zip(embeddings.iter()) {
+            debug!("adding to index {}, text: {}", self.name, text);
+            let chunk = Chunk::new(text.to_string(), content.id.clone());
+            let vector_chunk =
+                VectorChunk::new(chunk.chunk_id.clone(), text.to_string(), embedding.to_vec());
+            chunks.push(chunk);
+            vector_chunks.push(vector_chunk);
+        }
+        self.vectordb
+            .add_embedding(&self.name, vector_chunks)
+            .await?;
+        self.repository
+            .create_chunks(&content.id, chunks, &self.name)
+            .await?;
+
         Ok(())
     }
 
-    pub async fn get_texts(&self) -> Result<Vec<Text>, IndexError> {
-        let texts = self.repository.get_texts(self.name.clone()).await?;
-        Ok(texts)
-    }
-
-    pub async fn search(&self, query: String, k: u64) -> Result<Vec<SearchResult>, IndexError> {
+    pub async fn search(&self, query: &str, k: u64) -> Result<Vec<Text>, IndexError> {
         let query_embedding = self
             .embedding_generator
-            .generate_embeddings(vec![query])
+            .generate_embeddings(vec![query.into()])
             .await?
             .get(0)
             .unwrap()
             .to_owned();
-
         let results = self
             .vectordb
             .search(self.name.clone(), query_embedding, k)
             .await?;
-        Ok(results)
+        let mut index_search_results = Vec::new();
+        for result in results {
+            let chunk = self.repository.chunk_with_id(&result.chunk_id).await?;
+            let search_result = Text {
+                text: chunk.text,
+                metadata: chunk.metadata,
+            };
+            index_search_results.push(search_result);
+        }
+        Ok(index_search_results)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::entity::content::Entity as ContentEntity;
-    use super::super::entity::index::Entity as IndexEntity;
-    use super::super::entity::index_chunks::Entity as IndexChunkEntity;
-    use sea_orm::entity::prelude::*;
-    use sea_orm::{
-        sea_query::TableCreateStatement, Database, DatabaseConnection, DbBackend, DbConn, DbErr,
-        Schema,
-    };
-
     use super::*;
     use std::collections::HashMap;
     use std::env;
-    use std::sync::Arc;
 
-    use crate::IndexDistance;
-    use crate::{
-        qdrant::QdrantDb, CreateIndexParams, EmbeddingRouter, QdrantConfig, ServerConfig,
-        VectorIndexConfig,
-    };
+    use crate::data_repository_manager::DataRepositoryManager;
+    use crate::persistence::{DataRepository, Text};
+    use crate::test_util;
+    use crate::test_util::db_utils::create_index_manager;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_qdrant_search_basic() {
         env::set_var("RUST_LOG", "debug");
-        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
-            addr: "http://localhost:6334".into(),
-        }));
-        qdrant.drop_index("hello".into()).await.unwrap();
-        let embedding_router =
-            Arc::new(EmbeddingRouter::new(Arc::new(ServerConfig::default())).unwrap());
-
-        let index_params = CreateIndexParams {
-            name: "hello".into(),
-            vector_dim: 384,
-            distance: IndexDistance::Cosine,
-            unique_params: None,
-        };
-        let index_config = VectorIndexConfig {
-            index_store: crate::IndexStoreKind::Qdrant,
-            qdrant_config: Some(QdrantConfig {
-                addr: "http://localhost:6334".into(),
-            }),
-        };
-        let db = create_db().await.unwrap();
-        let index_manager = IndexManager::new_with_db(index_config, embedding_router, db).unwrap();
-        index_manager
-            .create_index(
-                index_params,
-                "all-minilm-l12-v2".into(),
-                TextSplitterKind::Noop,
+        let index_name = "default/default";
+        let db = test_util::db_utils::create_db().await.unwrap();
+        let (index_manager, embedding_runner) = create_index_manager(db.clone(), index_name).await;
+        let repository_manager =
+            DataRepositoryManager::new_with_db(db.clone(), index_manager.clone());
+        repository_manager
+            .sync(&DataRepository::default())
+            .await
+            .unwrap();
+        repository_manager
+            .add_texts(
+                "default",
+                vec![
+                    Text {
+                        text: "hello world".into(),
+                        metadata: HashMap::new(),
+                    },
+                    Text {
+                        text: "hello pipe".into(),
+                        metadata: HashMap::new(),
+                    },
+                    Text {
+                        text: "nba".into(),
+                        metadata: HashMap::new(),
+                    },
+                ],
+                None,
             )
             .await
             .unwrap();
-        let index = index_manager.load("hello".into()).await.unwrap().unwrap();
-        index
-            .add_texts(vec![
-                Text {
+        repository_manager
+            .add_texts(
+                "default",
+                vec![Text {
                     text: "hello world".into(),
                     metadata: HashMap::new(),
-                },
-                Text {
-                    text: "hello pipe".into(),
-                    metadata: HashMap::new(),
-                },
-                Text {
-                    text: "nba".into(),
-                    metadata: HashMap::new(),
-                },
-            ])
+                }],
+                None,
+            )
             .await
             .unwrap();
-        index
-            .add_texts(vec![Text {
-                text: "hello world".into(),
-                metadata: HashMap::new(),
-            }])
-            .await
-            .unwrap();
-        let result = index.search("pipe".into(), 1).await.unwrap();
+
+        embedding_runner._sync_repo("default").await.unwrap();
+        let index = index_manager.load("default/default").await.unwrap();
+        let result = index.search("pipe", 1).await.unwrap();
         assert_eq!(1, result.len())
-    }
-
-    async fn create_db() -> Result<DatabaseConnection, DbErr> {
-        let db = Database::connect("sqlite::memory:").await?;
-
-        setup_schema(&db).await?;
-
-        Ok(db)
-    }
-
-    async fn setup_schema(db: &DbConn) -> Result<(), DbErr> {
-        // Setup Schema helper
-        let schema = Schema::new(DbBackend::Sqlite);
-
-        // Derive from Entity
-        let stmt1: TableCreateStatement = schema.create_table_from_entity(IndexEntity);
-        let stmt2: TableCreateStatement = schema.create_table_from_entity(ContentEntity);
-        let stmt3: TableCreateStatement = schema.create_table_from_entity(IndexChunkEntity);
-
-        // Execute create table statement
-        db.execute(db.get_database_backend().build(&stmt1)).await?;
-        db.execute(db.get_database_backend().build(&stmt2)).await?;
-        db.execute(db.get_database_backend().build(&stmt3)).await?;
-        Ok(())
     }
 }
