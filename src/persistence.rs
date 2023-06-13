@@ -126,15 +126,15 @@ impl From<entity::data_repository::Model> for DataRepository {
     fn from(model: entity::data_repository::Model) -> Self {
         let extractors = model
             .extractors
-            .map(|s| serde_json::from_str(&s).unwrap())
+            .map(|s| serde_json::from_value(s).unwrap())
             .unwrap_or_default();
         let data_connectors = model
             .data_connectors
-            .map(|s| serde_json::from_str(&s).unwrap())
+            .map(|s| serde_json::from_value(s).unwrap())
             .unwrap_or_default();
         let metadata = model
             .metadata
-            .map(|s| serde_json::from_str(&s).unwrap())
+            .map(|s| serde_json::from_value(s).unwrap())
             .unwrap_or_default();
         Self {
             name: model.name,
@@ -228,17 +228,13 @@ impl Repository {
         text_splitter: String,
         repository_id: String,
     ) -> Result<DatabaseTransaction, RepositoryError> {
-        let mut unique_params = None;
-        if let Some(u_params) = &index_params.unique_params {
-            unique_params.replace(serde_json::to_string(u_params)?);
-        }
         let index = entity::index::ActiveModel {
             name: Set(index_params.name.clone()),
             embedding_model: Set(embedding_model),
             text_splitter: Set(text_splitter),
             vector_db: Set(vectordb.name()),
             vector_db_params: NotSet,
-            unique_params: Set(unique_params),
+            unique_params: Set(index_params.unique_params.clone().map(|v| json!(v))),
             repository_id: Set(repository_id),
         };
         let insert_result = IndexEntity::insert(index)
@@ -308,7 +304,7 @@ impl Repository {
         for content in contents {
             let metadata: HashMap<String, serde_json::Value> = content
                 .metadata
-                .map(|s| serde_json::from_str(&s).unwrap())
+                .map(|s| serde_json::from_value(s).unwrap())
                 .unwrap_or_default();
             texts.push(Text {
                 text: content.text,
@@ -327,7 +323,6 @@ impl Repository {
         let tx = self.conn.begin().await?;
         let mut content_list = Vec::new();
         for text in texts {
-            let meta = serde_json::to_string(&text.metadata)?;
             let content_id = create_content_id(repository_name, &text.text);
             let content_type = match memory_session {
                 Some(_) => ContentType::Memory,
@@ -338,9 +333,9 @@ impl Repository {
                 repository_id: Set(repository_name.into()),
                 memory_session_id: Set(memory_session.map(|s| s.into())),
                 text: Set(text.text),
-                metadata: Set(Some(meta)),
+                metadata: Set(Some(json!(text.metadata))),
                 content_type: Set(content_type.to_string()),
-                extractors_state: Set(Some(json!(ExtractorsState::default()).to_string())),
+                extractors_state: Set(Some(json!(ExtractorsState::default()))),
             });
         }
         let _ = entity::content::Entity::insert_many(content_list)
@@ -386,18 +381,16 @@ impl Repository {
             .one(&tx)
             .await?
             .ok_or(RepositoryError::ContentNotFound(content_id.to_string()))?;
-        let mut extractors_state: ExtractorsState = serde_json::from_str(
-            &content_entity
+        let mut extractors_state: ExtractorsState = serde_json::from_value(
+            content_entity
                 .extractors_state
                 .clone()
-                .unwrap_or("{}".into()),
+                .unwrap_or(json!(ExtractorsState::default())),
         )
         .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
         extractors_state.update(index_name);
-        let extractor_state_str = serde_json::to_string(&extractors_state)
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
         let mut content_entity: entity::content::ActiveModel = content_entity.into();
-        content_entity.extractors_state = Set(Some(extractor_state_str));
+        content_entity.extractors_state = Set(Some(json!(extractors_state)));
         content_entity.update(&tx).await?;
         tx.commit().await?;
         Ok(())
@@ -421,7 +414,7 @@ impl Repository {
             text: chunk.text,
             metadata: content
                 .metadata
-                .map(|s| serde_json::from_str(&s).unwrap())
+                .map(|s| serde_json::from_value(s).unwrap())
                 .unwrap_or_default(),
         })
     }
@@ -448,11 +441,10 @@ impl Repository {
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
-        let metadata = Some(json!(metadata).to_string());
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),
             repository_id: Set(repo_id.into()),
-            metadata: Set(metadata),
+            metadata: Set(Some(json!(metadata))),
         };
         let _ = entity::memory_sessions::Entity::insert(memory_session)
             .on_conflict(
@@ -473,9 +465,9 @@ impl Repository {
         let tx = self.conn.begin().await?;
         let repository = entity::data_repository::ActiveModel {
             name: Set(repository.name),
-            extractors: Set(Some(serde_json::to_string(&repository.extractors)?)),
-            metadata: Set(Some(serde_json::to_string(&repository.metadata)?)),
-            data_connectors: Set(Some(serde_json::to_string(&repository.data_connectors)?)),
+            extractors: Set(Some(json!(repository.extractors))),
+            metadata: Set(Some(json!(repository.metadata))),
+            data_connectors: Set(Some(json!(repository.data_connectors))),
         };
         let _ = DataRepositoryEntity::insert(repository)
             .on_conflict(

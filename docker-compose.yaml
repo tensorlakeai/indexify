@@ -32,5 +32,15 @@ services:
     networks:
         dependencies:
             ipv4_address: 172.20.0.8
+  postgres:
+    image: postgres
+    profiles: ["local"]
+    restart: always
+    environment:
+      - POSTGRES_PASSWORD=foo
+    networks:
+        dependencies:
+            ipv4_address: 172.20.0.5
+
 volumes:
   data:
