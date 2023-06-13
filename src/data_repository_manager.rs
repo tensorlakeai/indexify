@@ -23,6 +23,9 @@ pub enum DataRepositoryError {
 
     #[error(transparent)]
     RetrievalError(#[from] IndexError),
+
+    #[error("operation not allowed: `{0}`")]
+    NotAllowed(String),
 }
 
 pub struct DataRepositoryManager {
@@ -120,6 +123,28 @@ impl DataRepositoryManager {
             .repository_by_name(name)
             .await
             .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn add_extractor(
+        &self,
+        repository: &str,
+        extractor: ExtractorConfig,
+    ) -> Result<(), DataRepositoryError> {
+        let mut data_repository = self
+            .repository
+            .repository_by_name(repository)
+            .await
+            .unwrap();
+        for ex in &data_repository.extractors {
+            if extractor.name == ex.name {
+                return Err(DataRepositoryError::NotAllowed(format!(
+                    "extractor with name `{}` already exists",
+                    extractor.name
+                )));
+            }
+        }
+        data_repository.extractors.push(extractor);
+        self.sync(&data_repository).await
     }
 
     pub async fn add_texts(

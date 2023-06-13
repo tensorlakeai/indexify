@@ -54,7 +54,7 @@ impl MemoryManager {
         default_embedding_model: &str,
     ) -> Result<Self, MemoryError> {
         Ok(Self {
-            repository: repository,
+            repository,
             default_embedding_model: default_embedding_model.into(),
         })
     }
@@ -63,6 +63,7 @@ impl MemoryManager {
         &self,
         repository_id: &str,
         session_id: Option<String>,
+        extractor: Option<ExtractorConfig>,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<String, MemoryError> {
         let session_id = session_id.unwrap_or(Uuid::new_v4().to_string());
@@ -72,7 +73,7 @@ impl MemoryManager {
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
 
         let mut repo = self.repository.get(repository_id).await?;
-        repo.extractors.push(ExtractorConfig {
+        let extractor = extractor.unwrap_or(ExtractorConfig {
             name: session_id.clone(),
             content_type: ContentType::Memory,
             extractor_type: ExtractorType::Embedding {
@@ -81,6 +82,7 @@ impl MemoryManager {
                 distance: crate::IndexDistance::Cosine,
             },
         });
+        repo.extractors.push(extractor);
         self.repository.sync(&repo).await?;
         Ok(session_id.to_string())
     }
@@ -161,7 +163,7 @@ mod tests {
             .unwrap();
 
         memory_manager
-            .create_session(repo, Some(session_id.into()), HashMap::new())
+            .create_session(repo, Some(session_id.into()), None, HashMap::new())
             .await
             .unwrap();
 
