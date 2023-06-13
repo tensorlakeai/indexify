@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr, sync::Arc, vec};
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
     entity,
@@ -49,18 +49,7 @@ pub struct CreateIndexArgs {
 }
 
 impl IndexManager {
-    pub async fn new(
-        index_config: VectorIndexConfig,
-        embedding_router: Arc<EmbeddingRouter>,
-        db_url: String,
-    ) -> Result<Self, IndexError> {
-        info!("persistence: using database: {}", &db_url);
-        let repository = Arc::new(Repository::new(&db_url).await?);
-        info!("vector database backend: {}", index_config.index_store);
-        IndexManager::_new(repository, index_config, embedding_router)
-    }
-
-    fn _new(
+    pub fn new(
         repository: Arc<Repository>,
         index_config: VectorIndexConfig,
         embedding_router: Arc<EmbeddingRouter>,
@@ -80,7 +69,7 @@ impl IndexManager {
         db: DatabaseConnection,
     ) -> Result<Self, IndexError> {
         let repository = Arc::new(Repository::new_with_db(db));
-        IndexManager::_new(repository, index_config, embedding_router)
+        IndexManager::new(repository, index_config, embedding_router)
     }
 
     pub async fn create_index(

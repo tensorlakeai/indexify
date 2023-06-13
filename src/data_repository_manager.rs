@@ -38,10 +38,9 @@ pub struct DataRepositoryManager {
 
 impl DataRepositoryManager {
     pub async fn new(
-        db_url: &str,
+        repository: Arc<Repository>,
         index_manager: Arc<IndexManager>,
     ) -> Result<Self, RepositoryError> {
-        let repository = Arc::new(Repository::new(db_url).await?);
         Ok(Self {
             repository,
             index_manager,

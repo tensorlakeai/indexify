@@ -449,18 +449,17 @@ impl Server {
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
         let index_manager = Arc::new(
             IndexManager::new(
+                repository.clone(),
                 self.config.index_config.clone(),
                 embedding_router.clone(),
-                self.config.db_url.clone(),
-            )
-            .await?,
+            )?
         );
         let extractor_runner = Arc::new(ExtractorRunner::new(
             repository.clone(),
             index_manager.clone(),
         ));
         let repository_manager =
-            Arc::new(DataRepositoryManager::new(&self.config.db_url, index_manager.clone()).await?);
+            Arc::new(DataRepositoryManager::new(repository.clone(), index_manager.clone()).await?);
         repository_manager
             .create_default_repository(&self.config)
             .await?;
