@@ -11,6 +11,7 @@ networks:
 services:
   indexify:
     image: diptanu/indexify
+    command: ["/indexify/docker_compose_start.sh"]
     ports:
       - "8900:8900"
     volumes:
@@ -21,6 +22,7 @@ services:
       - local
     depends_on:
       - qdrant
+      - postgres
     networks:
         server:
             ipv4_address: 172.21.0.2
@@ -37,7 +39,8 @@ services:
     profiles: ["local"]
     restart: always
     environment:
-      - POSTGRES_PASSWORD=foo
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=indexify
     networks:
         dependencies:
             ipv4_address: 172.20.0.5
