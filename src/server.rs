@@ -1,4 +1,4 @@
-use crate::data_repository_manager::DataRepositoryManager;
+use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
 use crate::extractors::ExtractorRunner;
 use crate::index::IndexManager;
 use crate::persistence::{
@@ -839,5 +839,5 @@ async fn shutdown_signal() {
 }
 
 fn get_or_default_repository(repo: Option<String>) -> String {
-    repo.unwrap_or("default".into())
+    repo.unwrap_or(DEFAULT_REPOSITORY_NAME.into())
 }

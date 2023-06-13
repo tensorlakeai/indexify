@@ -3,6 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::log::info;
 
+pub const DEFAULT_REPOSITORY_NAME: &str = "default";
+pub const DEFAULT_EXTRACTOR_NAME: &str = "default";
+
 use crate::{
     index::{CreateIndexArgs, IndexError, IndexManager},
     persistence::{
@@ -58,13 +61,16 @@ impl DataRepositoryManager {
         &self,
         server_config: &ServerConfig,
     ) -> Result<(), DataRepositoryError> {
-        let resp = self.repository.repository_by_name("default").await;
+        let resp = self
+            .repository
+            .repository_by_name(DEFAULT_REPOSITORY_NAME)
+            .await;
         if resp.is_err() {
             info!("creating default repository");
             let default_repo = DataRepository {
-                name: "default".into(),
+                name: DEFAULT_REPOSITORY_NAME.into(),
                 extractors: vec![ExtractorConfig {
-                    name: "default".into(),
+                    name: DEFAULT_EXTRACTOR_NAME.into(),
                     content_type: ContentType::Text,
                     extractor_type: ExtractorType::Embedding {
                         model: server_config.default_model().model_kind.to_string(),
