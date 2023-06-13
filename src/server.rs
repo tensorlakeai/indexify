@@ -1,6 +1,6 @@
 use crate::data_repository_manager::DataRepositoryManager;
 use crate::extractors::ExtractorRunner;
-use crate::index::{CreateIndexArgs, IndexManager};
+use crate::index::IndexManager;
 use crate::persistence::{
     ContentType, DataConnector, DataRepository, ExtractorConfig, ExtractorType, Repository,
     SourceType, Text,
@@ -304,19 +304,14 @@ impl From<IndexDistance> for ApiIndexDistance {
 }
 
 /// Request payload for creating a new vector index.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct IndexCreateRequest {
-    name: String,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ExtractorAddRequest {
     repository: Option<String>,
-    embedding_model: String,
-    distance: ApiIndexDistance,
-    text_splitter: ApiTextSplitterKind,
-
-    hash_on: Option<Vec<String>>,
+    extractor: ApiExtractor,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct IndexCreateResponse {}
+struct ExtractorAddResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiText {
@@ -342,11 +337,11 @@ struct SearchRequest {
     k: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CreateMemorySessionRequest {
     session_id: Option<String>,
     repository: Option<String>,
-    index_args: IndexCreateRequest,
+    extractor: Option<ApiExtractor>,
     metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -423,7 +418,6 @@ impl IntoResponse for IndexifyAPIError {
 #[derive(Clone)]
 pub struct IndexEndpointState {
     index_manager: Arc<IndexManager>,
-    embedding_router: Arc<EmbeddingRouter>,
 }
 
 #[derive(Clone)]
@@ -483,7 +477,6 @@ impl Server {
         );
         let index_state = IndexEndpointState {
             index_manager: index_manager.clone(),
-            embedding_router: embedding_router.clone(),
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
@@ -500,11 +493,11 @@ impl Server {
                 get(generate_embedding).with_state(embedding_router.clone()),
             )
             .route(
-                "/index/create",
-                post(index_create).with_state(index_state.clone()),
+                "/repository/add_extractor",
+                post(index_create).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/content/add_text",
+                "/repository/add_text",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -629,34 +622,21 @@ async fn get_repository(
 
 #[axum_macros::debug_handler]
 async fn index_create(
-    State(state): State<IndexEndpointState>,
-    Json(payload): Json<IndexCreateRequest>,
-) -> Result<Json<IndexCreateResponse>, IndexifyAPIError> {
-    let _ = state
-        .embedding_router
-        .get_model(&payload.embedding_model)
-        .map_err(|e| IndexifyAPIError::new(StatusCode::BAD_REQUEST, e.to_string()))?;
-    let index_args = CreateIndexArgs {
-        name: payload.name,
-        distance: payload.distance.into(),
-    };
-    let result = state
-        .index_manager
-        .create_index(
-            index_args,
-            &payload.repository.unwrap_or("default".into()),
-            payload.embedding_model,
-            payload.text_splitter.into(),
-        )
-        .await;
-
-    if let Err(err) = result {
-        return Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ));
-    }
-    Ok(Json(IndexCreateResponse {}))
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<ExtractorAddRequest>,
+) -> Result<Json<ExtractorAddResponse>, IndexifyAPIError> {
+    let repository = get_or_default_repository(payload.repository);
+    state
+        .repository_manager
+        .add_extractor(&repository, payload.extractor.into())
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to add extractor: {}", e),
+            )
+        })?;
+    Ok(Json(ExtractorAddResponse {}))
 }
 
 #[axum_macros::debug_handler]
@@ -694,9 +674,15 @@ async fn create_memory_session(
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
     let repo = &get_or_default_repository(payload.repository);
+    let extractor: Option<ExtractorConfig> = payload.extractor.map(|e| e.into());
     let session_id = state
         .memory_manager
-        .create_session(repo, payload.session_id, payload.metadata.unwrap())
+        .create_session(
+            repo,
+            payload.session_id,
+            extractor,
+            payload.metadata.unwrap(),
+        )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
