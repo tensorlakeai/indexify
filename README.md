@@ -34,4 +34,3 @@ Please open an issue to discuss new features, or join our Discord group. Contrib
 
 ## Contact 
 Join the Discord Server - https://discord.gg/mrXrq3DmV8 <br />
-Email - diptanuc@gmail.com, kanchi.shah957@gmail.com
