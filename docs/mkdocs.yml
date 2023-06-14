@@ -5,6 +5,11 @@ repo_name: diptanu/indexify
 edit_uri: edit/main/docs/docs
 copyright: Copyright &copy; 2023 Indexify
 
+markdown_extensions:
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true 
+
 nav:
   - Home: 'index.md'
   - Getting Started: 'getting_started.md'
