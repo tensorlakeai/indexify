@@ -1,36 +1,31 @@
 # Indexify APIs
 
-Indexify provides REST HTTP APIs, that can be interacted with from any programming languages, as well as a python library.
+Indexify has REST APIs and a python library for adding documents and long term memory for retrieval.
 
-Retrieval APIs are centered around managing and populating indexes, and querying them using various algorithms. More information on the Retrieval APIs can be found [here](retrieval.md).
+Indexes are automatically updated when content or memory is added, and are made available for retrieval. More information on the Retrieval APIs can be found [here](retrieval.md).
 
-Memory APIs are centered around retrieving memory from conversation history to use in context. Indexify supports retrieving all conversation history for a memory session, as well as query-based semantic search. More information on Memory APIs can be found [here](memory.md).
+Memory APIs provides long term storage and retrieval of interactions with LLMs and users. Memory retrieval APIs provide access to all previously stored messages or most relevant messages based on a query. More information on Memory APIs can be found [here](memory.md).
 
 ## Key Concepts
 
+### Data Repositories
+Data Repositories are logical abstractions for storing related documents, and storing long term memory of LLM applications which require access to knowledge encapsulated in the documents. By default, we crate a `default` data repository to make it easy to get started.
+
+### Extractors
+Extractors are process that extracts information from documents and memory and populates indexes and other databases to be made available for retrieval processes. 
+Extractors enables embedding documents and populating indexes in vector databases, or extracting named entities from memory. 
+We create a default extractor to enable indexing all documents in a data repository.
+
 ### Index
 An index is a data structure that allows for quick retrieval of relevant information, given a user query.
-
 Indexify currently supports [HNSW (Hierarchical Navigable Small World Graph)](https://arxiv.org/abs/1603.09320) based vector indexes.
 
-### Document
+### Document 
 
-A document represents information as corpuses of text, along with corresponding metadata. Document text can be as large as the user wants.
+A document represents information as corpus of text, along with corresponding metadata. Document text can be as large as the user wants.
 
-Documents are chunked, embedded, and indexed; semantic search can be performed on the embedded vectors.
+Documents are chunked, embedded, and indexed automatically.
 
-### Memory Session
+### Memory
 
-A memory session allows for storage, retrieval of, and search of temporal information data (ie: chatbot conversation history). 
-
-By default LLMs are stateless; memory sessions can be utilized for applications such as chatbots to retain context from prior messages in a conversation.
-
-
-## Python Library
-
-### Getting started
-```
-pip install indexify
-```
-
-More information coming soon.
+Memory module allows for storage, retrieval of, and search of temporal information data (ie: chatbot conversation history). Memory events are stored in a `Session` in a data repository. 
