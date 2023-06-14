@@ -1,5 +1,4 @@
 mod data_repository_manager;
-//mod embedding_worker;
 mod embeddings;
 mod entity;
 mod extractors;

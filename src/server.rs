@@ -30,7 +30,6 @@ enum ApiExtractorType {
     #[serde(rename = "embedding")]
     Embedding {
         model: String,
-        //TODO: Rename this to distance
         distance: ApiIndexDistance,
         text_splitter: ApiTextSplitterKind,
     },
