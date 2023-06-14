@@ -447,13 +447,11 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
-        let index_manager = Arc::new(
-            IndexManager::new(
-                repository.clone(),
-                self.config.index_config.clone(),
-                embedding_router.clone(),
-            )?
-        );
+        let index_manager = Arc::new(IndexManager::new(
+            repository.clone(),
+            self.config.index_config.clone(),
+            embedding_router.clone(),
+        )?);
         let extractor_runner = Arc::new(ExtractorRunner::new(
             repository.clone(),
             index_manager.clone(),

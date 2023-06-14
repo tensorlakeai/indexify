@@ -23,9 +23,7 @@ ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 RUN cargo build --release
 
-RUN cargo install sea-orm-cli
-
-RUN DATABASE_URL=sqlite://new_indexify.db sea-orm-cli migrate up
+RUN cargo build --package migration --release
 
 FROM --platform=linux/amd64 ubuntu:22.04
 
@@ -41,16 +39,19 @@ WORKDIR /indexify
 
 COPY --from=builder /indexify-build/target/release/indexify ./
 
+COPY --from=builder /indexify-build/target/release/migration ./
+
 COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
 COPY --from=builder /indexify-build/new_indexify.db ./indexify.db
 
 COPY --from=builder /indexify-build/src_py/ /indexify/src_py/
 
+COPY ./scripts/docker_compose_start.sh .
+
 RUN cd src_py && /venv/bin/pip install .
 
 ENV PATH=/venv/bin:$PATH
 
-ENTRYPOINT [ "/indexify/indexify" ]
-
-CMD [ "start", "-c", "./config/indexify.yaml" ]
+# This serves as a test to ensure the binary actually works
+CMD [ "/indexify/indexify", "start", "-c", "./config/indexify.yaml" ]
