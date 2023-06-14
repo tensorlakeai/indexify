@@ -8,6 +8,7 @@ use crate::persistence::{Repository, RepositoryError, SourceType, Text};
 
 use self::google::contacts::GoogleContactsDataConnector;
 use self::google::gmail::GmailDataConnector;
+use self::google::GoogleCredentials;
 
 #[derive(Error, Debug)]
 pub enum DataConnectorError {
@@ -42,22 +43,22 @@ impl DataConnectorManager {
         for config in data_connector_config {
             let reader = match config.source {
                 SourceType::Gmail {
-                    access_token,
                     refresh_token,
+                    client_id,
+                    client_secret,
                 } => Arc::new(GmailDataConnector::new(
-                    access_token,
-                    refresh_token,
                     repository.clone(),
                     repository_name.into(),
+                    GoogleCredentials::new(refresh_token, client_id, client_secret),
                 )) as DataConnectorTS,
                 SourceType::GoogleContact {
-                    access_token,
                     refresh_token,
+                    client_id,
+                    client_secret,
                 } => Arc::new(GoogleContactsDataConnector::new(
-                    access_token,
-                    refresh_token,
                     repository.clone(),
                     repository_name,
+                    GoogleCredentials::new(refresh_token, client_id, client_secret),
                 )) as DataConnectorTS,
             };
             readers.push(reader);

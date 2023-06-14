@@ -91,26 +91,28 @@ impl Default for ExtractorConfig {
 pub enum SourceType {
     #[serde(rename = "google_contact")]
     GoogleContact {
-        access_token: String,
         refresh_token: String,
+        client_id: String,
+        client_secret: String,
     },
     #[serde(rename = "gmail")]
     Gmail {
-        access_token: String,
         refresh_token: String,
+        client_id: String,
+        client_secret: String,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "data_connector")]
-pub struct DataConnector {
+pub struct DataConnectorType {
     pub source: SourceType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataRepository {
     pub name: String,
-    pub data_connectors: Vec<DataConnector>,
+    pub data_connectors: Vec<DataConnectorType>,
     pub extractors: Vec<ExtractorConfig>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
@@ -518,7 +520,7 @@ impl Repository {
     pub async fn get_data_connectors(
         &self,
         repository_name: String,
-    ) -> Result<Vec<DataConnector>, RepositoryError> {
+    ) -> Result<Vec<DataConnectorType>, RepositoryError> {
         let repository_model = DataRepositoryEntity::find()
             .filter(entity::data_repository::Column::Name.eq(&repository_name))
             .one(&self.conn)

@@ -2,7 +2,7 @@ use crate::data_repository_manager::DataRepositoryManager;
 use crate::extractors::ExtractorRunner;
 use crate::index::{CreateIndexArgs, IndexManager};
 use crate::persistence::{
-    ContentType, DataConnector, DataRepository, ExtractorConfig, ExtractorType, Repository,
+    ContentType, DataConnectorType, DataRepository, ExtractorConfig, ExtractorType, Repository,
     SourceType, Text,
 };
 use crate::text_splitters::TextSplitterKind;
@@ -141,13 +141,15 @@ impl From<DataRepository> for ApiDataRepository {
 pub enum ApiSourceType {
     #[serde(rename = "google_contact")]
     GoogleContact {
-        access_token: String,
         refresh_token: String,
+        client_id: String,
+        client_secret: String,
     },
     #[serde(rename = "gmail")]
     Gmail {
-        access_token: String,
         refresh_token: String,
+        client_id: String,
+        client_secret: String,
     },
 }
 
@@ -155,18 +157,22 @@ impl From<ApiSourceType> for SourceType {
     fn from(value: ApiSourceType) -> Self {
         match value {
             ApiSourceType::GoogleContact {
-                access_token,
                 refresh_token,
+                client_id,
+                client_secret,
             } => SourceType::GoogleContact {
-                access_token,
                 refresh_token,
+                client_id,
+                client_secret,
             },
             ApiSourceType::Gmail {
-                access_token,
                 refresh_token,
+                client_id,
+                client_secret,
             } => SourceType::Gmail {
-                access_token,
                 refresh_token,
+                client_id,
+                client_secret,
             },
         }
     }
@@ -178,7 +184,7 @@ pub struct ApiDataConnector {
     pub source: ApiSourceType,
 }
 
-impl From<ApiDataConnector> for DataConnector {
+impl From<ApiDataConnector> for DataConnectorType {
     fn from(value: ApiDataConnector) -> Self {
         Self {
             source: value.source.into(),

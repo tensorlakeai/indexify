@@ -188,7 +188,7 @@ impl DataRepositoryManager {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::persistence::{DataConnector, ExtractorConfig, ExtractorType, SourceType};
+    use crate::persistence::{DataConnectorType, ExtractorConfig, ExtractorType, SourceType};
     use crate::text_splitters::TextSplitterKind;
     use crate::{test_util, IndexDistance};
     use serde_json::json;
@@ -205,8 +205,9 @@ mod tests {
         let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         let mut meta = HashMap::new();
         let source = SourceType::GoogleContact {
-            access_token: "a".into(),
-            refresh_token: "b".into(),
+            refresh_token: "test".to_string(),
+            client_id: "test".to_string(),
+            client_secret: "test".to_string(),
         };
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
@@ -221,7 +222,7 @@ mod tests {
                 },
             }],
             metadata: meta.clone(),
-            data_connectors: vec![DataConnector {
+            data_connectors: vec![DataConnectorType {
                 source: source.clone(),
             }],
         };

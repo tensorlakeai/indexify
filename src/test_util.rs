@@ -21,6 +21,11 @@ pub mod db_utils {
     use super::super::entity::index_chunks::Entity as IndexChunkEntity;
     use super::super::entity::memory_sessions::Entity as MemorySessionEntity;
 
+    pub async fn create_repository() -> Arc<Repository> {
+        let db = create_db().await.unwrap();
+        Arc::new(Repository::new_with_db(db.clone()))
+    }
+
     pub async fn create_index_manager(
         db: DatabaseConnection,
         index_name: &str,

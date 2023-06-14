@@ -6,25 +6,24 @@ use crate::{
 };
 use async_trait::async_trait;
 
+use super::GoogleCredentials;
+
 pub struct GmailDataConnector {
-    _access_token: String,
-    _refresh_token: String,
     repository: Arc<Repository>,
     repository_name: String,
+    _credentials: GoogleCredentials,
 }
 
 impl GmailDataConnector {
     pub fn new(
-        _access_token: String,
-        _refresh_token: String,
         repository: Arc<Repository>,
         repository_name: String,
+        credentials: GoogleCredentials,
     ) -> Self {
         Self {
-            _access_token,
-            _refresh_token,
             repository,
             repository_name,
+            _credentials: credentials,
         }
     }
 }
