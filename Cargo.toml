@@ -35,3 +35,6 @@ tiktoken-rs = {version = "^0"}
 dashmap = "5.4.0"
 time = { version = "0.3", features = ["macros"] }
 pyo3 = {version="^0", features=["auto-initialize"]}
+
+[dev-dependencies]
+migration = {path ="./migration"}

@@ -7,7 +7,7 @@ use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ActiveModelTrait, ColumnTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DbBackend, Statement};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
@@ -426,9 +426,9 @@ impl Repository {
         extractor_content_type: ContentType,
     ) -> Result<Vec<entity::content::Model>, RepositoryError> {
         let result = entity::content::Entity::find()
-            .filter(entity::content::Column::RepositoryId.eq(repo_id))
-            .filter(entity::content::Column::ExtractorsState.not_like(&format!("%{}%", extractor)))
-            .filter(entity::content::Column::ContentType.eq(extractor_content_type.to_string()))
+        .from_raw_sql(Statement::from_sql_and_values(DbBackend::Postgres,
+            r#"select * from content where repository_id=$1 and content_type = $2 and COALESCE(cast(extractors_state->'state'->>'$3' as int),0) < 1"#,
+            [repo_id.into(), extractor_content_type.to_string().into(), extractor.into()]))
             .all(&self.conn)
             .await?;
         Ok(result)
