@@ -20,7 +20,8 @@ entity:
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
 migrate-dev:
-	docker run --rm -p 5432:5432 --name=indexify-local-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=indexify -d postgres
+	docker run --rm -p 5432:5432 --name=indexify-local-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexify -d postgres
+	timeout 90s bash -c "until docker exec indexify-local-postgres pg_isready ; do sleep 5 ; done"
 	cargo install sea-orm-cli
 	DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexify
 	sea-orm-cli migrate up

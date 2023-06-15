@@ -1408,6 +1408,7 @@ dependencies = [
  "dashmap",
  "figment",
  "md-5",
+ "migration",
  "oneshot",
  "pyo3",
  "qdrant-client",

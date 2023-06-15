@@ -31,12 +31,16 @@ impl ExtractorRunner {
             .repository
             .repository_by_name(repository_name)
             .await
-            .map_err(|e| anyhow!(e.to_string()))?;
+            .map_err(|e| anyhow!(format!("error getting repository: {}", e)))?;
 
         for extractor in repository.extractors {
             if let ExtractorType::Embedding { .. } = extractor.extractor_type {
                 let index_name: String = format!("{}/{}", repository_name, extractor.name);
-                let index = self.index_manager.load(&index_name).await?;
+                let index = self
+                    .index_manager
+                    .load(&index_name)
+                    .await
+                    .map_err(|e| anyhow!("unable to load index: {}", e.to_string()))?;
                 let content_by_repo = self
                     .repository
                     .content_with_unapplied_extractor(
@@ -44,9 +48,18 @@ impl ExtractorRunner {
                         &extractor.name,
                         extractor.content_type,
                     )
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        anyhow!(
+                            "unable to get content which hasn't been extracted: {}",
+                            e.to_string()
+                        )
+                    })?;
                 for content in content_by_repo {
-                    index.add_to_index(content).await?;
+                    index
+                        .add_to_index(content)
+                        .await
+                        .map_err(|e| anyhow!("unable to add to index: {}", e.to_string()))?;
                 }
             }
         }
