@@ -9,6 +9,13 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true 
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+
 
 nav:
   - Home: 'index.md'
@@ -41,6 +48,9 @@ theme:
     - navigation.tracking
     - navigation.sections
     - navigation.expand
+    - content.code.copy
+    - content.code.annotate
+
 
   palette: 
     - scheme: default

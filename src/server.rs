@@ -55,9 +55,11 @@ impl From<ExtractorType> for ApiExtractorType {
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize)]
 enum ApiExtractorContentType {
     #[strum(serialize = "text")]
+    #[serde(rename = "text")]
     Text,
 
     #[strum(serialize = "memory")]
+    #[serde(rename = "memory")]
     Memory,
 }
 

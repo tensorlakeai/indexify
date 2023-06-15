@@ -1,57 +1,55 @@
 # Retrieval APIs
 
-Retrieval APIs are centered around managing and populating indexes, and querying them using various algorithms.
-
-
-## Index Creation
-
-```
-POST /index/create 
-```
-### Request Body
-* `name` - Name of the index
-
-* `embedding_model`- Name of the embedding model to use.
-
-* `metric` - Distance Metric to use for similarity search on the Index. Possible values - `dot`, `cosine` and `euclidean`.
-
-* `text_splitter` - Text Splitting algorithm to use to chunk long text into shorter text. Possible values - `none`, `new_line`, `{"html": {"num_elements": 1}}`
-
-
-* `hash_on` - List of attributes in the metadata of documents to hash on for uniqueness of content. If the list is empty, we will hash on the document content such that duplicates are not inserted in the index.
-
-### Example 
-```
-curl -X POST http://localhost:8900/index/create   -H "Content-Type: application/json" -d '{"name": "myindex", "embedding_model": "all-minilm-l12-v2","metric": "dot", "text_splitter": "new_line"}'
-```
-
-## Adding to the Indexes
-
-```
-POST /index/add
-```
-
-### Request Body
-* `index` - Index in which the text belongs to.
-* `documents` - List of document objects. Structure of document objects - 
-    * `text` - Text of the document
-    * `metadata` - Key/Value pair of metadata associated with the text. 
-
-### Example
-```
-curl -X POST http://localhost:8900/index/add   -H "Content-Type: application/json" -d '{"index": "myindex", "documents": [{"text": "Indexify is amazing!", "metadata":{"key": "k1"}}]}'
-```
+Retrieval APIs allow querying vector indexes and other datastores, derived from the content added in data repositories. A default extractor to embed and create indexes are automatically created by indexify for every data repository, but you can add a new extractor using any embedding model available on the platform and create as many indexes you need.
 
 ## Index Query
-```
-GET /index/search
+
+=== "curl"
+      ```
+      curl -X GET http://localhost:8900/index/search
+      -H "Content-Type: application/json"
+      -d '{
+            "index": "default/default",
+            "query": "good",
+            "k": 1
+      }'
+      ```
+
+#### Output 
+``` json
+{
+      "results":[{
+            "text":"Indexify is amazing!",
+            "metadata":{
+                  "key":"k1"
+                  }
+            }
+      ]}
 ```
 ### Request Body
 * `index` - Name of the index to search on.
 * `query` - Query string.
 * `k` - top k responses.
 
-### Example 
-```
-curl -X GET http://localhost:8900/index/search   -H "Content-Type: application/json" -d '{"index": "myindex", "query": "good", "k": 1}'
-```
+
+## Adding Extractors to a Repository
+Adding an extractor is the primary means to create new indexes for a repository. This can be achieved by adding a new extractor to the repository spec, and syncing it back with Indexify. The API `/repository/add_extractor` adds an extractor to an existing data repository.
+
+=== "curl"
+    ``` console
+    curl -X POST http://localhost:8900/repository/add_extractor
+    -H "Content-Type: application/json"
+    -d '{
+        "extractor": {
+            "name": "dpr-index",
+            "content_type": "text",
+            "extractor_type": {
+                  "embedding" :{
+                        "model": "dpr",
+                        "distance": "cosine",
+                        "text_splitter": "none"
+                        }
+                  }
+            }
+    }'
+    ```
