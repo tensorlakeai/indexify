@@ -24,6 +24,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+const DEFAULT_SEARCH_LIMIT: u64 = 5;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "extractor_type")]
 enum ApiExtractorType {
@@ -335,7 +337,7 @@ struct IndexAdditionResponse {
 struct SearchRequest {
     index: String,
     query: String,
-    k: u64,
+    k: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -726,7 +728,7 @@ async fn search_memory_session(
 ) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
     let messages = memory_manager
-        .search(&repo, &payload.session_id, &payload.query, payload.k.unwrap_or(5))
+        .search(&repo, &payload.session_id, &payload.query, payload.k.unwrap_or(DEFAULT_SEARCH_LIMIT))
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -743,7 +745,7 @@ async fn index_search(
         .load(&query.index)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let results = index.search(&query.query, query.k).await;
+    let results = index.search(&query.query, query.k.unwrap_or(DEFAULT_SEARCH_LIMIT)).await;
     if let Err(err) = results {
         return Err(IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
