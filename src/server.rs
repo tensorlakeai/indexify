@@ -508,7 +508,7 @@ impl Server {
             )
             .route(
                 "/memory/add",
-                post(add_to_memory_session).with_state(memory_manager.clone()),
+                post(add_to_memory_session).with_state(memory_state.clone()),
             )
             .route(
                 "/memory/get",
@@ -691,14 +691,16 @@ async fn create_memory_session(
 
 #[axum_macros::debug_handler]
 async fn add_to_memory_session(
-    State(memory_manager): State<Arc<MemoryManager>>,
+    State(state): State<MemoryEndpointState>,
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
-    memory_manager
+    state.memory_manager
         .add_messages(&repo, &payload.session_id, payload.messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    state.extractor_runner.sync_repo(&repo).await;
 
     Ok(Json(MemorySessionAddResponse {}))
 }

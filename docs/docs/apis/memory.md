@@ -66,3 +66,19 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 * `session_id` - UUID corresponding to memory session.
 * `query` - Query string.
 * `k` - Top k responses.
+
+#### Output
+```json
+{
+    "messages":[
+        {
+            "text": "Order me a tasty apple!",
+            "role":"Human",
+            "metadata":{
+                "session_id": "b438c953-07d8-441f-8169-b2c4721ef193",
+                "role": "Human"
+            }
+        }
+    ]
+}
+```
