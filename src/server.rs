@@ -377,7 +377,7 @@ struct MemorySessionSearchRequest {
     session_id: String,
     repository: Option<String>,
     query: String,
-    k: u64,
+    k: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -726,7 +726,7 @@ async fn search_memory_session(
 ) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
     let messages = memory_manager
-        .search(&repo, &payload.session_id, &payload.query, payload.k)
+        .search(&repo, &payload.session_id, &payload.query, payload.k.unwrap_or(5))
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
