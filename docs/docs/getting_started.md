@@ -45,6 +45,7 @@ The default data repository is configured to have an extractor which populates a
         }'
     ```
 
+
 #### Start Using Memory
 1. Create Memory Session
 Memory is usually stored for interactions of an agent with a user or in a given context. Related messages are grouped in Indexify as a `Session`, so first create a session!
@@ -56,6 +57,7 @@ Memory is usually stored for interactions of an agent with a user or in a given 
     ```
     You can optionally pass in a `session-id` while creating a session if you would
     like to use a user-id or any other application id to retrieve and search for memory.
+
 
 2. Add Memory Events
 === "curl"
@@ -78,6 +80,7 @@ Memory is usually stored for interactions of an agent with a user or in a given 
         ]}'
     ```
 
+
 3. Retrieve All Memory Events
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
@@ -89,6 +92,7 @@ You can retrieve all the previously stored messages in Indexify for a given sess
         }
     ```
 
+
 4. Retrieve using search
 Now, search for something specific! Every memory session comes with a default index, you could also
 add more extractors to a session, and add more than one index or extract other specific information
@@ -99,7 +103,7 @@ from the messages(like named entities - places, names, etc).
     -H "Content-Type: application/json" 
     -d '{
             "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
-            "query": "indexify",
+            "query": "indexify"
         }
     ```
 
