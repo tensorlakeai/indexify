@@ -1,7 +1,7 @@
 use sea_orm::DbConn;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tracing::log::info;
+use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 pub const DEFAULT_EXTRACTOR_NAME: &str = "default";

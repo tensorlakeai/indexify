@@ -679,7 +679,7 @@ async fn create_memory_session(
             repo,
             payload.session_id,
             extractor,
-            payload.metadata.unwrap(),
+            payload.metadata.unwrap_or_default(),
         )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -696,7 +696,7 @@ async fn add_to_memory_session(
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
     memory_manager
-        .add_messages(&payload.session_id, &repo, payload.messages)
+        .add_messages(&repo, &payload.session_id, payload.messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

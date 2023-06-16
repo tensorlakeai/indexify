@@ -321,6 +321,14 @@ impl Repository {
         memory_session: Option<&str>,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
+        if memory_session.is_some() {
+            // Ensure that the session exists
+            let _session = entity::memory_sessions::Entity::find()
+                .filter(entity::memory_sessions::Column::SessionId.eq(memory_session))
+                .one(&tx)
+                .await?
+                .ok_or(RepositoryError::SessionNotFound("session not found".into()))?;
+        }
         let mut content_list = Vec::new();
         for text in texts {
             let content_id = create_content_id(repository_name, &text.text);
