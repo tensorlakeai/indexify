@@ -47,22 +47,59 @@ The default data repository is configured to have an extractor which populates a
 
 #### Start Using Memory
 1. Create Memory Session
+Memory is usually stored for interactions of an agent with a user or in a given context. Related messages are grouped in Indexify as a `Session`, so first create a session!
 === "curl"
     ```
+    curl -X POST http://localhost:8900/memory/create
+    -H "Content-Type: application/json" 
+    -d '{}'
     ```
+    You can optionally pass in a `session-id` while creating a session if you would
+    like to use a user-id or any other application id to retrieve and search for memory.
 
 2. Add Memory Events
 === "curl"
     ```
+    curl -X POST http://localhost:8900/memory/add
+    -H "Content-Type: application/json" 
+    -d '{
+            "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
+            "messages": [
+                {
+                "role": "human",
+                "text": "Indexify is amazing!",
+                "metadata": {}
+                },
+                {
+                "role": "ai",
+                "text": "How are you planning on using Indexify?!"
+                "metadata": {}
+                }
+        ]}'
     ```
 
 3. Retrieve All Memory Events
+You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
     ```
+    curl -X GET http://localhost:8900/memory/get
+    -H "Content-Type: application/json" 
+    -d '{
+            "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13"
+        }
     ```
 
 4. Retrieve using search
+Now, search for something specific! Every memory session comes with a default index, you could also
+add more extractors to a session, and add more than one index or extract other specific information
+from the messages(like named entities - places, names, etc).
 === "curl"
     ```
+    curl -X GET http://localhost:8900/memory/search
+    -H "Content-Type: application/json" 
+    -d '{
+            "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
+            "query": "indexify",
+        }
     ```
 
