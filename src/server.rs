@@ -697,7 +697,8 @@ async fn add_to_memory_session(
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
-    state.memory_manager
+    state
+        .memory_manager
         .add_messages(&repo, &payload.session_id, payload.messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -728,7 +729,12 @@ async fn search_memory_session(
 ) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
     let messages = memory_manager
-        .search(&repo, &payload.session_id, &payload.query, payload.k.unwrap_or(DEFAULT_SEARCH_LIMIT))
+        .search(
+            &repo,
+            &payload.session_id,
+            &payload.query,
+            payload.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
+        )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -745,16 +751,12 @@ async fn index_search(
         .load(&query.index)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let results = index.search(&query.query, query.k.unwrap_or(DEFAULT_SEARCH_LIMIT)).await;
-    if let Err(err) = results {
-        return Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ));
-    }
+    let results = index
+        .search(&query.query, query.k.unwrap_or(DEFAULT_SEARCH_LIMIT))
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let document_fragments: Vec<DocumentFragment> = results
-        .unwrap()
         .iter()
         .map(|text| DocumentFragment {
             text: text.text.to_owned(),
