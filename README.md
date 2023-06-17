@@ -3,9 +3,7 @@
 ![Tests](https://github.com/diptanu/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 
 Indexify is a knowledge and memory retrieval service for Large Language Models. It faciliates in-context learning of LLMs by providing relevant context in a prompt or expsing relevant memory to AI agents.
-It also faciliates efficient execution of fine tuned/pre-trained embedding models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience.
-
-Currently for production use-case, the embedding generation APIs are stable, while the other features are coming along.
+It also faciliates efficient execution of fine tuned/pre-trained embedding models and expose them over APIs. Several state of the art retreival algorithms are implemented to provide a batteries-included retrieval experience
 
 ## Why Use Indexify
 1. Create indexes from documents and search them to retrieve relevant context for Large Language Model based inference.
