@@ -27,7 +27,7 @@ local-dev:
 	DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexify
 	sea-orm-cli migrate up
 	docker stop indexixify-local-qdrant || true
-	docker run --rm  --name=indexixify-local-qdrant -d --net=host -e QDRANT__SERVICE__GRPC_PORT="6334"  qdrant/qdrant:v1.1.1
+	docker run --rm -p 6334:6334 --name=indexixify-local-qdrant -d -e QDRANT__SERVICE__GRPC_PORT="6334"  qdrant/qdrant:v1.1.1
 
 test:
 	run_tests.sh

@@ -446,7 +446,8 @@ pub struct RepositoryEndpointState {
         ),
         components(
             schemas(SyncRepository, SyncRepositoryResponse, ApiDataConnector, ApiExtractor, 
-                ApiTextSplitterKind, ApiIndexDistance, ApiExtractorType, ApiExtractorContentType, ApiSourceType)
+                ApiTextSplitterKind, ApiIndexDistance, ApiExtractorType, ApiExtractorContentType, 
+                ApiSourceType)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
