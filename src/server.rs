@@ -20,13 +20,15 @@ use tracing::info;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "extractor_type")]
 enum ApiExtractorType {
     #[serde(rename = "embedding")]
@@ -54,7 +56,7 @@ impl From<ExtractorType> for ApiExtractorType {
     }
 }
 
-#[derive(Debug, Clone, EnumString, Serialize, Deserialize)]
+#[derive(Debug, Clone, EnumString, Serialize, Deserialize, ToSchema)]
 enum ApiExtractorContentType {
     #[strum(serialize = "text")]
     #[serde(rename = "text")]
@@ -83,7 +85,7 @@ impl From<ApiExtractorContentType> for ContentType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "extractor")]
 struct ApiExtractor {
     pub name: String,
@@ -139,7 +141,7 @@ impl From<DataRepository> for ApiDataRepository {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "source_type")]
 pub enum ApiSourceType {
     // todo: replace metadata with actual request parameters for GoogleContactApi
@@ -159,7 +161,7 @@ impl From<ApiSourceType> for SourceType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "data_connector")]
 pub struct ApiDataConnector {
     pub source: ApiSourceType,
@@ -173,7 +175,7 @@ impl From<ApiDataConnector> for DataConnector {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SmartDefault)]
+#[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 struct SyncRepository {
     pub name: String,
     pub extractors: Vec<ApiExtractor>,
@@ -181,7 +183,7 @@ struct SyncRepository {
     pub data_connectors: Vec<ApiDataConnector>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 struct SyncRepositoryResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,7 +234,7 @@ struct ListEmbeddingModelsResponse {
     models: Vec<EmbeddingModel>,
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display, Clone)]
+#[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display, Clone, ToSchema)]
 #[strum(serialize_all = "snake_case")]
 enum ApiTextSplitterKind {
     // Do not split text.
@@ -269,7 +271,7 @@ impl From<ApiTextSplitterKind> for TextSplitterKind {
     }
 }
 
-#[derive(Display, Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Display, Debug, Serialize, Deserialize, Clone, Default, ToSchema)]
 #[serde(rename = "distance")]
 enum ApiIndexDistance {
     #[serde(rename = "dot")]
@@ -437,6 +439,21 @@ pub struct RepositoryEndpointState {
     extractor_worker: Arc<ExtractorRunner>,
 }
 
+#[derive(OpenApi)]
+#[openapi(
+        paths(
+            sync_repository,
+        ),
+        components(
+            schemas(SyncRepository, SyncRepositoryResponse, ApiDataConnector, ApiExtractor, 
+                ApiTextSplitterKind, ApiIndexDistance, ApiExtractorType, ApiExtractorContentType, ApiSourceType)
+        ),
+        tags(
+            (name = "indexify", description = "Indexify API")
+        )
+    )]
+struct ApiDoc;
+
 pub struct Server {
     addr: SocketAddr,
     config: Arc<ServerConfig>,
@@ -483,6 +500,7 @@ impl Server {
             extractor_runner: extractor_runner.clone(),
         };
         let app = Router::new()
+            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route("/", get(root))
             .route(
                 "/embeddings/models",
@@ -546,6 +564,15 @@ async fn root() -> &'static str {
 }
 
 #[axum_macros::debug_handler]
+#[utoipa::path(
+    post,
+    path = "/repository/sync",
+    request_body = SyncRepository,
+    responses(
+        (status = 200, description = "Repository synced successfully", body = SyncRepositoryResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
+    ),
+)]
 async fn sync_repository(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<SyncRepository>,

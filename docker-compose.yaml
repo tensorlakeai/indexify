@@ -1,4 +1,4 @@
-version: "3.9"
+version: "3"
 networks:
   dependencies:
     ipam:
@@ -18,8 +18,6 @@ services:
       - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
     environment:
       - OPENAI_API_KEY
-    profiles:
-      - local
     depends_on:
       - qdrant
       - postgres
@@ -29,14 +27,12 @@ services:
         dependencies:
   qdrant:
     image: qdrant/qdrant:latest
-    profiles: ["local", "unittests"]
     restart: always
     networks:
         dependencies:
             ipv4_address: 172.20.0.8
   postgres:
     image: postgres
-    profiles: ["local"]
     restart: always
     environment:
       - POSTGRES_PASSWORD=postgres
