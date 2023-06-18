@@ -35,6 +35,8 @@ tiktoken-rs = {version = "^0"}
 dashmap = "5.4.0"
 time = { version = "0.3", features = ["macros"] }
 pyo3 = {version="^0", features=["auto-initialize"]}
+utoipa = {version="^3", features=["axum_extras"]}
+utoipa-swagger-ui = {version="^3", features = ["axum"] }
 
 [dev-dependencies]
 migration = {path ="./migration"}
