@@ -1,3 +1,4 @@
+mod api;
 mod data_repository_manager;
 mod embeddings;
 mod entity;
