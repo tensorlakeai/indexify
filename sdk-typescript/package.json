@@ -1,0 +1,8 @@
+{
+  "name": "indexify-js",
+  "packageManager": "yarn@3.6.0",
+  "version": "0.0.1",
+  "dependencies": {
+    "fetch": "^1.1.0"
+  }
+}
