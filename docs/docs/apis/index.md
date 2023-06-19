@@ -23,5 +23,8 @@ Indexify currently supports [HNSW (Hierarchical Navigable Small World Graph)](ht
 ### Document 
 
 A document represents information as corpus of text, along with corresponding metadata. Document text can be as large as the user wants.
-
 Documents are chunked, embedded, and indexed automatically.
+
+## API Docs UI
+Indexify uses Swagger to expose an interactive UI to play with the HTTP APIs, it could be a good way to experiment with the API.
+The UI is avialable at `https://localhost:8900/api-docs-ui/`
