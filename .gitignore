@@ -4,4 +4,6 @@ target
 ve
 site
 *.pyc
-node_modeules/
+node_modules
+package.json
+package-lock.json
