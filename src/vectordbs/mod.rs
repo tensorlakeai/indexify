@@ -62,8 +62,6 @@ pub enum VectorDbError {
 
 pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 
-pub const DOC_PAYLOAD: &str = "___document";
-
 #[derive(Debug, Clone)]
 pub struct VectorChunk {
     pub chunk_id: String,

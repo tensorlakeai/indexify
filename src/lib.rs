@@ -12,4 +12,4 @@ mod test_util;
 mod text_splitters;
 mod vectordbs;
 
-pub use {embeddings::*, memory::*, server::*, server_config::*, vectordbs::*};
+pub use {embeddings::*, memory::*, server::*, server_config::*};

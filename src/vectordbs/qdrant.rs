@@ -13,7 +13,7 @@ use qdrant_client::{
 };
 
 use super::{CreateIndexParams, VectorDb, VectorDbError};
-use crate::{IndexDistance, QdrantConfig, SearchResult, VectorChunk};
+use crate::{vectordbs::{IndexDistance, SearchResult, VectorChunk}, QdrantConfig};
 
 fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
     u64::from_str_radix(hex, 16)
@@ -182,7 +182,7 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::sync::Arc;
 
-    use crate::{IndexDistance, VectorChunk, VectorDBTS};
+    use crate::vectordbs::{IndexDistance, VectorChunk, VectorDBTS};
 
     use super::{CreateIndexParams, QdrantDb};
 

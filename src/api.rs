@@ -6,32 +6,30 @@ use strum_macros::{Display, EnumString};
 use utoipa::ToSchema;
 
 use crate::{
-    persistence::{
-        ContentType, DataConnector, DataRepository, ExtractorConfig, ExtractorType, SourceType,
-    },
-    text_splitters::TextSplitterKind,
-    IndexDistance, Message,
+    persistence,
+    Message, text_splitters,
 };
+use crate::vectordbs;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "extractor_type")]
-pub enum ApiExtractorType {
+pub enum ExtractorType {
     #[serde(rename = "embedding")]
     Embedding {
         model: String,
-        distance: ApiIndexDistance,
-        text_splitter: ApiTextSplitterKind,
+        distance: IndexDistance,
+        text_splitter: TextSplitterKind,
     },
 }
 
-impl From<ExtractorType> for ApiExtractorType {
-    fn from(value: ExtractorType) -> Self {
+impl From<persistence::ExtractorType> for ExtractorType {
+    fn from(value: persistence::ExtractorType) -> Self {
         match value {
-            ExtractorType::Embedding {
+            persistence::ExtractorType::Embedding {
                 model,
                 text_splitter,
                 distance,
-            } => ApiExtractorType::Embedding {
+            } => ExtractorType::Embedding {
                 model,
                 distance: distance.into(),
                 text_splitter: text_splitter.into(),
@@ -42,7 +40,7 @@ impl From<ExtractorType> for ApiExtractorType {
 }
 
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize, ToSchema)]
-pub enum ApiExtractorContentType {
+pub enum ExtractorContentType {
     #[strum(serialize = "text")]
     #[serde(rename = "text")]
     Text,
@@ -52,34 +50,34 @@ pub enum ApiExtractorContentType {
     Memory,
 }
 
-impl From<ContentType> for ApiExtractorContentType {
-    fn from(value: ContentType) -> Self {
+impl From<persistence::ContentType> for ExtractorContentType {
+    fn from(value: persistence::ContentType) -> Self {
         match value {
-            ContentType::Text => ApiExtractorContentType::Text,
-            ContentType::Memory => ApiExtractorContentType::Memory,
+            persistence::ContentType::Text => ExtractorContentType::Text,
+            persistence::ContentType::Memory => ExtractorContentType::Memory,
         }
     }
 }
 
-impl From<ApiExtractorContentType> for ContentType {
-    fn from(val: ApiExtractorContentType) -> Self {
+impl From<ExtractorContentType> for persistence::ContentType {
+    fn from(val: ExtractorContentType) -> Self {
         match val {
-            ApiExtractorContentType::Text => ContentType::Text,
-            ApiExtractorContentType::Memory => ContentType::Memory,
+            ExtractorContentType::Text => persistence::ContentType::Text,
+            ExtractorContentType::Memory => persistence::ContentType::Memory,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "extractor")]
-pub struct ApiExtractor {
+pub struct Extractor {
     pub name: String,
-    pub extractor_type: ApiExtractorType,
-    pub content_type: ApiExtractorContentType,
+    pub extractor_type: ExtractorType,
+    pub content_type: ExtractorContentType,
 }
 
-impl From<ExtractorConfig> for ApiExtractor {
-    fn from(value: ExtractorConfig) -> Self {
+impl From<persistence::ExtractorConfig> for Extractor {
+    fn from(value: persistence::ExtractorConfig) -> Self {
         Self {
             name: value.name,
             extractor_type: value.extractor_type.into(),
@@ -88,16 +86,16 @@ impl From<ExtractorConfig> for ApiExtractor {
     }
 }
 
-impl From<ApiExtractor> for ExtractorConfig {
-    fn from(val: ApiExtractor) -> Self {
-        ExtractorConfig {
+impl From<Extractor> for persistence::ExtractorConfig {
+    fn from(val: Extractor) -> Self {
+        persistence::ExtractorConfig {
             name: val.name,
             extractor_type: match val.extractor_type {
-                ApiExtractorType::Embedding {
+                ExtractorType::Embedding {
                     model,
                     distance,
                     text_splitter,
-                } => ExtractorType::Embedding {
+                } => persistence::ExtractorType::Embedding {
                     model,
                     distance: distance.into(),
                     text_splitter: text_splitter.into(),
@@ -109,16 +107,16 @@ impl From<ApiExtractor> for ExtractorConfig {
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct ApiDataRepository {
+pub struct DataRepository {
     pub name: String,
-    pub extractors: Vec<ApiExtractor>,
+    pub extractors: Vec<Extractor>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-impl From<DataRepository> for ApiDataRepository {
-    fn from(value: DataRepository) -> Self {
+impl From<persistence::DataRepository> for DataRepository {
+    fn from(value: persistence::DataRepository) -> Self {
         let ap_extractors = value.extractors.into_iter().map(|e| e.into()).collect();
-        ApiDataRepository {
+        DataRepository {
             name: value.name,
             extractors: ap_extractors,
             metadata: value.metadata,
@@ -128,7 +126,7 @@ impl From<DataRepository> for ApiDataRepository {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "source_type")]
-pub enum ApiSourceType {
+pub enum SourceType {
     // todo: replace metadata with actual request parameters for GoogleContactApi
     #[serde(rename = "google_contact")]
     GoogleContact { metadata: Option<String> },
@@ -137,23 +135,23 @@ pub enum ApiSourceType {
     Gmail { metadata: Option<String> },
 }
 
-impl From<ApiSourceType> for SourceType {
-    fn from(value: ApiSourceType) -> Self {
+impl From<SourceType> for persistence::SourceType {
+    fn from(value: SourceType) -> Self {
         match value {
-            ApiSourceType::GoogleContact { metadata } => SourceType::GoogleContact { metadata },
-            ApiSourceType::Gmail { metadata } => SourceType::Gmail { metadata },
+            SourceType::GoogleContact { metadata } => persistence::SourceType::GoogleContact { metadata },
+            SourceType::Gmail { metadata } => persistence::SourceType::Gmail { metadata },
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "data_connector")]
-pub struct ApiDataConnector {
-    pub source: ApiSourceType,
+pub struct DataConnector {
+    pub source: SourceType,
 }
 
-impl From<ApiDataConnector> for DataConnector {
-    fn from(value: ApiDataConnector) -> Self {
+impl From<DataConnector> for persistence::DataConnector {
+    fn from(value: DataConnector) -> Self {
         Self {
             source: value.source.into(),
         }
@@ -163,9 +161,9 @@ impl From<ApiDataConnector> for DataConnector {
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct SyncRepository {
     pub name: String,
-    pub extractors: Vec<ApiExtractor>,
+    pub extractors: Vec<Extractor>,
     pub metadata: HashMap<String, serde_json::Value>,
-    pub data_connectors: Vec<ApiDataConnector>,
+    pub data_connectors: Vec<DataConnector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -178,7 +176,7 @@ pub struct GetRepository {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetRepositoryResponse {
-    pub repository: ApiDataRepository,
+    pub repository: DataRepository,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,7 +184,7 @@ pub struct ListRepositories {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListRepositoriesResponse {
-    pub repositories: Vec<ApiDataRepository>,
+    pub repositories: Vec<DataRepository>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -221,7 +219,7 @@ pub struct ListEmbeddingModelsResponse {
 
 #[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display, Clone, ToSchema)]
 #[strum(serialize_all = "snake_case")]
-pub enum ApiTextSplitterKind {
+pub enum TextSplitterKind {
     // Do not split text.
     #[serde(rename = "none")]
     None,
@@ -236,29 +234,29 @@ pub enum ApiTextSplitterKind {
     Regex { pattern: String },
 }
 
-impl From<TextSplitterKind> for ApiTextSplitterKind {
-    fn from(value: TextSplitterKind) -> Self {
+impl From<text_splitters::TextSplitterKind> for TextSplitterKind {
+    fn from(value: text_splitters::TextSplitterKind) -> Self {
         match value {
-            TextSplitterKind::Noop => ApiTextSplitterKind::None,
-            TextSplitterKind::NewLine => ApiTextSplitterKind::NewLine,
-            TextSplitterKind::Regex { pattern } => ApiTextSplitterKind::Regex { pattern },
+            text_splitters::TextSplitterKind::Noop => TextSplitterKind::None,
+            text_splitters::TextSplitterKind::NewLine => TextSplitterKind::NewLine,
+            text_splitters::TextSplitterKind::Regex { pattern } => TextSplitterKind::Regex { pattern },
         }
     }
 }
 
-impl From<ApiTextSplitterKind> for TextSplitterKind {
-    fn from(val: ApiTextSplitterKind) -> Self {
+impl From<TextSplitterKind> for text_splitters::TextSplitterKind {
+    fn from(val: TextSplitterKind) -> Self {
         match val {
-            ApiTextSplitterKind::None => TextSplitterKind::Noop,
-            ApiTextSplitterKind::NewLine => TextSplitterKind::NewLine,
-            ApiTextSplitterKind::Regex { pattern } => TextSplitterKind::Regex { pattern },
+            TextSplitterKind::None => text_splitters::TextSplitterKind::Noop,
+            TextSplitterKind::NewLine => text_splitters::TextSplitterKind::NewLine,
+            TextSplitterKind::Regex { pattern } => text_splitters::TextSplitterKind::Regex { pattern },
         }
     }
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, Clone, Default, ToSchema)]
 #[serde(rename = "distance")]
-pub enum ApiIndexDistance {
+pub enum IndexDistance {
     #[serde(rename = "dot")]
     #[strum(serialize = "dot")]
     #[default]
@@ -273,22 +271,22 @@ pub enum ApiIndexDistance {
     Euclidean,
 }
 
-impl From<ApiIndexDistance> for IndexDistance {
-    fn from(value: ApiIndexDistance) -> Self {
+impl From<IndexDistance> for vectordbs::IndexDistance {
+    fn from(value: IndexDistance) -> Self {
         match value {
-            ApiIndexDistance::Dot => IndexDistance::Dot,
-            ApiIndexDistance::Cosine => IndexDistance::Cosine,
-            ApiIndexDistance::Euclidean => IndexDistance::Euclidean,
+            IndexDistance::Dot => vectordbs::IndexDistance::Dot,
+            IndexDistance::Cosine => vectordbs::IndexDistance::Cosine,
+            IndexDistance::Euclidean => vectordbs::IndexDistance::Euclidean,
         }
     }
 }
 
-impl From<IndexDistance> for ApiIndexDistance {
-    fn from(val: IndexDistance) -> Self {
+impl From<vectordbs::IndexDistance> for IndexDistance {
+    fn from(val: vectordbs::IndexDistance) -> Self {
         match val {
-            IndexDistance::Dot => ApiIndexDistance::Dot,
-            IndexDistance::Cosine => ApiIndexDistance::Cosine,
-            IndexDistance::Euclidean => ApiIndexDistance::Euclidean,
+            vectordbs::IndexDistance::Dot => IndexDistance::Dot,
+            vectordbs::IndexDistance::Cosine => IndexDistance::Cosine,
+            vectordbs::IndexDistance::Euclidean => IndexDistance::Euclidean,
         }
     }
 }
@@ -297,14 +295,14 @@ impl From<IndexDistance> for ApiIndexDistance {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractorAddRequest {
     pub repository: Option<String>,
-    pub extractor: ApiExtractor,
+    pub extractor: Extractor,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ExtractorAddResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ApiText {
+pub struct Text {
     pub text: String,
     pub metadata: HashMap<String, serde_json::Value>,
 }
@@ -312,7 +310,7 @@ pub struct ApiText {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TextAddRequest {
     pub repository: Option<String>,
-    pub documents: Vec<ApiText>,
+    pub documents: Vec<Text>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -331,7 +329,7 @@ pub struct SearchRequest {
 pub struct CreateMemorySessionRequest {
     pub session_id: Option<String>,
     pub repository: Option<String>,
-    pub extractor: Option<ApiExtractor>,
+    pub extractor: Option<Extractor>,
     pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
 

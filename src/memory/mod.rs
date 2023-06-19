@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     data_repository_manager::{DataRepositoryError, DataRepositoryManager},
     persistence::{ContentType, ExtractorConfig, ExtractorType},
-    text_splitters::TextSplitterKind,
+    text_splitters::TextSplitterKind, vectordbs::IndexDistance,
 };
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from memory.
@@ -79,7 +79,7 @@ impl MemoryManager {
             extractor_type: ExtractorType::Embedding {
                 model: self.default_embedding_model.clone(),
                 text_splitter: TextSplitterKind::Noop,
-                distance: crate::IndexDistance::Cosine,
+                distance: IndexDistance::Cosine,
             },
         });
         repo.extractors.push(extractor);
