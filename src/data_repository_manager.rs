@@ -13,7 +13,7 @@ use crate::{
         Text,
     },
     text_splitters::TextSplitterKind,
-    ServerConfig,
+    ServerConfig, vectordbs::IndexDistance,
 };
 
 #[derive(Error, Debug)]
@@ -74,7 +74,7 @@ impl DataRepositoryManager {
                     extractor_type: ExtractorType::Embedding {
                         model: server_config.default_model().model_kind.to_string(),
                         text_splitter: TextSplitterKind::Noop,
-                        distance: crate::IndexDistance::Cosine,
+                        distance: IndexDistance::Cosine,
                     },
                 }],
                 data_connectors: vec![],
@@ -220,7 +220,8 @@ mod tests {
 
     use crate::persistence::{DataConnector, ExtractorConfig, ExtractorType, SourceType};
     use crate::text_splitters::TextSplitterKind;
-    use crate::{test_util, IndexDistance};
+    use crate::{test_util};
+    use crate::vectordbs::IndexDistance;
     use serde_json::json;
 
     use super::*;

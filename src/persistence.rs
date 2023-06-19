@@ -20,7 +20,7 @@ use thiserror::Error;
 use crate::entity::index;
 use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
-use crate::{entity, IndexDistance};
+use crate::{entity, vectordbs::IndexDistance};
 
 #[derive(Serialize, Deserialize, Default)]
 struct ExtractorsState {

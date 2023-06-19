@@ -8,10 +8,9 @@ use tracing::debug;
 use crate::{
     entity,
     persistence::{Chunk, Repository, RepositoryError, Text},
-    text_splitters::{self, TextSplitterError, TextSplitterKind, TextSplitterTS},
-    vectordbs, CreateIndexParams, EmbeddingGeneratorError, EmbeddingGeneratorTS, EmbeddingRouter,
-    IndexDistance, VectorChunk, VectorDBTS, VectorDbError, VectorIndexConfig,
+    text_splitters::{self, TextSplitterError, TextSplitterKind, TextSplitterTS}, EmbeddingGeneratorError, EmbeddingRouter, VectorIndexConfig, vectordbs, EmbeddingGeneratorTS,
 };
+use crate::vectordbs::{VectorDBTS, CreateIndexParams, VectorDbError, VectorChunk, IndexDistance};
 
 #[derive(Error, Debug)]
 pub enum IndexError {

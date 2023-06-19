@@ -8,8 +8,8 @@ pub mod db_utils {
     use crate::extractors::ExtractorRunner;
     use crate::persistence::Repository;
     use crate::{
-        index::IndexManager, qdrant::QdrantDb, EmbeddingRouter, QdrantConfig, ServerConfig,
-        VectorDBTS, VectorIndexConfig,
+        index::IndexManager, vectordbs::qdrant::QdrantDb, EmbeddingRouter, QdrantConfig, ServerConfig,
+        vectordbs::VectorDBTS, VectorIndexConfig,
     };
 
     pub async fn create_index_manager(

@@ -66,9 +66,9 @@ pub struct RepositoryEndpointState {
             sync_repository,
         ),
         components(
-            schemas(SyncRepository, SyncRepositoryResponse, ApiDataConnector, ApiExtractor,
-                ApiTextSplitterKind, ApiIndexDistance, ApiExtractorType, ApiExtractorContentType,
-                ApiSourceType)
+            schemas(SyncRepository, SyncRepositoryResponse, DataConnector, Extractor,
+                TextSplitterKind, IndexDistance, ExtractorType, ExtractorContentType,
+                SourceType)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -190,6 +190,7 @@ async fn root() -> &'static str {
     post,
     path = "/repository/sync",
     request_body = SyncRepository,
+    tag = "indexify",
     responses(
         (status = 200, description = "Repository synced successfully", body = SyncRepositoryResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
