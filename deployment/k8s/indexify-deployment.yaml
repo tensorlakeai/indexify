@@ -15,8 +15,7 @@ spec:
         app: indexify
     spec:
       containers:
-        - args:
-            - /indexify/docker_compose_start.sh
+        - command: ["/indexify/docker_compose_start.sh"]
           image: diptanu/indexify
           name: indexify
           ports:
@@ -25,6 +24,9 @@ spec:
             - mountPath: /indexify/config
               name: config
               readOnly: true
+          env:
+          - name: DATABASE_URL
+            value: postgres://postgres:postgres@postgres-service.default.svc.cluster.local/indexify
       restartPolicy: Always
       volumes:
       - name: config
