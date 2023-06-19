@@ -301,24 +301,24 @@ pub struct ExtractorAddRequest {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ExtractorAddResponse {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Text {
     pub text: String,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TextAddRequest {
     pub repository: Option<String>,
     pub documents: Vec<Text>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct IndexAdditionResponse {
     pub sequence: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SearchRequest {
     pub index: String,
     pub query: String,
@@ -372,13 +372,13 @@ pub struct MemorySessionSearchResponse {
     pub messages: Vec<Message>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct DocumentFragment {
     pub text: String,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct IndexSearchResponse {
     pub results: Vec<DocumentFragment>,
 }

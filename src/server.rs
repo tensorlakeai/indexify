@@ -1,9 +1,9 @@
-use crate::api::*;
+use crate::{api::*, persistence};
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
 use crate::extractors::ExtractorRunner;
 use crate::index::IndexManager;
 use crate::persistence::{
-    DataRepository, ExtractorConfig, Repository, Text,
+    DataRepository, ExtractorConfig, Repository,
 };
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
@@ -64,11 +64,14 @@ pub struct RepositoryEndpointState {
 #[openapi(
         paths(
             sync_repository,
+            add_texts,
+            index_search,
         ),
         components(
             schemas(SyncRepository, SyncRepositoryResponse, DataConnector, Extractor,
                 TextSplitterKind, IndexDistance, ExtractorType, ExtractorContentType,
-                SourceType)
+                SourceType, TextAddRequest, IndexAdditionResponse, Text, IndexSearchResponse,
+                DocumentFragment, SearchRequest,)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -137,7 +140,7 @@ impl Server {
                 post(index_create).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/add_text",
+                "/repository/add_texts",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -289,6 +292,16 @@ async fn index_create(
     Ok(Json(ExtractorAddResponse {}))
 }
 
+#[utoipa::path(
+    post,
+    path = "/repository/add_texts",
+    request_body = TextAddRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Texts were successfully added to the repository", body = IndexAdditionResponse),
+        (status = BAD_REQUEST, description = "Unable to add texts")
+    ),
+)]
 #[axum_macros::debug_handler]
 async fn add_texts(
     State(state): State<RepositoryEndpointState>,
@@ -298,7 +311,7 @@ async fn add_texts(
     let texts = payload
         .documents
         .iter()
-        .map(|d| Text {
+        .map(|d| persistence::Text {
             text: d.text.to_owned(),
             metadata: d.metadata.to_owned(),
         })
@@ -390,7 +403,16 @@ async fn search_memory_session(
 
     Ok(Json(MemorySessionSearchResponse { messages }))
 }
-
+#[utoipa::path(
+    get,
+    path = "/index/search",
+    request_body = SearchRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Index search results", body = IndexSearchResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
+    ),
+)]
 #[axum_macros::debug_handler]
 async fn index_search(
     State(state): State<IndexEndpointState>,
