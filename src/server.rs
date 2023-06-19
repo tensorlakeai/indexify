@@ -125,7 +125,7 @@ impl Server {
             extractor_runner: extractor_runner.clone(),
         };
         let app = Router::new()
-            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+            .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route("/", get(root))
             .route(
                 "/embeddings/models",
