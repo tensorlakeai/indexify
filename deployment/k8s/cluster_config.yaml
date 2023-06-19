@@ -1,0 +1,30 @@
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: indexify-4
+  region: us-east-1
+
+managedNodeGroups:
+  - name: managed-ng-public
+    instanceType: m5.large
+    minSize: 1
+    desiredCapacity: 1
+    maxSize: 2
+    volumeSize: 20
+    updateConfig:
+      maxUnavailable: 2
+    labels: {role: worker}
+    tags:
+      nodegroup-role: worker
+    iam:
+      withAddonPolicies:
+        externalDNS: true
+        certManager: true
+        ebs: true
+
+addons:
+- name: aws-ebs-csi-driver
+  wellKnownPolicies:      # add IAM and service account
+    ebsCSIController: true

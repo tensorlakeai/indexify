@@ -32,4 +32,3 @@ index_config:
   index_store: Qdrant
   qdrant_config:
     addr: "http://172.20.0.8:6334"
-    
