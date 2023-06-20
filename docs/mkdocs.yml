@@ -28,6 +28,7 @@ nav:
     - Embeddings: 'apis/embeddings.md'
   - Configuration: 'configuration.md'
   - Python SDK: python_sdk.ipynb
+  - Deployment: 'deployment.md'
   - Develop Indexify: 'develop.md'
   - Integrations:
     - Langchain: 'integrations/langchain.md'
