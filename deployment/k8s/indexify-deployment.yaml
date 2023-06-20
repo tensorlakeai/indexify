@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: indexify
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: indexify
+    spec:
+      containers:
+        - command: ["/indexify/docker_compose_start.sh"]
+          image: diptanu/indexify
+          name: indexify
+          ports:
+            - containerPort: 8900
+          volumeMounts:
+            - mountPath: /indexify/config
+              name: config
+              readOnly: true
+          env:
+          - name: DATABASE_URL
+            value: postgres://postgres:postgres@postgres-service.default.svc.cluster.local/indexify
+      restartPolicy: Always
+      volumes:
+      - name: config
+        configMap:
+          name: indexify-configmap
+          items:
+          - key: "sample_config.yaml"
+            path: "indexify.yaml"

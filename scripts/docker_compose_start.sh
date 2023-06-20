@@ -1,8 +1,8 @@
 #!/bin/bash
 
+echo "Starting database migration $DATABASE_URL"
 # Setup schema
-export DATABASE_URL=postgres://postgres:postgres@172.20.0.5/indexify
-until /indexify/migration up
+until /indexify/migration up -u $DATABASE_URL
 do
   echo "Trying to apply schema again in 5 seconds...."
   sleep 5s
