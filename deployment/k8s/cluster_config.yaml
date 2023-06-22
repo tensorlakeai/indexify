@@ -23,8 +23,12 @@ managedNodeGroups:
         externalDNS: true
         certManager: true
         ebs: true
+        albIngress: true
 
 addons:
 - name: aws-ebs-csi-driver
   wellKnownPolicies:      # add IAM and service account
     ebsCSIController: true
+- name: aws-load-balancer-controller
+  wellKnownPolicies:
+    awsLoadBalancerController: true
