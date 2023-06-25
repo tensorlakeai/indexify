@@ -5,17 +5,18 @@ pub mod db_utils {
 
     use sea_orm::{Database, DatabaseConnection, DbErr};
 
-    use crate::extractors::ExtractorRunner;
+    use crate::executor::ExtractorExecutor;
     use crate::persistence::Repository;
+    use crate::ExecutorState;
     use crate::{
-        index::IndexManager, vectordbs::qdrant::QdrantDb, EmbeddingRouter, QdrantConfig, ServerConfig,
-        vectordbs::VectorDBTS, VectorIndexConfig,
+        index::IndexManager, vectordbs::qdrant::QdrantDb, vectordbs::VectorDBTS, EmbeddingRouter,
+        QdrantConfig, ServerConfig, VectorIndexConfig,
     };
 
     pub async fn create_index_manager(
         db: DatabaseConnection,
         index_name: &str,
-    ) -> (Arc<IndexManager>, ExtractorRunner) {
+    ) -> (Arc<IndexManager>, ExtractorExecutor) {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
@@ -32,7 +33,9 @@ pub mod db_utils {
             IndexManager::new_with_db(index_config, embedding_router, db.clone()).unwrap(),
         );
         let repo = Arc::new(Repository::new_with_db(db.clone()));
-        let extractor_runner = ExtractorRunner::new(repo, index_manager.clone());
+        let node_state = Arc::new(ExecutorState::new(repo.clone()));
+        let extractor_runner =
+            ExtractorExecutor::new(repo.clone(), index_manager.clone(), Some(node_state));
         (index_manager, extractor_runner)
     }
 

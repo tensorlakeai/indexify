@@ -1,19 +1,23 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::time::SystemTime;
+use tracing::info;
 
 use anyhow::Result;
 use entity::data_repository::Entity as DataRepositoryEntity;
+use entity::extraction_event::Entity as ExtractionEventEntity;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
+use sea_orm::{QueryFilter, ConnectOptions};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DbBackend, Statement};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
-use sea_orm::{DatabaseTransaction, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use smart_default::SmartDefault;
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
@@ -21,6 +25,20 @@ use crate::entity::index;
 use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
 use crate::{entity, vectordbs::IndexDistance};
+use entity::work::Entity as WorkEntity;
+
+#[derive(Serialize, Deserialize, Display, EnumString)]
+pub enum ExtractionEventPayload {
+    SyncRepository { memory_session: Option<String> },
+    CreateContent { content_id: String },
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ExtractionEvent {
+    pub id: String,
+    pub repository_id: String,
+    pub payload: ExtractionEventPayload,
+}
 
 #[derive(Serialize, Deserialize, Default)]
 struct ExtractorsState {
@@ -35,19 +53,40 @@ impl ExtractorsState {
     }
 }
 
-#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize)]
+#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
 pub enum ContentType {
     #[strum(serialize = "text")]
+    #[default]
     Text,
-
-    #[strum(serialize = "memory")]
-    Memory,
 }
 
 #[derive(Debug, Clone)]
 pub struct Text {
+    pub id: String,
     pub text: String,
     pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl Text {
+    pub fn from_text(
+        repository: &str,
+        text: &str,
+        memory_session: Option<&str>,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        if let Some(sess) = memory_session {
+            sess.hash(&mut s);
+        }
+        text.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        Self {
+            id: id,
+            text: text.into(),
+            metadata,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,19 +103,28 @@ pub enum ExtractorType {
     Ner { model: String },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
+#[serde(rename = "extractor_filter")]
+pub enum ExtractorFilter {
+    MemorySession { session_id: String },
+    ContentType { content_type: ContentType },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "extractor")]
 pub struct ExtractorConfig {
     pub name: String,
     pub extractor_type: ExtractorType,
-    pub content_type: ContentType,
+    pub filter: ExtractorFilter,
 }
 
 impl Default for ExtractorConfig {
     fn default() -> Self {
         Self {
             name: "default".to_string(),
-            content_type: ContentType::Text,
+            filter: ExtractorFilter::ContentType {
+                content_type: ContentType::Text,
+            },
             extractor_type: ExtractorType::Embedding {
                 model: "all-minilm-l12-v2".to_string(),
                 text_splitter: TextSplitterKind::Noop,
@@ -147,6 +195,7 @@ impl From<entity::data_repository::Model> for DataRepository {
 
 pub struct ChunkWithMetadata {
     pub chunk_id: String,
+    pub content_id: String,
     pub text: String,
     pub metadata: HashMap<String, serde_json::Value>,
 }
@@ -168,6 +217,48 @@ impl Chunk {
             text,
             chunk_id,
             content_id,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize, PartialEq, Eq, EnumString, Display)]
+pub enum WorkState {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Work {
+    pub id: String,
+    pub content_id: String,
+    pub repository_id: String,
+    pub extractor: String,
+    pub work_state: WorkState,
+    pub worker_id: Option<String>,
+}
+
+impl Work {
+    pub fn new(
+        content_id: &str,
+        repository: &str,
+        extractor: &str,
+        worker_id: Option<&str>,
+    ) -> Self {
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        content_id.hash(&mut s);
+        extractor.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+
+        Self {
+            id: id,
+            content_id: content_id.into(),
+            repository_id: repository.into(),
+            extractor: extractor.into(),
+            work_state: WorkState::Pending,
+            worker_id: worker_id.map(|w| w.into()),
         }
     }
 }
@@ -211,7 +302,11 @@ pub struct Repository {
 
 impl Repository {
     pub async fn new(db_url: &str) -> Result<Self, RepositoryError> {
-        let db = Database::connect(db_url).await?;
+        let mut opt = ConnectOptions::new(db_url.to_owned());
+        opt.sqlx_logging(false); // Disabling SQLx log;
+
+
+        let db = Database::connect(opt).await?;
         Ok(Self { conn: db })
     }
 
@@ -219,15 +314,15 @@ impl Repository {
         Self { conn: db }
     }
 
-    async fn _create_index(
+    pub async fn create_index(
         &self,
-        tx: DatabaseTransaction,
         embedding_model: String,
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
         text_splitter: String,
-        repository_id: String,
-    ) -> Result<DatabaseTransaction, RepositoryError> {
+        repository_name: &str,
+    ) -> Result<(), RepositoryError> {
+        let tx = self.conn.begin().await?;
         let index = entity::index::ActiveModel {
             name: Set(index_params.name.clone()),
             embedding_model: Set(embedding_model),
@@ -235,7 +330,7 @@ impl Repository {
             vector_db: Set(vectordb.name()),
             vector_db_params: NotSet,
             unique_params: Set(index_params.unique_params.clone().map(|v| json!(v))),
-            repository_id: Set(repository_id),
+            repository_id: Set(repository_name.into()),
         };
         let insert_result = IndexEntity::insert(index)
             .on_conflict(
@@ -255,29 +350,6 @@ impl Repository {
             tx.rollback().await?;
             return Err(RepositoryError::VectorDb(err));
         }
-
-        Ok(tx)
-    }
-
-    pub async fn create_index(
-        &self,
-        embedding_model: String,
-        index_params: CreateIndexParams,
-        vectordb: vectordbs::VectorDBTS,
-        text_splitter: String,
-        repository_name: &str,
-    ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
-        let tx = self
-            ._create_index(
-                tx,
-                embedding_model,
-                index_params,
-                vectordb,
-                text_splitter,
-                repository_name.into(),
-            )
-            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -290,7 +362,31 @@ impl Repository {
             .ok_or(RepositoryError::IndexNotFound(index.into()))
     }
 
-    pub async fn get_texts_for_memory_session(
+    pub async fn create_memory_session(
+        &self,
+        session_id: &str,
+        repo_id: &str,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Result<(), RepositoryError> {
+        let tx = self.conn.begin().await?;
+        let memory_session = entity::memory_sessions::ActiveModel {
+            session_id: Set(session_id.to_string()),
+            repository_id: Set(repo_id.into()),
+            metadata: Set(Some(json!(metadata))),
+        };
+        let _ = entity::memory_sessions::Entity::insert(memory_session)
+            .on_conflict(
+                OnConflict::column(entity::memory_sessions::Column::SessionId)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&tx)
+            .await;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn retreive_messages_from_memory(
         &self,
         repository_name: &str,
         session_id: &str,
@@ -308,13 +404,14 @@ impl Repository {
                 .unwrap_or_default();
             texts.push(Text {
                 text: content.text,
+                id: content.id,
                 metadata,
             });
         }
         Ok(texts)
     }
 
-    pub async fn add_text_to_repo(
+    pub async fn add_content(
         &self,
         repository_name: &str,
         texts: Vec<Text>,
@@ -330,20 +427,30 @@ impl Repository {
                 .ok_or(RepositoryError::SessionNotFound("session not found".into()))?;
         }
         let mut content_list = Vec::new();
+        let mut extraction_events = Vec::new();
         for text in texts {
-            let content_id = create_content_id(repository_name, &text.text, memory_session);
-            let content_type = match memory_session {
-                Some(_) => ContentType::Memory,
-                None => ContentType::Text,
-            };
+            info!("adding text: {}", &text.id);
             content_list.push(entity::content::ActiveModel {
-                id: Set(content_id),
+                id: Set(text.id.clone()),
                 repository_id: Set(repository_name.into()),
                 memory_session_id: Set(memory_session.map(|s| s.into())),
                 text: Set(text.text),
                 metadata: Set(Some(json!(text.metadata))),
-                content_type: Set(content_type.to_string()),
+                content_type: Set(ContentType::Text.to_string()),
                 extractors_state: Set(Some(json!(ExtractorsState::default()))),
+            });
+            let extraction_event = ExtractionEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                repository_id: repository_name.into(),
+                payload: ExtractionEventPayload::CreateContent {
+                    content_id: text.id.clone(),
+                },
+            };
+            extraction_events.push(entity::extraction_event::ActiveModel {
+                id: Set(extraction_event.id.clone()),
+                payload: Set(json!(extraction_event)),
+                allocation_info: NotSet,
+                processed_at: NotSet,
             });
         }
         let _ = entity::content::Entity::insert_many(content_list)
@@ -354,7 +461,123 @@ impl Repository {
             )
             .exec(&tx)
             .await;
+        let _ = ExtractionEventEntity::insert_many(extraction_events)
+            .exec(&tx)
+            .await;
         tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn content_from_repo(
+        &self,
+        content_id: &str,
+        repo_id: &str,
+    ) -> Result<entity::content::Model, RepositoryError> {
+        let model = entity::content::Entity::find()
+            .filter(entity::content::Column::RepositoryId.eq(repo_id))
+            .filter(entity::content::Column::Id.eq(content_id))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::ContentNotFound(content_id.to_owned()))?;
+        Ok(model)
+    }
+
+    pub async fn content_with_unapplied_extractor(
+        &self,
+        repo_id: &str,
+        extractor: &ExtractorConfig,
+        content_id: Option<&str>,
+    ) -> Result<Vec<entity::content::Model>, RepositoryError> {
+        let mut values = vec![repo_id.into(), extractor.name.clone().into()];
+        let mut query: String = "select * from content where repository_id=$1".to_string();
+        let mut idx = 3;
+        if let Some(content_id) = content_id {
+            values.push(content_id.into());
+            query.push_str(format!(" and id = ${}", idx).as_str());
+            idx += 1;
+        }
+        match &extractor.filter {
+            ExtractorFilter::MemorySession { session_id } => {
+                values.push(session_id.into());
+                query.push_str(format!(" and memory_session_id = ${}", idx).as_str());
+            }
+            ExtractorFilter::ContentType { content_type } => {
+                values.push(content_type.to_string().into());
+                query.push_str(
+                    format!(" and content_type = ${} and memory_session_id is NULL", idx).as_str(),
+                );
+            }
+        }
+        query.push_str(" and COALESCE(cast(extractors_state->'state'->>$2 as int),0) < 1");
+        let result = entity::content::Entity::find()
+            .from_raw_sql(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                &query,
+                values,
+            ))
+            .all(&self.conn)
+            .await?;
+        Ok(result)
+    }
+
+    pub async fn mark_content_as_processed(
+        &self,
+        content_id: &str,
+        extractor: &str,
+    ) -> Result<(), anyhow::Error> {
+        let tx = self.conn.begin().await?;
+        let content_entity = entity::content::Entity::find()
+            .filter(entity::content::Column::Id.eq(content_id))
+            .one(&tx)
+            .await?
+            .ok_or(RepositoryError::ContentNotFound(content_id.to_string()))?;
+        let mut extractors_state: ExtractorsState = serde_json::from_value(
+            content_entity
+                .extractors_state
+                .clone()
+                .unwrap_or(json!(ExtractorsState::default())),
+        )
+        .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        extractors_state.update(extractor);
+        let mut content_entity: entity::content::ActiveModel = content_entity.into();
+        content_entity.extractors_state = Set(Some(json!(extractors_state)));
+        content_entity.update(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn unprocessed_extraction_events(
+        &self,
+    ) -> Result<Vec<ExtractionEvent>, anyhow::Error> {
+        let extraction_events = ExtractionEventEntity::find()
+            .filter(entity::extraction_event::Column::ProcessedAt.is_null())
+            .all(&self.conn)
+            .await?;
+        let mut events = Vec::new();
+        for e in &extraction_events {
+            let event: ExtractionEvent = serde_json::from_value(e.payload.clone())?;
+            events.push(event);
+        }
+        Ok(events)
+    }
+
+    pub async fn mark_extraction_event_as_processed(
+        &self,
+        extraction_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let extraction_event = ExtractionEventEntity::find()
+            .filter(entity::extraction_event::Column::Id.eq(extraction_id))
+            .one(&self.conn)
+            .await?
+            .unwrap();
+        let mut extraction_event: entity::extraction_event::ActiveModel = extraction_event.into();
+        extraction_event.processed_at = Set(Some(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        ));
+        extraction_event.update(&self.conn).await?;
         Ok(())
     }
 
@@ -382,24 +605,6 @@ impl Repository {
             )
             .exec(&tx)
             .await;
-
-        // Mark the content as indexed
-        let content_entity = entity::content::Entity::find()
-            .filter(entity::content::Column::Id.eq(content_id))
-            .one(&tx)
-            .await?
-            .ok_or(RepositoryError::ContentNotFound(content_id.to_string()))?;
-        let mut extractors_state: ExtractorsState = serde_json::from_value(
-            content_entity
-                .extractors_state
-                .clone()
-                .unwrap_or(json!(ExtractorsState::default())),
-        )
-        .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
-        extractors_state.update(index_name);
-        let mut content_entity: entity::content::ActiveModel = content_entity.into();
-        content_entity.extractors_state = Set(Some(json!(extractors_state)));
-        content_entity.update(&tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -419,6 +624,7 @@ impl Repository {
             ))?;
         Ok(ChunkWithMetadata {
             chunk_id: chunk.chunk_id,
+            content_id: chunk.content_id,
             text: chunk.text,
             metadata: content
                 .metadata
@@ -427,57 +633,25 @@ impl Repository {
         })
     }
 
-    pub async fn content_with_unapplied_extractor(
-        &self,
-        repo_id: &str,
-        extractor: &str,
-        extractor_content_type: ContentType,
-    ) -> Result<Vec<entity::content::Model>, RepositoryError> {
-        let result = entity::content::Entity::find()
-        .from_raw_sql(Statement::from_sql_and_values(DbBackend::Postgres,
-            r#"select * from content where repository_id=$1 and content_type = $2 and COALESCE(cast(extractors_state->'state'->>'$3' as int),0) < 1"#,
-            [repo_id.into(), extractor_content_type.to_string().into(), extractor.into()]))
-            .all(&self.conn)
-            .await?;
-        Ok(result)
-    }
-
-    pub async fn create_memory_session(
-        &self,
-        session_id: &str,
-        repo_id: &str,
-        metadata: HashMap<String, serde_json::Value>,
-    ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
-        let memory_session = entity::memory_sessions::ActiveModel {
-            session_id: Set(session_id.to_string()),
-            repository_id: Set(repo_id.into()),
-            metadata: Set(Some(json!(metadata))),
-        };
-        let _ = entity::memory_sessions::Entity::insert(memory_session)
-            .on_conflict(
-                OnConflict::column(entity::memory_sessions::Column::SessionId)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(&tx)
-            .await;
-        tx.commit().await?;
-        Ok(())
-    }
-
     pub async fn upsert_repository(
         &self,
         repository: DataRepository,
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
-        let repository = entity::data_repository::ActiveModel {
+        let extractor_event = ExtractionEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            repository_id: repository.name.clone(),
+            payload: ExtractionEventPayload::SyncRepository {
+                memory_session: None,
+            },
+        };
+        let repository_model = entity::data_repository::ActiveModel {
             name: Set(repository.name),
             extractors: Set(Some(json!(repository.extractors))),
             metadata: Set(Some(json!(repository.metadata))),
             data_connectors: Set(Some(json!(repository.data_connectors))),
         };
-        let _ = DataRepositoryEntity::insert(repository)
+        let _ = DataRepositoryEntity::insert(repository_model)
             .on_conflict(
                 OnConflict::column(entity::data_repository::Column::Name)
                     .update_columns(vec![
@@ -488,6 +662,14 @@ impl Repository {
             )
             .exec(&tx)
             .await?;
+        let _ = ExtractionEventEntity::insert(entity::extraction_event::ActiveModel {
+            id: Set(extractor_event.id.clone()),
+            payload: Set(json!(extractor_event)),
+            allocation_info: NotSet,
+            processed_at: NotSet,
+        })
+        .exec(&tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -510,14 +692,170 @@ impl Repository {
             .ok_or(RepositoryError::RepositoryNotFound(name.to_owned()))?;
         Ok(repository_model.into())
     }
+
+    pub async fn get_extractor(
+        &self,
+        repo_id: &str,
+        extractor_name: &str,
+    ) -> Result<ExtractorConfig, RepositoryError> {
+        let extractors_json = DataRepositoryEntity::find()
+            .filter(entity::data_repository::Column::Name.eq(repo_id))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::RepositoryNotFound(repo_id.to_owned()))?
+            .extractors
+            .ok_or(RepositoryError::RepositoryNotFound(repo_id.to_owned()))?;
+        let extractor_config: Vec<ExtractorConfig> = serde_json::from_value(extractors_json)
+            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        let extractor = extractor_config
+            .iter()
+            .find(|e| e.name == extractor_name)
+            .ok_or(RepositoryError::LogicError(extractor_name.to_owned()))?;
+        Ok(extractor.to_owned())
+    }
+
+    pub async fn insert_work(&self, work: &Work) -> Result<(), RepositoryError> {
+        let work_model = entity::work::ActiveModel {
+            id: Set(work.id.clone()),
+            status: Set(work.work_state.to_string()),
+            worker_id: Set(work
+                .worker_id
+                .as_ref()
+                .map(|id| id.to_owned())
+                .unwrap_or_default()),
+            payload: Set(json!(work)),
+        };
+        WorkEntity::insert(work_model).exec(&self.conn).await?;
+        Ok(())
+    }
+
+    pub async fn update_work_state(
+        &self,
+        work_id: &str,
+        state: WorkState,
+    ) -> Result<(), RepositoryError> {
+        let tx = self.conn.begin().await?;
+        let work_model = WorkEntity::find()
+            .filter(entity::work::Column::Id.eq(work_id))
+            .one(&tx)
+            .await?
+            .ok_or(RepositoryError::LogicError(work_id.to_owned()))?;
+        let mut payload = serde_json::from_value::<Work>(work_model.payload.clone())?;
+        let mut work_model: entity::work::ActiveModel = work_model.into();
+        work_model.status = Set(state.to_string());
+        payload.work_state = state;
+        work_model.payload = Set(json!(payload));
+        work_model.update(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, RepositoryError> {
+        let work_models = WorkEntity::find()
+            .filter(entity::work::Column::WorkerId.eq(worker_id))
+            .filter(entity::work::Column::Status.eq(WorkState::Pending.to_string()))
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|m| serde_json::from_value::<Work>(m.payload).unwrap())
+            .collect();
+        Ok(work_models)
+    }
 }
 
-fn create_content_id(repository_id: &str, text: &str, memory_session: Option<&str>) -> String {
-    let mut s = DefaultHasher::new();
-    repository_id.hash(&mut s);
-    if let Some(sess) = memory_session {
-        sess.hash(&mut s);
+#[cfg(test)]
+mod tests {
+    use crate::test_util::db_utils::create_db;
+
+    use super::*;
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_extractors_for_repository() {
+        let extractor1 = ExtractorConfig {
+            name: "extractor1".into(),
+            extractor_type: ExtractorType::Embedding {
+                model: "model1".into(),
+                text_splitter: TextSplitterKind::NewLine,
+                distance: IndexDistance::Cosine,
+            },
+            filter: ExtractorFilter::ContentType {
+                content_type: ContentType::Text,
+            },
+        };
+        let extractor2 = ExtractorConfig {
+            name: "extractor2".into(),
+            extractor_type: ExtractorType::Embedding {
+                model: "model2".into(),
+                text_splitter: TextSplitterKind::NewLine,
+                distance: IndexDistance::Cosine,
+            },
+            filter: ExtractorFilter::MemorySession {
+                session_id: "abcd".into(),
+            },
+        };
+        let repo = DataRepository {
+            name: "test".to_owned(),
+            data_connectors: vec![],
+            extractors: vec![extractor1.clone(), extractor2.clone()],
+            metadata: HashMap::new(),
+        };
+
+        let db = create_db().await.unwrap();
+        let repository = Repository::new_with_db(db);
+        repository.upsert_repository(repo.clone()).await.unwrap();
+
+        repository
+            .add_content(
+                &repo.name,
+                vec![
+                    Text::from_text(&repo.name, "hello", None, HashMap::new()),
+                    Text::from_text(&repo.name, "world", None, HashMap::new()),
+                ],
+                None,
+            )
+            .await
+            .unwrap();
+
+        let memory_session_id = "abcd";
+
+        let _ = repository
+            .create_memory_session(memory_session_id, &repo.name, HashMap::new())
+            .await
+            .unwrap();
+
+        repository
+            .add_content(
+                &repo.name,
+                vec![
+                    Text::from_text(
+                        &repo.name,
+                        "hello ai",
+                        Some(memory_session_id),
+                        HashMap::new(),
+                    ),
+                    Text::from_text(
+                        &repo.name,
+                        "hello human",
+                        Some(memory_session_id),
+                        HashMap::new(),
+                    ),
+                ],
+                Some("abcd"),
+            )
+            .await
+            .unwrap();
+
+        let content_list1 = repository
+            .content_with_unapplied_extractor(&repo.name, &extractor1, None)
+            .await
+            .unwrap();
+        assert_eq!(2, content_list1.len());
+
+        let content_list2 = repository
+            .content_with_unapplied_extractor(&repo.name, &extractor2, None)
+            .await
+            .unwrap();
+        assert_eq!(2, content_list2.len());
     }
-    text.hash(&mut s);
-    format!("{:x}", s.finish())
 }

@@ -10,8 +10,6 @@ available_models:
   default: true
 - model: text-embedding-ada-002
   device: remote
-- model: dpr
-  device: cpu
 # OpenAI key. Either set it here or set via the OPENAI_API_KEY
 # environment variable
 openai:
@@ -19,6 +17,8 @@ openai:
 
 # Database URL for storing document and memory
 db_url: postgres://postgres:postgres@localhost/indexify
+
+coordinator_addr: "http://172.20.0.8950"
 
 # Vector index configuration for the service. The index_store parameter
 # specifies the type of index to use. Currently, only Qdrant is supported.

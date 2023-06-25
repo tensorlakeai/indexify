@@ -4,6 +4,8 @@ pub mod prelude;
 
 pub mod content;
 pub mod data_repository;
+pub mod extraction_event;
 pub mod index;
 pub mod index_chunks;
 pub mod memory_sessions;
+pub mod work;

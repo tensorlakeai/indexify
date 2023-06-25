@@ -13,7 +13,10 @@ use qdrant_client::{
 };
 
 use super::{CreateIndexParams, VectorDb, VectorDbError};
-use crate::{vectordbs::{IndexDistance, SearchResult, VectorChunk}, QdrantConfig};
+use crate::{
+    vectordbs::{IndexDistance, SearchResult, VectorChunk},
+    QdrantConfig,
+};
 
 fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
     u64::from_str_radix(hex, 16)
