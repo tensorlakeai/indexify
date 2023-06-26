@@ -21,7 +21,7 @@ Indexify stars with a default data repository, we can start adding texts to it s
 === "curl"
 
     ```
-    curl -v -X POST http://localhost:8900/repository/add_text
+    curl -v -X POST http://localhost:8900/repository/add_texts
     -H "Content-Type: application/json"
     -d '{
             "documents": [
