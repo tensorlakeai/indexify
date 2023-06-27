@@ -331,7 +331,7 @@ impl Repository {
         }
         let mut content_list = Vec::new();
         for text in texts {
-            let content_id = create_content_id(repository_name, &text.text);
+            let content_id = create_content_id(repository_name, &text.text, memory_session);
             let content_type = match memory_session {
                 Some(_) => ContentType::Memory,
                 None => ContentType::Text,
@@ -512,9 +512,12 @@ impl Repository {
     }
 }
 
-fn create_content_id(index_name: &str, text: &str) -> String {
+fn create_content_id(repository_id: &str, text: &str, memory_session: Option<&str>) -> String {
     let mut s = DefaultHasher::new();
-    index_name.hash(&mut s);
+    repository_id.hash(&mut s);
+    if let Some(sess) = memory_session {
+        sess.hash(&mut s);
+    }
     text.hash(&mut s);
     format!("{:x}", s.finish())
 }
