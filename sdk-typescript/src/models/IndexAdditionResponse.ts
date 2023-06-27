@@ -1,8 +1,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
-/* eslint-disable */
+ 
 
 export type IndexAdditionResponse = {
-    sequence: number;
+  sequence: number;
 };
-
