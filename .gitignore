@@ -4,6 +4,3 @@ target
 ve
 site
 *.pyc
-node_modules
-package.json
-package-lock.json

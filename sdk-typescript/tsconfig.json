@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
     "incremental": true,
-    "target": "es2017",
+    "target": "esnext",
     "outDir": "lib/main",
     "rootDir": "src",
     "moduleResolution": "node",
