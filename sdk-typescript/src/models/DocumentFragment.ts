@@ -3,6 +3,7 @@
 /* eslint-disable */
 
 export type DocumentFragment = {
-  metadata: Record<string, any>;
-  text: string;
+    metadata: Record<string, any>;
+    text: string;
 };
+
