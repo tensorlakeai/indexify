@@ -1,10 +1,10 @@
-from indexify import Indexify, Message, TextChunk
+from indexify import Index, TextChunk
 from datasets import load_dataset
 
 
 class DemoQA:
     def __init__(self):
-        self.idx = Indexify(Indexify.DEFAULT_INDEXIFY_URL, "default/default")
+        self.idx = Index(Index.DEFAULT_INDEXIFY_URL, "default/default")
 
     def execute(self):
         # Add All Wikipedia articles
@@ -14,7 +14,7 @@ class DemoQA:
             context: str = datasets[i]["context"]
             question = datasets[i]["question"]
             answers = datasets[i]["answers"]
-            # self.idx.add_text(TextChunk(context))
+            self.idx.add(TextChunk(context))
             q_a_all.append((question, answers))
         for q_a in q_a_all:
             question = q_a[0]

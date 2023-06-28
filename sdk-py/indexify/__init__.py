@@ -1,3 +1,4 @@
-from http_client import Indexify, Message, TextChunk
+from index import Index, Message, TextChunk
+from memory import Memory
 
-__all__ = ["Indexify", "Message", "TextChunk"]
+__all__ = ["Index", "Memory", "Message", "TextChunk"]
