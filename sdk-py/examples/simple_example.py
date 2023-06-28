@@ -1,18 +1,18 @@
-from indexify import Indexify, Message
+from indexify import Memory, Message
 
 
 class DemoSimpleApplication:
     def __init__(self):
-        self.idx = Indexify(Indexify.DEFAULT_INDEXIFY_URL, "default/default")
+        self.idx = Memory(Memory.DEFAULT_INDEXIFY_URL, "default/default")
 
     def execute(self):
         # Create a memory session
         session = self.idx.create_memory()
         # Add to the vector and persistence memory
-        self.idx.add_to_memory(Message("human", "Indexify is amazing!"),
-                               Message("assistant", "How are you planning on using Indexify?!"))
+        self.idx.add(Message("human", "Indexify is amazing!"),
+                     Message("assistant", "How are you planning on using Indexify?!"))
         # Get all the memory events for a given session.
-        response = self.idx.all_memory()
+        response = self.idx.all()
         print([message.to_dict() for message in response])
 
 
