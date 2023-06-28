@@ -1,11 +1,13 @@
-import { OpenAPI } from '../src/core/OpenAPI';
+import { IndexifyClient } from '../src/IndexifyClient';
 
 import { IndexifyService } from '../src/services/IndexifyService';
 
-OpenAPI.BASE = 'http://localhost:8900';
+const indexifyClient = new IndexifyClient({
+    BASE: "http://localhost:8900",
+});
 
 async function main() {
-    var resp = await IndexifyService.addTexts({
+    var resp = await indexifyClient.indexify.addTexts({
         "documents": [
             {
                 "text": "hello world",
@@ -20,7 +22,7 @@ async function main() {
     console.log(resp);
 
 
-    var searchResp = await IndexifyService.indexSearch({
+    var searchResp = await indexifyClient.indexify.indexSearch({
         index: "default/default",
         k: 2,
         query: "hello"

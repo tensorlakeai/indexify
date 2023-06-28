@@ -22,7 +22,7 @@
     "fix": "run fix:*",
     "fix:prettier": "prettier \"src/**/*.ts\" --write",
     "fix:lint": "eslint src --ext .ts --fix",
-    "generate": "./node_modules/openapi-typescript-codegen/bin/index.js -i http://localhost:8900/api-docs/openapi.json -o ./src/ --client axios",
+    "generate": "./node_modules/openapi-typescript-codegen/bin/index.js -i http://localhost:8900/api-docs/openapi.json -o ./src/ --client axios --name IndexifyClient",
     "test": "run build test:*",
     "test:lint": "eslint src --ext .ts",
     "test:prettier": "prettier \"src/**/*.ts\" --list-different",

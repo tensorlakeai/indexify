@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const OpenAPI_1 = require("../src/core/OpenAPI");
-const IndexifyService_1 = require("../src/services/IndexifyService");
-OpenAPI_1.OpenAPI.BASE = 'http://localhost:8900';
+const IndexifyClient_1 = require("../src/IndexifyClient");
+const indexifyClient = new IndexifyClient_1.IndexifyClient({
+    BASE: "http://localhost:8900",
+});
 async function main() {
-    var resp = await IndexifyService_1.IndexifyService.addTexts({
+    var resp = await indexifyClient.indexify.addTexts({
         "documents": [
             {
                 "text": "hello world",
@@ -17,7 +18,7 @@ async function main() {
         ]
     });
     console.log(resp);
-    var searchResp = await IndexifyService_1.IndexifyService.indexSearch({
+    var searchResp = await indexifyClient.indexify.indexSearch({
         index: "default/default",
         k: 2,
         query: "hello"
