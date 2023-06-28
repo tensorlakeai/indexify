@@ -1,16 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.IndexifyService = void 0;
-const OpenAPI_1 = require("../core/OpenAPI");
-const request_1 = require("../core/request");
 class IndexifyService {
+    httpRequest;
+    constructor(httpRequest) {
+        this.httpRequest = httpRequest;
+    }
     /**
      * @param requestBody
      * @returns IndexSearchResponse Index search results
      * @throws ApiError
      */
-    static indexSearch(requestBody) {
-        return (0, request_1.request)(OpenAPI_1.OpenAPI, {
+    indexSearch(requestBody) {
+        return this.httpRequest.request({
             method: 'GET',
             url: '/index/search',
             body: requestBody,
@@ -25,8 +27,8 @@ class IndexifyService {
      * @returns IndexAdditionResponse Texts were successfully added to the repository
      * @throws ApiError
      */
-    static addTexts(requestBody) {
-        return (0, request_1.request)(OpenAPI_1.OpenAPI, {
+    addTexts(requestBody) {
+        return this.httpRequest.request({
             method: 'POST',
             url: '/repository/add_texts',
             body: requestBody,
@@ -41,8 +43,8 @@ class IndexifyService {
      * @returns SyncRepositoryResponse Repository synced successfully
      * @throws ApiError
      */
-    static syncRepository(requestBody) {
-        return (0, request_1.request)(OpenAPI_1.OpenAPI, {
+    syncRepository(requestBody) {
+        return this.httpRequest.request({
             method: 'POST',
             url: '/repository/sync',
             body: requestBody,
