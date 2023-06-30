@@ -93,5 +93,8 @@
     "exclude": [
       "**/*.spec.js"
     ]
+  },
+  "dependencies": {
+    "@kitrak_rev/axios-fetch-adapter": "^0.3.3"
   }
 }
