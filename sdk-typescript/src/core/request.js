@@ -5,7 +5,8 @@ exports.request = void 0;
 /* tslint:disable */
 /* eslint-disable */
 const axios_1 = require("axios");
-const form_data_1 = require("form-data");
+const FormData = require("form-data");
+const axios_fetch_adapter_1 = require("@kitrak_rev/axios-fetch-adapter");
 const ApiError_1 = require("./ApiError");
 const CancelablePromise_1 = require("./CancelablePromise");
 const isDefined = (value) => {
@@ -28,7 +29,7 @@ const isBlob = (value) => {
         /^(Blob|File)$/.test(value[Symbol.toStringTag]));
 };
 const isFormData = (value) => {
-    return value instanceof form_data_1.default;
+    return value instanceof FormData;
 };
 const isSuccess = (status) => {
     return status >= 200 && status < 300;
@@ -90,7 +91,7 @@ const getUrl = (config, options) => {
 };
 const getFormData = (options) => {
     if (options.formData) {
-        const formData = new form_data_1.default();
+        const formData = new FormData();
         const process = (key, value) => {
             if (isString(value) || isBlob(value)) {
                 formData.append(key, value);
@@ -174,6 +175,7 @@ const sendRequest = async (config, options, url, body, formData, headers, onCanc
         method: options.method,
         withCredentials: config.WITH_CREDENTIALS,
         cancelToken: source.token,
+        adapter: axios_fetch_adapter_1.default.fetchAdapter,
     };
     onCancel(() => source.cancel('The user aborted a request.'));
     try {

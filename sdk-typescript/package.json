@@ -1,6 +1,6 @@
 {
   "name": "getindexify",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Typescript client library for getindexify.ai",
   "main": "lib/main/index.js",
   "typings": "lib/main/index.d.ts",
@@ -45,13 +45,11 @@
     "@typescript-eslint/eslint-plugin": "^5.51.0",
     "@typescript-eslint/parser": "^5.51.0",
     "ava": "^5.2.0",
-    "axios": "^1.4.0",
     "codecov": "^3.8.3",
     "eslint": "^8.34.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "^2.26.0",
-    "form-data": "^4.0.0",
     "husky": "^8.0.3",
     "lint-staged": "^13.1.2",
     "npm-run-all": "^1.7.0",
@@ -95,6 +93,8 @@
     ]
   },
   "dependencies": {
-    "@kitrak_rev/axios-fetch-adapter": "^0.3.3"
+    "@kitrak_rev/axios-fetch-adapter": "^0.3.3",
+    "axios": "^1.4.0",
+    "form-data": "^4.0.0"
   }
 }
