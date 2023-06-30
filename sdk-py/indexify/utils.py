@@ -17,12 +17,7 @@ class Metric(str, Enum):
 
 
 def _get_payload(response):
-    payload = {"errors": []}
     try:
-        payload = json.loads(response.text)
+       return json.loads(response.text)
     except:
         raise ApiException(response.text)
-    if "errors" in payload.keys() and len(payload["errors"]) > 0:
-        raise ApiException(f"Failed to create index: {payload['errors']}")
-
-    return payload
