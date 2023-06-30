@@ -1,5 +1,5 @@
 import json
-from data_containers import *
+from .data_containers import *
 
 
 class ApiException(Exception):

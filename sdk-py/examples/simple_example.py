@@ -1,13 +1,13 @@
-from indexify import Memory, Message
+from indexify import Memory, Message, DEFAULT_INDEXIFY_URL
 
 
 class DemoSimpleApplication:
     def __init__(self):
-        self.idx = Memory(Memory.DEFAULT_INDEXIFY_URL, "default/default")
+        self.idx = Memory(DEFAULT_INDEXIFY_URL, "default/default")
 
     def execute(self):
         # Create a memory session
-        session = self.idx.create_memory()
+        session = self.idx.create()
         # Add to the vector and persistence memory
         self.idx.add(Message("human", "Indexify is amazing!"),
                      Message("assistant", "How are you planning on using Indexify?!"))
