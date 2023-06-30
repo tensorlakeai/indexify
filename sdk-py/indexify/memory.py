@@ -1,11 +1,10 @@
 import requests
 
-from indexify import *
-from utils import _get_payload
+from .data_containers import *
+from .utils import _get_payload
 
 
 class Memory:
-    DEFAULT_INDEXIFY_URL = "http://localhost:8900"
 
     def __init__(self, url, index):
         self._url = url
@@ -25,16 +24,16 @@ class Memory:
         resp = requests.post(f"{self._url}/memory/add", json=req)
         if resp.status_code == 200:
             return
-        self._get_payload(resp)
+        _get_payload(resp)
 
     def all(self) -> list[Message]:
         req = {"session_id": self.session_id}
         resp = requests.get(f"{self._url}/memory/get", json=req)
         if resp.status_code == 200:
-            payload = self._get_payload(resp)
+            payload = _get_payload(resp)
             messages = []
             for raw_message in payload["messages"]:
                 messages.append(Message(raw_message["role"], raw_message["text"], raw_message["metadata"]))
             return messages
-        self._get_payload(resp)
+        _get_payload(resp)
 
