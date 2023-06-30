@@ -1,7 +1,7 @@
 from indexify import Memory, Message, DEFAULT_INDEXIFY_URL
 
 
-class DemoSimpleApplication:
+class DemoMemoryExample:
     def __init__(self):
         self._memory = Memory(DEFAULT_INDEXIFY_URL, "default")
 
@@ -17,5 +17,5 @@ class DemoSimpleApplication:
 
 
 if __name__ == '__main__':
-    demo = DemoSimpleApplication()
+    demo = DemoMemoryExample()
     demo.execute()
