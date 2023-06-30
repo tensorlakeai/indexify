@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "indexify"
+version = "0.0.1"
+description = "Python Client for Indexify"
+authors = ["Diptanu Gon Choudhury <diptanuc@gmail.com>", "Kanchi Shah <kanchi.shah957@gmail.com>"]
+license = "Apache 2.0"
+readme = "README.rst"
+homepage = "https://github.com/diptanu/indexify"
+repository = "https://github.com/diptanu/indexify"
+
+[tool.poetry.dependencies]
+python = "^3.10.0"
+requests = "^2.28.2, !=2.30.0"
+
+[tool.poetry.dev-dependencies]
+black = "^22.3.0"
+pylint = "^2.4.0"
+pytest = "^7.1.1"
+pytest-cov = "^4.0.0"
+pytest-runner = "^6.0.0"
+pytest-watch = "^4.2.0"
+
+[build-system]
+requires = ["poetry>=1.2"]
+build-backend = "poetry.masonry.api"

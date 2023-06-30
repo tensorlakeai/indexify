@@ -4,3 +4,4 @@ target
 ve
 site
 *.pyc
+sdk-py/dist
