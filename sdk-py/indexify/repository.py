@@ -13,7 +13,7 @@ class Repository:
         parsed_chunks = []
         for chunk in chunks:
             parsed_chunks.append(chunk.to_dict())
-        req = {"documents": parsed_chunks}
+        req = {"documents": parsed_chunks, "repository": self._name}
         resp = requests.post(f"{self._url}/repository/add_texts", json=req)
         if resp.status_code == 200:
             return
