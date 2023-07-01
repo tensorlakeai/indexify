@@ -63,6 +63,7 @@ Once the binary is built start it with a default config -
 
 ## Visual Studio DevContainer
 Visual Studio Code Devcontainers have been setup as well. Opening the codebase in VS Studio Code should prompt opening the project in a container. Once the container is up, test that the application can be compiled and run -
+
 1. `make local-dev`
 2. Install the Python Dependencies as described above.
 3. Compile and Run the application as descibed above.
