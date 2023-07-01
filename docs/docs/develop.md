@@ -22,12 +22,6 @@ Install the server libs
 (cd src_py && pip install .)
 ```
 
-### Running in dev mode:
-Run:
-```
-cargo watch -x run
-```
-
 ### MAC OS
 The following workaround is needed until PyO3 can detect virtualenvs in OSX
 ```
@@ -35,17 +29,17 @@ The following workaround is needed until PyO3 can detect virtualenvs in OSX
 ```
 
 ## Running Tests
-We currently have a hard dependency on the Qdrant VectorDB to test Indexify. 
+We currently have a hard dependency on the Qdrant VectorDB and Postgres to test Indexify. 
 
-### Start Qdrant
+### Start Development Dependencies
 ```
-docker run -d -p 6333:6333 -p 6334:6334 -e QDRANT__SERVICE__GRPC_PORT="6334" qdrant/qdrant
+make local-dev
 ```
 
 ### Run Tests
 Run the unit and integration tests
 ```
-cargo test
+cargo test -- --test-threads 1
 ```
 
 ## Running the service locally 
@@ -68,4 +62,7 @@ Once the binary is built start it with a default config -
 ```
 
 ## Visual Studio DevContainer
-Visual Studio Code Devcontainers have been setup as well. Opening the codebase in VS Studio Code should prompt opening the project in a container.
+Visual Studio Code Devcontainers have been setup as well. Opening the codebase in VS Studio Code should prompt opening the project in a container. Once the container is up, test that the application can be compiled and run -
+1. `make local-dev`
+2. Install the Python Dependencies as described above.
+3. Compile and Run the application as descibed above.
