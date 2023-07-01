@@ -1,11 +1,9 @@
 FROM ubuntu
 
-RUN update-ca-certificates
-
 RUN apt update
 
 RUN apt -y install protobuf-compiler protobuf-compiler-grpc sqlite3 python3-dev pip virtualenv python3
-RUN apt -y install curl gnupg
+RUN apt -y install ca-certificates curl gnupg
 RUN install -m 0755 -d /etc/apt/keyrings
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 RUN chmod a+r /etc/apt/keyrings/docker.gpg
