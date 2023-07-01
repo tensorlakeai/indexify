@@ -13,8 +13,8 @@
 	// "features": {},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	"forwardPorts": [8090]
-	// "runArgs": []
+	"forwardPorts": [8900],
+	"runArgs": ["--volume=/var/lib/docker", "--privileged"]
 
 	// Uncomment the next line to run commands after the container is created.
 	// "postCreateCommand": "cat /etc/os-release",
