@@ -5,7 +5,6 @@ RUN update-ca-certificates
 RUN apt update
 
 RUN apt -y install protobuf-compiler protobuf-compiler-grpc sqlite3 python3-dev pip virtualenv python3
-RUN for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do sudo apt-get remove $pkg; done
 RUN apt -y install curl gnupg
 RUN install -m 0755 -d /etc/apt/keyrings
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
