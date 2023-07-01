@@ -11,10 +11,15 @@
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
+	"features": {
+		"ghcr.io/devcontainers/features/docker-in-docker:2": {
+			"dockerDashComposeVersion": "v2"
+		}
+	},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	"forwardPorts": [8900],
-	"runArgs": ["--volume=/var/lib/docker", "--privileged"]
+	"forwardPorts": [8900]
+	//"runArgs": ["--volume=/var/lib/docker", "--privileged"]
 
 	// Uncomment the next line to run commands after the container is created.
 	// "postCreateCommand": "cat /etc/os-release",
