@@ -15,7 +15,7 @@ This starts the Indexify server at port `8900` and additionally starts a postgre
 
 That's it! Let's explore some basic document storage and retrieval APIs
 
-Indexify stars with a default data repository, we can start adding texts to it straight away.
+Data Repositories are logical buckets that holds content. Indexify starts with a default data repository, we can start adding texts to it straight away.
 
 #### Add some Texts
 === "curl"
