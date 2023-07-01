@@ -5,7 +5,7 @@ from datasets import load_dataset
 class DemoQA:
 
     def __init__(self):
-        self.repository = Repository(DEFAULT_INDEXIFY_URL, "default/default")
+        self.repository = Repository(DEFAULT_INDEXIFY_URL, "default")
         self.idx = Index(DEFAULT_INDEXIFY_URL, "default/default")
 
     def execute(self):
