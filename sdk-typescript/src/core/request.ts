@@ -3,7 +3,7 @@
 /* eslint-disable */
 import axios from 'axios';
 import type { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
-import FormData = require("form-data")
+import FormData = require("form-data");
 
 import Adapter from '@kitrak_rev/axios-fetch-adapter';
 

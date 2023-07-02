@@ -1,6 +1,6 @@
 {
   "name": "getindexify",
-  "version": "0.0.3",
+  "version": "0.0.8",
   "description": "Typescript client library for getindexify.ai",
   "main": "lib/main/index.js",
   "typings": "lib/main/index.d.ts",
