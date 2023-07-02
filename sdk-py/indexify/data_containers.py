@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List
+from typing import List
 from dataclasses import dataclass, field
 
 
@@ -11,6 +11,7 @@ class TextSplitter(str, Enum):
     def __str__(self) -> str:
         return self.value.lower()
 
+
 @dataclass
 class TextChunk:
     text: str
@@ -18,6 +19,7 @@ class TextChunk:
 
     def to_dict(self):
         return {"text": self.text, "metadata": self.metadata}
+
 
 @dataclass
 class Message:
@@ -28,6 +30,7 @@ class Message:
     def to_dict(self):
         return {"role": self.role, "text": self.text, "metadata": self.metadata}
 
+
 @dataclass
 class SearchChunk:
     index: str
@@ -36,6 +39,7 @@ class SearchChunk:
 
     def to_dict(self):
         return {"index": self.index, "query": self.query, "k": self.k}
+
 
 @dataclass
 class SearchResult:

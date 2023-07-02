@@ -1,4 +1,4 @@
-from indexify import Memory, Message, DEFAULT_INDEXIFY_URL
+from indexify import Memory, Message, DEFAULT_INDEXIFY_URL, wait_until
 
 
 class DemoMemoryExample:
@@ -7,12 +7,12 @@ class DemoMemoryExample:
 
     def execute(self):
         # Create a memory session
-        session = self._memory.create()
+        session = wait_until(self._memory.create())
         # Add to the vector and persistence memory
-        self._memory.add(Message("human", "Indexify is amazing!"),
-                     Message("assistant", "How are you planning on using Indexify?!"))
+        wait_until(self._memory.add(Message("human", "Indexify is amazing!"),
+                                    Message("assistant", "How are you planning on using Indexify?!")))
         # Get all the memory events for a given session.
-        response = self._memory.all()
+        response = wait_until(self._memory.all())
         print([message.to_dict() for message in response])
 
 
