@@ -7,12 +7,12 @@ class DemoMemoryExample:
 
     def execute(self):
         # Create a memory session
-        session = wait_until(self._memory.create())
+        session = self._memory.create()
         # Add to the vector and persistence memory
-        wait_until(self._memory.add(Message("human", "Indexify is amazing!"),
-                                    Message("assistant", "How are you planning on using Indexify?!")))
+        self._memory.add(Message("human", "Indexify is amazing!"),
+                         Message("assistant", "How are you planning on using Indexify?!"))
         # Get all the memory events for a given session.
-        response = wait_until(self._memory.all())
+        response = self._memory.all()
         print([message.to_dict() for message in response])
 
 

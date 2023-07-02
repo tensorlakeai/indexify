@@ -1,10 +1,10 @@
 import aiohttp
 
 from .data_containers import *
-from .utils import _get_payload
+from .utils import _get_payload, wait_until
 
 
-class Index:
+class AIndex:
 
     def __init__(self, url, index):
         self._url = url
@@ -19,3 +19,13 @@ class Index:
                 for res in payload["results"]:
                     result.append(TextChunk(text=res["text"], metadata=res["metadata"]))
                 return result
+
+
+class Index(AIndex):
+
+    def __init__(self, url, index):
+        AIndex.__init__(self, url, index)
+
+    def search(self, query: str, top_k: int) -> list[TextChunk]:
+        wait_until(AIndex.search(self, query, top_k))
+

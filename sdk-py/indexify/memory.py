@@ -1,10 +1,10 @@
 import aiohttp
 
 from .data_containers import *
-from .utils import _get_payload
+from .utils import _get_payload, wait_until
 
 
-class Memory:
+class AMemory:
 
     def __init__(self, url, repository="default"):
         self.session_id = None
@@ -26,8 +26,7 @@ class Memory:
         req = {"session_id": self.session_id, "repository": self._repo, "messages": parsed_messages}
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{self._url}/memory/add", json=req) as resp:
-                await _get_payload(resp)
-        return
+                return await _get_payload(resp)
 
     async def all(self) -> list[Message]:
         req = {"session_id": self.session_id, "repository": self._repo}
@@ -38,3 +37,17 @@ class Memory:
                 for raw_message in payload["messages"]:
                     messages.append(Message(raw_message["role"], raw_message["text"], raw_message["metadata"]))
                 return messages
+
+
+class Memory(AMemory):
+    def __init__(self, url, repository="default"):
+        AMemory.__init__(self, url, repository)
+
+    def create(self) -> str:
+        return wait_until(AMemory.create(self))
+
+    def add(self, *messages: Message) -> None:
+        wait_until(AMemory.add(self, *messages))
+
+    def all(self) -> list[Message]:
+        return wait_until(AMemory.add(self))
