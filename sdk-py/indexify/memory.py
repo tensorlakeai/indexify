@@ -1,39 +1,53 @@
-import requests
+import aiohttp
 
 from .data_containers import *
-from .utils import _get_payload
+from .utils import _get_payload, wait_until
 
 
-class Memory:
+class AMemory:
 
     def __init__(self, url, repository="default"):
+        self.session_id = None
         self._url = url
         self._repo = repository
 
-    def create(self) -> str:
-        resp = requests.post(f"{self._url}/memory/create", json={"repository": self._repo})
-        self.session_id = _get_payload(resp)["session_id"]
+    async def create(self) -> str:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{self._url}/memory/create", json={"repository": self._repo}) as resp:
+                resp = await _get_payload(resp)
+                self.session_id = resp["session_id"]
         return self.session_id
 
-    def add(self, *messages: Message) -> None:
+    async def add(self, *messages: Message) -> None:
         parsed_messages = []
         for message in messages:
             parsed_messages.append(message.to_dict())
 
         req = {"session_id": self.session_id, "repository": self._repo, "messages": parsed_messages}
-        resp = requests.post(f"{self._url}/memory/add", json=req)
-        if resp.status_code == 200:
-            return
-        _get_payload(resp)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{self._url}/memory/add", json=req) as resp:
+                return await _get_payload(resp)
+
+    async def all(self) -> list[Message]:
+        req = {"session_id": self.session_id, "repository": self._repo}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self._url}/memory/get", json=req) as resp:
+                payload = await _get_payload(resp)
+                messages = []
+                for raw_message in payload["messages"]:
+                    messages.append(Message(raw_message["role"], raw_message["text"], raw_message["metadata"]))
+                return messages
+
+
+class Memory(AMemory):
+    def __init__(self, url, repository="default"):
+        AMemory.__init__(self, url, repository)
+
+    def create(self) -> str:
+        return wait_until(AMemory.create(self))
+
+    def add(self, *messages: Message) -> None:
+        wait_until(AMemory.add(self, *messages))
 
     def all(self) -> list[Message]:
-        req = {"session_id": self.session_id, "repository": self._repo}
-        resp = requests.get(f"{self._url}/memory/get", json=req)
-        if resp.status_code == 200:
-            payload = _get_payload(resp)
-            messages = []
-            for raw_message in payload["messages"]:
-                messages.append(Message(raw_message["role"], raw_message["text"], raw_message["metadata"]))
-            return messages
-        _get_payload(resp)
-
+        return wait_until(AMemory.add(self))

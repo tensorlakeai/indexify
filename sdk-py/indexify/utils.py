@@ -1,5 +1,5 @@
-import json
-from .data_containers import *
+import asyncio
+from enum import Enum
 
 
 class ApiException(Exception):
@@ -16,8 +16,25 @@ class Metric(str, Enum):
         return self.name.lower()
 
 
-def _get_payload(response):
+async def _get_payload(response):
     try:
-       return json.loads(response.text)
+        return await response.json()
     except:
         raise ApiException(response.text)
+
+
+def wait_until(functions):
+    single_result = False
+    if not isinstance(functions, list):
+        single_result = True
+        functions = [functions]
+    holder = []
+
+    async def run_and_capture_result():
+        holder.append(await asyncio.gather(*functions))
+
+    asyncio.run(run_and_capture_result())
+    if single_result:
+        return holder[0][0]  # single result
+    else:
+        return holder[0]  # list of results
