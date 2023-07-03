@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 ubuntu:22.04 AS builder
+FROM ubuntu:22.04 AS builder
 LABEL stage=builder
 
 WORKDIR /indexify-build
@@ -17,19 +17,17 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-RUN sqlite3 new_indexify.db "VACUUM;"
-
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 RUN cargo build --release
 
 RUN cargo build --package migration --release
 
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y libssl-dev python3-venv python3-dev
+RUN apt install -y libssl-dev gcc python3-venv python3-dev
 
 RUN python3 -m "venv" /venv && /venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
 
@@ -42,8 +40,6 @@ COPY --from=builder /indexify-build/target/release/indexify ./
 COPY --from=builder /indexify-build/target/release/migration ./
 
 COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
-
-COPY --from=builder /indexify-build/new_indexify.db ./indexify.db
 
 COPY --from=builder /indexify-build/src_py/ /indexify/src_py/
 
