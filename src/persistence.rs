@@ -1,3 +1,4 @@
+use nanoid::nanoid;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -10,11 +11,11 @@ use entity::extraction_event::Entity as ExtractionEventEntity;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{QueryFilter, ConnectOptions};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DbBackend, Statement};
 use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
+use sea_orm::{ConnectOptions, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smart_default::SmartDefault;
@@ -305,7 +306,6 @@ impl Repository {
         let mut opt = ConnectOptions::new(db_url.to_owned());
         opt.sqlx_logging(false); // Disabling SQLx log;
 
-
         let db = Database::connect(opt).await?;
         Ok(Self { conn: db })
     }
@@ -440,7 +440,7 @@ impl Repository {
                 extractors_state: Set(Some(json!(ExtractorsState::default()))),
             });
             let extraction_event = ExtractionEvent {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: nanoid!(),
                 repository_id: repository_name.into(),
                 payload: ExtractionEventPayload::CreateContent {
                     content_id: text.id.clone(),
@@ -639,7 +639,7 @@ impl Repository {
     ) -> Result<(), RepositoryError> {
         let tx = self.conn.begin().await?;
         let extractor_event = ExtractionEvent {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: nanoid!(),
             repository_id: repository.name.clone(),
             payload: ExtractionEventPayload::SyncRepository {
                 memory_session: None,

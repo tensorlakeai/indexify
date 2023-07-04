@@ -1,7 +1,7 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{CoordinatorWorker, ServerConfig};
-use std::{sync::Arc};
+use std::sync::Arc;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -36,7 +36,6 @@ async fn main() -> Result<(), Error> {
     //.with_max_level(tracing::Level::DEBUG)
     //.with_test_writer()
     //.init();
-
 
     let args = Cli::parse();
     match args.command {
