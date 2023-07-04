@@ -3,7 +3,6 @@ from .memory import Memory, AMemory
 from .repository import Repository, ARepository
 from .data_containers import TextChunk, Message
 from .utils import wait_until
-from .langchain_integration import IndexifyMemory
 
 DEFAULT_INDEXIFY_URL = "http://localhost:8900"
 
