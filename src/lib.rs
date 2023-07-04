@@ -1,7 +1,9 @@
 mod api;
+mod coordinator;
 mod data_repository_manager;
 mod embeddings;
 mod entity;
+mod executor;
 mod extractors;
 mod index;
 mod memory;
@@ -12,4 +14,4 @@ mod test_util;
 mod text_splitters;
 mod vectordbs;
 
-pub use {embeddings::*, memory::*, server::*, server_config::*};
+pub use {coordinator::*, embeddings::*, memory::*, server::*, server_config::*};

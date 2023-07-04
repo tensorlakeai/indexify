@@ -4,13 +4,15 @@ use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use thiserror::Error;
 use tracing::debug;
+use tracing::error;
 
+use crate::vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS, VectorDbError};
 use crate::{
     entity,
     persistence::{Chunk, Repository, RepositoryError, Text},
-    text_splitters::{self, TextSplitterError, TextSplitterKind, TextSplitterTS}, EmbeddingGeneratorError, EmbeddingRouter, VectorIndexConfig, vectordbs, EmbeddingGeneratorTS,
+    text_splitters::{self, TextSplitterError, TextSplitterKind, TextSplitterTS},
+    vectordbs, EmbeddingGeneratorError, EmbeddingGeneratorTS, EmbeddingRouter, VectorIndexConfig,
 };
-use crate::vectordbs::{VectorDBTS, CreateIndexParams, VectorDbError, VectorChunk, IndexDistance};
 
 #[derive(Error, Debug)]
 pub enum IndexError {
@@ -186,10 +188,15 @@ impl Index {
             .await?;
         let mut index_search_results = Vec::new();
         for result in results {
-            let chunk = self.repository.chunk_with_id(&result.chunk_id).await?;
+            let chunk = self.repository.chunk_with_id(&result.chunk_id).await;
+            if chunk.as_ref().is_err() {
+                error!("Chunk with id {} not found", result.chunk_id);
+                continue;
+            }
             let search_result = Text {
-                text: chunk.text,
-                metadata: chunk.metadata,
+                id: chunk.as_ref().unwrap().content_id.clone(),
+                text: chunk.as_ref().unwrap().text.clone(),
+                metadata: chunk.as_ref().unwrap().metadata.clone(),
             };
             index_search_results.push(search_result);
         }
@@ -221,22 +228,14 @@ mod tests {
             .sync(&DataRepository::default())
             .await
             .unwrap();
+        let repository = "default";
         repository_manager
             .add_texts(
-                "default",
+                repository,
                 vec![
-                    Text {
-                        text: "hello world".into(),
-                        metadata: HashMap::new(),
-                    },
-                    Text {
-                        text: "hello pipe".into(),
-                        metadata: HashMap::new(),
-                    },
-                    Text {
-                        text: "nba".into(),
-                        metadata: HashMap::new(),
-                    },
+                    Text::from_text(repository, "hello world", None, HashMap::new()),
+                    Text::from_text(repository, "hello pipe", None, HashMap::new()),
+                    Text::from_text(repository, "nba", None, HashMap::new()),
                 ],
                 None,
             )
@@ -244,17 +243,19 @@ mod tests {
             .unwrap();
         repository_manager
             .add_texts(
-                "default",
-                vec![Text {
-                    text: "hello world".into(),
-                    metadata: HashMap::new(),
-                }],
+                repository,
+                vec![Text::from_text(
+                    repository,
+                    "hello world",
+                    None,
+                    HashMap::new(),
+                )],
                 None,
             )
             .await
             .unwrap();
 
-        embedding_runner._sync_repo("default").await.unwrap();
+        embedding_runner.sync_repo("default").await;
         let index = index_manager.load("default/default").await.unwrap();
         let result = index.search("pipe", 1).await.unwrap();
         assert_eq!(1, result.len())

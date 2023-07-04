@@ -13,6 +13,8 @@ class DemoQA:
         datasets = load_dataset('squad', split='train')
         q_a_all = []
         futures = []
+        print("Running QA example...")
+        print("Adding all Wikipedia articles to the index...")
         for i in range(0, 10):
             context: str = datasets[i]["context"]
             question = datasets[i]["question"]
@@ -20,6 +22,7 @@ class DemoQA:
             futures.append(self.repository.add(TextChunk(context)))
             q_a_all.append((question, answers))
         wait_until(futures)
+        print("Starting search now...")
         for q_a in q_a_all:
             question = q_a[0]
             values = wait_until(self.idx.search(question, 1))

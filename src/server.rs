@@ -1,15 +1,12 @@
-use crate::{api::*, persistence};
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
-use crate::extractors::ExtractorRunner;
+use crate::executor::ExtractorExecutor;
 use crate::index::IndexManager;
-use crate::persistence::{
-    DataRepository, ExtractorConfig, Repository,
-};
+use crate::persistence::{DataRepository, ExtractorConfig, Repository};
+use crate::{api::*, persistence, ExecutorState};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
 use anyhow::Result;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
 use tokio::signal;
@@ -23,26 +20,6 @@ use std::sync::Arc;
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
 
-pub struct IndexifyAPIError {
-    status_code: StatusCode,
-    message: String,
-}
-
-impl IndexifyAPIError {
-    fn new(status_code: StatusCode, message: String) -> Self {
-        Self {
-            status_code,
-            message,
-        }
-    }
-}
-
-impl IntoResponse for IndexifyAPIError {
-    fn into_response(self) -> Response {
-        (self.status_code, self.message).into_response()
-    }
-}
-
 #[derive(Clone)]
 pub struct IndexEndpointState {
     index_manager: Arc<IndexManager>,
@@ -51,13 +28,13 @@ pub struct IndexEndpointState {
 #[derive(Clone)]
 pub struct MemoryEndpointState {
     memory_manager: Arc<MemoryManager>,
-    extractor_runner: Arc<ExtractorRunner>,
+    extractor_executor: Arc<ExtractorExecutor>,
 }
 
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
-    extractor_worker: Arc<ExtractorRunner>,
+    extractor_worker: Arc<ExtractorExecutor>,
 }
 
 #[derive(OpenApi)]
@@ -97,9 +74,11 @@ impl Server {
             self.config.index_config.clone(),
             embedding_router.clone(),
         )?);
-        let extractor_runner = Arc::new(ExtractorRunner::new(
+        let node_state = Arc::new(ExecutorState::new(repository.clone()));
+        let extractor_worker = Arc::new(ExtractorExecutor::new(
             repository.clone(),
             index_manager.clone(),
+            Some(node_state),
         ));
         let repository_manager =
             Arc::new(DataRepositoryManager::new(repository.clone(), index_manager.clone()).await?);
@@ -108,7 +87,7 @@ impl Server {
             .await?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            extractor_worker: extractor_runner.clone(),
+            extractor_worker: extractor_worker.clone(),
         };
         let memory_manager = Arc::new(
             MemoryManager::new(
@@ -122,7 +101,7 @@ impl Server {
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
-            extractor_runner: extractor_runner.clone(),
+            extractor_executor: extractor_worker.clone(),
         };
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -311,10 +290,7 @@ async fn add_texts(
     let texts = payload
         .documents
         .iter()
-        .map(|d| persistence::Text {
-            text: d.text.to_owned(),
-            metadata: d.metadata.to_owned(),
-        })
+        .map(|d| persistence::Text::from_text(&repo, &d.text, None, d.metadata.clone()))
         .collect();
     state
         .repository_manager
@@ -327,7 +303,9 @@ async fn add_texts(
             )
         })?;
 
-    state.extractor_worker.sync_repo(&repo).await;
+    if payload.sync.unwrap_or(true) {
+        let _ = state.extractor_worker.sync_repo(&repo).await;
+    }
     Ok(Json(IndexAdditionResponse::default()))
 }
 
@@ -349,7 +327,7 @@ async fn create_memory_session(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    state.extractor_runner.sync_repo(repo).await;
+    state.extractor_executor.sync_repo(repo).await;
 
     Ok(Json(CreateMemorySessionResponse { session_id }))
 }
@@ -360,13 +338,18 @@ async fn add_to_memory_session(
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
+    let messages = payload
+        .messages
+        .iter()
+        .map(|m| m.to_memory_message(&repo, &payload.session_id))
+        .collect();
     state
         .memory_manager
-        .add_messages(&repo, &payload.session_id, payload.messages)
+        .add_messages(&repo, &payload.session_id, messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    state.extractor_runner.sync_repo(&repo).await;
+    state.extractor_executor.sync_repo(&repo).await;
 
     Ok(Json(MemorySessionAddResponse {}))
 }
@@ -380,7 +363,10 @@ async fn get_from_memory_session(
     let messages = memory_manager
         .retrieve_messages(&repo, payload.session_id)
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .iter()
+        .map(|m| m.to_owned().into())
+        .collect();
 
     Ok(Json(MemorySessionRetrieveResponse { messages }))
 }
@@ -399,10 +385,14 @@ async fn search_memory_session(
             payload.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
         )
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .iter()
+        .map(|m| m.to_owned().into())
+        .collect();
 
     Ok(Json(MemorySessionSearchResponse { messages }))
 }
+
 #[utoipa::path(
     get,
     path = "/index/search",

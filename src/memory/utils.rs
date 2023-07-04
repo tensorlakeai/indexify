@@ -9,6 +9,7 @@ pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
     let messages: Vec<Message> = texts
         .iter()
         .map(|text| Message {
+            id: text.id.to_owned(),
             text: text.text.to_owned(),
             role: text
                 .metadata
@@ -34,6 +35,7 @@ pub fn get_texts_from_messages(session_id: &str, messages: Vec<Message>) -> Vec<
         metadata.extend(message.metadata);
         texts.push(Text {
             text: message.text,
+            id: message.id,
             metadata,
         });
     }
