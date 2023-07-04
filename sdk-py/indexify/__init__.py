@@ -3,8 +3,9 @@ from .memory import Memory, AMemory
 from .repository import Repository, ARepository
 from .data_containers import TextChunk, Message
 from .utils import wait_until
+from .langchain_integration import IndexifyMemory
 
 DEFAULT_INDEXIFY_URL = "http://localhost:8900"
 
 __all__ = ["Index", "Memory", "Repository", "AIndex", "AMemory", "ARepository",
-           "Message", "TextChunk", "DEFAULT_INDEXIFY_URL", "wait_until"]
+           "Message", "TextChunk", "DEFAULT_INDEXIFY_URL", "wait_until", "IndexifyMemory"]

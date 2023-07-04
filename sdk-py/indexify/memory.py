@@ -50,4 +50,4 @@ class Memory(AMemory):
         wait_until(AMemory.add(self, *messages))
 
     def all(self) -> list[Message]:
-        return wait_until(AMemory.add(self))
+        return wait_until(AMemory.all(self))
