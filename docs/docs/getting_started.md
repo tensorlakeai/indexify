@@ -21,14 +21,14 @@ Data Repositories are logical buckets that holds content. Indexify starts with a
 === "curl"
 
     ```
-    curl -v -X POST http://localhost:8900/repository/add_texts
-    -H "Content-Type: application/json"
+    curl -v -X POST http://localhost:8900/repository/add_texts \
+    -H "Content-Type: application/json" \
     -d '{
-            "documents": [
+            "documents": [ 
             {"text": "Indexify is amazing!", 
-            "metadata":{"key": "k1"}
-            }
-        ]}'
+            "metadata":{"key": "k1"} 
+            } 
+        ]}' 
     ```
 
 The default data repository is configured to have an extractor which populates an index for searching content.
@@ -36,8 +36,8 @@ The default data repository is configured to have an extractor which populates a
 #### Query the Index
 === "curl"
     ```
-    curl -v -X GET http://localhost:8900/index/search
-    -H "Content-Type: application/json"
+    curl -v -X GET http://localhost:8900/index/search \
+    -H "Content-Type: application/json" \
     -d '{
             "index": "default/default",
             "query": "good", 
@@ -51,8 +51,8 @@ The default data repository is configured to have an extractor which populates a
 Memory is usually stored for interactions of an agent with a user or in a given context. Related messages are grouped in Indexify as a `Session`, so first create a session!
 === "curl"
     ```
-    curl -X POST http://localhost:8900/memory/create
-    -H "Content-Type: application/json" 
+    curl -X POST http://localhost:8900/memory/create \
+    -H "Content-Type: application/json" \
     -d '{}'
     ```
     You can optionally pass in a `session-id` while creating a session if you would
@@ -62,8 +62,8 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 - Add Memory Events
 === "curl"
     ```
-    curl -X POST http://localhost:8900/memory/add
-    -H "Content-Type: application/json" 
+    curl -X POST http://localhost:8900/memory/add \
+    -H "Content-Type: application/json" \
     -d '{
             "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
             "messages": [
@@ -74,7 +74,7 @@ Memory is usually stored for interactions of an agent with a user or in a given 
                 },
                 {
                 "role": "ai",
-                "text": "How are you planning on using Indexify?!"
+                "text": "How are you planning on using Indexify?!",
                 "metadata": {}
                 }
         ]}'
@@ -85,8 +85,8 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
     ```
-    curl -X GET http://localhost:8900/memory/get
-    -H "Content-Type: application/json" 
+    curl -X GET http://localhost:8900/memory/get \
+    -H "Content-Type: application/json" \
     -d '{
             "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13"
         }
@@ -99,8 +99,8 @@ add more extractors to a session, and add more than one index or extract other s
 from the messages(like named entities - places, names, etc).
 === "curl"
     ```
-    curl -X GET http://localhost:8900/memory/search
-    -H "Content-Type: application/json" 
+    curl -X GET http://localhost:8900/memory/search \
+    -H "Content-Type: application/json" \
     -d '{
             "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
             "query": "indexify"
