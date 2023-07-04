@@ -6,8 +6,8 @@ Retrieval APIs allow querying vector indexes and other datastores, derived from 
 
 === "curl"
       ```
-      curl -X GET http://localhost:8900/index/search
-      -H "Content-Type: application/json"
+      curl -X GET http://localhost:8900/index/search \
+      -H "Content-Type: application/json" \
       -d '{
             "index": "default/default",
             "query": "good",
@@ -37,8 +37,8 @@ Adding an extractor is the primary means to create new indexes for a repository.
 
 === "curl"
     ``` console
-    curl -X POST http://localhost:8900/repository/add_extractor
-    -H "Content-Type: application/json"
+    curl -X POST http://localhost:8900/repository/add_extractor \
+    -H "Content-Type: application/json" \
     -d '{
         "extractor": {
             "name": "dpr-index",
