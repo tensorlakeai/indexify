@@ -6,7 +6,7 @@ from .utils import _get_payload, wait_until
 
 class ARepository:
 
-    def __init__(self, url, name):
+    def __init__(self, url: str, name: str = "default"):
         self._url = url
         self._name = name
 

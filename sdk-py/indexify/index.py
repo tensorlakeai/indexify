@@ -6,7 +6,7 @@ from .utils import _get_payload, wait_until
 
 class AIndex:
 
-    def __init__(self, url, index):
+    def __init__(self, url: str, index: str = "default/default"):
         self._url = url
         self._index = index
 
