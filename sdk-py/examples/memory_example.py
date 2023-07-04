@@ -1,4 +1,4 @@
-from indexify import Memory, Message, DEFAULT_INDEXIFY_URL, wait_until
+from indexify import Memory, Message, DEFAULT_INDEXIFY_URL
 
 
 class DemoMemoryExample:
