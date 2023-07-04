@@ -1,18 +1,18 @@
 mod utils;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
+    collections::HashMap,
     sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Result;
+use nanoid::nanoid;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use utils::{get_messages_from_texts, get_texts_from_messages};
 use tracing::info;
-use uuid::Uuid;
+use utils::{get_messages_from_texts, get_texts_from_messages};
 
 use crate::{
     data_repository_manager::{DataRepositoryError, DataRepositoryManager},
@@ -41,26 +41,22 @@ pub struct Message {
     pub id: String,
     pub text: String,
     pub role: String,
+    pub unix_timestamp: u64,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl Message {
-    pub fn new(
-        repository: &str,
-        memory_session: &str,
-        text: String,
-        role: String,
-        metadata: HashMap<String, serde_json::Value>,
-    ) -> Self {
-        let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
-        memory_session.hash(&mut s);
-        text.hash(&mut s);
-        let id = format!("{:x}", s.finish());
+    pub fn new(text: &str, role: &str, metadata: HashMap<String, serde_json::Value>) -> Self {
+        let id = nanoid!();
+        let unix_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         Self {
             id,
-            text,
-            role,
+            text: text.into(),
+            role: role.into(),
+            unix_timestamp,
             metadata,
         }
     }
@@ -96,7 +92,7 @@ impl MemoryManager {
         extractor: Option<ExtractorConfig>,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<String, MemoryError> {
-        let session_id = session_id.unwrap_or(Uuid::new_v4().to_string());
+        let session_id = session_id.unwrap_or(nanoid!());
         info!("creating memory session: {}", session_id);
         self.repository
             .create_memory_session(&session_id, repository_id, metadata)
@@ -170,6 +166,7 @@ mod tests {
     use crate::test_util;
 
     use super::*;
+    use nanoid;
     use std::env;
     use std::sync::Arc;
     use tracing::info;
@@ -178,7 +175,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_basic_search() {
         env::set_var("RUST_LOG", "debug");
-        let session_id = &Uuid::new_v4().to_string();
+        let session_id = &nanoid::nanoid!();
         let repo = "default";
         let index_name = "default/default";
         let db = test_util::db_utils::create_db().await.unwrap();
@@ -202,27 +199,9 @@ mod tests {
             .unwrap();
 
         let messages: Vec<Message> = vec![
-            Message::new(
-                repo,
-                session_id,
-                "hello world".into(),
-                "human".into(),
-                HashMap::new(),
-            ),
-            Message::new(
-                repo,
-                session_id,
-                "hello friend".into(),
-                "ai".into(),
-                HashMap::new(),
-            ),
-            Message::new(
-                repo,
-                session_id,
-                "how are you".into(),
-                "human".into(),
-                HashMap::new(),
-            ),
+            Message::new("hello world".into(), "human".into(), HashMap::new()),
+            Message::new("hello friend".into(), "ai".into(), HashMap::new()),
+            Message::new("how are you".into(), "human".into(), HashMap::new()),
         ];
 
         info!("adding messages to session");

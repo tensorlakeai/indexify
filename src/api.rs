@@ -381,18 +381,14 @@ pub struct CreateMemorySessionResponse {
 pub struct Message {
     text: String,
     role: String,
+    #[serde(default)]
+    unix_timestamp: u64,
     metadata: HashMap<String, serde_json::Value>,
 }
 
-impl Message {
-    pub fn to_memory_message(&self, repository: &str, session_id: &str) -> memory::Message {
-        memory::Message::new(
-            repository,
-            session_id,
-            self.text.clone(),
-            self.role.clone(),
-            self.metadata.clone(),
-        )
+impl From<Message> for memory::Message {
+    fn from(value: Message) -> Self {
+        memory::Message::new(&value.text, &value.role, value.metadata)
     }
 }
 
@@ -401,6 +397,7 @@ impl From<memory::Message> for Message {
         Self {
             text: value.text,
             role: value.role,
+            unix_timestamp: value.unix_timestamp,
             metadata: value.metadata,
         }
     }

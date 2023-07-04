@@ -338,11 +338,7 @@ async fn add_to_memory_session(
     Json(payload): Json<MemorySessionAddRequest>,
 ) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
-    let messages = payload
-        .messages
-        .iter()
-        .map(|m| m.to_memory_message(&repo, &payload.session_id))
-        .collect();
+    let messages = payload.messages.iter().map(|m| m.clone().into()).collect();
     state
         .memory_manager
         .add_messages(&repo, &payload.session_id, messages)
