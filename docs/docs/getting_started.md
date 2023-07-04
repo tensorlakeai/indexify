@@ -11,11 +11,22 @@ git clone https://github.com/diptanu/indexify.git
 ```
 docker compose up indexify
 ```
-This starts the Indexify server at port `8900` and additionally starts a postgres server for storing metadata and qdrant for storing embeddings.
+This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and qdrant for storing embeddings.
 
-That's it! Let's explore some basic document storage and retrieval APIs
+That's it! Let's explore some primary document storage and retrieval APIs
 
-Data Repositories are logical buckets that holds content. Indexify starts with a default data repository, we can start adding texts to it straight away.
+Data Repositories are logical buckets that hold content. Indexify starts with a default data repository. We can start adding texts to it straight away.
+
+### Install the client libraries (Optional)
+Indexify comes with Python and Typescript clients. They use the HTTP APIs exposed by Indexify under the hood, and so they merely provided for convenience.
+=== "python"
+    ```
+    pip install indexify
+    ```
+=== "typescript"
+    ```
+    npm install getindexify
+    ```
 
 #### Add some Texts
 === "curl"
@@ -29,6 +40,12 @@ Data Repositories are logical buckets that holds content. Indexify starts with a
             "metadata":{"key": "k1"} 
             } 
         ]}' 
+    ```
+=== "python"
+    ```
+    from indexify import Repository, DEFAULT_INDEXIFY_URL
+
+    repository = Repository(DEFAULT_INDEXIFY_URL, "myrepository")
     ```
 
 The default data repository is configured to have an extractor which populates an index for searching content.
