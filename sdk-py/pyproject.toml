@@ -10,6 +10,8 @@ repository = "https://github.com/diptanu/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
+asyncio = "^3.4.3"
+aiohttp = "^3.4"
 
 [tool.poetry.dev-dependencies]
 black = "^22.3.0"
@@ -21,7 +23,4 @@ pytest-watch = "^4.2.0"
 
 [build-system]
 requires = ["poetry>=1.2"]
-asyncio = "^3.4.3"
-aiohttp = "^3.4"
-langchain = "^0.0.222"
 build-backend = "poetry.masonry.api"
