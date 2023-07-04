@@ -27,7 +27,7 @@ FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y libssl-dev python3-venv python3-dev
+RUN apt install -y libssl-dev gcc python3-venv python3-dev
 
 RUN python3 -m "venv" /venv && /venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
 
