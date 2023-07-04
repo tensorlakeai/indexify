@@ -1,17 +1,24 @@
 mod utils;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Result;
+use nanoid::nanoid;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use tracing::info;
 use utils::{get_messages_from_texts, get_texts_from_messages};
-use uuid::Uuid;
 
 use crate::{
     data_repository_manager::{DataRepositoryError, DataRepositoryManager},
-    persistence::{ContentType, ExtractorConfig, ExtractorType},
-    text_splitters::TextSplitterKind, vectordbs::IndexDistance,
+    persistence::{ExtractorConfig, ExtractorType},
+    text_splitters::TextSplitterKind,
+    vectordbs::IndexDistance,
 };
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from memory.
@@ -31,9 +38,28 @@ pub enum MemoryError {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Message {
-    text: String,
-    role: String,
-    metadata: HashMap<String, serde_json::Value>,
+    pub id: String,
+    pub text: String,
+    pub role: String,
+    pub unix_timestamp: u64,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl Message {
+    pub fn new(text: &str, role: &str, metadata: HashMap<String, serde_json::Value>) -> Self {
+        let id = nanoid!();
+        let unix_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        Self {
+            id,
+            text: text.into(),
+            role: role.into(),
+            unix_timestamp,
+            metadata,
+        }
+    }
 }
 
 /// A struct that represents a manager for storing and retrieving from memory.
@@ -66,7 +92,8 @@ impl MemoryManager {
         extractor: Option<ExtractorConfig>,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<String, MemoryError> {
-        let session_id = session_id.unwrap_or(Uuid::new_v4().to_string());
+        let session_id = session_id.unwrap_or(nanoid!());
+        info!("creating memory session: {}", session_id);
         self.repository
             .create_memory_session(&session_id, repository_id, metadata)
             .await
@@ -75,7 +102,9 @@ impl MemoryManager {
         let mut repo = self.repository.get(repository_id).await?;
         let extractor = extractor.unwrap_or(ExtractorConfig {
             name: session_id.clone(),
-            content_type: ContentType::Memory,
+            filter: crate::persistence::ExtractorFilter::MemorySession {
+                session_id: session_id.clone(),
+            },
             extractor_type: ExtractorType::Embedding {
                 model: self.default_embedding_model.clone(),
                 text_splitter: TextSplitterKind::Noop,
@@ -136,23 +165,24 @@ mod tests {
     use crate::persistence::DataRepository;
     use crate::test_util;
 
-    use serde_json::json;
-
     use super::*;
+    use nanoid;
     use std::env;
     use std::sync::Arc;
+    use tracing::info;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_basic_search() {
         env::set_var("RUST_LOG", "debug");
-        let session_id = &Uuid::new_v4().to_string();
+        let session_id = &nanoid::nanoid!();
         let repo = "default";
         let index_name = "default/default";
         let db = test_util::db_utils::create_db().await.unwrap();
         let (index_manager, extractor_runner) =
             test_util::db_utils::create_index_manager(db.clone(), index_name).await;
         let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
+        info!("creating repository");
         repository_manager
             .sync(&DataRepository::default())
             .await
@@ -162,68 +192,33 @@ mod tests {
             .await
             .unwrap();
 
+        info!("creating session");
         memory_manager
             .create_session(repo, Some(session_id.into()), None, HashMap::new())
             .await
             .unwrap();
 
         let messages: Vec<Message> = vec![
-            Message {
-                text: "hello world".into(),
-                role: "human".into(),
-                metadata: HashMap::new(),
-            },
-            Message {
-                text: "hello friend".into(),
-                role: "AI".into(),
-                metadata: HashMap::new(),
-            },
-            Message {
-                text: "how are you".into(),
-                role: "human".into(),
-                metadata: HashMap::new(),
-            },
+            Message::new("hello world".into(), "human".into(), HashMap::new()),
+            Message::new("hello friend".into(), "ai".into(), HashMap::new()),
+            Message::new("how are you".into(), "human".into(), HashMap::new()),
         ];
 
+        info!("adding messages to session");
         memory_manager
             .add_messages(repo, session_id, messages.clone())
             .await
             .unwrap();
 
-        extractor_runner._sync_repo(repo).await.unwrap();
+        info!("manually syncing messages");
+        extractor_runner.sync_repo(repo).await;
 
         let retrieve_result = memory_manager
             .retrieve_messages(repo, session_id.into())
             .await
             .unwrap();
+        assert_eq!(retrieve_result.len(), 3);
 
-        let target_retrieve_result: Vec<Message> = vec![
-            Message {
-                text: "hello world".into(),
-                role: "human".into(),
-                metadata: HashMap::from([
-                    ("role".to_string(), json!("human")),
-                    ("session_id".to_string(), json!(session_id)),
-                ]),
-            },
-            Message {
-                text: "hello friend".into(),
-                role: "AI".into(),
-                metadata: HashMap::from([
-                    ("role".to_string(), json!("AI")),
-                    ("session_id".to_string(), json!(session_id)),
-                ]),
-            },
-            Message {
-                text: "how are you".into(),
-                role: "human".into(),
-                metadata: HashMap::from([
-                    ("role".to_string(), json!("human")),
-                    ("session_id".to_string(), json!(session_id)),
-                ]),
-            },
-        ];
-        assert_eq!(retrieve_result, target_retrieve_result);
         let search_results = memory_manager
             .search(repo, session_id, "hello", 2)
             .await

@@ -7,7 +7,7 @@ from .utils import _get_payload, wait_until
 class AMemory:
 
     def __init__(self, url, repository="default"):
-        self.session_id = None
+        self._session_id = None
         self._url = url
         self._repo = repository
 
@@ -15,21 +15,21 @@ class AMemory:
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{self._url}/memory/create", json={"repository": self._repo}) as resp:
                 resp = await _get_payload(resp)
-                self.session_id = resp["session_id"]
-        return self.session_id
+                self._session_id = resp["session_id"]
+        return self._session_id
 
     async def add(self, *messages: Message) -> None:
         parsed_messages = []
         for message in messages:
             parsed_messages.append(message.to_dict())
 
-        req = {"session_id": self.session_id, "repository": self._repo, "messages": parsed_messages}
+        req = {"session_id": self._session_id, "repository": self._repo, "messages": parsed_messages}
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{self._url}/memory/add", json=req) as resp:
                 return await _get_payload(resp)
 
     async def all(self) -> list[Message]:
-        req = {"session_id": self.session_id, "repository": self._repo}
+        req = {"session_id": self._session_id, "repository": self._repo}
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{self._url}/memory/get", json=req) as resp:
                 payload = await _get_payload(resp)

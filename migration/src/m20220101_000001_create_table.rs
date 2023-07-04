@@ -85,6 +85,44 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await;
+        let _ = manager
+            .create_table(
+                Table::create()
+                    .table(ExtractionEvent::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(ExtractionEvent::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(ExtractionEvent::Payload).json().not_null())
+                    .col(
+                        ColumnDef::new(ExtractionEvent::AllocationInfo)
+                            .json()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExtractionEvent::ProcessedAt)
+                            .big_unsigned()
+                            .null(),
+                    )
+                    .to_owned(),
+            )
+            .await;
+
+        let _ = manager
+            .create_table(
+                Table::create()
+                    .table(Work::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(Work::Id).string().not_null().primary_key())
+                    .col(ColumnDef::new(Work::Status).string().not_null())
+                    .col(ColumnDef::new(Work::Payload).json().not_null())
+                    .col(ColumnDef::new(Work::WorkerId).string().not_null())
+                    .to_owned(),
+            )
+            .await;
         manager
             .create_table(
                 Table::create()
@@ -165,10 +203,28 @@ enum MemorySessions {
 }
 
 #[derive(Iden)]
+enum ExtractionEvent {
+    Table,
+    Id,
+    Payload,
+    AllocationInfo,
+    ProcessedAt,
+}
+
+#[derive(Iden)]
 enum DataRepository {
     Table,
     Name,
     Extractors,
     Metadata,
     DataConnectors,
+}
+
+#[derive(Iden)]
+enum Work {
+    Table,
+    Id,
+    Status,
+    Payload,
+    WorkerId,
 }

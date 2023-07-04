@@ -8,8 +8,8 @@ A data repository can be created and updated using the `sync` API call. Extracto
 
 === "curl"
     ```
-    curl -X POST http://localhost:8900/repository/sync
-    -H 'Content-Type: application/json'
+    curl -X POST http://localhost:8900/repository/sync \
+    -H 'Content-Type: application/json' \
     -d '{
             "name":"default",
             "extractors": [{

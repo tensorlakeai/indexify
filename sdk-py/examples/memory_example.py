@@ -6,6 +6,7 @@ class DemoMemoryExample:
         self._memory = Memory(DEFAULT_INDEXIFY_URL, "default")
 
     def execute(self):
+        print("Running memory example...")
         # Create a memory session
         session = self._memory.create()
         # Add to the vector and persistence memory

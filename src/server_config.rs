@@ -142,6 +142,7 @@ pub struct ServerConfig {
     pub openai: Option<OpenAIConfig>,
     pub index_config: VectorIndexConfig,
     pub db_url: String,
+    pub coordinator_addr: String,
 }
 
 impl Default for ServerConfig {
@@ -165,6 +166,7 @@ impl Default for ServerConfig {
             }),
             index_config: VectorIndexConfig::default(),
             db_url: "sqlite://indexify.db".into(),
+            coordinator_addr: "0.0.0.0:8950".to_string(),
         }
     }
 }

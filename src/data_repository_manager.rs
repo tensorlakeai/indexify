@@ -9,11 +9,12 @@ pub const DEFAULT_EXTRACTOR_NAME: &str = "default";
 use crate::{
     index::{CreateIndexArgs, IndexError, IndexManager},
     persistence::{
-        ContentType, DataRepository, ExtractorConfig, ExtractorType, Repository, RepositoryError,
-        Text,
+        ContentType, DataRepository, ExtractorConfig, ExtractorFilter, ExtractorType, Repository,
+        RepositoryError, Text,
     },
     text_splitters::TextSplitterKind,
-    ServerConfig, vectordbs::IndexDistance,
+    vectordbs::IndexDistance,
+    ServerConfig,
 };
 
 #[derive(Error, Debug)]
@@ -70,7 +71,9 @@ impl DataRepositoryManager {
                 name: DEFAULT_REPOSITORY_NAME.into(),
                 extractors: vec![ExtractorConfig {
                     name: DEFAULT_EXTRACTOR_NAME.into(),
-                    content_type: ContentType::Text,
+                    filter: ExtractorFilter::ContentType {
+                        content_type: ContentType::Text,
+                    },
                     extractor_type: ExtractorType::Embedding {
                         model: server_config.default_model().model_kind.to_string(),
                         text_splitter: TextSplitterKind::Noop,
@@ -160,7 +163,7 @@ impl DataRepositoryManager {
     ) -> Result<(), DataRepositoryError> {
         let _ = self.repository.repository_by_name(repo_name).await?;
         self.repository
-            .add_text_to_repo(repo_name, texts, memory_session)
+            .add_content(repo_name, texts, memory_session)
             .await
             .map_err(DataRepositoryError::Persistence)
     }
@@ -184,7 +187,7 @@ impl DataRepositoryManager {
         id: &str,
     ) -> Result<Vec<Text>, DataRepositoryError> {
         self.repository
-            .get_texts_for_memory_session(repository, id)
+            .retreive_messages_from_memory(repository, id)
             .await
             .map_err(DataRepositoryError::Persistence)
     }
@@ -218,9 +221,11 @@ impl DataRepositoryManager {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::persistence::{DataConnector, ExtractorConfig, ExtractorType, SourceType};
+    use crate::persistence::{
+        ContentType, DataConnector, ExtractorConfig, ExtractorType, SourceType,
+    };
+    use crate::test_util;
     use crate::text_splitters::TextSplitterKind;
-    use crate::{test_util};
     use crate::vectordbs::IndexDistance;
     use serde_json::json;
 
@@ -240,7 +245,9 @@ mod tests {
             name: "test".to_string(),
             extractors: vec![ExtractorConfig {
                 name: index_name.into(),
-                content_type: ContentType::Text,
+                filter: ExtractorFilter::ContentType {
+                    content_type: ContentType::Text,
+                },
                 extractor_type: ExtractorType::Embedding {
                     model: "all-minilm-l12-v2".into(),
                     text_splitter: TextSplitterKind::Noop,
