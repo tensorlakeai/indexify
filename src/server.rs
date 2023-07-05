@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
 use tokio::signal;
-use tracing::info;
+use tracing::{info, error};
 
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -345,7 +345,10 @@ async fn create_memory_session(
             payload.metadata.unwrap_or_default(),
         )
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            error!("unable to create memroy session: {}", e.to_string());
+            IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
 
     Ok(Json(CreateMemorySessionResponse { session_id }))
 }
