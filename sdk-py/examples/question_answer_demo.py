@@ -9,12 +9,12 @@ class DemoQA:
         self.idx = AIndex(DEFAULT_INDEXIFY_URL, "default/default")
 
     def execute(self):
-        # Add All Wikipedia articles
+        # Add All squad articles
         datasets = load_dataset('squad', split='train')
         q_a_all = []
         futures = []
         print("Running QA example...")
-        print("Adding all Wikipedia articles to the index...")
+        print("Adding all squad context to the index...")
         for i in range(0, 10):
             context: str = datasets[i]["context"]
             question = datasets[i]["question"]

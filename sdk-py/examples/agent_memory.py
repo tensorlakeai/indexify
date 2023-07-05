@@ -2,7 +2,7 @@ from langchain.agents import ZeroShotAgent, Tool, AgentExecutor
 from langchain import OpenAI, LLMChain
 from langchain.utilities import GoogleSearchAPIWrapper
 
-from indexify_langchain import IndexifyMemory, DEFAULT_INDEXIFY_URL
+from indexify import IndexifyMemory, DEFAULT_INDEXIFY_URL
 
 '''
 For this script to work we need to set the following environment settings.

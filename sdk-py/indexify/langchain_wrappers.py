@@ -1,8 +1,8 @@
 from typing import Any, Dict, List
 from langchain.memory.chat_memory import BaseChatMemory
 
-from indexify.data_containers import Message
-from indexify.memory import Memory
+from .data_containers import Message
+from .memory import Memory
 
 '''
 This class will initialize the Indexify class with the indexify_url your installation

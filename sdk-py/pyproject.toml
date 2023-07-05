@@ -21,6 +21,13 @@ pytest-cov = "^4.0.0"
 pytest-runner = "^6.0.0"
 pytest-watch = "^4.2.0"
 
+langchain = { version = "^0", optional = true }
+openai = { version = "^0.27", optional = true }
+google-api-python-client = { version = "^2.11", optional = true }
+
+[tool.poetry.extras]
+llm_tools = ["langchain", "openai", "google-api-python-client"]
+
 [build-system]
 requires = ["poetry>=1.2"]
 build-backend = "poetry.masonry.api"
