@@ -123,6 +123,10 @@ impl Server {
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
+                "/repository/runextractors",
+                post(run_extractors).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
                 "/index/search",
                 get(index_search).with_state(index_state.clone()),
             )
@@ -303,10 +307,26 @@ async fn add_texts(
             )
         })?;
 
-    if payload.sync.unwrap_or(true) {
-        let _ = state.extractor_worker.sync_repo(&repo).await;
-    }
     Ok(Json(IndexAdditionResponse::default()))
+}
+
+async fn run_extractors(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<RunExtractors>,
+) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
+    let num_work = state
+        .extractor_worker
+        .sync_repo(&payload.repository)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to sync repository: {}", e),
+            )
+        })?;
+    Ok(Json(RunExtractorsResponse {
+        extractors: num_work,
+    }))
 }
 
 #[axum_macros::debug_handler]
@@ -327,8 +347,6 @@ async fn create_memory_session(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    state.extractor_executor.sync_repo(repo).await;
-
     Ok(Json(CreateMemorySessionResponse { session_id }))
 }
 
@@ -344,8 +362,6 @@ async fn add_to_memory_session(
         .add_messages(&repo, &payload.session_id, messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    state.extractor_executor.sync_repo(&repo).await;
 
     Ok(Json(MemorySessionAddResponse {}))
 }

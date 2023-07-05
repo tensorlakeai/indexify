@@ -57,21 +57,22 @@ impl ExtractorExecutor {
             .await
     }
 
-    pub async fn sync_repo(&self, _repository_name: &str) {
+    pub async fn sync_repo(&self, _repository_name: &str) -> Result<u64, anyhow::Error>{
         let _ = self.register_local_worker().await;
         let _ = self.node_state.as_ref().unwrap().distribute_work().await;
         let work_list = self.get_work_local().await;
         if let Err(err) = &work_list {
             error!("unable to get work: {:?}", err);
-            return;
+            return Err(anyhow!("unable to get work: {:?}", err));
         }
         if let Err(err) = self
             .perform_work(work_list.as_ref().unwrap().to_vec())
             .await
         {
             error!("unable perform work: {:?}", err);
-            return;
+            return Err(anyhow!("unable perform work: {:?}", err));
         }
+        let mut num_work_perfomed = 0;
         for mut work in work_list.unwrap() {
             work.work_state = WorkState::Completed;
             info!(
@@ -80,8 +81,12 @@ impl ExtractorExecutor {
             );
             if let Err(err) = self.update_work_status(&work).await {
                 error!("unable update work status: {:?}", err);
+                return Err(anyhow!("unable update work status: {:?}", err));
             }
+            num_work_perfomed += 1;
         }
+
+        Ok(num_work_perfomed)
     }
 
     pub async fn perform_work(&self, work_list: Vec<Work>) -> Result<(), anyhow::Error> {
