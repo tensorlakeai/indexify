@@ -22,12 +22,17 @@ class BulkUploadRepository:
                 futures.append(self.repository.add(TextChunk(context)))
             wait_until(futures)
             print(f"repository.add seconds: {(time.time() - start_time)}")
+
+        print("Running extractors now... workaround for concurrency issues")
+        resp = wait_until(self.repository.run_extractors("default"))
+        print(f"number of extracted entities: {resp}")
+
         for j in range(0, loop):
             start_time = time.time()
             futures = []
             for i in range(0, concurrency):
                 question = datasets[i]["question"]
-                futures.append(self.repository.search(question, 1))
+                futures.append(self.idx.search(question, 1))
             wait_until(futures)
             print(f"repository.search seconds: {(time.time() - start_time)}")
 

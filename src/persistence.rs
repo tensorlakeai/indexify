@@ -248,8 +248,8 @@ impl Work {
         worker_id: Option<&str>,
     ) -> Self {
         let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
         content_id.hash(&mut s);
+        repository.hash(&mut s);
         extractor.hash(&mut s);
         let id = format!("{:x}", s.finish());
 
