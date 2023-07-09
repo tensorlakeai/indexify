@@ -35,7 +35,7 @@ pub mod db_utils {
         let repo = Arc::new(Repository::new_with_db(db.clone()));
         let node_state = Arc::new(ExecutorState::new(repo.clone()));
         let extractor_runner =
-            ExtractorExecutor::new(repo.clone(), index_manager.clone(), Some(node_state));
+            ExtractorExecutor::new(repo, index_manager.clone(), Some(node_state));
         (index_manager, extractor_runner)
     }
 

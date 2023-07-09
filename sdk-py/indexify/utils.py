@@ -1,5 +1,6 @@
 import asyncio
 from enum import Enum
+import json
 
 
 class ApiException(Exception):
@@ -18,9 +19,10 @@ class Metric(str, Enum):
 
 async def _get_payload(response):
     try:
-        return await response.json()
+        resp = await response.text()
+        return json.loads(resp)
     except:
-        raise ApiException(response.text)
+        raise ApiException(resp)
 
 
 def wait_until(functions):

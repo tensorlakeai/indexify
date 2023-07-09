@@ -79,7 +79,7 @@ impl Text {
         text.hash(&mut s);
         let id = format!("{:x}", s.finish());
         Self {
-            id: id,
+            id,
             text: text.into(),
             metadata,
         }
@@ -253,7 +253,7 @@ impl Work {
         let id = format!("{:x}", s.finish());
 
         Self {
-            id: id,
+            id,
             content_id: content_id.into(),
             repository_id: repository.into(),
             extractor: extractor.into(),
@@ -833,7 +833,7 @@ mod tests {
 
         let memory_session_id = "abcd";
 
-        let _ = repository
+        repository
             .create_memory_session(memory_session_id, &repo.name, HashMap::new())
             .await
             .unwrap();

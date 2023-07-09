@@ -166,7 +166,7 @@ mod tests {
     use crate::test_util;
 
     use super::*;
-    use nanoid;
+    
     use std::env;
     use std::sync::Arc;
     use tracing::info;
@@ -199,9 +199,9 @@ mod tests {
             .unwrap();
 
         let messages: Vec<Message> = vec![
-            Message::new("hello world".into(), "human".into(), HashMap::new()),
-            Message::new("hello friend".into(), "ai".into(), HashMap::new()),
-            Message::new("how are you".into(), "human".into(), HashMap::new()),
+            Message::new("hello world", "human", HashMap::new()),
+            Message::new("hello friend", "ai", HashMap::new()),
+            Message::new("how are you", "human", HashMap::new()),
         ];
 
         info!("adding messages to session");
