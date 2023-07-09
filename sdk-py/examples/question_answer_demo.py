@@ -29,11 +29,13 @@ class DemoQA:
             futures.append(self.repository.add(TextChunk(context)))
             q_a_all.append((question, answers))
         wait_until(futures)
-
-        print("Starting to search now...")
+        print("Running extractors now... workaround for concurrency issues")
+        resp = wait_until(self.repository.run_extractors("default"))
+        print(f"number of extracted entities: {resp}")
+        print("Starting search now...")
         for q_a in q_a_all:
             question = q_a[0]
-            values = wait_until(self.idx.search(question, 1))
+            values = wait_until(self.repository.run_extractors("default"))
             print(f"Question: {question}, \nContext is in: {values[0].text}")
             answer = self.llm_chain.run(input_documents=[to_document(value) for value in values], question=question)
             print(f"Answer by OpenAI: {answer}")

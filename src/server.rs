@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
 use tokio::signal;
-use tracing::info;
+use tracing::{info, error};
 
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -121,6 +121,10 @@ impl Server {
             .route(
                 "/repository/add_texts",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/repository/runextractors",
+                post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/index/search",
@@ -303,10 +307,26 @@ async fn add_texts(
             )
         })?;
 
-    if payload.sync.unwrap_or(true) {
-        let _ = state.extractor_worker.sync_repo(&repo).await;
-    }
     Ok(Json(IndexAdditionResponse::default()))
+}
+
+async fn run_extractors(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<RunExtractors>,
+) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
+    let num_work = state
+        .extractor_worker
+        .sync_repo(&payload.repository)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to sync repository: {}", e),
+            )
+        })?;
+    Ok(Json(RunExtractorsResponse {
+        extractors: num_work,
+    }))
 }
 
 #[axum_macros::debug_handler]
@@ -325,9 +345,10 @@ async fn create_memory_session(
             payload.metadata.unwrap_or_default(),
         )
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    state.extractor_executor.sync_repo(repo).await;
+        .map_err(|e| {
+            error!("unable to create memroy session: {}", e.to_string());
+            IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
 
     Ok(Json(CreateMemorySessionResponse { session_id }))
 }
@@ -344,8 +365,6 @@ async fn add_to_memory_session(
         .add_messages(&repo, &payload.session_id, messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    state.extractor_executor.sync_repo(&repo).await;
 
     Ok(Json(MemorySessionAddResponse {}))
 }

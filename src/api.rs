@@ -352,6 +352,16 @@ pub struct TextAddRequest {
     pub sync: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RunExtractors{
+    pub repository: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RunExtractorsResponse{
+    pub extractors: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct IndexAdditionResponse {
     pub sequence: u64,

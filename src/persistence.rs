@@ -248,8 +248,8 @@ impl Work {
         worker_id: Option<&str>,
     ) -> Self {
         let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
         content_id.hash(&mut s);
+        repository.hash(&mut s);
         extractor.hash(&mut s);
         let id = format!("{:x}", s.finish());
 
@@ -322,7 +322,6 @@ impl Repository {
         text_splitter: String,
         repository_name: &str,
     ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
         let index = entity::index::ActiveModel {
             name: Set(index_params.name.clone()),
             embedding_model: Set(embedding_model),
@@ -332,25 +331,31 @@ impl Repository {
             unique_params: Set(index_params.unique_params.clone().map(|v| json!(v))),
             repository_id: Set(repository_name.into()),
         };
-        let insert_result = IndexEntity::insert(index)
-            .on_conflict(
-                OnConflict::column(entity::index::Column::Name)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(&tx)
-            .await;
-        if let Err(err) = insert_result {
-            if err != DbErr::RecordNotInserted {
-                tx.rollback().await?;
-                return Err(RepositoryError::DatabaseError(err));
-            }
-        }
-        if let Err(err) = vectordb.create_index(index_params.clone()).await {
-            tx.rollback().await?;
-            return Err(RepositoryError::VectorDb(err));
-        }
-        tx.commit().await?;
+
+        self.conn
+            .transaction::<_, (), RepositoryError>(|txn| {
+                Box::pin(async move {
+                    let insert_result = IndexEntity::insert(index)
+                        .on_conflict(
+                            OnConflict::column(entity::index::Column::Name)
+                                .do_nothing()
+                                .to_owned(),
+                        )
+                        .exec(txn)
+                        .await;
+                    if let Err(err) = insert_result {
+                        if err != DbErr::RecordNotInserted {
+                            return Err(RepositoryError::DatabaseError(err));
+                        }
+                    }
+                    if let Err(err) = vectordb.create_index(index_params.clone()).await {
+                        return Err(RepositoryError::VectorDb(err));
+                    }
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
         Ok(())
     }
 
@@ -368,7 +373,6 @@ impl Repository {
         repo_id: &str,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
         let memory_session = entity::memory_sessions::ActiveModel {
             session_id: Set(session_id.to_string()),
             repository_id: Set(repo_id.into()),
@@ -380,9 +384,8 @@ impl Repository {
                     .do_nothing()
                     .to_owned(),
             )
-            .exec(&tx)
-            .await;
-        tx.commit().await?;
+            .exec(&self.conn)
+            .await?;
         Ok(())
     }
 
@@ -417,12 +420,11 @@ impl Repository {
         texts: Vec<Text>,
         memory_session: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
         if memory_session.is_some() {
             // Ensure that the session exists
             let _session = entity::memory_sessions::Entity::find()
                 .filter(entity::memory_sessions::Column::SessionId.eq(memory_session))
-                .one(&tx)
+                .one(&self.conn)
                 .await?
                 .ok_or(RepositoryError::SessionNotFound("session not found".into()))?;
         }
@@ -453,18 +455,32 @@ impl Repository {
                 processed_at: NotSet,
             });
         }
-        let _ = entity::content::Entity::insert_many(content_list)
-            .on_conflict(
-                OnConflict::column(entity::content::Column::Id)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(&tx)
-            .await;
-        let _ = ExtractionEventEntity::insert_many(extraction_events)
-            .exec(&tx)
-            .await;
-        tx.commit().await?;
+
+        self.conn
+            .transaction::<_, (), RepositoryError>(|txn| {
+                Box::pin(async move {
+                    let result = entity::content::Entity::insert_many(content_list)
+                        .on_conflict(
+                            OnConflict::column(entity::content::Column::Id)
+                                .do_nothing()
+                                .to_owned(),
+                        )
+                        .exec(txn)
+                        .await;
+                    if let Err(err) = result {
+                        if err == DbErr::RecordNotInserted {
+                            return Ok(());
+                        }
+                        return Err(RepositoryError::DatabaseError(err));
+                    }
+                    let _ = ExtractionEventEntity::insert_many(extraction_events)
+                        .exec(txn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
         Ok(())
     }
 
@@ -525,24 +541,32 @@ impl Repository {
         content_id: &str,
         extractor: &str,
     ) -> Result<(), anyhow::Error> {
-        let tx = self.conn.begin().await?;
-        let content_entity = entity::content::Entity::find()
-            .filter(entity::content::Column::Id.eq(content_id))
-            .one(&tx)
-            .await?
-            .ok_or(RepositoryError::ContentNotFound(content_id.to_string()))?;
-        let mut extractors_state: ExtractorsState = serde_json::from_value(
-            content_entity
-                .extractors_state
-                .clone()
-                .unwrap_or(json!(ExtractorsState::default())),
-        )
-        .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
-        extractors_state.update(extractor);
-        let mut content_entity: entity::content::ActiveModel = content_entity.into();
-        content_entity.extractors_state = Set(Some(json!(extractors_state)));
-        content_entity.update(&tx).await?;
-        tx.commit().await?;
+        let content_id = content_id.to_string();
+        let extractor = extractor.to_string();
+        self.conn
+            .transaction::<_, (), RepositoryError>(|txn| {
+                Box::pin(async move {
+                    let content_entity = entity::content::Entity::find()
+                        .filter(entity::content::Column::Id.eq(&content_id))
+                        .one(txn)
+                        .await?
+                        .ok_or(RepositoryError::ContentNotFound(content_id))?;
+                    let mut extractors_state: ExtractorsState = serde_json::from_value(
+                        content_entity
+                            .extractors_state
+                            .clone()
+                            .unwrap_or(json!(ExtractorsState::default())),
+                    )
+                    .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+                    extractors_state.update(&extractor);
+                    let mut content_entity: entity::content::ActiveModel = content_entity.into();
+                    content_entity.extractors_state = Set(Some(json!(extractors_state)));
+                    content_entity.update(txn).await?;
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
         Ok(())
     }
 
@@ -587,7 +611,6 @@ impl Repository {
         chunks: Vec<Chunk>,
         index_name: &str,
     ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
         let chunk_models: Vec<entity::index_chunks::ActiveModel> = chunks
             .iter()
             .map(|chunk| entity::index_chunks::ActiveModel {
@@ -603,9 +626,8 @@ impl Repository {
                     .do_nothing()
                     .to_owned(),
             )
-            .exec(&tx)
-            .await;
-        tx.commit().await?;
+            .exec(&self.conn)
+            .await?;
         Ok(())
     }
 
@@ -637,7 +659,6 @@ impl Repository {
         &self,
         repository: DataRepository,
     ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
         let extractor_event = ExtractionEvent {
             id: nanoid!(),
             repository_id: repository.name.clone(),
@@ -651,26 +672,36 @@ impl Repository {
             metadata: Set(Some(json!(repository.metadata))),
             data_connectors: Set(Some(json!(repository.data_connectors))),
         };
-        let _ = DataRepositoryEntity::insert(repository_model)
-            .on_conflict(
-                OnConflict::column(entity::data_repository::Column::Name)
-                    .update_columns(vec![
-                        entity::data_repository::Column::Extractors,
-                        entity::data_repository::Column::Metadata,
-                    ])
-                    .to_owned(),
-            )
-            .exec(&tx)
-            .await?;
-        let _ = ExtractionEventEntity::insert(entity::extraction_event::ActiveModel {
+        let extraction_event_model = entity::extraction_event::ActiveModel {
             id: Set(extractor_event.id.clone()),
             payload: Set(json!(extractor_event)),
             allocation_info: NotSet,
             processed_at: NotSet,
-        })
-        .exec(&tx)
-        .await?;
-        tx.commit().await?;
+        };
+        let _ = self
+            .conn
+            .transaction::<_, (), RepositoryError>(|txn| {
+                Box::pin(async move {
+                    let _ = DataRepositoryEntity::insert(repository_model)
+                        .on_conflict(
+                            OnConflict::column(entity::data_repository::Column::Name)
+                                .update_columns(vec![
+                                    entity::data_repository::Column::Extractors,
+                                    entity::data_repository::Column::Metadata,
+                                ])
+                                .to_owned(),
+                        )
+                        .exec(txn)
+                        .await?;
+                    let _ = ExtractionEventEntity::insert(extraction_event_model)
+                        .exec(txn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| RepositoryError::LogicError(e.to_string()));
+
         Ok(())
     }
 
@@ -734,19 +765,27 @@ impl Repository {
         work_id: &str,
         state: WorkState,
     ) -> Result<(), RepositoryError> {
-        let tx = self.conn.begin().await?;
-        let work_model = WorkEntity::find()
-            .filter(entity::work::Column::Id.eq(work_id))
-            .one(&tx)
-            .await?
-            .ok_or(RepositoryError::LogicError(work_id.to_owned()))?;
-        let mut payload = serde_json::from_value::<Work>(work_model.payload.clone())?;
-        let mut work_model: entity::work::ActiveModel = work_model.into();
-        work_model.status = Set(state.to_string());
-        payload.work_state = state;
-        work_model.payload = Set(json!(payload));
-        work_model.update(&tx).await?;
-        tx.commit().await?;
+        let work_id = work_id.to_owned();
+        self.conn
+            .transaction::<_, (), RepositoryError>(|txn| {
+                Box::pin(async move {
+                    let work_model = WorkEntity::find()
+                        .filter(entity::work::Column::Id.eq(&work_id))
+                        .one(txn)
+                        .await?
+                        .ok_or(RepositoryError::LogicError(work_id))?;
+                    let mut payload = serde_json::from_value::<Work>(work_model.payload.clone())?;
+                    let mut work_model: entity::work::ActiveModel = work_model.into();
+                    work_model.status = Set(state.to_string());
+                    payload.work_state = state;
+                    work_model.payload = Set(json!(payload));
+                    work_model.update(txn).await?;
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+
         Ok(())
     }
 
