@@ -6,7 +6,6 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::SystemTime;
 use tracing::info;
-use sea_orm::ConnectionTrait;
 
 use anyhow::Result;
 use entity::data_repository::Entity as DataRepositoryEntity;
