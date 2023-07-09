@@ -35,7 +35,7 @@ class DemoQA:
         print("Starting search now...")
         for q_a in q_a_all:
             question = q_a[0]
-            values = wait_until(self.repository.run_extractors("default"))
+            values = wait_until(self.idx.search(question, 2))
             print(f"Question: {question}, \nContext is in: {values[0].text}")
             answer = self.llm_chain.run(input_documents=[to_document(value) for value in values], question=question)
             print(f"Answer by OpenAI: {answer}")
