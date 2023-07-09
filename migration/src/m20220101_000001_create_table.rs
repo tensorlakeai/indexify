@@ -43,7 +43,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Content::Metadata).json())
                     .col(ColumnDef::new(Content::RepositoryId).string().not_null())
                     .col(ColumnDef::new(Content::MemorySessionId).string())
-                    .col(ColumnDef::new(Content::ExtractorsState).json())
+                    .col(ColumnDef::new(Content::ExtractorsState).json_binary())
                     .to_owned(),
             )
             .await;

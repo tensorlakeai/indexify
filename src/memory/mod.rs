@@ -211,7 +211,7 @@ mod tests {
             .unwrap();
 
         info!("manually syncing messages");
-        extractor_runner.sync_repo(repo).await;
+        extractor_runner.sync_repo(repo).await.unwrap();
 
         let retrieve_result = memory_manager
             .retrieve_messages(repo, session_id.into())

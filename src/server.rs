@@ -28,7 +28,6 @@ pub struct IndexEndpointState {
 #[derive(Clone)]
 pub struct MemoryEndpointState {
     memory_manager: Arc<MemoryManager>,
-    extractor_executor: Arc<ExtractorExecutor>,
 }
 
 #[derive(Clone)]
@@ -101,7 +100,6 @@ impl Server {
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
-            extractor_executor: extractor_worker.clone(),
         };
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))

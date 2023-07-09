@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 use tracing::info;
+use sea_orm::ConnectionTrait;
 
 use anyhow::Result;
 use entity::data_repository::Entity as DataRepositoryEntity;
@@ -45,13 +46,6 @@ pub struct ExtractionEvent {
 struct ExtractorsState {
     #[serde(default)]
     state: HashMap<String, u64>,
-}
-
-impl ExtractorsState {
-    fn update(&mut self, extractor_name: &str) {
-        let current_state = self.state.entry(extractor_name.to_string()).or_insert(0);
-        *current_state += 1;
-    }
 }
 
 #[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
@@ -543,30 +537,13 @@ impl Repository {
     ) -> Result<(), anyhow::Error> {
         let content_id = content_id.to_string();
         let extractor = extractor.to_string();
-        self.conn
-            .transaction::<_, (), RepositoryError>(|txn| {
-                Box::pin(async move {
-                    let content_entity = entity::content::Entity::find()
-                        .filter(entity::content::Column::Id.eq(&content_id))
-                        .one(txn)
-                        .await?
-                        .ok_or(RepositoryError::ContentNotFound(content_id))?;
-                    let mut extractors_state: ExtractorsState = serde_json::from_value(
-                        content_entity
-                            .extractors_state
-                            .clone()
-                            .unwrap_or(json!(ExtractorsState::default())),
-                    )
-                    .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
-                    extractors_state.update(&extractor);
-                    let mut content_entity: entity::content::ActiveModel = content_entity.into();
-                    content_entity.extractors_state = Set(Some(json!(extractors_state)));
-                    content_entity.update(txn).await?;
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        let query = r#"update content set extractors_state['state'][$2] = '1' where id=$1"#;
+        let values = vec![content_id.into(), extractor.clone().into()];
+        let _ = self.conn.execute(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            query,
+            values,
+        )).await?;
         Ok(())
     }
 
