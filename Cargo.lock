@@ -1440,6 +1440,7 @@ dependencies = [
  "qdrant-client",
  "regex",
  "sea-orm",
+ "sea-query",
  "serde",
  "serde_json",
  "serde_yaml",

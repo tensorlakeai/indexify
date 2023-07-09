@@ -18,6 +18,7 @@ oneshot = {version="^0"}
 qdrant-client = "1.2.0"
 regex = {version="^1"}
 sea-orm = { version = "^0", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "sqlx-dep", "debug-print", "with-json", "with-time"] }
+sea-query = {version = "^0"}
 serde = {version="^1", features=["derive"]}
 serde_yaml={version="^0"}
 serde_json={version="^1"}

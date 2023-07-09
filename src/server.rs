@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
 use tokio::signal;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
