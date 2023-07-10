@@ -12,8 +12,7 @@ pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
             let role: &str = text
                 .metadata
                 .get("role")
-                .map(|r| r.as_str())
-                .flatten()
+                .and_then(|r| r.as_str())
                 .unwrap_or(default_role);
             Message::new(&text.text, role, text.metadata.clone())
         })

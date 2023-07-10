@@ -353,12 +353,12 @@ pub struct TextAddRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RunExtractors{
+pub struct RunExtractors {
     pub repository: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RunExtractorsResponse{
+pub struct RunExtractorsResponse {
     pub extractors: u64,
 }
 

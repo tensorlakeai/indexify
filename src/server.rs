@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
 use tokio::signal;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -28,7 +28,6 @@ pub struct IndexEndpointState {
 #[derive(Clone)]
 pub struct MemoryEndpointState {
     memory_manager: Arc<MemoryManager>,
-    extractor_executor: Arc<ExtractorExecutor>,
 }
 
 #[derive(Clone)]
@@ -82,9 +81,11 @@ impl Server {
         ));
         let repository_manager =
             Arc::new(DataRepositoryManager::new(repository.clone(), index_manager.clone()).await?);
-        repository_manager
+        if let Err(err) = repository_manager
             .create_default_repository(&self.config)
-            .await?;
+            .await {
+                panic!("failed to create default repository: {}", err)
+            }
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
             extractor_worker: extractor_worker.clone(),
@@ -101,7 +102,6 @@ impl Server {
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
-            extractor_executor: extractor_worker.clone(),
         };
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))

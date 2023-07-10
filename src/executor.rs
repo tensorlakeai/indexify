@@ -57,7 +57,7 @@ impl ExtractorExecutor {
             .await
     }
 
-    pub async fn sync_repo(&self, _repository_name: &str) -> Result<u64, anyhow::Error>{
+    pub async fn sync_repo(&self, _repository_name: &str) -> Result<u64, anyhow::Error> {
         let _ = self.register_local_worker().await;
         let _ = self.node_state.as_ref().unwrap().distribute_work().await;
         let work_list = self.get_work_local().await;

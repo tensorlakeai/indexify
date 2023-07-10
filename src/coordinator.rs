@@ -117,7 +117,7 @@ impl ExecutorState {
         for extractor in &extractors {
             let content_list = self
                 .repository
-                .content_with_unapplied_extractor(repository_id, &extractor, content_id)
+                .content_with_unapplied_extractor(repository_id, extractor, content_id)
                 .await?;
             for content in content_list {
                 info!("Creating work for content {}", &content.id);
@@ -127,7 +127,7 @@ impl ExecutorState {
                     &extractor.name,
                     Some(&worker_id),
                 );
-                let _ = self.repository.insert_work(&work).await?;
+                self.repository.insert_work(&work).await?;
                 self.repository
                     .mark_content_as_processed(&work.content_id, &work.extractor)
                     .await?;
@@ -275,7 +275,7 @@ mod tests {
         let repository_name = "test";
 
         // Create a repository
-        let _ = repository
+        repository
             .upsert_repository(DataRepository {
                 name: repository_name.into(),
                 data_connectors: vec![],
@@ -294,7 +294,7 @@ mod tests {
             })
             .await?;
 
-        let _ = repository
+        repository
             .add_content(
                 repository_name,
                 vec![
@@ -307,7 +307,7 @@ mod tests {
 
         // Insert a new worker and then create work
         node_state.executors.insert("test_worker".into());
-        let _ = node_state.create_work(repository_name, None).await?;
+        node_state.create_work(repository_name, None).await?;
 
         let work_list = node_state.get_work_for_worker("test_worker").await?;
 

@@ -1,7 +1,9 @@
 use nanoid::nanoid;
+use sea_orm::ConnectionTrait;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 use std::time::SystemTime;
 use tracing::info;
 
@@ -16,6 +18,7 @@ use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
 use sea_orm::{ConnectOptions, QueryFilter};
+use sea_query::expr::Expr;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smart_default::SmartDefault;
@@ -47,13 +50,6 @@ struct ExtractorsState {
     state: HashMap<String, u64>,
 }
 
-impl ExtractorsState {
-    fn update(&mut self, extractor_name: &str) {
-        let current_state = self.state.entry(extractor_name.to_string()).or_insert(0);
-        *current_state += 1;
-    }
-}
-
 #[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
 pub enum ContentType {
     #[strum(serialize = "text")]
@@ -83,7 +79,7 @@ impl Text {
         text.hash(&mut s);
         let id = format!("{:x}", s.finish());
         Self {
-            id: id,
+            id,
             text: text.into(),
             metadata,
         }
@@ -222,8 +218,10 @@ impl Chunk {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Deserialize, PartialEq, Eq, EnumString, Display)]
+#[derive(Debug, Serialize, Clone, Deserialize, EnumString, Display, SmartDefault)]
 pub enum WorkState {
+    #[default]
+    Unknown,
     Pending,
     InProgress,
     Completed,
@@ -236,6 +234,7 @@ pub struct Work {
     pub content_id: String,
     pub repository_id: String,
     pub extractor: String,
+    #[serde(skip)]
     pub work_state: WorkState,
     pub worker_id: Option<String>,
 }
@@ -254,7 +253,7 @@ impl Work {
         let id = format!("{:x}", s.finish());
 
         Self {
-            id: id,
+            id,
             content_id: content_id.into(),
             repository_id: repository.into(),
             extractor: extractor.into(),
@@ -543,30 +542,18 @@ impl Repository {
     ) -> Result<(), anyhow::Error> {
         let content_id = content_id.to_string();
         let extractor = extractor.to_string();
-        self.conn
-            .transaction::<_, (), RepositoryError>(|txn| {
-                Box::pin(async move {
-                    let content_entity = entity::content::Entity::find()
-                        .filter(entity::content::Column::Id.eq(&content_id))
-                        .one(txn)
-                        .await?
-                        .ok_or(RepositoryError::ContentNotFound(content_id))?;
-                    let mut extractors_state: ExtractorsState = serde_json::from_value(
-                        content_entity
-                            .extractors_state
-                            .clone()
-                            .unwrap_or(json!(ExtractorsState::default())),
-                    )
-                    .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
-                    extractors_state.update(&extractor);
-                    let mut content_entity: entity::content::ActiveModel = content_entity.into();
-                    content_entity.extractors_state = Set(Some(json!(extractors_state)));
-                    content_entity.update(txn).await?;
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        // TODO change the '1' to a timestamp so that the state value reflects
+        // when was the worker state updated.
+        let query = r#"update content set extractors_state['state'][$2] = '1' where id=$1"#;
+        let values = vec![content_id.into(), extractor.clone().into()];
+        let _ = self
+            .conn
+            .execute(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                query,
+                values,
+            ))
+            .await?;
         Ok(())
     }
 
@@ -765,27 +752,11 @@ impl Repository {
         work_id: &str,
         state: WorkState,
     ) -> Result<(), RepositoryError> {
-        let work_id = work_id.to_owned();
-        self.conn
-            .transaction::<_, (), RepositoryError>(|txn| {
-                Box::pin(async move {
-                    let work_model = WorkEntity::find()
-                        .filter(entity::work::Column::Id.eq(&work_id))
-                        .one(txn)
-                        .await?
-                        .ok_or(RepositoryError::LogicError(work_id))?;
-                    let mut payload = serde_json::from_value::<Work>(work_model.payload.clone())?;
-                    let mut work_model: entity::work::ActiveModel = work_model.into();
-                    work_model.status = Set(state.to_string());
-                    payload.work_state = state;
-                    work_model.payload = Set(json!(payload));
-                    work_model.update(txn).await?;
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
-
+        entity::work::Entity::update_many()
+            .col_expr(entity::work::Column::Status, Expr::value(state.to_string()))
+            .filter(entity::work::Column::Id.eq(work_id))
+            .exec(&self.conn)
+            .await?;
         Ok(())
     }
 
@@ -796,7 +767,11 @@ impl Repository {
             .all(&self.conn)
             .await?
             .into_iter()
-            .map(|m| serde_json::from_value::<Work>(m.payload).unwrap())
+            .map(|m| {
+                let mut work_payload = serde_json::from_value::<Work>(m.payload).unwrap();
+                work_payload.work_state = WorkState::from_str(&m.status).unwrap();
+                work_payload
+            })
             .collect();
         Ok(work_models)
     }
@@ -858,7 +833,7 @@ mod tests {
 
         let memory_session_id = "abcd";
 
-        let _ = repository
+        repository
             .create_memory_session(memory_session_id, &repo.name, HashMap::new())
             .await
             .unwrap();
