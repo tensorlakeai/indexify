@@ -177,6 +177,7 @@ impl CoordinatorWorker {
         let addr: SocketAddr = config.coordinator_addr.parse()?;
         let repository = Arc::new(Repository::new(&config.db_url).await?);
         let node_state = Arc::new(ExecutorState::new(repository));
+        info!("Coordinator listening on: {}", &config.coordinator_addr);
         Ok(Self { addr, node_state })
     }
 
@@ -189,6 +190,10 @@ impl CoordinatorWorker {
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
             .await?;
+        Ok(())
+    }
+
+    pub async fn run_extractors(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }

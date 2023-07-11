@@ -166,7 +166,7 @@ mod tests {
     use crate::test_util;
 
     use super::*;
-    
+
     use std::env;
     use std::sync::Arc;
     use tracing::info;
