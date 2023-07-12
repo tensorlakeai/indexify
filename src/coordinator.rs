@@ -2,7 +2,10 @@ use anyhow::anyhow;
 use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
 use dashmap::{DashMap, DashSet};
 use serde::{Deserialize, Serialize};
-use tokio::signal;
+use tokio::{
+    signal,
+    sync::mpsc::{self, Receiver, Sender},
+};
 use tracing::{error, info};
 
 use crate::{
@@ -27,27 +30,47 @@ struct SyncWorker {
 struct SyncWorkerResponse {
     content_to_process: Vec<Work>,
 }
-pub struct ExecutorState {
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+struct CreateWork {
+    repository_name: String,
+    content: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct CreateWorkResponse {}
+
+pub struct Coordinator {
     // Executor ID -> Last Seen Timestamp
-    executor_healthchecks: DashMap<String, u64>,
+    executor_health_checks: DashMap<String, u64>,
 
     // List of known executors
     executors: DashSet<String>,
 
     repository: Arc<Repository>,
+
+    tx: Sender<CreateWork>,
 }
 
-impl ExecutorState {
-    pub fn new(repository: Arc<Repository>) -> Self {
-        Self {
-            executor_healthchecks: DashMap::new(),
+impl Coordinator {
+    pub fn new(repository: Arc<Repository>) -> Arc<Self> {
+        let (tx, rx) = mpsc::channel(32);
+
+        let coordinator = Arc::new(Self {
+            executor_health_checks: DashMap::new(),
             executors: DashSet::new(),
             repository,
-        }
+            tx,
+        });
+        let coordinator_clone = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator_clone.loop_for_work(rx).await.unwrap();
+        });
+        coordinator
     }
 
     pub async fn record_node(&self, worker: Executor) -> Result<(), anyhow::Error> {
-        self.executor_healthchecks.insert(
+        self.executor_health_checks.insert(
             worker.id.clone(),
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -165,27 +188,47 @@ impl ExecutorState {
 
         Ok(work_list)
     }
+
+    async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
+        info!("starting work distribution loop");
+        loop {
+            if let None = rx.recv().await {
+                info!("no work to process");
+                return Ok(());
+            }
+            info!("received work request, doing distribution");
+            if let Err(err) = self.distribute_work().await {
+                error!("unable to distribute work: {}", err.to_string());
+            }
+        }
+    }
 }
 
-pub struct CoordinatorWorker {
+pub struct CoordinatorServer {
     addr: SocketAddr,
-    node_state: Arc<ExecutorState>,
+    coordinator: Arc<Coordinator>,
 }
 
-impl CoordinatorWorker {
+impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_addr.parse()?;
         let repository = Arc::new(Repository::new(&config.db_url).await?);
-        let node_state = Arc::new(ExecutorState::new(repository));
+        let coordinator = Coordinator::new(repository);
         info!("Coordinator listening on: {}", &config.coordinator_addr);
-        Ok(Self { addr, node_state })
+        Ok(Self { addr, coordinator })
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let app = Router::new().route("/", get(root)).route(
-            "/sync_worker",
-            post(sync_worker).with_state(self.node_state.clone()),
-        );
+        let app = Router::new()
+            .route("/", get(root))
+            .route(
+                "/sync_worker",
+                post(sync_worker).with_state(self.coordinator.clone()),
+            )
+            .route(
+                "/create_work",
+                post(create_work).with_state(self.coordinator.clone()),
+            );
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
@@ -204,7 +247,7 @@ async fn root() -> &'static str {
 
 #[axum_macros::debug_handler]
 async fn sync_worker(
-    State(node_state): State<Arc<ExecutorState>>,
+    State(node_state): State<Arc<Coordinator>>,
     Json(worker): Json<SyncWorker>,
 ) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
     // Record the health check of the worker
@@ -230,6 +273,17 @@ async fn sync_worker(
     Ok(Json(SyncWorkerResponse {
         content_to_process: queued_work,
     }))
+}
+
+#[axum_macros::debug_handler]
+async fn create_work(
+    State(node_state): State<Arc<Coordinator>>,
+    Json(create_work): Json<CreateWork>,
+) -> Result<Json<CreateWorkResponse>, IndexifyAPIError> {
+    if let Err(err) = node_state.tx.try_send(create_work) {
+        error!("unable to send create work request: {}", err.to_string());
+    }
+    Ok(Json(CreateWorkResponse {}))
 }
 
 async fn shutdown_signal() {
@@ -276,7 +330,7 @@ mod tests {
     async fn test_create_work() -> Result<(), anyhow::Error> {
         let db = create_db().await?;
         let repository = Arc::new(Repository::new_with_db(db));
-        let node_state = ExecutorState::new(repository.clone());
+        let node_state = Coordinator::new(repository.clone());
         let repository_name = "test";
 
         // Create a repository

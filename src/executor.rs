@@ -3,7 +3,7 @@ use crate::{
     index::IndexManager,
     persistence::{ExtractorType, Repository},
     persistence::{Work, WorkState},
-    Executor, ExecutorState,
+    Coordinator, Executor,
 };
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -13,14 +13,14 @@ use tracing::info;
 pub struct ExtractorExecutor {
     repository: Arc<Repository>,
     embedding_extractor: Arc<EmbeddingExtractor>,
-    node_state: Option<Arc<ExecutorState>>,
+    node_state: Option<Arc<Coordinator>>,
 }
 
 impl ExtractorExecutor {
     pub fn new(
         repository: Arc<Repository>,
         index_manager: Arc<IndexManager>,
-        node_state: Option<Arc<ExecutorState>>,
+        node_state: Option<Arc<Coordinator>>,
     ) -> Self {
         let embedding_extractor = Arc::new(EmbeddingExtractor::new(index_manager));
         Self {

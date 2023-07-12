@@ -2,7 +2,7 @@ use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_N
 use crate::executor::ExtractorExecutor;
 use crate::index::IndexManager;
 use crate::persistence::{DataRepository, ExtractorConfig, Repository};
-use crate::{api::*, persistence, ExecutorState};
+use crate::{api::*, persistence, Coordinator};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
 use anyhow::Result;
@@ -33,7 +33,6 @@ pub struct MemoryEndpointState {
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
-    extractor_worker: Arc<ExtractorExecutor>,
 }
 
 #[derive(OpenApi)]
@@ -73,12 +72,6 @@ impl Server {
             self.config.index_config.clone(),
             embedding_router.clone(),
         )?);
-        let node_state = Arc::new(ExecutorState::new(repository.clone()));
-        let extractor_worker = Arc::new(ExtractorExecutor::new(
-            repository.clone(),
-            index_manager.clone(),
-            Some(node_state),
-        ));
         let repository_manager =
             Arc::new(DataRepositoryManager::new(repository.clone(), index_manager.clone()).await?);
         if let Err(err) = repository_manager
@@ -89,7 +82,6 @@ impl Server {
         }
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            extractor_worker: extractor_worker.clone(),
         };
         let memory_manager = Arc::new(
             MemoryManager::new(
@@ -315,16 +307,17 @@ async fn run_extractors(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<RunExtractors>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    let num_work = state
-        .extractor_worker
-        .sync_repo(&payload.repository)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to sync repository: {}", e),
-            )
-        })?;
+    //let num_work = state
+    //    .extractor_worker
+    //    .sync_repo(&payload.repository)
+    //    .await
+    //    .map_err(|e| {
+    //        IndexifyAPIError::new(
+    //            StatusCode::INTERNAL_SERVER_ERROR,
+    //            format!("failed to sync repository: {}", e),
+    //        )
+    //    })?;
+    let num_work = 0;
     Ok(Json(RunExtractorsResponse {
         extractors: num_work,
     }))
@@ -347,7 +340,7 @@ async fn create_memory_session(
         )
         .await
         .map_err(|e| {
-            error!("unable to create memroy session: {}", e.to_string());
+            error!("unable to create memory session: {}", e.to_string());
             IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
 

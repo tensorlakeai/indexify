@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
-use indexify::{CoordinatorWorker, ServerConfig};
+use indexify::{CoordinatorServer, ServerConfig};
 use std::sync::Arc;
 use tracing::info;
 
@@ -54,7 +54,7 @@ async fn main() -> Result<(), Error> {
                 server.run().await.unwrap();
             });
             if dev_mode {
-                let coordinator = CoordinatorWorker::new(Arc::new(config.clone())).await?;
+                let coordinator = CoordinatorServer::new(Arc::new(config.clone())).await?;
                 let coordinator_handle = tokio::spawn(async move {
                     coordinator.run().await.unwrap();
                 });
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify coordinator....");
 
             let config = ServerConfig::from_path(config_path)?;
-            let coordinator = CoordinatorWorker::new(Arc::new(config)).await?;
+            let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }
     }
