@@ -358,9 +358,7 @@ pub struct RunExtractors {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RunExtractorsResponse {
-    pub extractors: u64,
-}
+pub struct RunExtractorsResponse {}
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct IndexAdditionResponse {

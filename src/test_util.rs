@@ -33,9 +33,12 @@ pub mod db_utils {
             IndexManager::new_with_db(index_config, embedding_router, db.clone()).unwrap(),
         );
         let repo = Arc::new(Repository::new_with_db(db.clone()));
-        let node_state = Coordinator::new(repo.clone());
-        let extractor_runner =
-            ExtractorExecutor::new(repo, index_manager.clone(), Some(node_state));
+        let _node_state = Coordinator::new(repo.clone());
+        let extractor_runner = ExtractorExecutor::new_test(
+            repo,
+            index_manager.clone(),
+            Arc::new(ServerConfig::default()),
+        );
         (index_manager, extractor_runner)
     }
 

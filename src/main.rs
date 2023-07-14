@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
-use indexify::{CoordinatorServer, ServerConfig};
+use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
 use std::sync::Arc;
 use tracing::info;
 
@@ -23,6 +23,10 @@ enum Commands {
         dev_mode: bool,
     },
     Coordinator {
+        #[arg(short, long)]
+        config_path: String,
+    },
+    Executor {
         #[arg(short, long)]
         config_path: String,
     },
@@ -58,7 +62,12 @@ async fn main() -> Result<(), Error> {
                 let coordinator_handle = tokio::spawn(async move {
                     coordinator.run().await.unwrap();
                 });
-                tokio::try_join!(server_handle, coordinator_handle)?;
+
+                let executor_server = ExecutorServer::new(Arc::new(config.clone())).await?;
+                let executor_handle = tokio::spawn(async move {
+                    executor_server.run().await.unwrap();
+                });
+                tokio::try_join!(server_handle, coordinator_handle, executor_handle)?;
                 return Ok(());
             }
             tokio::try_join!(server_handle)?;
@@ -73,6 +82,13 @@ async fn main() -> Result<(), Error> {
             let config = ServerConfig::from_path(config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
+        }
+        Commands::Executor { config_path } => {
+            info!("starting indexify executor....");
+
+            let config = ServerConfig::from_path(config_path)?;
+            let executor_server = ExecutorServer::new(Arc::new(config)).await?;
+            executor_server.run().await?
         }
     }
     Ok(())

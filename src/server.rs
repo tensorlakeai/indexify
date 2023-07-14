@@ -1,8 +1,7 @@
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
-use crate::executor::ExtractorExecutor;
 use crate::index::IndexManager;
 use crate::persistence::{DataRepository, ExtractorConfig, Repository};
-use crate::{api::*, persistence, Coordinator};
+use crate::{api::*, persistence, CreateWork, CreateWorkResponse};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
 use anyhow::Result;
@@ -33,6 +32,7 @@ pub struct MemoryEndpointState {
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
+    coordinator_addr: SocketAddr,
 }
 
 #[derive(OpenApi)]
@@ -80,8 +80,10 @@ impl Server {
         {
             panic!("failed to create default repository: {}", err)
         }
+        let coordinator_addr = self.config.coordinator_addr.parse()?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
+            coordinator_addr,
         };
         let memory_manager = Arc::new(
             MemoryManager::new(
@@ -116,7 +118,7 @@ impl Server {
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/runextractors",
+                "/repository/run_extractors",
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -307,20 +309,20 @@ async fn run_extractors(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<RunExtractors>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    //let num_work = state
-    //    .extractor_worker
-    //    .sync_repo(&payload.repository)
-    //    .await
-    //    .map_err(|e| {
-    //        IndexifyAPIError::new(
-    //            StatusCode::INTERNAL_SERVER_ERROR,
-    //            format!("failed to sync repository: {}", e),
-    //        )
-    //    })?;
-    let num_work = 0;
-    Ok(Json(RunExtractorsResponse {
-        extractors: num_work,
-    }))
+    let req = CreateWork {
+        repository_name: payload.repository,
+        content: None,
+    };
+    let _resp = reqwest::Client::new()
+        .post(&format!("http://{}/create_work", state.coordinator_addr,))
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .json::<CreateWorkResponse>()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RunExtractorsResponse {}))
 }
 
 #[axum_macros::debug_handler]

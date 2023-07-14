@@ -20,6 +20,8 @@ db_url: postgres://postgres:postgres@localhost/indexify
 
 coordinator_addr: 0.0.0.0:8950
 
+executor_addr: 0.0.0.0:8951
+
 # Vector index configuration for the service. The index_store parameter
 # specifies the type of index to use. Currently, only Qdrant is supported.
 #

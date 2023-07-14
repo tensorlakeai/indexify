@@ -255,7 +255,7 @@ mod tests {
             .await
             .unwrap();
 
-        embedding_runner.sync_repo("default").await.unwrap();
+        embedding_runner.sync_repo().await.unwrap();
         let index = index_manager.load("default/default").await.unwrap();
         let result = index.search("pipe", 1).await.unwrap();
         assert_eq!(1, result.len())

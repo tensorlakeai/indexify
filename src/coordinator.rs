@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
 use dashmap::{DashMap, DashSet};
 use serde::{Deserialize, Serialize};
@@ -15,30 +14,30 @@ use crate::{
 };
 use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::SystemTime};
 
-pub struct Executor {
+pub struct ExecutorInfo {
     pub id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct SyncWorker {
-    worker_id: String,
-    available_models: Vec<String>,
-    work_status: Vec<Work>,
+pub struct SyncWorker {
+    pub worker_id: String,
+    pub available_models: Vec<String>,
+    pub work_status: Vec<Work>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct SyncWorkerResponse {
-    content_to_process: Vec<Work>,
+pub struct SyncWorkerResponse {
+    pub content_to_process: Vec<Work>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct CreateWork {
-    repository_name: String,
-    content: Option<String>,
+pub struct CreateWork {
+    pub repository_name: String,
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct CreateWorkResponse {}
+pub struct CreateWorkResponse {}
 
 pub struct Coordinator {
     // Executor ID -> Last Seen Timestamp
@@ -69,7 +68,7 @@ impl Coordinator {
         coordinator
     }
 
-    pub async fn record_node(&self, worker: Executor) -> Result<(), anyhow::Error> {
+    pub async fn record_node(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
         self.executor_health_checks.insert(
             worker.id.clone(),
             SystemTime::now()
@@ -127,11 +126,6 @@ impl Coordinator {
         repository_id: &str,
         content_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
-        let worker_id = self
-            .executors
-            .iter()
-            .next()
-            .ok_or(anyhow!("no workers are available"))?;
         let extractors = self
             .repository
             .repository_by_name(repository_id)
@@ -144,12 +138,7 @@ impl Coordinator {
                 .await?;
             for content in content_list {
                 info!("Creating work for content {}", &content.id);
-                let work = Work::new(
-                    &content.id,
-                    repository_id,
-                    &extractor.name,
-                    Some(&worker_id),
-                );
+                let work = Work::new(&content.id, repository_id, &extractor.name, None);
                 self.repository.insert_work(&work).await?;
                 self.repository
                     .mark_content_as_processed(&work.content_id, &work.extractor)
@@ -192,7 +181,7 @@ impl Coordinator {
     async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
         info!("starting work distribution loop");
         loop {
-            if let None = rx.recv().await {
+            if (rx.recv().await).is_none() {
                 info!("no work to process");
                 return Ok(());
             }
@@ -222,8 +211,8 @@ impl CoordinatorServer {
         let app = Router::new()
             .route("/", get(root))
             .route(
-                "/sync_worker",
-                post(sync_worker).with_state(self.coordinator.clone()),
+                "/sync_executor",
+                post(sync_executor).with_state(self.coordinator.clone()),
             )
             .route(
                 "/create_work",
@@ -246,25 +235,25 @@ async fn root() -> &'static str {
 }
 
 #[axum_macros::debug_handler]
-async fn sync_worker(
-    State(node_state): State<Arc<Coordinator>>,
+async fn sync_executor(
+    State(coordinator): State<Arc<Coordinator>>,
     Json(worker): Json<SyncWorker>,
 ) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
     // Record the health check of the worker
     let worker_id = worker.worker_id.clone();
-    let _ = node_state
-        .record_node(Executor {
+    let _ = coordinator
+        .record_node(ExecutorInfo {
             id: worker_id.clone(),
         })
         .await;
     // Record the outcome of any work the worker has done
-    node_state
+    coordinator
         .update_work_state(worker.work_status, &worker_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Find more work for the worker
-    let queued_work = node_state
+    let queued_work = coordinator
         .get_work_for_worker(&worker.worker_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
