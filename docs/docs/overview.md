@@ -5,7 +5,7 @@ A typical workflow using Indexify involves adding content to a data repository, 
 ![High Level Concept](images/indexify_high_level.svg)
 
 ## Data Repositories
-Data Repositories are logical abstractions for storing related documents, and storing long term memory of LLM applications which require access to knowledge encapsulated in the documents. Repositories allow parititioning data based on query patterns, and we will add support for access control per repository in the future. By default, we crate a `default` data repository to make it easy to get started.
+Data Repositories are logical abstractions for storing related documents, and storing long term memory of LLM applications which require access to knowledge encapsulated in the documents. Repositories allow parititioning data based on query patterns, and we will add support for access control per repository in the future. By default, we create a `default` data repository to make it easy to get started.
 
 ## Document
 
