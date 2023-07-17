@@ -1,7 +1,7 @@
 import aiohttp
 
-from .data_containers import *
-from .utils import _get_payload, wait_until
+from data_containers import *
+from utils import _get_payload, wait_until
 
 
 class AMemory:

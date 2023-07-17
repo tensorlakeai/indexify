@@ -1,17 +1,16 @@
-from indexify import AIndex, ARepository, TextChunk, DEFAULT_INDEXIFY_URL, wait_until, to_document
+from indexify import AIndex, ARepository, TextChunk, INDEXIFY_URL, wait_until
+from indexify.langchain_helpers import to_document
 from datasets import load_dataset
 
-from langchain.agents import ZeroShotAgent, Tool, AgentExecutor
-from langchain import OpenAI, LLMChain
-from langchain.utilities import GoogleSearchAPIWrapper
+from langchain import OpenAI
 from langchain.chains.question_answering import load_qa_chain
 
 
 class DemoQA:
 
     def __init__(self):
-        self.repository = ARepository(DEFAULT_INDEXIFY_URL, "default")
-        self.idx = AIndex(DEFAULT_INDEXIFY_URL, "default/default")
+        self.repository = ARepository(INDEXIFY_URL, "default")
+        self.idx = AIndex(INDEXIFY_URL, "default/default")
         self.llm_chain = load_qa_chain(OpenAI(temperature=0), chain_type="stuff")
 
     def execute(self):

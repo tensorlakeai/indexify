@@ -2,7 +2,8 @@ from langchain.agents import ZeroShotAgent, Tool, AgentExecutor
 from langchain import OpenAI, LLMChain
 from langchain.utilities import GoogleSearchAPIWrapper
 
-from indexify import IndexifyMemory, DEFAULT_INDEXIFY_URL
+from indexify.langchain_helpers import Indexify
+from indexify import INDEXIFY_URL
 
 '''
 For this script to work we need to set the following environment settings.
@@ -17,14 +18,14 @@ https://console.cloud.google.com/projectselector2/google/maps-apis/credentials
 OpenAI API Key from:
 https://platform.openai.com/account/api-keys
 
-Note: This example is a modification from langchain documentation here:
+Note: This example is a modification from langchain_helpers documentation here:
 https://python.langchain.com/docs/modules/memory/how_to/agent_with_memory
 '''
 
 # Single line Magic to add vectorized memory!
-memory = IndexifyMemory(memory_key="chat_history", indexify_url=DEFAULT_INDEXIFY_URL)
+memory = Indexify(memory_key="chat_history", indexify_url=INDEXIFY_URL)
 
-# Initialize Google search for the langchain.
+# Initialize Google search for the langchain_helpers.
 search = GoogleSearchAPIWrapper()
 tools = [
     Tool(

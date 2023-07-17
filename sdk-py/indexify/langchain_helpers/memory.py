@@ -2,8 +2,8 @@ from typing import Any, Dict, List
 from langchain.memory.chat_memory import BaseChatMemory
 from langchain.vectorstores.base import Document
 
-from .data_containers import Message, TextChunk
-from .memory import Memory
+from data_containers import Message, TextChunk
+from memory import Memory
 
 '''
 This class will initialize the Indexify class with the indexify_url your installation
@@ -13,7 +13,7 @@ memory = IndexifyMemory(indexify_url="http://10.0.0.1:8900/")
 '''
 
 
-class IndexifyMemory(BaseChatMemory):
+class Indexify(BaseChatMemory):
     human_prefix: str = "Human"
     ai_prefix: str = "AI"
     memory_key: str = "history"
@@ -62,6 +62,7 @@ class IndexifyMemory(BaseChatMemory):
         if not self.init:
             self.memory.create()
             self.init = True
+
 
 def to_document(chunk: TextChunk):
     return Document(page_content=chunk.text, metadata=chunk.metadata)
