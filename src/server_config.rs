@@ -135,6 +135,13 @@ impl Default for VectorIndexConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct ExecutorConfig {
+    pub server_listen_addr: String,
+    pub executor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
     pub listen_addr: String,
     pub available_models: Vec<EmbeddingModel>,
@@ -143,7 +150,7 @@ pub struct ServerConfig {
     pub index_config: VectorIndexConfig,
     pub db_url: String,
     pub coordinator_addr: String,
-    pub executor_addr: String,
+    pub executor_config: ExecutorConfig,
 }
 
 impl Default for ServerConfig {
@@ -168,7 +175,10 @@ impl Default for ServerConfig {
             index_config: VectorIndexConfig::default(),
             db_url: "sqlite://indexify.db".into(),
             coordinator_addr: "0.0.0.0:8950".to_string(),
-            executor_addr: "0.0.0.0:8951".to_string(),
+            executor_config: ExecutorConfig {
+                server_listen_addr: "0.0.0.0:8951".to_string(),
+                executor_id: None,
+            },
         }
     }
 }

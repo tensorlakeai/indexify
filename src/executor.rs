@@ -33,6 +33,7 @@ pub struct ExtractorExecutor {
     repository: Arc<Repository>,
     embedding_extractor: Arc<EmbeddingExtractor>,
     config: Arc<ServerConfig>,
+    executor_id: String,
 
     work_store: WorkStore,
 }
@@ -47,10 +48,12 @@ impl ExtractorExecutor {
             embedding_router.clone(),
         )?);
         let embedding_extractor = Arc::new(EmbeddingExtractor::new(index_manager));
+        let executor_id = get_host_name(config.clone())?;
         let extractor_executor = Self {
             repository,
             embedding_extractor,
             config,
+            executor_id,
             work_store: WorkStore::new(),
         };
         Ok(extractor_executor)
@@ -61,10 +64,12 @@ impl ExtractorExecutor {
         index_manager: Arc<IndexManager>,
         config: Arc<ServerConfig>,
     ) -> Self {
+        let executor_id = get_host_name(config.clone()).unwrap();
         Self {
             repository,
             embedding_extractor: Arc::new(EmbeddingExtractor::new(index_manager)),
             config,
+            executor_id,
             work_store: WorkStore::new(),
         }
     }
@@ -79,7 +84,7 @@ impl ExtractorExecutor {
             .cloned()
             .collect();
         let sync_executor_req = SyncWorker {
-            worker_id: "unknown_id".into(),
+            worker_id: self.executor_id.clone(),
             available_models: vec![],
             work_status,
         };
@@ -184,7 +189,7 @@ impl ExecutorServer {
             "/sync_executor",
             post(sync_worker).with_state(self.executor.clone()),
         );
-        let addr: SocketAddr = self.config.executor_addr.parse()?;
+        let addr: SocketAddr = self.config.executor_config.server_listen_addr.parse()?;
         info!("starting executor server on: {}", &addr);
         let (tx, rx) = mpsc::channel(32);
         if let Err(err) = tx.send(TickerMessage::Heartbeat).await {
@@ -212,6 +217,17 @@ async fn sync_worker(
         let _ = extractor_executor.sync_repo().await;
     });
     Ok(())
+}
+
+fn get_host_name(config: Arc<ServerConfig>) -> Result<String> {
+    Ok(config
+        .executor_config
+        .executor_id
+        .clone()
+        .unwrap_or_else(|| {
+            let hostname = hostname::get().unwrap();
+            hostname.to_string_lossy().to_string()
+        }))
 }
 
 async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
