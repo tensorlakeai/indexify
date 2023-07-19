@@ -2,8 +2,8 @@ use crate::{
     api::IndexifyAPIError,
     extractors::{EmbeddingExtractor, Extractor},
     index::IndexManager,
-    persistence::Work,
     persistence::{ExtractorType, Repository},
+    persistence::{Work, WorkState},
     EmbeddingRouter, ServerConfig, SyncWorker, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
@@ -25,6 +25,25 @@ impl WorkStore {
     fn new() -> Self {
         Self {
             allocated_work: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    fn remove_finished_work(&self) {
+        let mut allocated_work = self.allocated_work.write().unwrap();
+        allocated_work.retain(|_, work| !work.terminal_state());
+    }
+
+    fn add_work_list(&self, work_list: Vec<Work>) {
+        let mut allocated_work = self.allocated_work.write().unwrap();
+        for work in work_list {
+            allocated_work.insert(work.id.clone(), work);
+        }
+    }
+
+    fn update_work_state(&self, work_id: &str, work_state: WorkState) {
+        let mut allocated_work = self.allocated_work.write().unwrap();
+        if let Some(work) = allocated_work.get_mut(work_id) {
+            work.work_state = work_state;
         }
     }
 }
@@ -75,7 +94,7 @@ impl ExtractorExecutor {
     }
 
     pub async fn sync_repo(&self) -> Result<u64, anyhow::Error> {
-        let work_status = self
+        let work_status: Vec<Work> = self
             .work_store
             .allocated_work
             .read()
@@ -86,7 +105,7 @@ impl ExtractorExecutor {
         let sync_executor_req = SyncWorker {
             worker_id: self.executor_id.clone(),
             available_models: vec![],
-            work_status,
+            work_status: work_status.clone(),
         };
         let resp = reqwest::Client::new()
             .post(&format!(
@@ -99,16 +118,26 @@ impl ExtractorExecutor {
             .json::<SyncWorkerResponse>()
             .await?;
 
-        let work_list: Vec<Work> = resp.content_to_process;
-        if let Err(err) = self.perform_work(work_list).await {
+        self.work_store.remove_finished_work();
+
+        self.work_store.add_work_list(resp.content_to_process);
+
+        if let Err(err) = self.perform_work().await {
             error!("unable perform work: {:?}", err);
             return Err(anyhow!("unable perform work: {:?}", err));
         }
-        self.work_store.allocated_work.write().unwrap().clear();
         Ok(0)
     }
 
-    pub async fn perform_work(&self, work_list: Vec<Work>) -> Result<(), anyhow::Error> {
+    pub async fn perform_work(&self) -> Result<(), anyhow::Error> {
+        let work_list: Vec<Work> = self
+            .work_store
+            .allocated_work
+            .read()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
         for work in work_list {
             info!("performing work: {}", &work.id);
             let extractor = self
@@ -129,6 +158,8 @@ impl ExtractorExecutor {
                 self.embedding_extractor
                     .extract_and_store(content, &index_name)
                     .await?;
+                self.work_store
+                    .update_work_state(&work.id, WorkState::Completed);
             }
         }
         Ok(())
@@ -155,7 +186,6 @@ async fn heartbeat(
                 break;
             }
             Some(TickerMessage::Heartbeat) => {
-                info!("received heartbeat signal");
                 if let Err(err) = executor.sync_repo().await {
                     error!("unable to sync repo: {}", err.to_string());
                 }

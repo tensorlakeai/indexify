@@ -117,9 +117,11 @@ impl MigrationTrait for Migration {
                     .table(Work::Table)
                     .if_not_exists()
                     .col(ColumnDef::new(Work::Id).string().not_null().primary_key())
-                    .col(ColumnDef::new(Work::Status).string().not_null())
-                    .col(ColumnDef::new(Work::Payload).json().not_null())
-                    .col(ColumnDef::new(Work::WorkerId).string().not_null())
+                    .col(ColumnDef::new(Work::State).string().not_null())
+                    .col(ColumnDef::new(Work::WorkerId).string())
+                    .col(ColumnDef::new(Work::ContentId).string().not_null())
+                    .col(ColumnDef::new(Work::Extractor).string().not_null())
+                    .col(ColumnDef::new(Work::RepositoryId).string().not_null())
                     .to_owned(),
             )
             .await;
@@ -224,7 +226,9 @@ enum DataRepository {
 enum Work {
     Table,
     Id,
-    Status,
-    Payload,
+    State,
     WorkerId,
+    ContentId,
+    Extractor,
+    RepositoryId,
 }

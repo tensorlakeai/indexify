@@ -1,5 +1,4 @@
 use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
-use dashmap::{DashMap, DashSet};
 use serde::{Deserialize, Serialize};
 use tokio::{
     signal,
@@ -12,10 +11,18 @@ use crate::{
     persistence::{ExtractionEventPayload, Repository, Work, WorkState},
     ServerConfig,
 };
-use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::SystemTime};
+use indexmap::{IndexMap, IndexSet};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    time::SystemTime,
+};
 
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ExecutorInfo {
     pub id: String,
+    pub last_seen: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -23,6 +30,11 @@ pub struct SyncWorker {
     pub worker_id: String,
     pub available_models: Vec<String>,
     pub work_status: Vec<Work>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct ListExecutors {
+    pub executors: Vec<ExecutorInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -41,10 +53,10 @@ pub struct CreateWorkResponse {}
 
 pub struct Coordinator {
     // Executor ID -> Last Seen Timestamp
-    executor_health_checks: DashMap<String, u64>,
+    executor_health_checks: Arc<RwLock<IndexMap<String, u64>>>,
 
     // List of known executors
-    executors: DashSet<String>,
+    executors: Arc<RwLock<IndexSet<String>>>,
 
     repository: Arc<Repository>,
 
@@ -56,8 +68,8 @@ impl Coordinator {
         let (tx, rx) = mpsc::channel(32);
 
         let coordinator = Arc::new(Self {
-            executor_health_checks: DashMap::new(),
-            executors: DashSet::new(),
+            executor_health_checks: Arc::new(RwLock::new(IndexMap::new())),
+            executors: Arc::new(RwLock::new(IndexSet::new())),
             repository,
             tx,
         });
@@ -69,20 +81,17 @@ impl Coordinator {
     }
 
     pub async fn record_node(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
-        self.executor_health_checks.insert(
-            worker.id.clone(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        );
+        self.executor_health_checks
+            .write()
+            .unwrap()
+            .insert(worker.id.clone(), worker.last_seen);
 
         // Add the worker to our list of active workers
-        self.executors.insert(worker.id);
+        self.executors.write().unwrap().insert(worker.id);
         Ok(())
     }
 
-    pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
+    pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.repository.unprocessed_extraction_events().await?;
         let mut processed_events_for_repository = HashSet::new();
         for event in &events {
@@ -101,15 +110,13 @@ impl Coordinator {
                 }
                 continue;
             }
-            let mut content: Option<&str> = None;
-            match &event.payload {
+            let content = match &event.payload {
                 ExtractionEventPayload::SyncRepository { memory_session: _ } => {
                     processed_events_for_repository.insert(&event.repository_id);
+                    None
                 }
-                ExtractionEventPayload::CreateContent { content_id } => {
-                    content.replace(content_id.as_str());
-                }
-            }
+                ExtractionEventPayload::CreateContent { content_id } => Some(content_id.as_str()),
+            };
             if let Err(err) = self.create_work(&event.repository_id, content).await {
                 error!("unable to create work: {}", &err.to_string());
                 return Err(err);
@@ -118,6 +125,28 @@ impl Coordinator {
                 .mark_extraction_event_as_processed(&event.id)
                 .await?;
         }
+        Ok(())
+    }
+
+    pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
+        let unallocated_work = self.repository.unallocated_work().await?;
+
+        // work_id -> executor_id
+        let mut work_assignment = HashMap::new();
+        for work in unallocated_work {
+            let rand_index = rand::random::<usize>() % self.executors.read().unwrap().len();
+            let executor = self
+                .executors
+                .read()
+                .unwrap()
+                .get_index(rand_index)
+                .cloned();
+            if let Some(executor) = executor {
+                info!("assigning work {} to executor {}", work.id, executor);
+                work_assignment.insert(work.id.clone(), executor.clone());
+            }
+        }
+        self.repository.assign_work(work_assignment).await?;
         Ok(())
     }
 
@@ -154,8 +183,11 @@ impl Coordinator {
         work_list: Vec<Work>,
         worker_id: &str,
     ) -> Result<(), anyhow::Error> {
-        info!("updating work status by worker: {}", worker_id);
         for work in work_list.iter() {
+            info!(
+                "updating work status by worker: {}, work id: {}, status: {}",
+                worker_id, &work.id, &work.work_state
+            );
             match work.work_state {
                 WorkState::Completed | WorkState::Failed => {
                     if let Err(err) = self
@@ -185,7 +217,12 @@ impl Coordinator {
                 info!("no work to process");
                 return Ok(());
             }
-            info!("received work request, doing distribution");
+            info!("received work request, processing extraction events");
+            if let Err(err) = self.process_extraction_events().await {
+                error!("unable to process extraction events: {}", err.to_string());
+            }
+
+            info!("doing distribution of work");
             if let Err(err) = self.distribute_work().await {
                 error!("unable to distribute work: {}", err.to_string());
             }
@@ -215,6 +252,10 @@ impl CoordinatorServer {
                 post(sync_executor).with_state(self.coordinator.clone()),
             )
             .route(
+                "/executors",
+                get(list_executors).with_state(self.coordinator.clone()),
+            )
+            .route(
                 "/create_work",
                 post(create_work).with_state(self.coordinator.clone()),
             );
@@ -235,6 +276,20 @@ async fn root() -> &'static str {
 }
 
 #[axum_macros::debug_handler]
+async fn list_executors(
+    State(coordinator): State<Arc<Coordinator>>,
+) -> Result<Json<ListExecutors>, IndexifyAPIError> {
+    let executors = coordinator.executor_health_checks.read().unwrap().clone();
+    let executors = executors
+        .into_iter()
+        .map(|(id, last_seen)| ExecutorInfo { id, last_seen })
+        .collect();
+    Ok(Json(ListExecutors {
+        executors,
+    }))
+}
+
+#[axum_macros::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,
     Json(worker): Json<SyncWorker>,
@@ -244,6 +299,10 @@ async fn sync_executor(
     let _ = coordinator
         .record_node(ExecutorInfo {
             id: worker_id.clone(),
+            last_seen: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         })
         .await;
     // Record the outcome of any work the worker has done
@@ -354,7 +413,11 @@ mod tests {
             .await?;
 
         // Insert a new worker and then create work
-        node_state.executors.insert("test_worker".into());
+        node_state
+            .executors
+            .write()
+            .unwrap()
+            .insert("test_worker".into());
         node_state.create_work(repository_name, None).await?;
 
         let work_list = node_state.get_work_for_worker("test_worker").await?;

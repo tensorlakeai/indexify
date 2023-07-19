@@ -187,7 +187,7 @@ impl DataRepositoryManager {
         id: &str,
     ) -> Result<Vec<Text>, DataRepositoryError> {
         self.repository
-            .retreive_messages_from_memory(repository, id)
+            .retrieve_messages_from_memory(repository, id)
             .await
             .map_err(DataRepositoryError::Persistence)
     }

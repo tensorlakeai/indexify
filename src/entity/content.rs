@@ -14,6 +14,7 @@ pub struct Model {
     pub metadata: Option<Json>,
     pub repository_id: String,
     pub memory_session_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub extractors_state: Option<Json>,
 }
 
