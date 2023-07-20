@@ -27,6 +27,7 @@ pub struct IndexEndpointState {
 #[derive(Clone)]
 pub struct MemoryEndpointState {
     memory_manager: Arc<MemoryManager>,
+    coordinator_addr: SocketAddr,
 }
 
 #[derive(Clone)]
@@ -80,10 +81,10 @@ impl Server {
         {
             panic!("failed to create default repository: {}", err)
         }
-        let coordinator_addr = self.config.coordinator_addr.parse()?;
+        let coordinator_addr: SocketAddr = self.config.coordinator_addr.parse()?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            coordinator_addr,
+            coordinator_addr: coordinator_addr.clone(),
         };
         let memory_manager = Arc::new(
             MemoryManager::new(
@@ -97,6 +98,7 @@ impl Server {
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
+            coordinator_addr: coordinator_addr.clone(),
         };
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -302,24 +304,34 @@ async fn add_texts(
             )
         })?;
 
+    if let Err(err) = _run_extractors(&repo, &state.coordinator_addr.to_string()).await {
+        error!("unable to run extractors: {}", err.to_string());
+    }
+
     Ok(Json(IndexAdditionResponse::default()))
+}
+
+async fn _run_extractors(repository: &str, coordinator_addr: &str) -> Result<(), anyhow::Error> {
+    let req = CreateWork {
+        repository_name: repository.into(),
+        content: None,
+    };
+    let _resp = reqwest::Client::new()
+        .post(&format!("http://{}/create_work", coordinator_addr,))
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to send create work request: {}", e))?
+        .json::<CreateWorkResponse>()
+        .await?;
+    Ok(())
 }
 
 async fn run_extractors(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<RunExtractors>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    let req = CreateWork {
-        repository_name: payload.repository,
-        content: None,
-    };
-    let _resp = reqwest::Client::new()
-        .post(&format!("http://{}/create_work", state.coordinator_addr,))
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .json::<CreateWorkResponse>()
+    let _resp = _run_extractors(&payload.repository, &state.coordinator_addr.to_string())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RunExtractorsResponse {}))
@@ -361,6 +373,10 @@ async fn add_to_memory_session(
         .add_messages(&repo, &payload.session_id, messages)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if let Err(err) = _run_extractors(&repo, &state.coordinator_addr.to_string()).await {
+        error!("unable to run extractors: {}", err.to_string());
+    }
 
     Ok(Json(MemorySessionAddResponse {}))
 }
