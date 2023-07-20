@@ -9,4 +9,4 @@ do
 done
 
 # Srart server
-/indexify/indexify start-server -c ./config/indexify.yaml
+/indexify/indexify start-server -d -c ./config/indexify.yaml
