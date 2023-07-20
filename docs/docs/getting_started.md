@@ -106,7 +106,7 @@ You can retrieve all the previously stored messages in Indexify for a given sess
     -H "Content-Type: application/json" \
     -d '{
             "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13"
-        }
+        }'
     ```
 
 
@@ -121,5 +121,5 @@ from the messages(like named entities - places, names, etc).
     -d '{
             "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
             "query": "indexify"
-        }
+        }'
     ```
