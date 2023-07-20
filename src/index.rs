@@ -217,11 +217,12 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_qdrant_search_basic() {
+    async fn test_index_search_basic() {
         env::set_var("RUST_LOG", "debug");
         let index_name = "default/default";
         let db = test_util::db_utils::create_db().await.unwrap();
-        let (index_manager, embedding_runner) = create_index_manager(db.clone(), index_name).await;
+        let (index_manager, extractor_executor, coordinator) =
+            create_index_manager(db.clone(), index_name).await;
         let repository_manager =
             DataRepositoryManager::new_with_db(db.clone(), index_manager.clone());
         repository_manager
@@ -255,7 +256,11 @@ mod tests {
             .await
             .unwrap();
 
-        embedding_runner.sync_repo("default").await.unwrap();
+        coordinator.process_and_distribute_work().await.unwrap();
+        let executor_id = extractor_executor.get_executor_info().id;
+        let work_list = coordinator.get_work_for_worker(&executor_id).await.unwrap();
+
+        extractor_executor.sync_repo_test(work_list).await.unwrap();
         let index = index_manager.load("default/default").await.unwrap();
         let result = index.search("pipe", 1).await.unwrap();
         assert_eq!(1, result.len())

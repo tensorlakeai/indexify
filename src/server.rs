@@ -1,8 +1,7 @@
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
-use crate::executor::ExtractorExecutor;
 use crate::index::IndexManager;
 use crate::persistence::{DataRepository, ExtractorConfig, Repository};
-use crate::{api::*, persistence, ExecutorState};
+use crate::{api::*, persistence, CreateWork, CreateWorkResponse};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
 use anyhow::Result;
@@ -33,7 +32,7 @@ pub struct MemoryEndpointState {
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
-    extractor_worker: Arc<ExtractorExecutor>,
+    coordinator_addr: SocketAddr,
 }
 
 #[derive(OpenApi)]
@@ -73,22 +72,18 @@ impl Server {
             self.config.index_config.clone(),
             embedding_router.clone(),
         )?);
-        let node_state = Arc::new(ExecutorState::new(repository.clone()));
-        let extractor_worker = Arc::new(ExtractorExecutor::new(
-            repository.clone(),
-            index_manager.clone(),
-            Some(node_state),
-        ));
         let repository_manager =
             Arc::new(DataRepositoryManager::new(repository.clone(), index_manager.clone()).await?);
         if let Err(err) = repository_manager
             .create_default_repository(&self.config)
-            .await {
-                panic!("failed to create default repository: {}", err)
-            }
+            .await
+        {
+            panic!("failed to create default repository: {}", err)
+        }
+        let coordinator_addr = self.config.coordinator_addr.parse()?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            extractor_worker: extractor_worker.clone(),
+            coordinator_addr,
         };
         let memory_manager = Arc::new(
             MemoryManager::new(
@@ -123,7 +118,7 @@ impl Server {
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/runextractors",
+                "/repository/run_extractors",
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -314,19 +309,20 @@ async fn run_extractors(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<RunExtractors>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    let num_work = state
-        .extractor_worker
-        .sync_repo(&payload.repository)
+    let req = CreateWork {
+        repository_name: payload.repository,
+        content: None,
+    };
+    let _resp = reqwest::Client::new()
+        .post(&format!("http://{}/create_work", state.coordinator_addr,))
+        .json(&req)
+        .send()
         .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to sync repository: {}", e),
-            )
-        })?;
-    Ok(Json(RunExtractorsResponse {
-        extractors: num_work,
-    }))
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .json::<CreateWorkResponse>()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RunExtractorsResponse {}))
 }
 
 #[axum_macros::debug_handler]
@@ -346,7 +342,7 @@ async fn create_memory_session(
         )
         .await
         .map_err(|e| {
-            error!("unable to create memroy session: {}", e.to_string());
+            error!("unable to create memory session: {}", e.to_string());
             IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
 

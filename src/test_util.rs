@@ -7,7 +7,7 @@ pub mod db_utils {
 
     use crate::executor::ExtractorExecutor;
     use crate::persistence::Repository;
-    use crate::ExecutorState;
+    use crate::Coordinator;
     use crate::{
         index::IndexManager, vectordbs::qdrant::QdrantDb, vectordbs::VectorDBTS, EmbeddingRouter,
         QdrantConfig, ServerConfig, VectorIndexConfig,
@@ -16,7 +16,7 @@ pub mod db_utils {
     pub async fn create_index_manager(
         db: DatabaseConnection,
         index_name: &str,
-    ) -> (Arc<IndexManager>, ExtractorExecutor) {
+    ) -> (Arc<IndexManager>, ExtractorExecutor, Arc<Coordinator>) {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
@@ -33,10 +33,17 @@ pub mod db_utils {
             IndexManager::new_with_db(index_config, embedding_router, db.clone()).unwrap(),
         );
         let repo = Arc::new(Repository::new_with_db(db.clone()));
-        let node_state = Arc::new(ExecutorState::new(repo.clone()));
-        let extractor_runner =
-            ExtractorExecutor::new(repo, index_manager.clone(), Some(node_state));
-        (index_manager, extractor_runner)
+        let coordinator = Coordinator::new(repo.clone());
+        let extractor_executor = ExtractorExecutor::new_test(
+            repo,
+            index_manager.clone(),
+            Arc::new(ServerConfig::default()),
+        );
+        coordinator
+            .record_node(extractor_executor.get_executor_info())
+            .await
+            .unwrap();
+        (index_manager, extractor_executor, coordinator)
     }
 
     pub async fn create_db() -> Result<DatabaseConnection, DbErr> {

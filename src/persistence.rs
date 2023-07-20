@@ -1,11 +1,11 @@
 use nanoid::nanoid;
+use sea_orm::ConnectionTrait;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::SystemTime;
 use tracing::info;
-use sea_orm::ConnectionTrait;
 
 use anyhow::Result;
 use entity::data_repository::Entity as DataRepositoryEntity;
@@ -25,7 +25,7 @@ use smart_default::SmartDefault;
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
-use crate::entity::index;
+use crate::entity::{index, work};
 use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
 use crate::{entity, vectordbs::IndexDistance};
@@ -218,7 +218,9 @@ impl Chunk {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Deserialize, EnumString, Display, SmartDefault)]
+#[derive(
+    Debug, PartialEq, Eq, Serialize, Clone, Deserialize, EnumString, Display, SmartDefault,
+)]
 pub enum WorkState {
     #[default]
     Unknown,
@@ -234,7 +236,6 @@ pub struct Work {
     pub content_id: String,
     pub repository_id: String,
     pub extractor: String,
-    #[serde(skip)]
     pub work_state: WorkState,
     pub worker_id: Option<String>,
 }
@@ -259,6 +260,23 @@ impl Work {
             extractor: extractor.into(),
             work_state: WorkState::Pending,
             worker_id: worker_id.map(|w| w.into()),
+        }
+    }
+
+    pub fn terminal_state(&self) -> bool {
+        self.work_state == WorkState::Completed || self.work_state == WorkState::Failed
+    }
+}
+
+impl From<work::Model> for Work {
+    fn from(model: work::Model) -> Self {
+        Self {
+            id: model.id,
+            content_id: model.content_id,
+            repository_id: model.repository_id,
+            extractor: model.extractor,
+            work_state: WorkState::from_str(&model.state).unwrap(),
+            worker_id: model.worker_id,
         }
     }
 }
@@ -388,7 +406,7 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn retreive_messages_from_memory(
+    pub async fn retrieve_messages_from_memory(
         &self,
         repository_name: &str,
         session_id: &str,
@@ -735,15 +753,36 @@ impl Repository {
     pub async fn insert_work(&self, work: &Work) -> Result<(), RepositoryError> {
         let work_model = entity::work::ActiveModel {
             id: Set(work.id.clone()),
-            status: Set(work.work_state.to_string()),
-            worker_id: Set(work
-                .worker_id
-                .as_ref()
-                .map(|id| id.to_owned())
-                .unwrap_or_default()),
-            payload: Set(json!(work)),
+            state: Set(work.work_state.to_string()),
+            worker_id: Set(work.worker_id.as_ref().map(|id| id.to_owned())),
+            content_id: Set(work.content_id.clone()),
+            extractor: Set(work.extractor.clone()),
+            repository_id: Set(work.repository_id.clone()),
         };
         WorkEntity::insert(work_model).exec(&self.conn).await?;
+        Ok(())
+    }
+
+    pub async fn unallocated_work(&self) -> Result<Vec<work::Model>, RepositoryError> {
+        let work_models = WorkEntity::find()
+            .filter(entity::work::Column::WorkerId.is_null())
+            .filter(entity::work::Column::State.eq(WorkState::Pending.to_string()))
+            .all(&self.conn)
+            .await?;
+        Ok(work_models)
+    }
+
+    pub async fn assign_work(
+        &self,
+        allocation: HashMap<String, String>,
+    ) -> Result<(), RepositoryError> {
+        for (work_id, executor_id) in allocation.iter() {
+            WorkEntity::update_many()
+                .col_expr(entity::work::Column::WorkerId, Expr::value(executor_id))
+                .filter(entity::work::Column::Id.eq(work_id))
+                .exec(&self.conn)
+                .await?;
+        }
         Ok(())
     }
 
@@ -753,7 +792,7 @@ impl Repository {
         state: WorkState,
     ) -> Result<(), RepositoryError> {
         entity::work::Entity::update_many()
-            .col_expr(entity::work::Column::Status, Expr::value(state.to_string()))
+            .col_expr(entity::work::Column::State, Expr::value(state.to_string()))
             .filter(entity::work::Column::Id.eq(work_id))
             .exec(&self.conn)
             .await?;
@@ -763,15 +802,11 @@ impl Repository {
     pub async fn work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, RepositoryError> {
         let work_models = WorkEntity::find()
             .filter(entity::work::Column::WorkerId.eq(worker_id))
-            .filter(entity::work::Column::Status.eq(WorkState::Pending.to_string()))
+            .filter(entity::work::Column::State.eq(WorkState::Pending.to_string()))
             .all(&self.conn)
             .await?
             .into_iter()
-            .map(|m| {
-                let mut work_payload = serde_json::from_value::<Work>(m.payload).unwrap();
-                work_payload.work_state = WorkState::from_str(&m.status).unwrap();
-                work_payload
-            })
+            .map(|m| m.into())
             .collect();
         Ok(work_models)
     }

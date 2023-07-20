@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
-use indexify::{CoordinatorWorker, ServerConfig};
+use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
 use std::sync::Arc;
 use tracing::info;
 
@@ -18,8 +18,15 @@ enum Commands {
     StartServer {
         #[arg(short, long)]
         config_path: String,
+
+        #[arg(short, long)]
+        dev_mode: bool,
     },
     Coordinator {
+        #[arg(short, long)]
+        config_path: String,
+    },
+    Executor {
         #[arg(short, long)]
         config_path: String,
     },
@@ -39,12 +46,31 @@ async fn main() -> Result<(), Error> {
 
     let args = Cli::parse();
     match args.command {
-        Commands::StartServer { config_path } => {
+        Commands::StartServer {
+            config_path,
+            dev_mode,
+        } => {
             info!("starting indexify server....");
 
             let config = indexify::ServerConfig::from_path(config_path)?;
-            let server = indexify::Server::new(Arc::new(config))?;
-            server.run().await?
+            let server = indexify::Server::new(Arc::new(config.clone()))?;
+            let server_handle = tokio::spawn(async move {
+                server.run().await.unwrap();
+            });
+            if dev_mode {
+                let coordinator = CoordinatorServer::new(Arc::new(config.clone())).await?;
+                let coordinator_handle = tokio::spawn(async move {
+                    coordinator.run().await.unwrap();
+                });
+
+                let executor_server = ExecutorServer::new(Arc::new(config.clone())).await?;
+                let executor_handle = tokio::spawn(async move {
+                    executor_server.run().await.unwrap();
+                });
+                tokio::try_join!(server_handle, coordinator_handle, executor_handle)?;
+                return Ok(());
+            }
+            tokio::try_join!(server_handle)?;
         }
         Commands::InitConfig { config_path } => {
             println!("Initializing config file at: {}", &config_path);
@@ -54,8 +80,15 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify coordinator....");
 
             let config = ServerConfig::from_path(config_path)?;
-            let coordinator = CoordinatorWorker::new(Arc::new(config)).await?;
+            let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
+        }
+        Commands::Executor { config_path } => {
+            info!("starting indexify executor....");
+
+            let config = ServerConfig::from_path(config_path)?;
+            let executor_server = ExecutorServer::new(Arc::new(config)).await?;
+            executor_server.run().await?
         }
     }
     Ok(())

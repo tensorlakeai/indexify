@@ -14,4 +14,4 @@ mod test_util;
 mod text_splitters;
 mod vectordbs;
 
-pub use {coordinator::*, embeddings::*, memory::*, server::*, server_config::*};
+pub use {coordinator::*, embeddings::*, executor::*, memory::*, server::*, server_config::*};

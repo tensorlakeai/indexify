@@ -1,8 +1,9 @@
-use anyhow::anyhow;
 use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
-use dashmap::{DashMap, DashSet};
 use serde::{Deserialize, Serialize};
-use tokio::signal;
+use tokio::{
+    signal,
+    sync::mpsc::{self, Receiver, Sender},
+};
 use tracing::{error, info};
 
 use crate::{
@@ -10,57 +11,87 @@ use crate::{
     persistence::{ExtractionEventPayload, Repository, Work, WorkState},
     ServerConfig,
 };
-use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::SystemTime};
+use indexmap::{IndexMap, IndexSet};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    time::SystemTime,
+};
 
-pub struct Executor {
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ExecutorInfo {
     pub id: String,
+    pub last_seen: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct SyncWorker {
-    worker_id: String,
-    available_models: Vec<String>,
-    work_status: Vec<Work>,
+pub struct SyncWorker {
+    pub worker_id: String,
+    pub available_models: Vec<String>,
+    pub work_status: Vec<Work>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct SyncWorkerResponse {
-    content_to_process: Vec<Work>,
+struct ListExecutors {
+    pub executors: Vec<ExecutorInfo>,
 }
-pub struct ExecutorState {
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct SyncWorkerResponse {
+    pub content_to_process: Vec<Work>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct CreateWork {
+    pub repository_name: String,
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct CreateWorkResponse {}
+
+pub struct Coordinator {
     // Executor ID -> Last Seen Timestamp
-    executor_healthchecks: DashMap<String, u64>,
+    executor_health_checks: Arc<RwLock<IndexMap<String, u64>>>,
 
     // List of known executors
-    executors: DashSet<String>,
+    executors: Arc<RwLock<IndexSet<String>>>,
 
     repository: Arc<Repository>,
+
+    tx: Sender<CreateWork>,
 }
 
-impl ExecutorState {
-    pub fn new(repository: Arc<Repository>) -> Self {
-        Self {
-            executor_healthchecks: DashMap::new(),
-            executors: DashSet::new(),
+impl Coordinator {
+    pub fn new(repository: Arc<Repository>) -> Arc<Self> {
+        let (tx, rx) = mpsc::channel(32);
+
+        let coordinator = Arc::new(Self {
+            executor_health_checks: Arc::new(RwLock::new(IndexMap::new())),
+            executors: Arc::new(RwLock::new(IndexSet::new())),
             repository,
-        }
+            tx,
+        });
+        let coordinator_clone = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator_clone.loop_for_work(rx).await.unwrap();
+        });
+        coordinator
     }
 
-    pub async fn record_node(&self, worker: Executor) -> Result<(), anyhow::Error> {
-        self.executor_healthchecks.insert(
-            worker.id.clone(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        );
+    pub async fn record_node(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
+        self.executor_health_checks
+            .write()
+            .unwrap()
+            .insert(worker.id.clone(), worker.last_seen);
 
         // Add the worker to our list of active workers
-        self.executors.insert(worker.id);
+        self.executors.write().unwrap().insert(worker.id);
         Ok(())
     }
 
-    pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
+    pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.repository.unprocessed_extraction_events().await?;
         let mut processed_events_for_repository = HashSet::new();
         for event in &events {
@@ -79,15 +110,13 @@ impl ExecutorState {
                 }
                 continue;
             }
-            let mut content: Option<&str> = None;
-            match &event.payload {
+            let content = match &event.payload {
                 ExtractionEventPayload::SyncRepository { memory_session: _ } => {
                     processed_events_for_repository.insert(&event.repository_id);
+                    None
                 }
-                ExtractionEventPayload::CreateContent { content_id } => {
-                    content.replace(content_id.as_str());
-                }
-            }
+                ExtractionEventPayload::CreateContent { content_id } => Some(content_id.as_str()),
+            };
             if let Err(err) = self.create_work(&event.repository_id, content).await {
                 error!("unable to create work: {}", &err.to_string());
                 return Err(err);
@@ -99,16 +128,33 @@ impl ExecutorState {
         Ok(())
     }
 
+    pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
+        let unallocated_work = self.repository.unallocated_work().await?;
+
+        // work_id -> executor_id
+        let mut work_assignment = HashMap::new();
+        for work in unallocated_work {
+            let rand_index = rand::random::<usize>() % self.executors.read().unwrap().len();
+            let executor = self
+                .executors
+                .read()
+                .unwrap()
+                .get_index(rand_index)
+                .cloned();
+            if let Some(executor) = executor {
+                info!("assigning work {} to executor {}", work.id, executor);
+                work_assignment.insert(work.id.clone(), executor.clone());
+            }
+        }
+        self.repository.assign_work(work_assignment).await?;
+        Ok(())
+    }
+
     pub async fn create_work(
         &self,
         repository_id: &str,
         content_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
-        let worker_id = self
-            .executors
-            .iter()
-            .next()
-            .ok_or(anyhow!("no workers are available"))?;
         let extractors = self
             .repository
             .repository_by_name(repository_id)
@@ -121,12 +167,7 @@ impl ExecutorState {
                 .await?;
             for content in content_list {
                 info!("Creating work for content {}", &content.id);
-                let work = Work::new(
-                    &content.id,
-                    repository_id,
-                    &extractor.name,
-                    Some(&worker_id),
-                );
+                let work = Work::new(&content.id, repository_id, &extractor.name, None);
                 self.repository.insert_work(&work).await?;
                 self.repository
                     .mark_content_as_processed(&work.content_id, &work.extractor)
@@ -142,8 +183,11 @@ impl ExecutorState {
         work_list: Vec<Work>,
         worker_id: &str,
     ) -> Result<(), anyhow::Error> {
-        info!("updating work status by worker: {}", worker_id);
         for work in work_list.iter() {
+            info!(
+                "updating work status by worker: {}, work id: {}, status: {}",
+                worker_id, &work.id, &work.work_state
+            );
             match work.work_state {
                 WorkState::Completed | WorkState::Failed => {
                     if let Err(err) = self
@@ -165,30 +209,67 @@ impl ExecutorState {
 
         Ok(work_list)
     }
+
+    async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
+        info!("starting work distribution loop");
+        loop {
+            if (rx.recv().await).is_none() {
+                info!("no work to process");
+                return Ok(());
+            }
+            if let Err(err) = self.process_and_distribute_work().await {
+                error!("unable to process and distribute work: {}", err.to_string());
+            }
+        }
+    }
+
+    pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
+        info!("received work request, processing extraction events");
+        self.process_extraction_events().await?;
+
+        info!("doing distribution of work");
+        self.distribute_work().await?;
+        Ok(())
+    }
 }
 
-pub struct CoordinatorWorker {
+pub struct CoordinatorServer {
     addr: SocketAddr,
-    node_state: Arc<ExecutorState>,
+    coordinator: Arc<Coordinator>,
 }
 
-impl CoordinatorWorker {
+impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_addr.parse()?;
         let repository = Arc::new(Repository::new(&config.db_url).await?);
-        let node_state = Arc::new(ExecutorState::new(repository));
-        Ok(Self { addr, node_state })
+        let coordinator = Coordinator::new(repository);
+        info!("Coordinator listening on: {}", &config.coordinator_addr);
+        Ok(Self { addr, coordinator })
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let app = Router::new().route("/", get(root)).route(
-            "/sync_worker",
-            post(sync_worker).with_state(self.node_state.clone()),
-        );
+        let app = Router::new()
+            .route("/", get(root))
+            .route(
+                "/sync_executor",
+                post(sync_executor).with_state(self.coordinator.clone()),
+            )
+            .route(
+                "/executors",
+                get(list_executors).with_state(self.coordinator.clone()),
+            )
+            .route(
+                "/create_work",
+                post(create_work).with_state(self.coordinator.clone()),
+            );
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
             .await?;
+        Ok(())
+    }
+
+    pub async fn run_extractors(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }
@@ -198,25 +279,41 @@ async fn root() -> &'static str {
 }
 
 #[axum_macros::debug_handler]
-async fn sync_worker(
-    State(node_state): State<Arc<ExecutorState>>,
+async fn list_executors(
+    State(coordinator): State<Arc<Coordinator>>,
+) -> Result<Json<ListExecutors>, IndexifyAPIError> {
+    let executors = coordinator.executor_health_checks.read().unwrap().clone();
+    let executors = executors
+        .into_iter()
+        .map(|(id, last_seen)| ExecutorInfo { id, last_seen })
+        .collect();
+    Ok(Json(ListExecutors { executors }))
+}
+
+#[axum_macros::debug_handler]
+async fn sync_executor(
+    State(coordinator): State<Arc<Coordinator>>,
     Json(worker): Json<SyncWorker>,
 ) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
     // Record the health check of the worker
     let worker_id = worker.worker_id.clone();
-    let _ = node_state
-        .record_node(Executor {
+    let _ = coordinator
+        .record_node(ExecutorInfo {
             id: worker_id.clone(),
+            last_seen: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         })
         .await;
     // Record the outcome of any work the worker has done
-    node_state
+    coordinator
         .update_work_state(worker.work_status, &worker_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Find more work for the worker
-    let queued_work = node_state
+    let queued_work = coordinator
         .get_work_for_worker(&worker.worker_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -225,6 +322,17 @@ async fn sync_worker(
     Ok(Json(SyncWorkerResponse {
         content_to_process: queued_work,
     }))
+}
+
+#[axum_macros::debug_handler]
+async fn create_work(
+    State(node_state): State<Arc<Coordinator>>,
+    Json(create_work): Json<CreateWork>,
+) -> Result<Json<CreateWorkResponse>, IndexifyAPIError> {
+    if let Err(err) = node_state.tx.try_send(create_work) {
+        error!("unable to send create work request: {}", err.to_string());
+    }
+    Ok(Json(CreateWorkResponse {}))
 }
 
 async fn shutdown_signal() {
@@ -256,34 +364,34 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_util;
     use std::collections::HashMap;
 
     use crate::{
+        data_repository_manager::DataRepositoryManager,
         persistence::{self, DataRepository, ExtractorConfig, Text},
-        test_util::db_utils::create_db,
         vectordbs::IndexDistance,
     };
-
-    use super::*;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_work() -> Result<(), anyhow::Error> {
-        let db = create_db().await?;
-        let repository = Arc::new(Repository::new_with_db(db));
-        let node_state = ExecutorState::new(repository.clone());
+        let db = test_util::db_utils::create_db().await.unwrap();
+        let (index_manager, extractor_executor, coordinator) =
+            test_util::db_utils::create_index_manager(db.clone(), "test").await;
+        let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         let repository_name = "test";
 
         // Create a repository
-        repository
-            .upsert_repository(DataRepository {
+        repository_manager
+            .sync(&DataRepository {
                 name: repository_name.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),
                 extractors: vec![ExtractorConfig {
                     name: repository_name.into(),
                     extractor_type: persistence::ExtractorType::Embedding {
-                        model: "model".into(),
+                        model: "text-embedding-ada-002".into(),
                         text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
                         distance: IndexDistance::Cosine,
                     },
@@ -294,8 +402,8 @@ mod tests {
             })
             .await?;
 
-        repository
-            .add_content(
+        repository_manager
+            .add_texts(
                 repository_name,
                 vec![
                     Text::from_text(repository_name, "hello", None, HashMap::new()),
@@ -306,10 +414,11 @@ mod tests {
             .await?;
 
         // Insert a new worker and then create work
-        node_state.executors.insert("test_worker".into());
-        node_state.create_work(repository_name, None).await?;
+        coordinator.process_and_distribute_work().await.unwrap();
 
-        let work_list = node_state.get_work_for_worker("test_worker").await?;
+        let work_list = coordinator
+            .get_work_for_worker(&extractor_executor.get_executor_info().id)
+            .await?;
 
         // Check amount of work queued for the worker
         assert_eq!(work_list.len(), 2);

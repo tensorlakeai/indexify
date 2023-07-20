@@ -187,7 +187,7 @@ impl DataRepositoryManager {
         id: &str,
     ) -> Result<Vec<Text>, DataRepositoryError> {
         self.repository
-            .retreive_messages_from_memory(repository, id)
+            .retrieve_messages_from_memory(repository, id)
             .await
             .map_err(DataRepositoryError::Persistence)
     }
@@ -236,7 +236,7 @@ mod tests {
     async fn test_sync_repository() {
         let db = test_util::db_utils::create_db().await.unwrap();
         let index_name = "hello";
-        let (index_manager, _) =
+        let (index_manager, _, _) =
             test_util::db_utils::create_index_manager(db.clone(), "test/hello").await;
         let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         let mut meta = HashMap::new();

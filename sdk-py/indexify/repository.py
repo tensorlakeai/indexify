@@ -13,7 +13,7 @@ class ARepository:
     async def run_extractors(self, repository: str = "default") -> dict:
         req = {"repository": repository}
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self._url}/repository/runextractors", json=req) as resp:
+            async with session.post(f"{self._url}/repository/run_extractors", json=req) as resp:
                 return await _get_payload(resp)
 
     async def add(self, *chunks: TextChunk) -> None:
