@@ -179,7 +179,7 @@ mod tests {
         let repo = "default";
         let index_name = "default/default";
         let db = test_util::db_utils::create_db().await.unwrap();
-        let (index_manager, extractor_runner) =
+        let (index_manager, extractor_executor, coordinator) =
             test_util::db_utils::create_index_manager(db.clone(), index_name).await;
         let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         info!("creating repository");
@@ -210,14 +210,18 @@ mod tests {
             .await
             .unwrap();
 
-        info!("manually syncing messages");
-        extractor_runner.sync_repo().await.unwrap();
-
         let retrieve_result = memory_manager
             .retrieve_messages(repo, session_id.into())
             .await
             .unwrap();
         assert_eq!(retrieve_result.len(), 3);
+
+        info!("manually syncing messages");
+        coordinator.process_and_distribute_work().await.unwrap();
+        let executor_id = extractor_executor.get_executor_info().id;
+        let work_list = coordinator.get_work_for_worker(&executor_id).await.unwrap();
+
+        extractor_executor.sync_repo_test(work_list).await.unwrap();
 
         let search_results = memory_manager
             .search(repo, session_id, "hello", 2)

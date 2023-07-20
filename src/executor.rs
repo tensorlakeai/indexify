@@ -4,7 +4,7 @@ use crate::{
     index::IndexManager,
     persistence::{ExtractorType, Repository},
     persistence::{Work, WorkState},
-    EmbeddingRouter, ServerConfig, SyncWorker, SyncWorkerResponse,
+    EmbeddingRouter, ExecutorInfo, ServerConfig, SyncWorker, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get, routing::post, Router};
@@ -12,6 +12,7 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::{Arc, RwLock},
+    time::SystemTime,
 };
 use tokio::{signal, sync::mpsc};
 use tracing::error;
@@ -93,6 +94,16 @@ impl ExtractorExecutor {
         }
     }
 
+    pub fn get_executor_info(&self) -> ExecutorInfo {
+        ExecutorInfo {
+            id: self.executor_id.clone(),
+            last_seen: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
+    }
+
     pub async fn sync_repo(&self) -> Result<u64, anyhow::Error> {
         let work_status: Vec<Work> = self
             .work_store
@@ -122,6 +133,15 @@ impl ExtractorExecutor {
 
         self.work_store.add_work_list(resp.content_to_process);
 
+        if let Err(err) = self.perform_work().await {
+            error!("unable perform work: {:?}", err);
+            return Err(anyhow!("unable perform work: {:?}", err));
+        }
+        Ok(0)
+    }
+
+    pub async fn sync_repo_test(&self, work_list: Vec<Work>) -> Result<u64, anyhow::Error> {
+        self.work_store.add_work_list(work_list);
         if let Err(err) = self.perform_work().await {
             error!("unable perform work: {:?}", err);
             return Err(anyhow!("unable perform work: {:?}", err));

@@ -217,16 +217,19 @@ impl Coordinator {
                 info!("no work to process");
                 return Ok(());
             }
-            info!("received work request, processing extraction events");
-            if let Err(err) = self.process_extraction_events().await {
-                error!("unable to process extraction events: {}", err.to_string());
-            }
-
-            info!("doing distribution of work");
-            if let Err(err) = self.distribute_work().await {
-                error!("unable to distribute work: {}", err.to_string());
+            if let Err(err) = self.process_and_distribute_work().await {
+                error!("unable to process and distribute work: {}", err.to_string());
             }
         }
+    }
+
+    pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
+        info!("received work request, processing extraction events");
+        self.process_extraction_events().await?;
+
+        info!("doing distribution of work");
+        self.distribute_work().await?;
+        Ok(())
     }
 }
 
@@ -284,9 +287,7 @@ async fn list_executors(
         .into_iter()
         .map(|(id, last_seen)| ExecutorInfo { id, last_seen })
         .collect();
-    Ok(Json(ListExecutors {
-        executors,
-    }))
+    Ok(Json(ListExecutors { executors }))
 }
 
 #[axum_macros::debug_handler]
@@ -363,34 +364,34 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_util;
     use std::collections::HashMap;
 
     use crate::{
+        data_repository_manager::DataRepositoryManager,
         persistence::{self, DataRepository, ExtractorConfig, Text},
-        test_util::db_utils::create_db,
         vectordbs::IndexDistance,
     };
-
-    use super::*;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_work() -> Result<(), anyhow::Error> {
-        let db = create_db().await?;
-        let repository = Arc::new(Repository::new_with_db(db));
-        let node_state = Coordinator::new(repository.clone());
+        let db = test_util::db_utils::create_db().await.unwrap();
+        let (index_manager, extractor_executor, coordinator) =
+            test_util::db_utils::create_index_manager(db.clone(), "test").await;
+        let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         let repository_name = "test";
 
         // Create a repository
-        repository
-            .upsert_repository(DataRepository {
+        repository_manager
+            .sync(&DataRepository {
                 name: repository_name.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),
                 extractors: vec![ExtractorConfig {
                     name: repository_name.into(),
                     extractor_type: persistence::ExtractorType::Embedding {
-                        model: "model".into(),
+                        model: "text-embedding-ada-002".into(),
                         text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
                         distance: IndexDistance::Cosine,
                     },
@@ -401,8 +402,8 @@ mod tests {
             })
             .await?;
 
-        repository
-            .add_content(
+        repository_manager
+            .add_texts(
                 repository_name,
                 vec![
                     Text::from_text(repository_name, "hello", None, HashMap::new()),
@@ -413,14 +414,11 @@ mod tests {
             .await?;
 
         // Insert a new worker and then create work
-        node_state
-            .executors
-            .write()
-            .unwrap()
-            .insert("test_worker".into());
-        node_state.create_work(repository_name, None).await?;
+        coordinator.process_and_distribute_work().await.unwrap();
 
-        let work_list = node_state.get_work_for_worker("test_worker").await?;
+        let work_list = coordinator
+            .get_work_for_worker(&extractor_executor.get_executor_info().id)
+            .await?;
 
         // Check amount of work queued for the worker
         assert_eq!(work_list.len(), 2);
