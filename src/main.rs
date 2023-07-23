@@ -45,12 +45,18 @@ async fn main() -> Result<(), Error> {
     //.init();
 
     let args = Cli::parse();
+    let version = format!(
+        "git branch: {} - sha:{}",
+        env!("VERGEN_GIT_BRANCH"),
+        env!("VERGEN_GIT_SHA")
+    );
     match args.command {
         Commands::StartServer {
             config_path,
             dev_mode,
         } => {
             info!("starting indexify server....");
+            info!("version: {}", version);
 
             let config = indexify::ServerConfig::from_path(config_path)?;
             let server = indexify::Server::new(Arc::new(config.clone()))?;
@@ -78,6 +84,7 @@ async fn main() -> Result<(), Error> {
         }
         Commands::Coordinator { config_path } => {
             info!("starting indexify coordinator....");
+            info!("version: {}", version);
 
             let config = ServerConfig::from_path(config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
@@ -85,6 +92,7 @@ async fn main() -> Result<(), Error> {
         }
         Commands::Executor { config_path } => {
             info!("starting indexify executor....");
+            info!("version: {}", version);
 
             let config = ServerConfig::from_path(config_path)?;
             let executor_server = ExecutorServer::new(Arc::new(config)).await?;
