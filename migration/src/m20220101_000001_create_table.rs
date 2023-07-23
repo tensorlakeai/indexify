@@ -125,6 +125,39 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await;
+
+        let _ = manager.create_table(
+            Table::create()
+                .table(ExtractorSchema::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ExtractorSchema::ExtractorId)
+                        .string()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(ExtractorSchema::RepositoryId).string().not_null())
+                .col(ColumnDef::new(ExtractorSchema::Schema).json_binary().not_null())
+                .to_owned(),
+        ).await;
+
+        let _ = manager.create_table(
+            Table::create()
+                .table(LearnedViews::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(LearnedViews::Name)
+                        .string()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(LearnedViews::RepositoryId).string().not_null())
+                .col(ColumnDef::new(LearnedViews::ExtractorID).string().not_null())
+                .col(ColumnDef::new(LearnedViews::Data).json_binary().not_null())
+                .col(ColumnDef::new(LearnedViews::CreatedAt).big_unsigned().not_null())
+                .to_owned(),
+        ).await;
+
         manager
             .create_table(
                 Table::create()
@@ -231,4 +264,22 @@ enum Work {
     ContentId,
     Extractor,
     RepositoryId,
+}
+
+#[derive(Iden)]
+enum ExtractorSchema {
+    Table,
+    ExtractorId,
+    RepositoryId,
+    Schema,
+}
+
+#[derive(Iden)]
+enum LearnedViews {
+    Table,
+    Name,
+    RepositoryId,
+    ExtractorID,
+    Data,
+    CreatedAt,
 }
