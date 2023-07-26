@@ -4,13 +4,13 @@ use thiserror::Error;
 use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
-pub const DEFAULT_EXTRACTOR_NAME: &str = "default";
+pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
 
 use crate::{
     index::{CreateIndexArgs, IndexError, IndexManager},
     persistence::{
-        ContentType, DataRepository, ExtractorConfig, ExtractorFilter, ExtractorType, Repository,
-        RepositoryError, Text,
+        ContentType, DataRepository, ExtractorBinding, ExtractorConfig, ExtractorFilter,
+        ExtractorType, Repository, RepositoryError, Text,
     },
     text_splitters::TextSplitterKind,
     vectordbs::IndexDistance,
@@ -61,6 +61,17 @@ impl DataRepositoryManager {
         &self,
         server_config: &ServerConfig,
     ) -> Result<(), DataRepositoryError> {
+        let default_extractor = ExtractorConfig {
+            name: DEFAULT_EXTRACTOR_NAME.into(),
+            extractor_type: ExtractorType::Embedding {
+                model: server_config.default_model().model_kind.to_string().clone(),
+                distance: IndexDistance::Cosine,
+            },
+        };
+        let _ = self
+            .repository
+            .record_extractors(vec![default_extractor])
+            .await?;
         let resp = self
             .repository
             .repository_by_name(DEFAULT_REPOSITORY_NAME)
@@ -69,16 +80,12 @@ impl DataRepositoryManager {
             info!("creating default repository");
             let default_repo = DataRepository {
                 name: DEFAULT_REPOSITORY_NAME.into(),
-                extractors: vec![ExtractorConfig {
+                extractor_bindings: vec![ExtractorBinding {
                     name: DEFAULT_EXTRACTOR_NAME.into(),
                     filter: ExtractorFilter::ContentType {
                         content_type: ContentType::Text,
                     },
-                    extractor_type: ExtractorType::Embedding {
-                        model: server_config.default_model().model_kind.to_string(),
-                        text_splitter: TextSplitterKind::Noop,
-                        distance: IndexDistance::Cosine,
-                    },
+                    text_splitter: TextSplitterKind::Noop,
                 }],
                 data_connectors: vec![],
                 metadata: HashMap::new(),
@@ -101,13 +108,12 @@ impl DataRepositoryManager {
             .upsert_repository(repository.clone())
             .await
             .map_err(DataRepositoryError::Persistence);
-        for extractor in &repository.extractors {
-            if let ExtractorType::Embedding {
-                model,
-                text_splitter,
-                distance,
-            } = extractor.extractor_type.clone()
-            {
+        for extractor_binding in &repository.extractor_bindings {
+            let extractor = self
+                .repository
+                .extractor_by_name(&extractor_binding.name)
+                .await?;
+            if let ExtractorType::Embedding { model, distance } = extractor.extractor_type.clone() {
                 let index_name = format!("{}/{}", repository.name, extractor.name);
                 self.index_manager
                     .create_index(
@@ -117,7 +123,7 @@ impl DataRepositoryManager {
                         },
                         &repository.name,
                         model,
-                        text_splitter,
+                        extractor_binding.text_splitter.clone(),
                     )
                     .await
                     .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
@@ -136,14 +142,14 @@ impl DataRepositoryManager {
     pub async fn add_extractor(
         &self,
         repository: &str,
-        extractor: ExtractorConfig,
+        extractor: ExtractorBinding,
     ) -> Result<(), DataRepositoryError> {
         let mut data_repository = self
             .repository
             .repository_by_name(repository)
             .await
             .unwrap();
-        for ex in &data_repository.extractors {
+        for ex in &data_repository.extractor_bindings {
             if extractor.name == ex.name {
                 return Err(DataRepositoryError::NotAllowed(format!(
                     "extractor with name `{}` already exists",
@@ -151,7 +157,7 @@ impl DataRepositoryManager {
                 )));
             }
         }
-        data_repository.extractors.push(extractor);
+        data_repository.extractor_bindings.push(extractor);
         self.sync(&data_repository).await
     }
 
@@ -243,7 +249,7 @@ mod tests {
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
             name: "test".to_string(),
-            extractors: vec![ExtractorConfig {
+            extractor_bindings: vec![ExtractorConfig {
                 name: index_name.into(),
                 filter: ExtractorFilter::ContentType {
                     content_type: ContentType::Text,
@@ -265,7 +271,7 @@ mod tests {
         let repositories = repository_manager.list_repositories().await.unwrap();
         assert_eq!(repositories.len(), 1);
         assert_eq!(repositories[0].name, "test");
-        assert_eq!(repositories[0].extractors.len(), 1);
+        assert_eq!(repositories[0].extractor_bindings.len(), 1);
         assert_eq!(repositories[0].data_connectors.len(), 1);
         assert_eq!(repositories[0].metadata, meta);
     }

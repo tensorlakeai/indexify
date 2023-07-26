@@ -18,6 +18,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Index::EmbeddingModel).string().not_null())
+                    .col(ColumnDef::new(Index::IndexType).string().not_null())
                     .col(ColumnDef::new(Index::TextSplitter).string().not_null())
                     .col(ColumnDef::new(Index::VectorDb).string().not_null())
                     .col(ColumnDef::new(Index::VectorDbParams).json())
@@ -121,42 +122,63 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Work::WorkerId).string())
                     .col(ColumnDef::new(Work::ContentId).string().not_null())
                     .col(ColumnDef::new(Work::Extractor).string().not_null())
+                    .col(ColumnDef::new(Work::ExtractorParams).json_binary())
                     .col(ColumnDef::new(Work::RepositoryId).string().not_null())
                     .to_owned(),
             )
             .await;
 
-        let _ = manager.create_table(
-            Table::create()
-                .table(ExtractorSchema::Table)
-                .if_not_exists()
-                .col(
-                    ColumnDef::new(ExtractorSchema::ExtractorId)
-                        .string()
-                        .not_null()
-                        .primary_key(),
-                )
-                .col(ColumnDef::new(ExtractorSchema::RepositoryId).string().not_null())
-                .col(ColumnDef::new(ExtractorSchema::Schema).json_binary().not_null())
-                .to_owned(),
-        ).await;
+        let _ = manager
+            .create_table(
+                Table::create()
+                    .table(ExtractedData::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(ExtractedData::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(ExtractedData::RepositoryId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExtractedData::ExtractorID)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(ExtractedData::Data).json_binary().not_null())
+                    .col(
+                        ColumnDef::new(ExtractedData::CreatedAt)
+                            .big_unsigned()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await;
 
-        let _ = manager.create_table(
-            Table::create()
-                .table(LearnedViews::Table)
-                .if_not_exists()
-                .col(
-                    ColumnDef::new(LearnedViews::Name)
-                        .string()
-                        .not_null()
-                        .primary_key(),
-                )
-                .col(ColumnDef::new(LearnedViews::RepositoryId).string().not_null())
-                .col(ColumnDef::new(LearnedViews::ExtractorID).string().not_null())
-                .col(ColumnDef::new(LearnedViews::Data).json_binary().not_null())
-                .col(ColumnDef::new(LearnedViews::CreatedAt).big_unsigned().not_null())
-                .to_owned(),
-        ).await;
+        let _ = manager
+            .create_table(
+                Table::create()
+                    .table(Extractors::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Extractors::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(Extractors::ExtractorType)
+                            .json_binary()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(Extractors::Config).json_binary())
+                    .to_owned(),
+            )
+            .await;
 
         manager
             .create_table(
@@ -169,7 +191,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(DataRepository::Extractors).json())
+                    .col(ColumnDef::new(DataRepository::ExtractorBindings).json())
                     .col(ColumnDef::new(DataRepository::Metadata).json())
                     .col(ColumnDef::new(DataRepository::DataConnectors).json())
                     .to_owned(),
@@ -190,8 +212,20 @@ impl MigrationTrait for Migration {
         let _ = manager
             .drop_table(Table::drop().table(MemorySessions::Table).to_owned())
             .await;
-        manager
+        let _ = manager
+            .drop_table(Table::drop().table(ExtractionEvent::Table).to_owned())
+            .await;
+        let _ = manager
             .drop_table(Table::drop().table(DataRepository::Table).to_owned())
+            .await;
+        let _ = manager
+            .drop_table(Table::drop().table(Work::Table).to_owned())
+            .await;
+        let _ = manager
+            .drop_table(Table::drop().table(ExtractedData::Table).to_owned())
+            .await;
+        manager
+            .drop_table(Table::drop().table(Extractors::Table).to_owned())
             .await
     }
 }
@@ -200,6 +234,7 @@ impl MigrationTrait for Migration {
 enum Index {
     Table,
     Name,
+    IndexType,
     TextSplitter,
     EmbeddingModel,
     VectorDb,
@@ -250,7 +285,7 @@ enum ExtractionEvent {
 enum DataRepository {
     Table,
     Name,
-    Extractors,
+    ExtractorBindings,
     Metadata,
     DataConnectors,
 }
@@ -263,23 +298,24 @@ enum Work {
     WorkerId,
     ContentId,
     Extractor,
+    ExtractorParams,
     RepositoryId,
 }
 
 #[derive(Iden)]
-enum ExtractorSchema {
+enum ExtractedData {
     Table,
-    ExtractorId,
-    RepositoryId,
-    Schema,
-}
-
-#[derive(Iden)]
-enum LearnedViews {
-    Table,
-    Name,
+    Id,
     RepositoryId,
     ExtractorID,
     Data,
     CreatedAt,
+}
+
+#[derive(Iden)]
+enum Extractors {
+    Table,
+    Id,
+    ExtractorType,
+    Config,
 }

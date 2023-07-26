@@ -86,13 +86,7 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_addr: coordinator_addr.clone(),
         };
-        let memory_manager = Arc::new(
-            MemoryManager::new(
-                repository_manager.clone(),
-                &self.config.default_model().model_kind.to_string(),
-            )
-            .await?,
-        );
+        let memory_manager = Arc::new(MemoryManager::new(repository_manager.clone()).await?);
         let index_state = IndexEndpointState {
             index_manager: index_manager.clone(),
         };
@@ -183,7 +177,7 @@ async fn sync_repository(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<SyncRepository>,
 ) -> Result<Json<SyncRepositoryResponse>, IndexifyAPIError> {
-    let extractors = payload
+    let extractor_bindings = payload
         .extractors
         .clone()
         .into_iter()
@@ -197,7 +191,7 @@ async fn sync_repository(
         .collect();
     let data_repository = &DataRepository {
         name: payload.name.clone(),
-        extractors,
+        extractor_bindings,
         data_connectors,
         metadata: payload.metadata.clone(),
     };
@@ -261,7 +255,7 @@ async fn index_create(
     let repository = get_or_default_repository(payload.repository);
     state
         .repository_manager
-        .add_extractor(&repository, payload.extractor.into())
+        .add_extractor(&repository, payload.extractor_binding.into())
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -343,13 +337,13 @@ async fn create_memory_session(
     Json(payload): Json<CreateMemorySessionRequest>,
 ) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
     let repo = &get_or_default_repository(payload.repository);
-    let extractor: Option<ExtractorConfig> = payload.extractor.map(|e| e.into());
+    let extractor_binding = payload.extractor_binding.map(|e| e.into());
     let session_id = state
         .memory_manager
         .create_session(
             repo,
             payload.session_id,
-            extractor,
+            extractor_binding,
             payload.metadata.unwrap_or_default(),
         )
         .await

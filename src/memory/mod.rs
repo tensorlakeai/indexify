@@ -16,9 +16,7 @@ use utils::{get_messages_from_texts, get_texts_from_messages};
 
 use crate::{
     data_repository_manager::{DataRepositoryError, DataRepositoryManager},
-    persistence::{ExtractorConfig, ExtractorType},
-    text_splitters::TextSplitterKind,
-    vectordbs::IndexDistance,
+    persistence::ExtractorBinding,
 };
 
 /// An enumeration of possible errors that can occur while adding to or retrieving from memory.
@@ -71,25 +69,18 @@ impl Message {
 /// Each message has a corresponding point in vector DB and row in content table.
 pub struct MemoryManager {
     repository: Arc<DataRepositoryManager>,
-    default_embedding_model: String,
 }
 
 impl MemoryManager {
-    pub async fn new(
-        repository: Arc<DataRepositoryManager>,
-        default_embedding_model: &str,
-    ) -> Result<Self, MemoryError> {
-        Ok(Self {
-            repository,
-            default_embedding_model: default_embedding_model.into(),
-        })
+    pub async fn new(repository: Arc<DataRepositoryManager>) -> Result<Self, MemoryError> {
+        Ok(Self { repository })
     }
 
     pub async fn create_session(
         &self,
         repository_id: &str,
         session_id: Option<String>,
-        extractor: Option<ExtractorConfig>,
+        extractor: Option<ExtractorBinding>,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<String, MemoryError> {
         let session_id = session_id.unwrap_or(nanoid!());
@@ -100,18 +91,8 @@ impl MemoryManager {
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
 
         let mut repo = self.repository.get(repository_id).await?;
-        let extractor = extractor.unwrap_or(ExtractorConfig {
-            name: session_id.clone(),
-            filter: crate::persistence::ExtractorFilter::MemorySession {
-                session_id: session_id.clone(),
-            },
-            extractor_type: ExtractorType::Embedding {
-                model: self.default_embedding_model.clone(),
-                text_splitter: TextSplitterKind::Noop,
-                distance: IndexDistance::Cosine,
-            },
-        });
-        repo.extractors.push(extractor);
+        let extractor_binding = extractor.unwrap_or_default();
+        repo.extractor_bindings.push(extractor_binding);
         self.repository.sync(&repo).await?;
         Ok(session_id.to_string())
     }
@@ -188,7 +169,7 @@ mod tests {
             .await
             .unwrap();
 
-        let memory_manager = MemoryManager::new(Arc::new(repository_manager), "all-minilm-l12-v2")
+        let memory_manager = MemoryManager::new(Arc::new(repository_manager))
             .await
             .unwrap();
 

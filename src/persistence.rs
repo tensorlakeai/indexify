@@ -10,6 +10,7 @@ use tracing::info;
 use anyhow::Result;
 use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::extraction_event::Entity as ExtractionEventEntity;
+use entity::extractors;
 use entity::index::Entity as IndexEntity;
 use entity::index::Model as IndexModel;
 use sea_orm::sea_query::OnConflict;
@@ -30,6 +31,25 @@ use crate::text_splitters::TextSplitterKind;
 use crate::vectordbs::{self, CreateIndexParams};
 use crate::{entity, vectordbs::IndexDistance};
 use entity::work::Entity as WorkEntity;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorBinding {
+    pub name: String,
+    pub filter: ExtractorFilter,
+    pub text_splitter: TextSplitterKind,
+}
+
+impl Default for ExtractorBinding {
+    fn default() -> Self {
+        Self {
+            name: "default_embedder".to_string(),
+            filter: ExtractorFilter::ContentType {
+                content_type: ContentType::Text,
+            },
+            text_splitter: TextSplitterKind::Noop,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Display, EnumString)]
 pub enum ExtractionEventPayload {
@@ -86,13 +106,12 @@ impl Text {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
 #[serde(rename = "extractor_type")]
 pub enum ExtractorType {
     #[serde(rename = "embedding")]
     Embedding {
         model: String,
-        text_splitter: TextSplitterKind,
         distance: IndexDistance,
     },
 
@@ -112,21 +131,26 @@ pub enum ExtractorFilter {
 pub struct ExtractorConfig {
     pub name: String,
     pub extractor_type: ExtractorType,
-    pub filter: ExtractorFilter,
 }
 
 impl Default for ExtractorConfig {
     fn default() -> Self {
         Self {
-            name: "default".to_string(),
-            filter: ExtractorFilter::ContentType {
-                content_type: ContentType::Text,
-            },
+            name: "default-embedder".to_string(),
             extractor_type: ExtractorType::Embedding {
                 model: "all-minilm-l12-v2".to_string(),
-                text_splitter: TextSplitterKind::Noop,
                 distance: IndexDistance::Cosine,
             },
+        }
+    }
+}
+
+impl From<extractors::Model> for ExtractorConfig {
+    fn from(model: extractors::Model) -> Self {
+        let extractor_type = serde_json::from_value(model.extractor_type).unwrap();
+        Self {
+            name: model.id,
+            extractor_type,
         }
     }
 }
@@ -152,7 +176,7 @@ pub struct DataConnector {
 pub struct DataRepository {
     pub name: String,
     pub data_connectors: Vec<DataConnector>,
-    pub extractors: Vec<ExtractorConfig>,
+    pub extractor_bindings: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -161,7 +185,7 @@ impl Default for DataRepository {
         Self {
             name: "default".to_string(),
             data_connectors: vec![],
-            extractors: vec![ExtractorConfig::default()],
+            extractor_bindings: vec![ExtractorBinding::default()],
             metadata: HashMap::new(),
         }
     }
@@ -170,7 +194,7 @@ impl Default for DataRepository {
 impl From<entity::data_repository::Model> for DataRepository {
     fn from(model: entity::data_repository::Model) -> Self {
         let extractors = model
-            .extractors
+            .extractor_bindings
             .map(|s| serde_json::from_value(s).unwrap())
             .unwrap_or_default();
         let data_connectors = model
@@ -183,7 +207,7 @@ impl From<entity::data_repository::Model> for DataRepository {
             .unwrap_or_default();
         Self {
             name: model.name,
-            extractors,
+            extractor_bindings: extractors,
             data_connectors,
             metadata,
         }
@@ -231,11 +255,25 @@ pub enum WorkState {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExtractorParams {
+    pub text_splitter: Option<TextSplitterKind>,
+}
+
+impl Default for ExtractorParams {
+    fn default() -> Self {
+        Self {
+            text_splitter: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Work {
     pub id: String,
     pub content_id: String,
     pub repository_id: String,
     pub extractor: String,
+    pub extractor_params: ExtractorParams,
     pub work_state: WorkState,
     pub worker_id: Option<String>,
 }
@@ -245,6 +283,7 @@ impl Work {
         content_id: &str,
         repository: &str,
         extractor: &str,
+        extractor_params: &ExtractorParams,
         worker_id: Option<&str>,
     ) -> Self {
         let mut s = DefaultHasher::new();
@@ -258,6 +297,7 @@ impl Work {
             content_id: content_id.into(),
             repository_id: repository.into(),
             extractor: extractor.into(),
+            extractor_params: extractor_params.clone(),
             work_state: WorkState::Pending,
             worker_id: worker_id.map(|w| w.into()),
         }
@@ -275,6 +315,10 @@ impl From<work::Model> for Work {
             content_id: model.content_id,
             repository_id: model.repository_id,
             extractor: model.extractor,
+            extractor_params: model
+                .extractor_params
+                .map(|s| serde_json::from_value(s).unwrap())
+                .unwrap_or_default(),
             work_state: WorkState::from_str(&model.state).unwrap(),
             worker_id: model.worker_id,
         }
@@ -341,6 +385,7 @@ impl Repository {
     ) -> Result<(), RepositoryError> {
         let index = entity::index::ActiveModel {
             name: Set(index_params.name.clone()),
+            index_type: Set("embedding".to_string()),
             embedding_model: Set(embedding_model),
             text_splitter: Set(text_splitter),
             vector_db: Set(vectordb.name()),
@@ -518,18 +563,18 @@ impl Repository {
     pub async fn content_with_unapplied_extractor(
         &self,
         repo_id: &str,
-        extractor: &ExtractorConfig,
+        extractor_binding: &ExtractorBinding,
         content_id: Option<&str>,
     ) -> Result<Vec<entity::content::Model>, RepositoryError> {
-        let mut values = vec![repo_id.into(), extractor.name.clone().into()];
-        let mut query: String = "select * from content where repository_id=$1".to_string();
+        let mut values = vec![repo_id.into(), extractor_binding.name.clone().into()];
+        let mut query: String = "select * from content where repository_id=$1 and COALESCE(cast(extractors_state->'state'->>$2 as int),0) < 1".to_string();
         let mut idx = 3;
         if let Some(content_id) = content_id {
             values.push(content_id.into());
             query.push_str(format!(" and id = ${}", idx).as_str());
             idx += 1;
         }
-        match &extractor.filter {
+        match &extractor_binding.filter {
             ExtractorFilter::MemorySession { session_id } => {
                 values.push(session_id.into());
                 query.push_str(format!(" and memory_session_id = ${}", idx).as_str());
@@ -541,7 +586,6 @@ impl Repository {
                 );
             }
         }
-        query.push_str(" and COALESCE(cast(extractors_state->'state'->>$2 as int),0) < 1");
         let result = entity::content::Entity::find()
             .from_raw_sql(Statement::from_sql_and_values(
                 DbBackend::Postgres,
@@ -673,7 +717,7 @@ impl Repository {
         };
         let repository_model = entity::data_repository::ActiveModel {
             name: Set(repository.name),
-            extractors: Set(Some(json!(repository.extractors))),
+            extractor_bindings: Set(Some(json!(repository.extractor_bindings))),
             metadata: Set(Some(json!(repository.metadata))),
             data_connectors: Set(Some(json!(repository.data_connectors))),
         };
@@ -691,7 +735,7 @@ impl Repository {
                         .on_conflict(
                             OnConflict::column(entity::data_repository::Column::Name)
                                 .update_columns(vec![
-                                    entity::data_repository::Column::Extractors,
+                                    entity::data_repository::Column::ExtractorBindings,
                                     entity::data_repository::Column::Metadata,
                                 ])
                                 .to_owned(),
@@ -729,25 +773,45 @@ impl Repository {
         Ok(repository_model.into())
     }
 
-    pub async fn get_extractor(
-        &self,
-        repo_id: &str,
-        extractor_name: &str,
-    ) -> Result<ExtractorConfig, RepositoryError> {
-        let extractors_json = DataRepositoryEntity::find()
-            .filter(entity::data_repository::Column::Name.eq(repo_id))
+    pub async fn extractor_by_name(&self, name: &str) -> Result<ExtractorConfig, RepositoryError> {
+        let extractor_model = extractors::Entity::find()
+            .filter(entity::extractors::Column::Id.eq(name))
             .one(&self.conn)
             .await?
-            .ok_or(RepositoryError::RepositoryNotFound(repo_id.to_owned()))?
-            .extractors
-            .ok_or(RepositoryError::RepositoryNotFound(repo_id.to_owned()))?;
-        let extractor_config: Vec<ExtractorConfig> = serde_json::from_value(extractors_json)
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
-        let extractor = extractor_config
-            .iter()
-            .find(|e| e.name == extractor_name)
-            .ok_or(RepositoryError::LogicError(extractor_name.to_owned()))?;
-        Ok(extractor.to_owned())
+            .ok_or(RepositoryError::RepositoryNotFound(name.to_owned()))?;
+        Ok(ExtractorConfig {
+            name: extractor_model.id,
+            extractor_type: serde_json::from_value(extractor_model.extractor_type).unwrap(),
+        })
+    }
+
+    pub async fn record_extractors(
+        &self,
+        extractors: Vec<ExtractorConfig>,
+    ) -> Result<(), RepositoryError> {
+        let mut extractor_models: Vec<entity::extractors::ActiveModel> = vec![];
+        for extractor in extractors {
+            extractor_models.push(entity::extractors::ActiveModel {
+                id: Set(extractor.name),
+                extractor_type: Set(json!(extractor.extractor_type)),
+                config: NotSet,
+            });
+        }
+        Ok(())
+    }
+
+    pub async fn get_extractor(
+        &self,
+        extractor_name: &str,
+    ) -> Result<ExtractorConfig, RepositoryError> {
+        let extractor_config = extractors::Entity::find()
+            .filter(entity::extractors::Column::Id.eq(extractor_name))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::RepositoryNotFound(
+                extractor_name.to_owned(),
+            ))?;
+        Ok(extractor_config.into())
     }
 
     pub async fn insert_work(&self, work: &Work) -> Result<(), RepositoryError> {
@@ -757,6 +821,7 @@ impl Repository {
             worker_id: Set(work.worker_id.as_ref().map(|id| id.to_owned())),
             content_id: Set(work.content_id.clone()),
             extractor: Set(work.extractor.clone()),
+            extractor_params: Set(Some(json!(work.extractor_params))),
             repository_id: Set(work.repository_id.clone()),
         };
         WorkEntity::insert(work_model).exec(&self.conn).await?;
@@ -846,7 +911,7 @@ mod tests {
         let repo = DataRepository {
             name: "test".to_owned(),
             data_connectors: vec![],
-            extractors: vec![extractor1.clone(), extractor2.clone()],
+            extractor_bindings: vec![extractor1.clone(), extractor2.clone()],
             metadata: HashMap::new(),
         };
 

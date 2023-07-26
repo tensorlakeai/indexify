@@ -4,17 +4,14 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "index")]
+#[sea_orm(table_name = "extractors")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub name: String,
-    pub embedding_model: String,
-    pub index_type: String,
-    pub text_splitter: String,
-    pub vector_db: String,
-    pub vector_db_params: Option<Json>,
-    pub unique_params: Option<Json>,
-    pub repository_id: String,
+    pub id: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub extractor_type: Json,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub config: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

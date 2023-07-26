@@ -12,6 +12,8 @@ pub struct Model {
     pub worker_id: Option<String>,
     pub content_id: String,
     pub extractor: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub extractor_params: Option<Json>,
     pub repository_id: String,
 }
 

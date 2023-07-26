@@ -115,7 +115,7 @@ impl ExtractorExecutor {
             .collect();
         let sync_executor_req = SyncWorker {
             worker_id: self.executor_id.clone(),
-            available_models: vec![],
+            available_extractors: vec![],
             work_status: work_status.clone(),
         };
         let resp = reqwest::Client::new()
@@ -160,10 +160,7 @@ impl ExtractorExecutor {
             .collect();
         for work in work_list {
             info!("performing work: {}", &work.id);
-            let extractor = self
-                .repository
-                .get_extractor(&work.repository_id, &work.extractor)
-                .await?;
+            let extractor = self.repository.get_extractor(&work.extractor).await?;
             let content = self
                 .repository
                 .content_from_repo(&work.content_id, &work.repository_id)

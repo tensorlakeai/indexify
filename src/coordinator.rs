@@ -8,7 +8,10 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
-    persistence::{ExtractionEventPayload, Repository, Work, WorkState},
+    persistence::{
+        ExtractionEventPayload, ExtractorConfig, ExtractorParams, Repository, RepositoryError,
+        Work, WorkState,
+    },
     ServerConfig,
 };
 use indexmap::{IndexMap, IndexSet};
@@ -28,7 +31,7 @@ pub struct ExecutorInfo {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct SyncWorker {
     pub worker_id: String,
-    pub available_models: Vec<String>,
+    pub available_extractors: Vec<ExtractorConfig>,
     pub work_status: Vec<Work>,
 }
 
@@ -155,19 +158,28 @@ impl Coordinator {
         repository_id: &str,
         content_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
-        let extractors = self
+        let extractor_bindings = self
             .repository
             .repository_by_name(repository_id)
             .await?
-            .extractors;
-        for extractor in &extractors {
+            .extractor_bindings;
+        for extractor_binding in &extractor_bindings {
             let content_list = self
                 .repository
-                .content_with_unapplied_extractor(repository_id, extractor, content_id)
+                .content_with_unapplied_extractor(repository_id, extractor_binding, content_id)
                 .await?;
             for content in content_list {
                 info!("Creating work for content {}", &content.id);
-                let work = Work::new(&content.id, repository_id, &extractor.name, None);
+                let extractor_params = &ExtractorParams {
+                    text_splitter: Some(extractor_binding.text_splitter.clone()),
+                };
+                let work = Work::new(
+                    &content.id,
+                    repository_id,
+                    &extractor_binding.name,
+                    extractor_params,
+                    None,
+                );
                 self.repository.insert_work(&work).await?;
                 self.repository
                     .mark_content_as_processed(&work.content_id, &work.extractor)
@@ -201,6 +213,14 @@ impl Coordinator {
                 _ => {}
             }
         }
+        Ok(())
+    }
+
+    pub async fn record_extractors(
+        &self,
+        extractors: Vec<ExtractorConfig>,
+    ) -> Result<(), anyhow::Error> {
+        self.repository.record_extractors(extractors).await?;
         Ok(())
     }
 
@@ -312,6 +332,12 @@ async fn sync_executor(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Record the extractors available on the executor
+    coordinator
+        .record_extractors(worker.available_extractors)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     // Find more work for the worker
     let queued_work = coordinator
         .get_work_for_worker(&worker.worker_id)
@@ -388,7 +414,7 @@ mod tests {
                 name: repository_name.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),
-                extractors: vec![ExtractorConfig {
+                extractor_bindings: vec![ExtractorConfig {
                     name: repository_name.into(),
                     extractor_type: persistence::ExtractorType::Embedding {
                         model: "text-embedding-ada-002".into(),

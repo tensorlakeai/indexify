@@ -2,7 +2,9 @@
 
 pub use super::content::Entity as Content;
 pub use super::data_repository::Entity as DataRepository;
+pub use super::extracted_data::Entity as ExtractedData;
 pub use super::extraction_event::Entity as ExtractionEvent;
+pub use super::extractors::Entity as Extractors;
 pub use super::index::Entity as Index;
 pub use super::index_chunks::Entity as IndexChunks;
 pub use super::memory_sessions::Entity as MemorySessions;

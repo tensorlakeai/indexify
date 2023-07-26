@@ -18,21 +18,15 @@ pub enum ExtractorType {
     Embedding {
         model: String,
         distance: IndexDistance,
-        text_splitter: TextSplitterKind,
     },
 }
 
 impl From<persistence::ExtractorType> for ExtractorType {
     fn from(value: persistence::ExtractorType) -> Self {
         match value {
-            persistence::ExtractorType::Embedding {
-                model,
-                text_splitter,
-                distance,
-            } => ExtractorType::Embedding {
+            persistence::ExtractorType::Embedding { model, distance } => ExtractorType::Embedding {
                 model,
                 distance: distance.into(),
-                text_splitter: text_splitter.into(),
             },
             _ => unimplemented!(),
         }
@@ -105,7 +99,6 @@ impl From<ExtractorFilter> for persistence::ExtractorFilter {
 pub struct Extractor {
     pub name: String,
     pub extractor_type: ExtractorType,
-    pub filter: ExtractorFilter,
 }
 
 impl From<persistence::ExtractorConfig> for Extractor {
@@ -113,7 +106,6 @@ impl From<persistence::ExtractorConfig> for Extractor {
         Self {
             name: value.name,
             extractor_type: value.extractor_type.into(),
-            filter: value.filter.into(),
         }
     }
 }
@@ -123,17 +115,40 @@ impl From<Extractor> for persistence::ExtractorConfig {
         persistence::ExtractorConfig {
             name: val.name,
             extractor_type: match val.extractor_type {
-                ExtractorType::Embedding {
-                    model,
-                    distance,
-                    text_splitter,
-                } => persistence::ExtractorType::Embedding {
-                    model,
-                    distance: distance.into(),
-                    text_splitter: text_splitter.into(),
-                },
+                ExtractorType::Embedding { model, distance } => {
+                    persistence::ExtractorType::Embedding {
+                        model,
+                        distance: distance.into(),
+                    }
+                }
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorBinding {
+    pub name: String,
+    pub filter: ExtractorFilter,
+    pub text_splitter: Option<TextSplitterKind>,
+}
+
+impl From<persistence::ExtractorBinding> for ExtractorBinding {
+    fn from(value: persistence::ExtractorBinding) -> Self {
+        Self {
+            name: value.name,
+            filter: value.filter.into(),
+            text_splitter: Some(value.text_splitter.into()),
+        }
+    }
+}
+
+impl From<ExtractorBinding> for persistence::ExtractorBinding {
+    fn from(val: ExtractorBinding) -> Self {
+        persistence::ExtractorBinding {
+            name: val.name,
             filter: val.filter.into(),
+            text_splitter: val.text_splitter.unwrap_or_default().into(),
         }
     }
 }
@@ -141,13 +156,17 @@ impl From<Extractor> for persistence::ExtractorConfig {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct DataRepository {
     pub name: String,
-    pub extractors: Vec<Extractor>,
+    pub extractors: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl From<persistence::DataRepository> for DataRepository {
     fn from(value: persistence::DataRepository) -> Self {
-        let ap_extractors = value.extractors.into_iter().map(|e| e.into()).collect();
+        let ap_extractors = value
+            .extractor_bindings
+            .into_iter()
+            .map(|e| e.into())
+            .collect();
         DataRepository {
             name: value.name,
             extractors: ap_extractors,
@@ -195,7 +214,7 @@ impl From<DataConnector> for persistence::DataConnector {
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct SyncRepository {
     pub name: String,
-    pub extractors: Vec<Extractor>,
+    pub extractors: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
     pub data_connectors: Vec<DataConnector>,
 }
@@ -333,7 +352,7 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractorAddRequest {
     pub repository: Option<String>,
-    pub extractor: Extractor,
+    pub extractor_binding: ExtractorBinding,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -376,7 +395,7 @@ pub struct SearchRequest {
 pub struct CreateMemorySessionRequest {
     pub session_id: Option<String>,
     pub repository: Option<String>,
-    pub extractor: Option<Extractor>,
+    pub extractor_binding: Option<ExtractorBinding>,
     pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
