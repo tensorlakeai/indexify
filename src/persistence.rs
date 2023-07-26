@@ -35,6 +35,7 @@ use entity::work::Entity as WorkEntity;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
     pub name: String,
+    pub index_name: String,
     pub filter: ExtractorFilter,
     pub text_splitter: TextSplitterKind,
 }
@@ -43,6 +44,7 @@ impl Default for ExtractorBinding {
     fn default() -> Self {
         Self {
             name: "default_embedder".to_string(),
+            index_name: "default_index".to_string(),
             filter: ExtractorFilter::ContentType {
                 content_type: ContentType::Text,
             },
@@ -254,17 +256,9 @@ pub enum WorkState {
     Failed,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ExtractorParams {
     pub text_splitter: Option<TextSplitterKind>,
-}
-
-impl Default for ExtractorParams {
-    fn default() -> Self {
-        Self {
-            text_splitter: None,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -272,6 +266,7 @@ pub struct Work {
     pub id: String,
     pub content_id: String,
     pub repository_id: String,
+    pub index_name: String,
     pub extractor: String,
     pub extractor_params: ExtractorParams,
     pub work_state: WorkState,
@@ -282,6 +277,7 @@ impl Work {
     pub fn new(
         content_id: &str,
         repository: &str,
+        index_name: &str,
         extractor: &str,
         extractor_params: &ExtractorParams,
         worker_id: Option<&str>,
@@ -289,6 +285,7 @@ impl Work {
         let mut s = DefaultHasher::new();
         content_id.hash(&mut s);
         repository.hash(&mut s);
+        index_name.hash(&mut s);
         extractor.hash(&mut s);
         let id = format!("{:x}", s.finish());
 
@@ -296,6 +293,7 @@ impl Work {
             id,
             content_id: content_id.into(),
             repository_id: repository.into(),
+            index_name: index_name.into(),
             extractor: extractor.into(),
             extractor_params: extractor_params.clone(),
             work_state: WorkState::Pending,
@@ -314,6 +312,7 @@ impl From<work::Model> for Work {
             id: model.id,
             content_id: model.content_id,
             repository_id: model.repository_id,
+            index_name: model.index_name,
             extractor: model.extractor,
             extractor_params: model
                 .extractor_params
@@ -335,6 +334,9 @@ pub enum RepositoryError {
 
     #[error("repository `{0}` not found")]
     RepositoryNotFound(String),
+
+    #[error("extractor`{0}` not found")]
+    ExtractorNotFound(String),
 
     #[error("index `{0}` not found")]
     IndexNotFound(String),
@@ -377,6 +379,7 @@ impl Repository {
 
     pub async fn create_index(
         &self,
+        extractor_name: &str,
         embedding_model: String,
         index_params: CreateIndexParams,
         vectordb: vectordbs::VectorDBTS,
@@ -385,6 +388,7 @@ impl Repository {
     ) -> Result<(), RepositoryError> {
         let index = entity::index::ActiveModel {
             name: Set(index_params.name.clone()),
+            extractor_name: Set(extractor_name.into()),
             index_type: Set("embedding".to_string()),
             embedding_model: Set(embedding_model),
             text_splitter: Set(text_splitter),
@@ -778,7 +782,7 @@ impl Repository {
             .filter(entity::extractors::Column::Id.eq(name))
             .one(&self.conn)
             .await?
-            .ok_or(RepositoryError::RepositoryNotFound(name.to_owned()))?;
+            .ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
         Ok(ExtractorConfig {
             name: extractor_model.id,
             extractor_type: serde_json::from_value(extractor_model.extractor_type).unwrap(),
@@ -797,6 +801,20 @@ impl Repository {
                 config: NotSet,
             });
         }
+        let res = entity::extractors::Entity::insert_many(extractor_models)
+            .on_conflict(
+                OnConflict::column(entity::extractors::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&self.conn)
+            .await;
+        if let Err(err) = res {
+            if err != DbErr::RecordNotInserted {
+                return Err(RepositoryError::DatabaseError(err));
+            }
+        }
+
         Ok(())
     }
 
@@ -820,6 +838,7 @@ impl Repository {
             state: Set(work.work_state.to_string()),
             worker_id: Set(work.worker_id.as_ref().map(|id| id.to_owned())),
             content_id: Set(work.content_id.clone()),
+            index_name: Set(work.index_name.clone()),
             extractor: Set(work.extractor.clone()),
             extractor_params: Set(Some(json!(work.extractor_params))),
             repository_id: Set(work.repository_id.clone()),
@@ -890,9 +909,13 @@ mod tests {
             name: "extractor1".into(),
             extractor_type: ExtractorType::Embedding {
                 model: "model1".into(),
-                text_splitter: TextSplitterKind::NewLine,
                 distance: IndexDistance::Cosine,
             },
+        };
+        let extractor_binding1 = ExtractorBinding {
+            name: "extractor1".into(),
+            index_name: "extractor1".into(),
+            text_splitter: TextSplitterKind::NewLine,
             filter: ExtractorFilter::ContentType {
                 content_type: ContentType::Text,
             },
@@ -901,9 +924,13 @@ mod tests {
             name: "extractor2".into(),
             extractor_type: ExtractorType::Embedding {
                 model: "model2".into(),
-                text_splitter: TextSplitterKind::NewLine,
                 distance: IndexDistance::Cosine,
             },
+        };
+        let extractor_binding2 = ExtractorBinding {
+            name: "extractor2".into(),
+            index_name: "extractor2".into(),
+            text_splitter: TextSplitterKind::NewLine,
             filter: ExtractorFilter::MemorySession {
                 session_id: "abcd".into(),
             },
@@ -911,12 +938,16 @@ mod tests {
         let repo = DataRepository {
             name: "test".to_owned(),
             data_connectors: vec![],
-            extractor_bindings: vec![extractor1.clone(), extractor2.clone()],
+            extractor_bindings: vec![extractor_binding1.clone(), extractor_binding2.clone()],
             metadata: HashMap::new(),
         };
 
         let db = create_db().await.unwrap();
         let repository = Repository::new_with_db(db);
+        repository
+            .record_extractors(vec![extractor1, extractor2])
+            .await
+            .unwrap();
         repository.upsert_repository(repo.clone()).await.unwrap();
 
         repository
@@ -961,13 +992,13 @@ mod tests {
             .unwrap();
 
         let content_list1 = repository
-            .content_with_unapplied_extractor(&repo.name, &extractor1, None)
+            .content_with_unapplied_extractor(&repo.name, &extractor_binding1, None)
             .await
             .unwrap();
         assert_eq!(2, content_list1.len());
 
         let content_list2 = repository
-            .content_with_unapplied_extractor(&repo.name, &extractor2, None)
+            .content_with_unapplied_extractor(&repo.name, &extractor_binding2, None)
             .await
             .unwrap();
         assert_eq!(2, content_list2.len());

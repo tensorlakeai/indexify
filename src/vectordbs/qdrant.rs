@@ -72,7 +72,7 @@ impl VectorDb for QdrantDb {
         let result = self
             .create_client()?
             .create_collection(&CreateCollection {
-                collection_name: index.name,
+                collection_name: index.vectordb_index_name,
                 vectors_config: Some(VectorsConfig {
                     config: Some(Config::Params(VectorParams {
                         on_disk: None,
@@ -199,6 +199,7 @@ mod tests {
         qdrant
             .create_index(CreateIndexParams {
                 name: "hello-index".into(),
+                vectordb_index_name: "hello-index".into(),
                 vector_dim: 2,
                 distance: IndexDistance::Cosine,
                 unique_params: None,
@@ -234,6 +235,7 @@ mod tests {
         qdrant
             .create_index(CreateIndexParams {
                 name: index_name.into(),
+                vectordb_index_name: index_name.into(),
                 vector_dim: 2,
                 distance: IndexDistance::Cosine,
                 unique_params: Some(hash_on.clone()),

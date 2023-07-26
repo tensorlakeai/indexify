@@ -9,8 +9,7 @@ use tracing::{error, info};
 use crate::{
     api::IndexifyAPIError,
     persistence::{
-        ExtractionEventPayload, ExtractorConfig, ExtractorParams, Repository, RepositoryError,
-        Work, WorkState,
+        ExtractionEventPayload, ExtractorConfig, ExtractorParams, Repository, Work, WorkState,
     },
     ServerConfig,
 };
@@ -176,6 +175,7 @@ impl Coordinator {
                 let work = Work::new(
                     &content.id,
                     repository_id,
+                    &extractor_binding.index_name,
                     &extractor_binding.name,
                     extractor_params,
                     None,
@@ -390,13 +390,18 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util;
+    use crate::{
+        persistence::ExtractorBinding,
+        test_util::{
+            self,
+            db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+        },
+    };
     use std::collections::HashMap;
 
     use crate::{
         data_repository_manager::DataRepositoryManager,
-        persistence::{self, DataRepository, ExtractorConfig, Text},
-        vectordbs::IndexDistance,
+        persistence::{self, DataRepository, Text},
     };
 
     #[tokio::test]
@@ -404,23 +409,19 @@ mod tests {
     async fn test_create_work() -> Result<(), anyhow::Error> {
         let db = test_util::db_utils::create_db().await.unwrap();
         let (index_manager, extractor_executor, coordinator) =
-            test_util::db_utils::create_index_manager(db.clone(), "test").await;
+            test_util::db_utils::create_index_manager(db.clone()).await;
         let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
-        let repository_name = "test";
 
         // Create a repository
         repository_manager
             .sync(&DataRepository {
-                name: repository_name.into(),
+                name: DEFAULT_TEST_REPOSITORY.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),
-                extractor_bindings: vec![ExtractorConfig {
-                    name: repository_name.into(),
-                    extractor_type: persistence::ExtractorType::Embedding {
-                        model: "text-embedding-ada-002".into(),
-                        text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
-                        distance: IndexDistance::Cosine,
-                    },
+                extractor_bindings: vec![ExtractorBinding {
+                    name: DEFAULT_TEST_EXTRACTOR.into(),
+                    index_name: DEFAULT_TEST_EXTRACTOR.into(),
+                    text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
                     filter: persistence::ExtractorFilter::ContentType {
                         content_type: persistence::ContentType::Text,
                     },
@@ -430,10 +431,10 @@ mod tests {
 
         repository_manager
             .add_texts(
-                repository_name,
+                DEFAULT_TEST_REPOSITORY,
                 vec![
-                    Text::from_text(repository_name, "hello", None, HashMap::new()),
-                    Text::from_text(repository_name, "world", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "world", None, HashMap::new()),
                 ],
                 None,
             )

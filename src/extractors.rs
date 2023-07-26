@@ -9,7 +9,8 @@ pub trait Extractor<I, O> {
     async fn extract_and_store(
         &self,
         content: I,
-        extractor_name: &str,
+        index_name: &str,
+        repository: &str,
     ) -> Result<(), anyhow::Error>;
 }
 
@@ -28,11 +29,12 @@ impl Extractor<ContentModel, Vec<f32>> for EmbeddingExtractor {
     async fn extract_and_store(
         &self,
         content: ContentModel,
-        extractor_name: &str,
+        index_name: &str,
+        repository: &str,
     ) -> Result<(), anyhow::Error> {
         let index = self
             .index_manager
-            .load(extractor_name)
+            .load(repository, index_name)
             .await
             .map_err(|e| anyhow!("unable to load index: {}", e.to_string()))?;
         index

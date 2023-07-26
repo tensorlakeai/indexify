@@ -27,6 +27,7 @@ pub enum IndexDistance {
 #[derive(Clone)]
 pub struct CreateIndexParams {
     pub name: String,
+    pub vectordb_index_name: String,
     pub vector_dim: u64,
     pub distance: IndexDistance,
     pub unique_params: Option<Vec<String>>,

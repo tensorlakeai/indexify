@@ -129,6 +129,7 @@ impl From<Extractor> for persistence::ExtractorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
     pub name: String,
+    pub index_name: Option<String>,
     pub filter: ExtractorFilter,
     pub text_splitter: Option<TextSplitterKind>,
 }
@@ -137,6 +138,7 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
     fn from(value: persistence::ExtractorBinding) -> Self {
         Self {
             name: value.name,
+            index_name: Some(value.index_name),
             filter: value.filter.into(),
             text_splitter: Some(value.text_splitter.into()),
         }
@@ -146,7 +148,8 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
 impl From<ExtractorBinding> for persistence::ExtractorBinding {
     fn from(val: ExtractorBinding) -> Self {
         persistence::ExtractorBinding {
-            name: val.name,
+            name: val.name.clone(),
+            index_name: val.index_name.unwrap_or(val.name.clone()),
             filter: val.filter.into(),
             text_splitter: val.text_splitter.unwrap_or_default().into(),
         }
@@ -386,6 +389,7 @@ pub struct IndexAdditionResponse {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SearchRequest {
+    pub repository: String,
     pub index: String,
     pub query: String,
     pub k: Option<u64>,

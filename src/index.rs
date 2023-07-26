@@ -75,6 +75,7 @@ impl IndexManager {
 
     pub async fn create_index(
         &self,
+        extractor_name: &str,
         index_args: CreateIndexArgs,
         repository_name: &str,
         embedding_model: String,
@@ -84,8 +85,10 @@ impl IndexManager {
         // This is to ensure the user is not requesting to create an index
         // with a text splitter that is not supported
         let _ = text_splitters::get_splitter(text_splitter.clone(), model.clone())?;
-        let vectordb_params = CreateIndexParams {
+        let vectordb_index_name = format!("{}_{}", repository_name, index_args.name);
+        let index_params = CreateIndexParams {
             name: index_args.name,
+            vectordb_index_name,
             vector_dim: model.dimensions(),
             distance: index_args.distance,
             unique_params: None,
@@ -93,8 +96,9 @@ impl IndexManager {
 
         self.repository
             .create_index(
+                extractor_name,
                 embedding_model,
-                vectordb_params,
+                index_params,
                 self.vectordb.clone(),
                 text_splitter.to_string(),
                 repository_name,
@@ -103,7 +107,8 @@ impl IndexManager {
         Ok(())
     }
 
-    pub async fn load(&self, index_name: &str) -> Result<Index, IndexError> {
+    pub async fn load(&self, repository_id: &str, index_name: &str) -> Result<Index, IndexError> {
+        let vectordb_index = format!("{}_{}", repository_id, index_name);
         let index_entity = self.repository.get_index(index_name).await?;
         let model = self
             .embedding_router
@@ -114,6 +119,7 @@ impl IndexManager {
 
         Index::new(
             index_name.into(),
+            &vectordb_index,
             self.vectordb.clone(),
             self.repository.clone(),
             text_splitter,
@@ -124,6 +130,7 @@ impl IndexManager {
 }
 pub struct Index {
     name: String,
+    vectordb_index_name: String,
     vectordb: VectorDBTS,
     repository: Arc<Repository>,
     text_splitter: TextSplitterTS,
@@ -133,6 +140,7 @@ pub struct Index {
 impl Index {
     pub async fn new(
         name: String,
+        vectordb_index_name: &str,
         vectordb: VectorDBTS,
         repository: Arc<Repository>,
         text_splitter: TextSplitterTS,
@@ -140,6 +148,7 @@ impl Index {
     ) -> Result<Index, IndexError> {
         Ok(Self {
             name,
+            vectordb_index_name: vectordb_index_name.into(),
             vectordb,
             repository,
             text_splitter,
@@ -165,7 +174,7 @@ impl Index {
             vector_chunks.push(vector_chunk);
         }
         self.vectordb
-            .add_embedding(&self.name, vector_chunks)
+            .add_embedding(&self.vectordb_index_name, vector_chunks)
             .await?;
         self.repository
             .create_chunks(&content.id, chunks, &self.name)
@@ -184,7 +193,7 @@ impl Index {
             .to_owned();
         let results = self
             .vectordb
-            .search(self.name.clone(), query_embedding, k)
+            .search(self.vectordb_index_name.clone(), query_embedding, k)
             .await?;
         let mut index_search_results = Vec::new();
         for result in results {
@@ -211,32 +220,44 @@ mod tests {
     use std::env;
 
     use crate::data_repository_manager::DataRepositoryManager;
-    use crate::persistence::{DataRepository, Text};
+    use crate::persistence::{self, DataRepository, ExtractorBinding, Text};
     use crate::test_util;
-    use crate::test_util::db_utils::create_index_manager;
+    use crate::test_util::db_utils::{
+        create_index_manager, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
+    };
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_index_search_basic() {
         env::set_var("RUST_LOG", "debug");
-        let index_name = "default/default";
         let db = test_util::db_utils::create_db().await.unwrap();
         let (index_manager, extractor_executor, coordinator) =
-            create_index_manager(db.clone(), index_name).await;
+            create_index_manager(db.clone()).await;
         let repository_manager =
             DataRepositoryManager::new_with_db(db.clone(), index_manager.clone());
-        repository_manager
-            .sync(&DataRepository::default())
-            .await
-            .unwrap();
-        let repository = "default";
+        let _ = repository_manager
+            .sync(&DataRepository {
+                name: DEFAULT_TEST_REPOSITORY.into(),
+                data_connectors: vec![],
+                metadata: HashMap::new(),
+                extractor_bindings: vec![ExtractorBinding {
+                    name: DEFAULT_TEST_EXTRACTOR.into(),
+                    index_name: DEFAULT_TEST_EXTRACTOR.into(),
+                    text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
+                    filter: persistence::ExtractorFilter::ContentType {
+                        content_type: persistence::ContentType::Text,
+                    },
+                }],
+            })
+            .await;
+
         repository_manager
             .add_texts(
-                repository,
+                DEFAULT_TEST_REPOSITORY,
                 vec![
-                    Text::from_text(repository, "hello world", None, HashMap::new()),
-                    Text::from_text(repository, "hello pipe", None, HashMap::new()),
-                    Text::from_text(repository, "nba", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello world", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello pipe", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "nba", None, HashMap::new()),
                 ],
                 None,
             )
@@ -244,9 +265,9 @@ mod tests {
             .unwrap();
         repository_manager
             .add_texts(
-                repository,
+                DEFAULT_TEST_REPOSITORY,
                 vec![Text::from_text(
-                    repository,
+                    DEFAULT_TEST_REPOSITORY,
                     "hello world",
                     None,
                     HashMap::new(),
@@ -261,7 +282,10 @@ mod tests {
         let work_list = coordinator.get_work_for_worker(&executor_id).await.unwrap();
 
         extractor_executor.sync_repo_test(work_list).await.unwrap();
-        let index = index_manager.load("default/default").await.unwrap();
+        let index = index_manager
+            .load(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR)
+            .await
+            .unwrap();
         let result = index.search("pipe", 1).await.unwrap();
         assert_eq!(1, result.len())
     }

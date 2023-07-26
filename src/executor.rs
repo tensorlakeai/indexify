@@ -167,13 +167,12 @@ impl ExtractorExecutor {
                 .await
                 .map_err(|e| anyhow!(e.to_string()))?;
             if let ExtractorType::Embedding { .. } = extractor.extractor_type {
-                let index_name: String = format!("{}/{}", work.repository_id, extractor.name);
                 info!(
-                    "extracting embedding - extractor: {}, index: {}, content id: {}",
-                    &extractor.name, &index_name, &content.id
+                    "extracting embedding - repository: {}, extractor: {}, index: {}, content id: {}",
+                    &work.repository_id, &extractor.name, &work.index_name, &content.id
                 );
                 self.embedding_extractor
-                    .extract_and_store(content, &index_name)
+                    .extract_and_store(content, &work.index_name, &work.repository_id)
                     .await?;
                 self.work_store
                     .update_work_state(&work.id, WorkState::Completed);

@@ -15,7 +15,7 @@ use tracing::info;
 use utils::{get_messages_from_texts, get_texts_from_messages};
 
 use crate::{
-    data_repository_manager::{DataRepositoryError, DataRepositoryManager},
+    data_repository_manager::{DataRepositoryError, DataRepositoryManager, DEFAULT_EXTRACTOR_NAME},
     persistence::ExtractorBinding,
 };
 
@@ -60,13 +60,6 @@ impl Message {
     }
 }
 
-/// A struct that represents a manager for storing and retrieving from memory.
-///
-/// This struct provides methods for creating, storing, retrieving, and searching from memory sessions.
-/// It persists the relationship between session ids and their corresponding indexes and persistent storage
-/// implementations.
-/// Each memory session will have a corresponding row in the memory_sessions table and index.
-/// Each message has a corresponding point in vector DB and row in content table.
 pub struct MemoryManager {
     repository: Arc<DataRepositoryManager>,
 }
@@ -91,7 +84,14 @@ impl MemoryManager {
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
 
         let mut repo = self.repository.get(repository_id).await?;
-        let extractor_binding = extractor.unwrap_or_default();
+        let extractor_binding = extractor.unwrap_or(ExtractorBinding {
+            name: DEFAULT_EXTRACTOR_NAME.to_string(),
+            index_name: session_id.clone(),
+            filter: crate::persistence::ExtractorFilter::MemorySession {
+                session_id: session_id.clone(),
+            },
+            text_splitter: crate::text_splitters::TextSplitterKind::Noop,
+        });
         repo.extractor_bindings.push(extractor_binding);
         self.repository.sync(&repo).await?;
         Ok(session_id.to_string())
@@ -134,7 +134,7 @@ impl MemoryManager {
     ) -> Result<Vec<Message>, MemoryError> {
         let search_results = self
             .repository
-            .search_memory_session(repository, session_id, query, k)
+            .search(repository, session_id, query, k)
             .await?;
         let messages = get_messages_from_texts(search_results);
         Ok(messages)
@@ -143,8 +143,11 @@ impl MemoryManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::persistence::DataRepository;
+
     use crate::test_util;
+    use crate::test_util::db_utils::{
+        DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
+    };
 
     use super::*;
 
@@ -157,15 +160,15 @@ mod tests {
     async fn test_basic_search() {
         env::set_var("RUST_LOG", "debug");
         let session_id = &nanoid::nanoid!();
-        let repo = "default";
-        let index_name = "default/default";
         let db = test_util::db_utils::create_db().await.unwrap();
         let (index_manager, extractor_executor, coordinator) =
-            test_util::db_utils::create_index_manager(db.clone(), index_name).await;
-        let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
+            test_util::db_utils::create_index_manager(db.clone()).await;
+        let repository_manager =
+            DataRepositoryManager::new_with_db(db.clone(), index_manager.clone());
         info!("creating repository");
+
         repository_manager
-            .sync(&DataRepository::default())
+            .sync(&test_util::db_utils::default_test_data_repository())
             .await
             .unwrap();
 
@@ -175,7 +178,19 @@ mod tests {
 
         info!("creating session");
         memory_manager
-            .create_session(repo, Some(session_id.into()), None, HashMap::new())
+            .create_session(
+                DEFAULT_TEST_REPOSITORY,
+                Some(session_id.into()),
+                Some(ExtractorBinding {
+                    name: DEFAULT_TEST_EXTRACTOR.to_string(),
+                    index_name: session_id.to_string(),
+                    filter: crate::persistence::ExtractorFilter::MemorySession {
+                        session_id: session_id.into(),
+                    },
+                    text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
+                }),
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -187,12 +202,12 @@ mod tests {
 
         info!("adding messages to session");
         memory_manager
-            .add_messages(repo, session_id, messages.clone())
+            .add_messages(DEFAULT_TEST_REPOSITORY, session_id, messages.clone())
             .await
             .unwrap();
 
         let retrieve_result = memory_manager
-            .retrieve_messages(repo, session_id.into())
+            .retrieve_messages(DEFAULT_TEST_REPOSITORY, session_id.into())
             .await
             .unwrap();
         assert_eq!(retrieve_result.len(), 3);
@@ -205,7 +220,7 @@ mod tests {
         extractor_executor.sync_repo_test(work_list).await.unwrap();
 
         let search_results = memory_manager
-            .search(repo, session_id, "hello", 2)
+            .search(DEFAULT_TEST_REPOSITORY, session_id, "hello", 2)
             .await
             .unwrap();
         assert_eq!(search_results.len(), 2);

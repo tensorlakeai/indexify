@@ -5,6 +5,7 @@ use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
+pub const DEFAULT_INDEX_NAME: &str = "default_index";
 
 use crate::{
     index::{CreateIndexArgs, IndexError, IndexManager},
@@ -64,12 +65,11 @@ impl DataRepositoryManager {
         let default_extractor = ExtractorConfig {
             name: DEFAULT_EXTRACTOR_NAME.into(),
             extractor_type: ExtractorType::Embedding {
-                model: server_config.default_model().model_kind.to_string().clone(),
+                model: server_config.default_model().model_kind.to_string(),
                 distance: IndexDistance::Cosine,
             },
         };
-        let _ = self
-            .repository
+        self.repository
             .record_extractors(vec![default_extractor])
             .await?;
         let resp = self
@@ -82,6 +82,7 @@ impl DataRepositoryManager {
                 name: DEFAULT_REPOSITORY_NAME.into(),
                 extractor_bindings: vec![ExtractorBinding {
                     name: DEFAULT_EXTRACTOR_NAME.into(),
+                    index_name: DEFAULT_INDEX_NAME.into(),
                     filter: ExtractorFilter::ContentType {
                         content_type: ContentType::Text,
                     },
@@ -114,11 +115,11 @@ impl DataRepositoryManager {
                 .extractor_by_name(&extractor_binding.name)
                 .await?;
             if let ExtractorType::Embedding { model, distance } = extractor.extractor_type.clone() {
-                let index_name = format!("{}/{}", repository.name, extractor.name);
                 self.index_manager
                     .create_index(
+                        &extractor_binding.name,
                         CreateIndexArgs {
-                            name: index_name,
+                            name: extractor_binding.index_name.clone(),
                             distance,
                         },
                         &repository.name,
@@ -200,26 +201,16 @@ impl DataRepositoryManager {
 
     pub async fn search(
         &self,
+        repository: &str,
         index_name: &str,
         query: &str,
         k: u64,
     ) -> Result<Vec<Text>, DataRepositoryError> {
-        let index = self.index_manager.load(index_name).await?;
+        let index = self.index_manager.load(repository, index_name).await?;
         index
             .search(query, k)
             .await
             .map_err(DataRepositoryError::RetrievalError)
-    }
-
-    pub async fn search_memory_session(
-        &self,
-        repository: &str,
-        session_id: &str,
-        query: &str,
-        k: u64,
-    ) -> Result<Vec<Text>, DataRepositoryError> {
-        let index = format!("{}/{}", repository, session_id);
-        self.search(&index, query, k).await
     }
 }
 
@@ -227,12 +218,11 @@ impl DataRepositoryManager {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::persistence::{
-        ContentType, DataConnector, ExtractorConfig, ExtractorType, SourceType,
-    };
+    use crate::persistence::{ContentType, DataConnector, SourceType};
     use crate::test_util;
+    use crate::test_util::db_utils::DEFAULT_TEST_EXTRACTOR;
     use crate::text_splitters::TextSplitterKind;
-    use crate::vectordbs::IndexDistance;
+
     use serde_json::json;
 
     use super::*;
@@ -241,24 +231,19 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_sync_repository() {
         let db = test_util::db_utils::create_db().await.unwrap();
-        let index_name = "hello";
-        let (index_manager, _, _) =
-            test_util::db_utils::create_index_manager(db.clone(), "test/hello").await;
+        let (index_manager, _, _) = test_util::db_utils::create_index_manager(db.clone()).await;
         let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
         let mut meta = HashMap::new();
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
             name: "test".to_string(),
-            extractor_bindings: vec![ExtractorConfig {
-                name: index_name.into(),
+            extractor_bindings: vec![ExtractorBinding {
+                name: DEFAULT_TEST_EXTRACTOR.to_string(),
+                index_name: DEFAULT_EXTRACTOR_NAME.to_string(),
                 filter: ExtractorFilter::ContentType {
                     content_type: ContentType::Text,
                 },
-                extractor_type: ExtractorType::Embedding {
-                    model: "all-minilm-l12-v2".into(),
-                    text_splitter: TextSplitterKind::Noop,
-                    distance: IndexDistance::Cosine,
-                },
+                text_splitter: TextSplitterKind::Noop,
             }],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {

@@ -1,6 +1,6 @@
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
 use crate::index::IndexManager;
-use crate::persistence::{DataRepository, ExtractorConfig, Repository};
+use crate::persistence::{DataRepository, Repository};
 use crate::{api::*, persistence, CreateWork, CreateWorkResponse};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
@@ -84,7 +84,7 @@ impl Server {
         let coordinator_addr: SocketAddr = self.config.coordinator_addr.parse()?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            coordinator_addr: coordinator_addr.clone(),
+            coordinator_addr,
         };
         let memory_manager = Arc::new(MemoryManager::new(repository_manager.clone()).await?);
         let index_state = IndexEndpointState {
@@ -92,7 +92,7 @@ impl Server {
         };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
-            coordinator_addr: coordinator_addr.clone(),
+            coordinator_addr,
         };
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -325,7 +325,7 @@ async fn run_extractors(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<RunExtractors>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    let _resp = _run_extractors(&payload.repository, &state.coordinator_addr.to_string())
+    _run_extractors(&payload.repository, &state.coordinator_addr.to_string())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RunExtractorsResponse {}))
@@ -431,7 +431,7 @@ async fn index_search(
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
     let index = state
         .index_manager
-        .load(&query.index)
+        .load(&query.repository, &query.index)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let results = index
