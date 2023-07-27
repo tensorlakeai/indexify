@@ -145,7 +145,9 @@ impl MemoryManager {
 mod tests {
 
     use crate::test_util;
-    use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};
+    use crate::test_util::db_utils::{
+        DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
+    };
 
     use super::*;
 
