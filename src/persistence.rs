@@ -132,6 +132,7 @@ pub enum ExtractorFilter {
 #[serde(rename = "extractor")]
 pub struct ExtractorConfig {
     pub name: String,
+    pub description: String,
     pub extractor_type: ExtractorType,
 }
 
@@ -139,6 +140,7 @@ impl Default for ExtractorConfig {
     fn default() -> Self {
         Self {
             name: "default-embedder".to_string(),
+            description: "Default Text Embedding Extractor".into(),
             extractor_type: ExtractorType::Embedding {
                 model: "all-minilm-l12-v2".to_string(),
                 distance: IndexDistance::Cosine,
@@ -152,6 +154,7 @@ impl From<extractors::Model> for ExtractorConfig {
         let extractor_type = serde_json::from_value(model.extractor_type).unwrap();
         Self {
             name: model.id,
+            description: model.description,
             extractor_type,
         }
     }
@@ -785,6 +788,7 @@ impl Repository {
             .ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
         Ok(ExtractorConfig {
             name: extractor_model.id,
+            description: extractor_model.description,
             extractor_type: serde_json::from_value(extractor_model.extractor_type).unwrap(),
         })
     }
@@ -797,6 +801,7 @@ impl Repository {
         for extractor in extractors {
             extractor_models.push(entity::extractors::ActiveModel {
                 id: Set(extractor.name),
+                description: Set(extractor.description),
                 extractor_type: Set(json!(extractor.extractor_type)),
                 config: NotSet,
             });
@@ -816,6 +821,16 @@ impl Repository {
         }
 
         Ok(())
+    }
+
+    pub async fn list_extractors(&self) -> Result<Vec<ExtractorConfig>, RepositoryError> {
+        let extractor_models: Vec<ExtractorConfig> = extractors::Entity::find()
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|r| r.into())
+            .collect();
+        Ok(extractor_models)
     }
 
     pub async fn get_extractor(
@@ -911,6 +926,7 @@ mod tests {
                 model: "model1".into(),
                 distance: IndexDistance::Cosine,
             },
+            ..Default::default()
         };
         let extractor_binding1 = ExtractorBinding {
             name: "extractor1".into(),
@@ -926,6 +942,7 @@ mod tests {
                 model: "model2".into(),
                 distance: IndexDistance::Cosine,
             },
+            ..Default::default()
         };
         let extractor_binding2 = ExtractorBinding {
             name: "extractor2".into(),

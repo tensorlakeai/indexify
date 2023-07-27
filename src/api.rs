@@ -98,6 +98,7 @@ impl From<ExtractorFilter> for persistence::ExtractorFilter {
 #[serde(rename = "extractor")]
 pub struct Extractor {
     pub name: String,
+    pub description: String,
     pub extractor_type: ExtractorType,
 }
 
@@ -105,6 +106,7 @@ impl From<persistence::ExtractorConfig> for Extractor {
     fn from(value: persistence::ExtractorConfig) -> Self {
         Self {
             name: value.name,
+            description: value.description,
             extractor_type: value.extractor_type.into(),
         }
     }
@@ -114,6 +116,7 @@ impl From<Extractor> for persistence::ExtractorConfig {
     fn from(val: Extractor) -> Self {
         persistence::ExtractorConfig {
             name: val.name,
+            description: val.description,
             extractor_type: match val.extractor_type {
                 ExtractorType::Embedding { model, distance } => {
                     persistence::ExtractorType::Embedding {

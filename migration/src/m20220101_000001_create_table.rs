@@ -177,6 +177,7 @@ impl MigrationTrait for Migration {
                             .json_binary()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(Extractors::Description).string().not_null())
                     .col(ColumnDef::new(Extractors::Config).json_binary())
                     .to_owned(),
             )
@@ -320,6 +321,7 @@ enum ExtractedData {
 enum Extractors {
     Table,
     Id,
+    Description,
     ExtractorType,
     Config,
 }

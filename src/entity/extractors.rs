@@ -10,6 +10,7 @@ pub struct Model {
     pub id: String,
     #[sea_orm(column_type = "JsonBinary")]
     pub extractor_type: Json,
+    pub description: String,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub config: Option<Json>,
 }

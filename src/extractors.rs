@@ -12,6 +12,8 @@ pub trait Extractor<I, O> {
         index_name: &str,
         repository: &str,
     ) -> Result<(), anyhow::Error>;
+
+    fn description(&self) -> String;
 }
 
 pub struct EmbeddingExtractor {
@@ -42,5 +44,9 @@ impl Extractor<ContentModel, Vec<f32>> for EmbeddingExtractor {
             .await
             .map_err(|e| anyhow!("unable to add to index: {}", e.to_string()))?;
         Ok(())
+    }
+
+    fn description(&self) -> String {
+        "Extractor to extract embeddings from content".to_string()
     }
 }

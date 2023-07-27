@@ -64,6 +64,7 @@ impl DataRepositoryManager {
     ) -> Result<(), DataRepositoryError> {
         let default_extractor = ExtractorConfig {
             name: DEFAULT_EXTRACTOR_NAME.into(),
+            description: "default text embedding extractor".into(),
             extractor_type: ExtractorType::Embedding {
                 model: server_config.default_model().model_kind.to_string(),
                 distance: IndexDistance::Cosine,

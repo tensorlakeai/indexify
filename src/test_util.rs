@@ -76,6 +76,7 @@ pub mod db_utils {
                     .to_string(),
                 distance: IndexDistance::Cosine,
             },
+            ..Default::default()
         };
         coordinator
             .record_extractors(vec![default_extractor])

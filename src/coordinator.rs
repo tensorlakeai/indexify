@@ -40,6 +40,11 @@ struct ListExecutors {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
+struct ListExtractors {
+    pub extractors: Vec<ExtractorConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct SyncWorkerResponse {
     pub content_to_process: Vec<Work>,
 }
@@ -279,6 +284,10 @@ impl CoordinatorServer {
                 get(list_executors).with_state(self.coordinator.clone()),
             )
             .route(
+                "/extractors",
+                get(list_extractors).with_state(self.coordinator.clone()),
+            )
+            .route(
                 "/create_work",
                 post(create_work).with_state(self.coordinator.clone()),
             );
@@ -359,6 +368,16 @@ async fn create_work(
         error!("unable to send create work request: {}", err.to_string());
     }
     Ok(Json(CreateWorkResponse {}))
+}
+
+#[axum_macros::debug_handler]
+async fn list_extractors(State(node_state): State<Arc<Coordinator>>) -> Json<ListExtractors> {
+    let extractors = node_state
+        .repository
+        .list_extractors()
+        .await
+        .unwrap_or_default();
+    Json(ListExtractors { extractors })
 }
 
 async fn shutdown_signal() {
