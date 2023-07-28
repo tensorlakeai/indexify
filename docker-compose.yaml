@@ -18,7 +18,7 @@ services:
       - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
     environment:
       - OPENAI_API_KEY
-      - DATABASE_URL=postgres://postgres:postgres@172.20.0.5/indexify
+      - DATABASE_URL=postgres://postgres:postgres@host.docker.internal/indexify
     depends_on:
       - qdrant
       - postgres

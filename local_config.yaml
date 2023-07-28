@@ -16,7 +16,7 @@ openai:
   api_key: xxxxx
 
 # Database URL for storing document and memory
-db_url: postgres://postgres:postgres@localhost/indexify
+db_url: postgres://postgres:postgres@host.docker.internal/indexify
 
 coordinator_addr: 0.0.0.0:8950
 
