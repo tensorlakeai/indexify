@@ -6,4 +6,4 @@ Adding documents and retreiving information from them is done through the data r
 
 ## API Docs UI
 Indexify uses Swagger to expose an interactive UI to play with the HTTP APIs, it could be a good way to experiment with the API.
-The UI is avialable at `https://localhost:8900/api-docs-ui/`
+The UI is avialable at `http://localhost:8900/api-docs-ui/`
