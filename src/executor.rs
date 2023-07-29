@@ -1,9 +1,11 @@
 use crate::{
     api::IndexifyAPIError,
+    data_repository_manager::DEFAULT_EXTRACTOR_NAME,
     extractors::{EmbeddingExtractor, Extractor},
     index::IndexManager,
-    persistence::{ExtractorType, Repository},
+    persistence::{ExtractorConfig, ExtractorType, Repository},
     persistence::{Work, WorkState},
+    vectordbs::IndexDistance,
     EmbeddingRouter, ExecutorInfo, ServerConfig, SyncWorker, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
@@ -115,7 +117,14 @@ impl ExtractorExecutor {
             .collect();
         let sync_executor_req = SyncWorker {
             worker_id: self.executor_id.clone(),
-            available_extractors: vec![],
+            available_extractors: vec![ExtractorConfig {
+                name: DEFAULT_EXTRACTOR_NAME.into(),
+                description: "default text embedding extractor".into(),
+                extractor_type: ExtractorType::Embedding {
+                    model: self.config.default_model().model_kind.to_string(),
+                    distance: IndexDistance::Cosine,
+                },
+            }],
             work_status: work_status.clone(),
         };
         let resp = reqwest::Client::new()
