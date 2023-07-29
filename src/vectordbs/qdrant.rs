@@ -198,7 +198,6 @@ mod tests {
         qdrant.drop_index("hello-index".into()).await.unwrap();
         qdrant
             .create_index(CreateIndexParams {
-                name: "hello-index".into(),
                 vectordb_index_name: "hello-index".into(),
                 vector_dim: 2,
                 distance: IndexDistance::Cosine,
@@ -234,7 +233,6 @@ mod tests {
         qdrant.drop_index(index_name.into()).await.unwrap();
         qdrant
             .create_index(CreateIndexParams {
-                name: index_name.into(),
                 vectordb_index_name: index_name.into(),
                 vector_dim: 2,
                 distance: IndexDistance::Cosine,

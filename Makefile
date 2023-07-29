@@ -30,8 +30,8 @@ local-dev:
 	cargo install sea-orm-cli
 	DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexify
 	sea-orm-cli migrate up
-	docker stop indexixify-local-qdrant || true
-	docker run --rm -p 6334:6334 --name=indexixify-local-qdrant -d -e QDRANT__SERVICE__GRPC_PORT="6334"  qdrant/qdrant:v1.1.1
+	docker stop indexify-local-qdrant || true
+	docker run --rm -p 6334:6334 -p 6333:6333 --name=indexify-local-qdrant -d -e QDRANT__SERVICE__GRPC_PORT="6334"  qdrant/qdrant:v1.1.1
 
 test:
 	run_tests.sh

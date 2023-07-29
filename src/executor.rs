@@ -1,15 +1,15 @@
 use crate::{
     api::IndexifyAPIError,
-    data_repository_manager::DEFAULT_EXTRACTOR_NAME,
-    extractors::{EmbeddingExtractor, Extractor},
-    index::IndexManager,
+    attribute_index::AttributeIndexManager,
+    extractors::{self, ExtractorTS},
+    persistence::{ExtractedAttributes, Work, WorkState},
     persistence::{ExtractorConfig, ExtractorType, Repository},
-    persistence::{Work, WorkState},
-    vectordbs::IndexDistance,
-    EmbeddingRouter, ExecutorInfo, ServerConfig, SyncWorker, SyncWorkerResponse,
+    vector_index::VectorIndexManager,
+    vectordbs, ExecutorInfo, ServerConfig, SyncWorker, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get, routing::post, Router};
+use dashmap::DashMap;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -53,29 +53,44 @@ impl WorkStore {
 
 pub struct ExtractorExecutor {
     repository: Arc<Repository>,
-    embedding_extractor: Arc<EmbeddingExtractor>,
     config: Arc<ServerConfig>,
     executor_id: String,
+    extractors: DashMap<String, ExtractorTS>,
+    extractor_info_list: Vec<ExtractorConfig>,
+    vector_index_manager: Arc<VectorIndexManager>,
+    attribute_index_manager: Arc<AttributeIndexManager>,
 
     work_store: WorkStore,
 }
 
 impl ExtractorExecutor {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self> {
-        let embedding_router = Arc::new(EmbeddingRouter::new(config.clone())?);
         let repository = Arc::new(Repository::new(&config.db_url).await?);
-        let index_manager = Arc::new(IndexManager::new(
-            repository.clone(),
-            config.index_config.clone(),
-            embedding_router.clone(),
-        )?);
-        let embedding_extractor = Arc::new(EmbeddingExtractor::new(index_manager));
         let executor_id = get_host_name(config.clone())?;
+        let vector_db = vectordbs::create_vectordb(config.index_config.clone())?;
+        let vector_index_manager = Arc::new(VectorIndexManager::new(
+            config.clone(),
+            repository.clone(),
+            vector_db,
+        ));
+        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
+
+        let available_extractors: DashMap<String, ExtractorTS> = DashMap::new();
+        let mut extractor_info_list: Vec<ExtractorConfig> = vec![];
+        for extractor_config in &config.extractors {
+            let extractor = extractors::create_extractor(extractor_config.clone())?;
+            let extractor_name = extractor.info()?.name.clone();
+            extractor_info_list.push(extractor.info()?);
+            available_extractors.insert(extractor_name, extractor);
+        }
         let extractor_executor = Self {
             repository,
-            embedding_extractor,
             config,
             executor_id,
+            extractors: available_extractors,
+            extractor_info_list,
+            vector_index_manager,
+            attribute_index_manager,
             work_store: WorkStore::new(),
         };
         Ok(extractor_executor)
@@ -83,17 +98,29 @@ impl ExtractorExecutor {
 
     pub fn new_test(
         repository: Arc<Repository>,
-        index_manager: Arc<IndexManager>,
         config: Arc<ServerConfig>,
-    ) -> Self {
+        vector_index_manager: Arc<VectorIndexManager>,
+        attribute_index_manager: Arc<AttributeIndexManager>,
+    ) -> Result<Self> {
+        let available_extractors: DashMap<String, ExtractorTS> = DashMap::new();
+        let mut extractor_info_list: Vec<ExtractorConfig> = vec![];
+        for extractor_config in &config.extractors {
+            let extractor = extractors::create_extractor(extractor_config.clone())?;
+            let extractor_name = extractor.info()?.name.clone();
+            extractor_info_list.push(extractor.info()?);
+            available_extractors.insert(extractor_name, extractor);
+        }
         let executor_id = get_host_name(config.clone()).unwrap();
-        Self {
+        Ok(Self {
             repository,
-            embedding_extractor: Arc::new(EmbeddingExtractor::new(index_manager)),
             config,
             executor_id,
+            extractors: available_extractors,
+            extractor_info_list,
+            vector_index_manager,
+            attribute_index_manager,
             work_store: WorkStore::new(),
-        }
+        })
     }
 
     pub fn get_executor_info(&self) -> ExecutorInfo {
@@ -117,17 +144,10 @@ impl ExtractorExecutor {
             .collect();
         let sync_executor_req = SyncWorker {
             worker_id: self.executor_id.clone(),
-            available_extractors: vec![ExtractorConfig {
-                name: DEFAULT_EXTRACTOR_NAME.into(),
-                description: "default text embedding extractor".into(),
-                extractor_type: ExtractorType::Embedding {
-                    model: self.config.default_model().model_kind.to_string(),
-                    distance: IndexDistance::Cosine,
-                },
-            }],
+            available_extractors: self.extractor_info_list.clone(),
             work_status: work_status.clone(),
         };
-        let resp = reqwest::Client::new()
+        let json_resp = reqwest::Client::new()
             .post(&format!(
                 "http://{}/sync_executor",
                 &self.config.coordinator_addr
@@ -135,8 +155,10 @@ impl ExtractorExecutor {
             .json(&sync_executor_req)
             .send()
             .await?
-            .json::<SyncWorkerResponse>()
+            .text()
             .await?;
+
+        let resp: SyncWorkerResponse = serde_json::from_str(&json_resp)?;
 
         self.work_store.remove_finished_work();
 
@@ -168,21 +190,60 @@ impl ExtractorExecutor {
             .cloned()
             .collect();
         for work in work_list {
-            info!("performing work: {}", &work.id);
-            let extractor = self.repository.get_extractor(&work.extractor).await?;
+            info!(
+                "performing work: {}, extractor: {}",
+                &work.id, &work.extractor
+            );
+            let extractor = self
+                .extractors
+                .get(&work.extractor)
+                .unwrap()
+                .value()
+                .clone();
             let content = self
                 .repository
                 .content_from_repo(&work.content_id, &work.repository_id)
                 .await
                 .map_err(|e| anyhow!(e.to_string()))?;
-            if let ExtractorType::Embedding { .. } = extractor.extractor_type {
+
+            if let ExtractorType::Embedding { .. } = extractor.info()?.extractor_type {
                 info!(
                     "extracting embedding - repository: {}, extractor: {}, index: {}, content id: {}",
-                    &work.repository_id, &extractor.name, &work.index_name, &content.id
+                    &work.repository_id, &work.extractor, &work.index_name, &content.id
                 );
-                self.embedding_extractor
-                    .extract_and_store(content, &work.index_name, &work.repository_id)
+                let extracted_embeddings = extractor.extract_embedding(vec![content.clone()])?;
+                self.vector_index_manager
+                    .add_embedding(&work.repository_id, &work.index_name, extracted_embeddings)
                     .await?;
+                self.work_store
+                    .update_work_state(&work.id, WorkState::Completed);
+            }
+
+            if let ExtractorType::Attributes { .. } = extractor.info()?.extractor_type {
+                info!(
+                    "extracting attributes - repository: {}, extractor: {}, index: {}, content id: {}",
+                    &work.repository_id, &work.extractor, &work.index_name, &content.id
+                );
+                let extracted_attributes = extractor
+                    .extract_attributes(vec![content])?
+                    .into_iter()
+                    .map(|d| {
+                        ExtractedAttributes::new(
+                            &d.content_id,
+                            d.json.unwrap_or_default(),
+                            &work.extractor,
+                        )
+                    })
+                    .collect::<Vec<ExtractedAttributes>>();
+                for extracted_attribute in &extracted_attributes {
+                    self.attribute_index_manager
+                        .add_index(
+                            &work.repository_id,
+                            &work.index_name,
+                            extracted_attribute.clone(),
+                        )
+                        .await?;
+                }
                 self.work_store
                     .update_work_state(&work.id, WorkState::Completed);
             }

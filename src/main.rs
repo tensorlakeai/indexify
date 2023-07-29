@@ -58,7 +58,7 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify server....");
             info!("version: {}", version);
 
-            let config = indexify::ServerConfig::from_path(config_path)?;
+            let config = indexify::ServerConfig::from_path(&config_path)?;
             let server = indexify::Server::new(Arc::new(config.clone()))?;
             let server_handle = tokio::spawn(async move {
                 server.run().await.unwrap();
@@ -86,7 +86,7 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify coordinator....");
             info!("version: {}", version);
 
-            let config = ServerConfig::from_path(config_path)?;
+            let config = ServerConfig::from_path(&config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify executor....");
             info!("version: {}", version);
 
-            let config = ServerConfig::from_path(config_path)?;
+            let config = ServerConfig::from_path(&config_path)?;
             let executor_server = ExecutorServer::new(Arc::new(config)).await?;
             executor_server.run().await?
         }

@@ -37,7 +37,7 @@ class AMemory:
                 for raw_message in payload["messages"]:
                     messages.append(Message(raw_message["role"], raw_message["text"], raw_message["metadata"]))
                 return messages
-
+            
 
 class Memory(AMemory):
     def __init__(self, url, repository="default"):

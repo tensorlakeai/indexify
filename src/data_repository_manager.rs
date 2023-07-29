@@ -5,16 +5,13 @@ use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
-pub const DEFAULT_INDEX_NAME: &str = "default_index";
 
 use crate::{
-    index::{CreateIndexArgs, IndexError, IndexManager},
+    index::IndexError,
     persistence::{
-        ContentType, DataRepository, ExtractorBinding, ExtractorConfig, ExtractorFilter,
-        ExtractorType, Repository, RepositoryError, Text,
+        DataRepository, ExtractorBinding, ExtractorType, Repository, RepositoryError, Text,
     },
-    text_splitters::TextSplitterKind,
-    vectordbs::IndexDistance,
+    vector_index::VectorIndexManager,
     ServerConfig,
 };
 
@@ -35,44 +32,33 @@ pub enum DataRepositoryError {
 
 pub struct DataRepositoryManager {
     repository: Arc<Repository>,
-    index_manager: Arc<IndexManager>,
+    vector_index_manager: Arc<VectorIndexManager>,
 }
 
 impl DataRepositoryManager {
     pub async fn new(
         repository: Arc<Repository>,
-        index_manager: Arc<IndexManager>,
+        vector_index_manager: Arc<VectorIndexManager>,
     ) -> Result<Self, RepositoryError> {
         Ok(Self {
             repository,
-            index_manager,
+            vector_index_manager,
         })
     }
 
     #[allow(dead_code)]
-    pub fn new_with_db(db: DbConn, index_manager: Arc<IndexManager>) -> Self {
+    pub fn new_with_db(db: DbConn, vector_index_manager: Arc<VectorIndexManager>) -> Self {
         let repository = Arc::new(Repository::new_with_db(db));
         Self {
             repository,
-            index_manager,
+            vector_index_manager,
         }
     }
 
     pub async fn create_default_repository(
         &self,
-        server_config: &ServerConfig,
+        _server_config: &ServerConfig,
     ) -> Result<(), DataRepositoryError> {
-        let default_extractor = ExtractorConfig {
-            name: DEFAULT_EXTRACTOR_NAME.into(),
-            description: "default text embedding extractor".into(),
-            extractor_type: ExtractorType::Embedding {
-                model: server_config.default_model().model_kind.to_string(),
-                distance: IndexDistance::Cosine,
-            },
-        };
-        self.repository
-            .record_extractors(vec![default_extractor])
-            .await?;
         let resp = self
             .repository
             .repository_by_name(DEFAULT_REPOSITORY_NAME)
@@ -81,14 +67,7 @@ impl DataRepositoryManager {
             info!("creating default repository");
             let default_repo = DataRepository {
                 name: DEFAULT_REPOSITORY_NAME.into(),
-                extractor_bindings: vec![ExtractorBinding {
-                    name: DEFAULT_EXTRACTOR_NAME.into(),
-                    index_name: DEFAULT_INDEX_NAME.into(),
-                    filter: ExtractorFilter::ContentType {
-                        content_type: ContentType::Text,
-                    },
-                    text_splitter: TextSplitterKind::Noop,
-                }],
+                extractor_bindings: vec![],
                 data_connectors: vec![],
                 metadata: HashMap::new(),
             };
@@ -113,20 +92,16 @@ impl DataRepositoryManager {
         for extractor_binding in &repository.extractor_bindings {
             let extractor = self
                 .repository
-                .extractor_by_name(&extractor_binding.name)
+                .extractor_by_name(&extractor_binding.extractor_name)
                 .await?;
-            if let ExtractorType::Embedding { model, distance } = extractor.extractor_type.clone() {
-                self.index_manager
-                    .create_index(
-                        &extractor_binding.name,
-                        CreateIndexArgs {
-                            name: extractor_binding.index_name.clone(),
-                            distance,
-                        },
-                        &repository.name,
-                        model,
-                        extractor_binding.text_splitter.clone(),
-                    )
+            if let ExtractorType::Embedding {
+                model: _,
+                dim: _,
+                distance: _,
+            } = extractor.extractor_type.clone()
+            {
+                self.vector_index_manager
+                    .create_index(&repository.name, &extractor_binding.index_name, extractor)
                     .await
                     .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
             }
@@ -152,10 +127,10 @@ impl DataRepositoryManager {
             .await
             .unwrap();
         for ex in &data_repository.extractor_bindings {
-            if extractor.name == ex.name {
+            if extractor.extractor_name == ex.extractor_name {
                 return Err(DataRepositoryError::NotAllowed(format!(
                     "extractor with name `{}` already exists",
-                    extractor.name
+                    extractor.extractor_name
                 )));
             }
         }
@@ -207,9 +182,8 @@ impl DataRepositoryManager {
         query: &str,
         k: u64,
     ) -> Result<Vec<Text>, DataRepositoryError> {
-        let index = self.index_manager.load(repository, index_name).await?;
-        index
-            .search(query, k)
+        self.vector_index_manager
+            .search(repository, index_name, query, k as usize)
             .await
             .map_err(DataRepositoryError::RetrievalError)
     }
@@ -219,10 +193,11 @@ impl DataRepositoryManager {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::persistence::{ContentType, DataConnector, SourceType};
+    use crate::persistence::{
+        ContentType, DataConnector, ExtractorBinding, ExtractorFilter, SourceType,
+    };
     use crate::test_util;
     use crate::test_util::db_utils::DEFAULT_TEST_EXTRACTOR;
-    use crate::text_splitters::TextSplitterKind;
 
     use serde_json::json;
 
@@ -239,12 +214,11 @@ mod tests {
         let repository = DataRepository {
             name: "test".to_string(),
             extractor_bindings: vec![ExtractorBinding {
-                name: DEFAULT_TEST_EXTRACTOR.to_string(),
+                extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
                 index_name: DEFAULT_EXTRACTOR_NAME.to_string(),
                 filter: ExtractorFilter::ContentType {
                     content_type: ContentType::Text,
                 },
-                text_splitter: TextSplitterKind::Noop,
             }],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {

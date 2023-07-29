@@ -175,13 +175,13 @@ impl Coordinator {
             for content in content_list {
                 info!("Creating work for content {}", &content.id);
                 let extractor_params = &ExtractorParams {
-                    text_splitter: Some(extractor_binding.text_splitter.clone()),
+                    params: HashMap::new(),
                 };
                 let work = Work::new(
                     &content.id,
                     repository_id,
                     &extractor_binding.index_name,
-                    &extractor_binding.name,
+                    &extractor_binding.extractor_name,
                     extractor_params,
                     None,
                 );
@@ -427,9 +427,10 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_create_work() -> Result<(), anyhow::Error> {
         let db = test_util::db_utils::create_db().await.unwrap();
-        let (index_manager, extractor_executor, coordinator) =
+        let (vector_index_manager, extractor_executor, coordinator) =
             test_util::db_utils::create_index_manager(db.clone()).await;
-        let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
+        let repository_manager =
+            DataRepositoryManager::new_with_db(db.clone(), vector_index_manager);
 
         // Create a repository
         repository_manager
@@ -438,9 +439,8 @@ mod tests {
                 data_connectors: vec![],
                 metadata: HashMap::new(),
                 extractor_bindings: vec![ExtractorBinding {
-                    name: DEFAULT_TEST_EXTRACTOR.into(),
+                    extractor_name: DEFAULT_TEST_EXTRACTOR.into(),
                     index_name: DEFAULT_TEST_EXTRACTOR.into(),
-                    text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
                     filter: persistence::ExtractorFilter::ContentType {
                         content_type: persistence::ContentType::Text,
                     },

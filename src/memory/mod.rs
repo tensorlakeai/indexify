@@ -85,12 +85,11 @@ impl MemoryManager {
 
         let mut repo = self.repository.get(repository_id).await?;
         let extractor_binding = extractor.unwrap_or(ExtractorBinding {
-            name: DEFAULT_EXTRACTOR_NAME.to_string(),
+            extractor_name: DEFAULT_EXTRACTOR_NAME.to_string(),
             index_name: session_id.clone(),
             filter: crate::persistence::ExtractorFilter::MemorySession {
                 session_id: session_id.clone(),
             },
-            text_splitter: crate::text_splitters::TextSplitterKind::Noop,
         });
         repo.extractor_bindings.push(extractor_binding);
         self.repository.sync(&repo).await?;
@@ -180,12 +179,11 @@ mod tests {
                 DEFAULT_TEST_REPOSITORY,
                 Some(session_id.into()),
                 Some(ExtractorBinding {
-                    name: DEFAULT_TEST_EXTRACTOR.to_string(),
+                    extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
                     index_name: session_id.to_string(),
                     filter: crate::persistence::ExtractorFilter::MemorySession {
                         session_id: session_id.into(),
                     },
-                    text_splitter: crate::text_splitters::TextSplitterKind::NewLine,
                 }),
                 HashMap::new(),
             )
