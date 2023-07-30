@@ -10,20 +10,28 @@ A data repository can be created and updated using the `sync` API call. Extracto
     ```
     curl -X POST http://localhost:8900/repository/sync \
     -H 'Content-Type: application/json' \
-    -d '{
-            "name":"default",
-            "extractors": [{
-                "name": "top-k-index",
-                "extractor_type":{
-                    "embedding":{
-                        "model": "dpr",
-                        "distance": "cosine",
-                        "text_splitter": "new_line"
-                        }
+    -d '
+        {
+          "repositories": [
+            {
+              "name": "default",
+              "extractors": [
+                {
+                  "name": "default_embedder",
+                  "index_name": "myindex",
+                  "filter": {
+                    "content_type": {
+                      "content_type": "text"
                     }
-                }],
-            "metadata": {"my key": 1}
-        }'
+                  },
+                  "text_splitter": "none"
+                },
+              ],
+              "metadata": {}
+            }
+          ]
+        }
+    '
     ```
 
 ## List Repositories
@@ -35,23 +43,35 @@ A data repository can be created and updated using the `sync` API call. Extracto
 #### Output
 ``` json
 {
-    "repositories":[{
-        "name":"default",
-        "extractors":[
-            {
-                "name": "default",
-                "extractor_type" :{
-                    "embedding": {
-                        "model": "all-minilm-l12-v2",
-                        "distance": "cosine",
-                        "text_splitter": "none"
-                        }
-                },
-                "content_type": "Text"}],
-                "metadata":{}
+  "repositories": [
+    {
+      "name": "default",
+      "extractors": [
+        {
+          "name": "default_embedder",
+          "index_name": "default_index",
+          "filter": {
+            "content_type": {
+              "content_type": "text"
             }
-        ]
+          },
+          "text_splitter": "none"
+        },
+        {
+          "name": "default_embedder",
+          "index_name": "QCwzZ-nznuqisQw4b6Tm4",
+          "filter": {
+            "memory_session": {
+              "session_id": "QCwzZ-nznuqisQw4b6Tm4"
+            }
+          },
+          "text_splitter": "none"
+        }
+      ],
+      "metadata": {}
     }
+  ]
+}
 ```
 
 ## Adding Extractors to a Repository
@@ -63,7 +83,7 @@ Adding an extractor is the primary means to create new indexes for a repository.
     -H "Content-Type: application/json" \
     -d '{
         "extractor": {
-            "name": "dpr-index",
+            "repository": "myrepository",
             "extractor_binding": {
                   "name": "default_embedder",
                   "index_name": "myindex",
