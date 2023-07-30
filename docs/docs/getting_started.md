@@ -56,7 +56,8 @@ The default data repository is configured to have an extractor which populates a
     curl -v -X GET http://localhost:8900/index/search \
     -H "Content-Type: application/json" \
     -d '{
-            "index": "default/default",
+            "repository": "default",
+            "index": "default_index",
             "query": "good", 
             "k": 1
         }'

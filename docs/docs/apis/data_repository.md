@@ -53,3 +53,24 @@ A data repository can be created and updated using the `sync` API call. Extracto
         ]
     }
 ```
+
+## Adding Extractors to a Repository
+Adding an extractor is the primary means to create new indexes for a repository. This can be achieved by adding a new extractor to the repository spec, and syncing it back with Indexify. There is also a convenience api to add extractors. The API `/repository/add_extractor` adds an extractor to an existing data repository.
+
+=== "curl"
+    ``` console
+    curl -X POST http://localhost:8900/repository/add_extractor \
+    -H "Content-Type: application/json" \
+    -d '{
+        "extractor": {
+            "name": "dpr-index",
+            "extractor_binding": {
+                  "name": "default_embedder",
+                  "index_name": "myindex",
+                  "filter": {
+                    "content_type": "text"
+                  }
+            }
+        }
+    }'
+    ```

@@ -60,7 +60,10 @@ impl From<ExtractorContentType> for persistence::ContentType {
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
 pub enum ExtractorFilter {
+    #[serde(rename = "memory_session")]
     MemorySession { session_id: String },
+
+    #[serde(rename = "content_type")]
     ContentType { content_type: ExtractorContentType },
 }
 

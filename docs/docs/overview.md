@@ -18,13 +18,13 @@ Memory APIs provides long term storage and retrieval of interactions with LLMs a
 
 ## Extractors and Views
 
-Extractors are process that extracts information from documents and conversational memory and populates *Views* indexes and other databases to be made available for retrieval processes. Extractors run asynchrnously which makes it easy to scale the service and extract information from millions of documents. 
+Extractors are process that extracts information from documents and conversational memory and populates *Views* indexes and other databases to be made available for retrieval processes. Extractors run asynchronously which makes it easy to scale the service and extract information from millions of documents. 
 
 We create a default extractor which creates a vector index view to do semantic searches over all documents in a repository.
 
 Examples of views are vector indexes populated by embedding extractors or an entity store populated by a NER model. Views are per data repository, and any extractor attached to a data repository can write to any view. 
 
-Even if you only need vector indexes for retreival, having the ability to create views from existing content allows testing different embedding models and retreival parameters or update them over time in production, and create new views.
+Even if you only need vector indexes for retrieval, having the ability to create views from existing content allows testing different embedding models and retrieval parameters or update them over time in production, and create new views.
 
 ## Vector Index
 
