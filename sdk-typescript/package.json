@@ -27,6 +27,7 @@
     "test:lint": "eslint src --ext .ts",
     "test:prettier": "prettier \"src/**/*.ts\" --list-different",
     "test:unit": "nyc --silent ava",
+    "filerun": "tsc -t esnext --moduleResolution node --allowSyntheticDefaultImports true --module commonjs $1 && node $(echo $1 | sed 's/\\.ts$/.js/')",
     "watch:build": "tsc -p tsconfig.json -w",
     "watch:test": "nyc --silent ava --watch",
     "cov": "run build test:unit cov:html cov:lcov && open-cli coverage/index.html",
@@ -94,6 +95,7 @@
   },
   "dependencies": {
     "@kitrak_rev/axios-fetch-adapter": "^0.3.3",
+    "@types/node": "^20.4.5",
     "axios": "^1.4.0",
     "form-data": "^4.0.0"
   }
