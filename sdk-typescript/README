@@ -3,9 +3,6 @@
 ### Example 
 Run the getting started example
 ```
-npm install -g typescript
 npm install
-tsc -t esnext --moduleResolution node --allowSyntheticDefaultImports true --module commonjs  getting_started.ts
-
-node getting_started.js
+npm run filerun examples/getting_started.ts
 ```

@@ -1,6 +1,5 @@
-import { IndexifyClient } from '../src/IndexifyClient';
-
-import { IndexifyService } from '../src/services/IndexifyService';
+const {IndexifyClient} = require('../src/IndexifyClient');
+const {IndexifyService} = require('../src/services/IndexifyService');
 
 const indexifyClient = new IndexifyClient({
     BASE: "http://localhost:8900",
@@ -11,11 +10,11 @@ async function main() {
         "documents": [
             {
                 "text": "hello world",
-                "metadata": { "key": "k3" }
+                "metadata": {"key": "k3"}
             },
             {
                 "text": "Indexify is amazing!",
-                "metadata": { "key": "k4" }
+                "metadata": {"key": "k4"}
             }
         ]
     });
@@ -23,9 +22,10 @@ async function main() {
 
 
     var searchResp = await indexifyClient.indexify.indexSearch({
-        index: "default/default",
-        k: 2,
-        query: "hello"
+        repository: "default",
+        index: "default_index",
+        query: "good",
+        k: 1,
     });
 
     console.log(searchResp);

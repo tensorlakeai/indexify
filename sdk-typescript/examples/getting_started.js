@@ -1,7 +1,6 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const IndexifyClient_1 = require("../src/IndexifyClient");
-const indexifyClient = new IndexifyClient_1.IndexifyClient({
+const { IndexifyClient } = require('../src/IndexifyClient');
+const { IndexifyService } = require('../src/services/IndexifyService');
+const indexifyClient = new IndexifyClient({
     BASE: "http://localhost:8900",
 });
 async function main() {
@@ -19,9 +18,10 @@ async function main() {
     });
     console.log(resp);
     var searchResp = await indexifyClient.indexify.indexSearch({
-        index: "default/default",
-        k: 2,
-        query: "hello"
+        repository: "default",
+        index: "default_index",
+        query: "good",
+        k: 1,
     });
     console.log(searchResp);
 }
