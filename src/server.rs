@@ -1,7 +1,7 @@
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
 use crate::persistence::{DataRepository, Repository};
 use crate::vector_index::VectorIndexManager;
-use crate::{api::{*, self}, persistence, vectordbs, CreateWork, CreateWorkResponse};
+use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
 use anyhow::Result;
