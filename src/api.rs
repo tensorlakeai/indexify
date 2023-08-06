@@ -20,6 +20,9 @@ pub enum ExtractorType {
         dim: usize,
         distance: IndexDistance,
     },
+
+    #[serde(rename = "embedding")]
+    Attributes { schema: String },
 }
 
 impl From<persistence::ExtractorType> for ExtractorType {
@@ -34,7 +37,9 @@ impl From<persistence::ExtractorType> for ExtractorType {
                 dim,
                 distance: distance.into(),
             },
-            _ => unimplemented!(),
+            persistence::ExtractorType::Attributes { schema } => {
+                ExtractorType::Attributes { schema: schema }
+            }
         }
     }
 }

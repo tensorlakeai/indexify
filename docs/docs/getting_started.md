@@ -28,6 +28,21 @@ Indexify comes with Python and Typescript clients. They use the HTTP APIs expose
     npm install getindexify
     ```
 
+### Bind some extractors to the repository
+
+Let's bind an embedding extractor to the repository so that we can do semantic search over text, and an named entity extractor so that we can look up some facts in the form of key/value pairs from the doc.
+=== "curl"
+    ```
+    curl -X POST http://localhost:8900/repository/add_extractor -H "Content-Type: application/json" -d '{
+        "repository": "default",
+        "name": "EntityExtractor",
+        "index_name": "entityindex",
+        "filter": {
+            "content_type": "text"
+        }
+    }'
+    ```
+
 #### Add some Texts
 === "curl"
 
