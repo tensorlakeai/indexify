@@ -94,6 +94,7 @@ impl Server {
             memory_manager: memory_manager.clone(),
             coordinator_addr,
         };
+        // TODO: add a method for creating a repository (instead of syncing)
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route("/", get(root))
