@@ -50,13 +50,13 @@ impl Default for ExtractorBinding {
     }
 }
 
-#[derive(Serialize, Deserialize, Display, EnumString)]
+#[derive(Serialize, Debug, Deserialize, Display, EnumString)]
 pub enum ExtractionEventPayload {
     SyncRepository { memory_session: Option<String> },
     CreateContent { content_id: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractionEvent {
     pub id: String,
     pub repository_id: String,

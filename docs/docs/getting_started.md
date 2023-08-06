@@ -41,6 +41,15 @@ Let's bind an embedding extractor to the repository so that we can do semantic s
             "content_type": "text"
         }
     }'
+
+    curl -X POST http://localhost:8900/repository/add_extractor -H "Content-Type: application/json" -d '{
+        "repository": "default",
+        "name": "MiniLML6",
+        "index_name": "embeddingindex",
+        "filter": {
+            "content_type": "text"
+        }
+    }'
     ```
 
 #### Add some Texts
@@ -52,8 +61,10 @@ Let's bind an embedding extractor to the repository so that we can do semantic s
     -d '{
             "documents": [ 
             {"text": "Indexify is amazing!", 
-            "metadata":{"key": "k1"} 
-            } 
+            "metadata":{"topic": "llm"} 
+            },
+            {"text": "Indexify is a retrieval service for LLM agents!", "metadata": {"topic": "ai"}}, 
+            {"text": "Kevin Durant is the best basketball player in the world.", "metadata": {"topic": "nba"}}
         ]}' 
     ```
 === "python"
@@ -65,10 +76,25 @@ Let's bind an embedding extractor to the repository so that we can do semantic s
 
 The default data repository is configured to have an extractor which populates an index for searching content.
 
-#### Query the Index
+#### Query the Indexes
+
+Query the index created by the named entity extractor. The index will have json documents which has the key/value pairs extracted from the text.
+
 === "curl"
     ```
-    curl -v -X GET http://localhost:8900/index/search \
+    curl -X GET http://localhost:8900/repository/attribute_lookup
+    -H "Content-Type: application/json" 
+    -d'{
+        "repository": "default",
+        "index": "entityindex"
+    }'
+    ```
+
+Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
+
+=== "curl"
+    ```
+    curl -v -X GET http://localhost:8900/repository/search \
     -H "Content-Type: application/json" \
     -d '{
             "repository": "default",
