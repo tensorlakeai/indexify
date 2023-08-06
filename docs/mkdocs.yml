@@ -26,7 +26,6 @@ nav:
     - Data Repository: 'apis/data_repository.md'
     - Retrieval: 'apis/retrieval.md'
     - Memory: 'apis/memory.md'
-    - Embeddings: 'apis/embeddings.md'
   - Configuration: 'configuration.md'
   - Python SDK: python_sdk.ipynb
   - Deployment: 'deployment.md'
