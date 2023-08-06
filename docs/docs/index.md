@@ -1,16 +1,18 @@
 # Welcome to Indexify
 
-Indexify is a knowledge and memory retrieval service for Large Language Models and Generative Agents. It facilitates LLMs and Agents to respond to queries related to private data that lives in 
-various private databases and documents. 
-Agents can store long term memory and query them in real time to personalize co-pilot or chat based user-experience.
+Indexify is a Data Service for Generative AI Applications.
+
+It can ingest documents and keep indexes updated for production use cases. It provides APIs for LLM applications to retrieve information from indexes.
+
+Agents can store long term memory and query them in real time to personalize co-pilot or chat based applications.
+
+Besides indexes of embedding vectors for semantic search, Indexify can also build indexes that contain K/V or JSON documents extracted by NER models, intent understanding, etc.
 
 ## Why use Indexify
 * **Knowledge Base for LLMs:** Real time retrieval of knowledge and context from private documents and structured data to improve accuracy of LLM models.
 * **Memory Engine for Co-Pilot agents:** Store and retrieve long-term memory of agents in real-time, providing enhanced personalization and improved user experiences for co-pilot and chat based applications.
-* **Real Time Data:** Data connectors keep indexes updated by syncing with source automatically wherever possible, such as a S3 bucket or a database. This enables LLMs to answer queries that require real time information about the world.
-* **Secure Access:** Apply role-based access control (RBAC) to ensure your sensitive data is exposed only to the applications you choose.
-* **State of the Art Embedding Models:** Support for OpenAI and state of the art embedding models from HuggingFace.
-* **Custom Embedding Models:** Import and use your custom-trained or fine-tuned HuggingFace Transformer-based embedding models with ease.
+* **Built For Scale:** Distributed extraction to scale indexing large amount of data without sacrificing retrieval performance.
+* **Custom Extractors:** You can extend Indexify by writing a custom extractor for your use cases to extract specific information from data.
 
 ## Start Using Indexify
 Dive into [Getting Started](getting_started.md) to learn how to use Indexify.

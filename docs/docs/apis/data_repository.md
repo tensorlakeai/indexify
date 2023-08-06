@@ -85,10 +85,8 @@ Adding an extractor is the primary means to create new indexes for a repository.
                 "name": "EntityExtractor",
                 "index_name": "myentityindex",
                 "filter": {
-                        "content_type": {
-                                "content_type": "text"
-                        }
+                     "content_type": "text"
                 }
         }
- }'
- ```
+    }'
+    ```
