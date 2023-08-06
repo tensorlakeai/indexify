@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn extract_embeddings_query() {
         let extractor =
-            PythonDriver::new("indexify_py.embedding_extractor.MiniLML6Extractor".into()).unwrap();
+            PythonDriver::new("indexify_extractors.embedding_extractor.MiniLML6Extractor".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "MiniLML6");
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn extract_attributes() {
         let extractor =
-            PythonDriver::new("indexify_py.entity_extractor.EntityExtractor".into()).unwrap();
+            PythonDriver::new("indexify_extractors.entity_extractor.EntityExtractor".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "EntityExtractor");

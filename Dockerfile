@@ -31,7 +31,7 @@ RUN apt install -y libssl-dev gcc python3-venv python3-dev
 
 RUN python3 -m "venv" /venv && /venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-RUN /venv/bin/pip install transformers[torch] optimum[onnxruntime] onnx onnxruntime
+RUN /venv/bin/pip install transformers[torch] optimum[onnxruntime] onnx onnxruntime pydantic
 
 WORKDIR /indexify
 
@@ -41,11 +41,11 @@ COPY --from=builder /indexify-build/target/release/migration ./
 
 COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
-COPY --from=builder /indexify-build/src_py/ /indexify/src_py/
+COPY --from=builder /indexify-build/extractors/ /indexify/extractors/
 
 COPY ./scripts/docker_compose_start.sh .
 
-RUN cd src_py && /venv/bin/pip install .
+RUN cd extractors && /venv/bin/pip install .
 
 ENV PATH=/venv/bin:$PATH
 

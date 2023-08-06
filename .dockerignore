@@ -1,2 +1,12 @@
-target/
 docs
+target
+.vscode
+*.db
+ve
+site
+*.pyc
+sdk-py/dist
+sdk-typescript/node_modules
+sdk-typescript/lib
+*.tgz
+
