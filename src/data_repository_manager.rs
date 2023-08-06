@@ -7,7 +7,7 @@ pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
 
 use crate::{
-    attribute_index::{AttributeIndexManager},
+    attribute_index::AttributeIndexManager,
     index::IndexError,
     persistence::{
         DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorType, Repository,
