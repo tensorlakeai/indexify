@@ -1,5 +1,5 @@
 import unittest
-from indexify_py.dpr_onnx import OnnxDPR
+from indexify_extractors.dpr_onnx import OnnxDPR
 
 
 class TestDPREmbeddings(unittest.TestCase):

@@ -1,6 +1,6 @@
 import unittest
-from indexify_py.sentence_transformer import SentenceTransformersEmbedding
-from indexify_py.dpr import DPREmbeddings
+from indexify_extractors.sentence_transformer import SentenceTransformersEmbedding
+from indexify_extractors.dpr import DPREmbeddings
 
 
 class TestSTEmbeddings(unittest.TestCase):

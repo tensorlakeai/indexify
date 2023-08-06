@@ -12,12 +12,11 @@ available_models:
   device: remote
 
 extractors:
-- name: "minilm-l12-v2-embedding"
-  path: "indexify_py.embedding_extractor.MiniLML6Extractor"
-  driver: "python"
-
 - name: "bert-entity-extractor"
-  path: "indexify_py.entity_extractor.EntityExtractor"
+  path: "indexify_extractors.entity_extractor.EntityExtractor"
+  driver: "python"
+- name: "minilm-l6-v2-embeddings"
+  path: "indexify_extractors.embedding_extractor.MiniLML6Extractor"
   driver: "python"
 
 # OpenAI key. Either set it here or set via the OPENAI_API_KEY

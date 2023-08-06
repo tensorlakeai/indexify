@@ -13,8 +13,11 @@ available_models:
 
 # List of available extractors
 extractors:
-- name: "all-minilm-l12-v2"
-  path: "indexify_py.entity_extractor.EntityExtractor"
+- name: "bert-entity-extractor"
+  path: "indexify_extractors.entity_extractor.EntityExtractor"
+  driver: "python"
+- name: "minilm-l6-v2-embeddings"
+  path: "indexify_extractors.embedding_extractor.MiniLML6Extractor"
   driver: "python"
 
 # OpenAI key. Either set it here or set via the OPENAI_API_KEY

@@ -1,5 +1,5 @@
 import unittest
-from src_py.indexify_py.entity_extractor import EntityExtractor
+from indexify_extractors.entity_extractor import EntityExtractor
 
 
 class TestEntityExtractor(unittest.TestCase):
