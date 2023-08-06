@@ -3,7 +3,7 @@ use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_N
 use crate::persistence::{DataRepository, Repository};
 use crate::vector_index::VectorIndexManager;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
-use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
+use crate::{MemoryManager, ServerConfig};
 
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -62,7 +62,6 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
         let vectordb = vectordbs::create_vectordb(self.config.index_config.clone())?;
         let vector_index_manager = Arc::new(VectorIndexManager::new(
@@ -100,14 +99,6 @@ impl Server {
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route("/", get(root))
-            .route(
-                "/embeddings/models",
-                get(list_embedding_models).with_state(embedding_router.clone()),
-            )
-            .route(
-                "/embeddings/generate",
-                get(generate_embedding).with_state(embedding_router.clone()),
-            )
             .route(
                 "/repository/add_extractor",
                 post(index_create).with_state(repository_endpoint_state.clone()),
@@ -471,51 +462,6 @@ async fn attribute_lookup(
 
     Ok(Json(AttributeLookupResponse {
         attributes: attributes.into_iter().map(|r| r.into()).collect(),
-    }))
-}
-
-#[axum_macros::debug_handler]
-async fn list_embedding_models(
-    State(embedding_router): State<Arc<EmbeddingRouter>>,
-) -> Json<ListEmbeddingModelsResponse> {
-    let model_names = embedding_router.list_models();
-    let mut models: Vec<EmbeddingModel> = Vec::new();
-    for model_name in model_names {
-        let model = embedding_router.get_model(&model_name).unwrap();
-        models.push(EmbeddingModel {
-            name: model_name.clone(),
-            dimensions: model.dimensions(),
-        })
-    }
-    Json(ListEmbeddingModelsResponse { models })
-}
-
-#[axum_macros::debug_handler]
-async fn generate_embedding(
-    State(embedding_router): State<Arc<EmbeddingRouter>>,
-    Json(payload): Json<GenerateEmbeddingRequest>,
-) -> Result<Json<GenerateEmbeddingResponse>, IndexifyAPIError> {
-    let try_embedding_generator = embedding_router.get_model(&payload.model);
-    if let Err(err) = &try_embedding_generator {
-        return Err(IndexifyAPIError::new(
-            StatusCode::NOT_ACCEPTABLE,
-            err.to_string(),
-        ));
-    }
-    let embeddings = try_embedding_generator
-        .unwrap()
-        .generate_embeddings(payload.inputs)
-        .await;
-
-    if let Err(err) = embeddings {
-        return Err(IndexifyAPIError::new(
-            StatusCode::EXPECTATION_FAILED,
-            err.to_string(),
-        ));
-    }
-
-    Ok(Json(GenerateEmbeddingResponse {
-        embeddings: Some(embeddings.unwrap()),
     }))
 }
 

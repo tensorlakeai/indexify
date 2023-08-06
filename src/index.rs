@@ -3,13 +3,10 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::vectordbs::VectorDbError;
-use crate::{persistence::RepositoryError, EmbeddingGeneratorError};
+use crate::persistence::RepositoryError;
 
 #[derive(Error, Debug)]
 pub enum IndexError {
-    #[error(transparent)]
-    EmbeddingGenerator(#[from] EmbeddingGeneratorError),
-
     #[error(transparent)]
     VectorDb(#[from] VectorDbError),
 
