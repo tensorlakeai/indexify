@@ -37,7 +37,7 @@ timeout 90s bash -c "until docker exec postgres_test pg_isready ; do sleep 5 ; d
 
 ./install_python_deps.sh
 
-(cd src_py && pip install .)
+(cd extractors && pip install .)
 
 cargo test -- --test-threads 1
 
