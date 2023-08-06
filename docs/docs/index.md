@@ -2,9 +2,8 @@
 
 Indexify is a Data Service for Generative AI Applications.
 
-It can ingest documents and keep indexes updated for production use cases. It provides APIs for LLM applications to retrieve information from indexes.
-
-Agents can store long term memory and query them in real time to personalize co-pilot or chat based applications.
+Upload documents and indexes will be updated automatically by a distributed work scheduler which runs the extraction models on the new documents. 
+There are retrieval APIs for LLM applications to retrieve information from indexes. Agents can store long term memory and query them in real time to personalize co-pilot or chat based applications.
 
 Besides indexes of embedding vectors for semantic search, Indexify can also build indexes that contain K/V or JSON documents extracted by NER models, intent understanding, etc.
 
