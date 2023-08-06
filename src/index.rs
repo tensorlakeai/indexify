@@ -2,8 +2,8 @@ use thiserror::Error;
 
 use tracing::error;
 
-use crate::vectordbs::VectorDbError;
 use crate::persistence::RepositoryError;
+use crate::vectordbs::VectorDbError;
 
 #[derive(Error, Debug)]
 pub enum IndexError {

@@ -400,7 +400,7 @@ mod tests {
         test_util::{
             self,
             db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
-        }
+        },
     };
     use std::collections::HashMap;
 
@@ -420,7 +420,7 @@ mod tests {
 
         // Create a repository
         repository_manager
-            .sync(&DataRepository {
+            .create(&DataRepository {
                 name: DEFAULT_TEST_REPOSITORY.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),

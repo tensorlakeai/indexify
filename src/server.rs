@@ -35,12 +35,12 @@ pub struct RepositoryEndpointState {
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            sync_repository,
+            create_repository,
             add_texts,
             index_search,
         ),
         components(
-            schemas(SyncRepository, SyncRepositoryResponse, DataConnector,
+            schemas(CreateRepository, SyncRepositoryResponse, DataConnector,
                 IndexDistance, ExtractorType, ExtractorContentType,
                 SourceType, TextAddRequest, IndexAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, SearchRequest,)
@@ -136,8 +136,8 @@ impl Server {
                 get(search_memory_session).with_state(memory_manager.clone()),
             )
             .route(
-                "/repository/sync",
-                post(sync_repository).with_state(repository_endpoint_state.clone()),
+                "/repository/create",
+                post(create_repository).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repository/list",
@@ -175,9 +175,9 @@ async fn root() -> &'static str {
         (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
     ),
 )]
-async fn sync_repository(
+async fn create_repository(
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<SyncRepository>,
+    Json(payload): Json<CreateRepository>,
 ) -> Result<Json<SyncRepositoryResponse>, IndexifyAPIError> {
     let extractor_bindings = payload
         .extractors
@@ -185,21 +185,15 @@ async fn sync_repository(
         .into_iter()
         .map(|e| e.into())
         .collect();
-    let data_connectors = payload
-        .data_connectors
-        .clone()
-        .into_iter()
-        .map(|dc| dc.into())
-        .collect();
     let data_repository = &DataRepository {
         name: payload.name.clone(),
         extractor_bindings,
-        data_connectors,
         metadata: payload.metadata.clone(),
+        data_connectors: vec![],
     };
     state
         .repository_manager
-        .sync(data_repository)
+        .create(data_repository)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -418,8 +412,9 @@ async fn search_memory_session(
 
 #[axum_macros::debug_handler]
 async fn list_extractors(
-    State(state): State<RepositoryEndpointState>) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
-        let extractors = state
+    State(state): State<RepositoryEndpointState>,
+) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
+    let extractors = state
         .repository_manager
         .list_extractors()
         .await
@@ -427,7 +422,7 @@ async fn list_extractors(
         .into_iter()
         .map(|e| e.into())
         .collect();
-    Ok(Json(ListExtractorsResponse{extractors}))
+    Ok(Json(ListExtractorsResponse { extractors }))
 }
 
 #[utoipa::path(

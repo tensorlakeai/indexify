@@ -10,8 +10,8 @@ use crate::{
     attribute_index::AttributeIndexManager,
     index::IndexError,
     persistence::{
-        DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorType, Repository,
-        RepositoryError, Text, ExtractorConfig
+        DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorConfig, ExtractorType,
+        Repository, RepositoryError, Text,
     },
     vector_index::VectorIndexManager,
     ServerConfig,
@@ -78,7 +78,7 @@ impl DataRepositoryManager {
                 data_connectors: vec![],
                 metadata: HashMap::new(),
             };
-            return self.sync(&default_repo).await;
+            return self.create(&default_repo).await;
         }
         Ok(())
     }
@@ -90,7 +90,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
-    pub async fn sync(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
+    pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
         let _ = self
             .repository
             .upsert_repository(repository.clone())
@@ -142,7 +142,7 @@ impl DataRepositoryManager {
             }
         }
         data_repository.extractor_bindings.push(extractor);
-        self.sync(&data_repository).await
+        self.create(&data_repository).await
     }
 
     pub async fn add_texts(
@@ -254,7 +254,7 @@ mod tests {
                 },
             }],
         };
-        repository_manager.sync(&repository).await.unwrap();
+        repository_manager.create(&repository).await.unwrap();
         let repositories = repository_manager.list_repositories().await.unwrap();
         assert_eq!(repositories.len(), 1);
         assert_eq!(repositories[0].name, "test");

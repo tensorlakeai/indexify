@@ -92,7 +92,7 @@ impl MemoryManager {
             },
         });
         repo.extractor_bindings.push(extractor_binding);
-        self.repository.sync(&repo).await?;
+        self.repository.create(&repo).await?;
         Ok(session_id.to_string())
     }
 
@@ -165,7 +165,7 @@ mod tests {
         info!("creating repository");
 
         repository_manager
-            .sync(&test_util::db_utils::default_test_data_repository())
+            .create(&test_util::db_utils::default_test_data_repository())
             .await
             .unwrap();
 

@@ -166,7 +166,7 @@ mod tests {
         let repository_manager =
             DataRepositoryManager::new_with_db(db.clone(), index_manager.clone());
         let _ = repository_manager
-            .sync(&DataRepository {
+            .create(&DataRepository {
                 name: DEFAULT_TEST_REPOSITORY.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),

@@ -190,11 +190,10 @@ impl From<DataConnector> for persistence::DataConnector {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
-pub struct SyncRepository {
+pub struct CreateRepository {
     pub name: String,
     pub extractors: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
-    pub data_connectors: Vec<DataConnector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -286,7 +285,6 @@ pub struct RunExtractors {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractorConfig {
