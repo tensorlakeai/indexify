@@ -287,6 +287,29 @@ pub struct RunExtractors {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
 
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExtractorConfig {
+    pub name: String,
+    pub description: String,
+    pub extractor_type: ExtractorType,
+}
+
+impl From<persistence::ExtractorConfig> for ExtractorConfig {
+    fn from(value: persistence::ExtractorConfig) -> Self {
+        Self {
+            name: value.name,
+            description: value.description,
+            extractor_type: value.extractor_type.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ListExtractorsResponse {
+    pub extractors: Vec<ExtractorConfig>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct IndexAdditionResponse {
     pub sequence: u64,

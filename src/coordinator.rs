@@ -284,10 +284,6 @@ impl CoordinatorServer {
                 get(list_executors).with_state(self.coordinator.clone()),
             )
             .route(
-                "/extractors",
-                get(list_extractors).with_state(self.coordinator.clone()),
-            )
-            .route(
                 "/create_work",
                 post(create_work).with_state(self.coordinator.clone()),
             );
@@ -361,23 +357,13 @@ async fn sync_executor(
 
 #[axum_macros::debug_handler]
 async fn create_work(
-    State(node_state): State<Arc<Coordinator>>,
+    State(coordinator): State<Arc<Coordinator>>,
     Json(create_work): Json<CreateWork>,
 ) -> Result<Json<CreateWorkResponse>, IndexifyAPIError> {
-    if let Err(err) = node_state.tx.try_send(create_work) {
+    if let Err(err) = coordinator.tx.try_send(create_work) {
         error!("unable to send create work request: {}", err.to_string());
     }
     Ok(Json(CreateWorkResponse {}))
-}
-
-#[axum_macros::debug_handler]
-async fn list_extractors(State(node_state): State<Arc<Coordinator>>) -> Json<ListExtractors> {
-    let extractors = node_state
-        .repository
-        .list_extractors()
-        .await
-        .unwrap_or_default();
-    Json(ListExtractors { extractors })
 }
 
 async fn shutdown_signal() {
@@ -414,7 +400,7 @@ mod tests {
         test_util::{
             self,
             db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
-        },
+        }
     };
     use std::collections::HashMap;
 

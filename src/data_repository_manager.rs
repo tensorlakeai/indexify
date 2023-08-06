@@ -11,7 +11,7 @@ use crate::{
     index::IndexError,
     persistence::{
         DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorType, Repository,
-        RepositoryError, Text,
+        RepositoryError, Text, ExtractorConfig
     },
     vector_index::VectorIndexManager,
     ServerConfig,
@@ -204,6 +204,15 @@ impl DataRepositoryManager {
         self.attribute_index_manager
             .get_attributes(repository, index_name, content_id)
             .await
+    }
+
+    pub async fn list_extractors(&self) -> Result<Vec<ExtractorConfig>, DataRepositoryError> {
+        let extractors = self
+            .repository
+            .list_extractors()
+            .await
+            .map_err(DataRepositoryError::Persistence)?;
+        Ok(extractors)
     }
 }
 

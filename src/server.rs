@@ -146,6 +146,10 @@ impl Server {
             .route(
                 "/repository/get",
                 get(get_repository).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/extractors",
+                get(list_extractors).with_state(repository_endpoint_state.clone()),
             );
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
@@ -410,6 +414,20 @@ async fn search_memory_session(
         .collect();
 
     Ok(Json(MemorySessionSearchResponse { messages }))
+}
+
+#[axum_macros::debug_handler]
+async fn list_extractors(
+    State(state): State<RepositoryEndpointState>) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
+        let extractors = state
+        .repository_manager
+        .list_extractors()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_iter()
+        .map(|e| e.into())
+        .collect();
+    Ok(Json(ListExtractorsResponse{extractors}))
 }
 
 #[utoipa::path(
