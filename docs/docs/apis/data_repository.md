@@ -79,18 +79,16 @@ Adding an extractor is the primary means to create new indexes for a repository.
 
 === "curl"
     ``` console
-    curl -X POST http://localhost:8900/repository/add_extractor \
-    -H "Content-Type: application/json" \
-    -d '{
-        "extractor": {
-            "repository": "myrepository",
-            "extractor_binding": {
-                  "name": "default_embedder",
-                  "index_name": "myindex",
-                  "filter": {
-                    "content_type": "text"
-                  }
-            }
+    curl -X POST http://localhost:8900/repository/add_extractor -H "Content-Type: application/json" -d '{
+        "repository": "default",
+        "extractor_binding": {
+                "name": "EntityExtractor",
+                "index_name": "myentityindex",
+                "filter": {
+                        "content_type": {
+                                "content_type": "text"
+                        }
+                }
         }
-    }'
-    ```
+ }'
+ ```

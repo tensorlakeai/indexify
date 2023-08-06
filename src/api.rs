@@ -8,8 +8,8 @@ use strum_macros::{Display, EnumString};
 use utoipa::ToSchema;
 
 use crate::memory;
+use crate::persistence;
 use crate::vectordbs;
-use crate::{persistence, text_splitters};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename = "extractor_type")]
@@ -17,6 +17,7 @@ pub enum ExtractorType {
     #[serde(rename = "embedding")]
     Embedding {
         model: String,
+        dim: usize,
         distance: IndexDistance,
     },
 }
@@ -24,8 +25,13 @@ pub enum ExtractorType {
 impl From<persistence::ExtractorType> for ExtractorType {
     fn from(value: persistence::ExtractorType) -> Self {
         match value {
-            persistence::ExtractorType::Embedding { model, distance } => ExtractorType::Embedding {
+            persistence::ExtractorType::Embedding {
                 model,
+                dim,
+                distance,
+            } => ExtractorType::Embedding {
+                model,
+                dim,
                 distance: distance.into(),
             },
             _ => unimplemented!(),
@@ -59,6 +65,7 @@ impl From<ExtractorContentType> for persistence::ContentType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
+#[serde(untagged)]
 pub enum ExtractorFilter {
     #[serde(rename = "memory_session")]
     MemorySession { session_id: String },
@@ -97,56 +104,19 @@ impl From<ExtractorFilter> for persistence::ExtractorFilter {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename = "extractor")]
-pub struct Extractor {
-    pub name: String,
-    pub description: String,
-    pub extractor_type: ExtractorType,
-}
-
-impl From<persistence::ExtractorConfig> for Extractor {
-    fn from(value: persistence::ExtractorConfig) -> Self {
-        Self {
-            name: value.name,
-            description: value.description,
-            extractor_type: value.extractor_type.into(),
-        }
-    }
-}
-
-impl From<Extractor> for persistence::ExtractorConfig {
-    fn from(val: Extractor) -> Self {
-        persistence::ExtractorConfig {
-            name: val.name,
-            description: val.description,
-            extractor_type: match val.extractor_type {
-                ExtractorType::Embedding { model, distance } => {
-                    persistence::ExtractorType::Embedding {
-                        model,
-                        distance: distance.into(),
-                    }
-                }
-            },
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
     pub name: String,
     pub index_name: Option<String>,
     pub filter: ExtractorFilter,
-    pub text_splitter: Option<TextSplitterKind>,
 }
 
 impl From<persistence::ExtractorBinding> for ExtractorBinding {
     fn from(value: persistence::ExtractorBinding) -> Self {
         Self {
-            name: value.name,
+            name: value.extractor_name,
             index_name: Some(value.index_name),
             filter: value.filter.into(),
-            text_splitter: Some(value.text_splitter.into()),
         }
     }
 }
@@ -154,10 +124,9 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
 impl From<ExtractorBinding> for persistence::ExtractorBinding {
     fn from(val: ExtractorBinding) -> Self {
         persistence::ExtractorBinding {
-            name: val.name.clone(),
+            extractor_name: val.name.clone(),
             index_name: val.index_name.unwrap_or(val.name.clone()),
             filter: val.filter.into(),
-            text_splitter: val.text_splitter.unwrap_or_default().into(),
         }
     }
 }
@@ -279,47 +248,6 @@ pub struct ListEmbeddingModelsResponse {
     pub models: Vec<EmbeddingModel>,
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize, strum::Display, Clone, ToSchema)]
-#[strum(serialize_all = "snake_case")]
-pub enum TextSplitterKind {
-    // Do not split text.
-    #[serde(rename = "none")]
-    None,
-
-    /// Split text by new lines.
-    #[default]
-    #[serde(rename = "new_line")]
-    NewLine,
-
-    /// Split a document across the regex boundary
-    #[serde(rename = "regex")]
-    Regex { pattern: String },
-}
-
-impl From<text_splitters::TextSplitterKind> for TextSplitterKind {
-    fn from(value: text_splitters::TextSplitterKind) -> Self {
-        match value {
-            text_splitters::TextSplitterKind::Noop => TextSplitterKind::None,
-            text_splitters::TextSplitterKind::NewLine => TextSplitterKind::NewLine,
-            text_splitters::TextSplitterKind::Regex { pattern } => {
-                TextSplitterKind::Regex { pattern }
-            }
-        }
-    }
-}
-
-impl From<TextSplitterKind> for text_splitters::TextSplitterKind {
-    fn from(val: TextSplitterKind) -> Self {
-        match val {
-            TextSplitterKind::None => text_splitters::TextSplitterKind::Noop,
-            TextSplitterKind::NewLine => text_splitters::TextSplitterKind::NewLine,
-            TextSplitterKind::Regex { pattern } => {
-                text_splitters::TextSplitterKind::Regex { pattern }
-            }
-        }
-    }
-}
-
 #[derive(Display, Debug, Serialize, Deserialize, Clone, Default, ToSchema)]
 #[serde(rename = "distance")]
 pub enum IndexDistance {
@@ -361,6 +289,7 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractorAddRequest {
     pub repository: Option<String>,
+    #[serde(flatten)]
     pub extractor_binding: ExtractorBinding,
 }
 

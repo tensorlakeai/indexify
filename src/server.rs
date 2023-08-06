@@ -1,7 +1,7 @@
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
-use crate::index::IndexManager;
 use crate::persistence::{DataRepository, Repository};
-use crate::{api::*, persistence, CreateWork, CreateWorkResponse};
+use crate::vector_index::VectorIndexManager;
+use crate::{api::{*, self}, persistence, vectordbs, CreateWork, CreateWorkResponse};
 use crate::{EmbeddingRouter, MemoryManager, ServerConfig};
 
 use anyhow::Result;
@@ -18,11 +18,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
-
-#[derive(Clone)]
-pub struct IndexEndpointState {
-    index_manager: Arc<IndexManager>,
-}
 
 #[derive(Clone)]
 pub struct MemoryEndpointState {
@@ -44,8 +39,8 @@ pub struct RepositoryEndpointState {
             index_search,
         ),
         components(
-            schemas(SyncRepository, SyncRepositoryResponse, DataConnector, Extractor,
-                TextSplitterKind, IndexDistance, ExtractorType, ExtractorContentType,
+            schemas(SyncRepository, SyncRepositoryResponse, DataConnector,
+                IndexDistance, ExtractorType, ExtractorContentType,
                 SourceType, TextAddRequest, IndexAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, SearchRequest,)
         ),
@@ -68,13 +63,15 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let embedding_router = Arc::new(EmbeddingRouter::new(self.config.clone())?);
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
-        let index_manager = Arc::new(IndexManager::new(
+        let vectordb = vectordbs::create_vectordb(self.config.index_config.clone())?;
+        let vector_index_manager = Arc::new(VectorIndexManager::new(
+            self.config.clone(),
             repository.clone(),
-            self.config.index_config.clone(),
-            embedding_router.clone(),
-        )?);
+            vectordb.clone(),
+        ));
+
         let repository_manager =
-            Arc::new(DataRepositoryManager::new(repository.clone(), index_manager.clone()).await?);
+            Arc::new(DataRepositoryManager::new(repository.clone(), vector_index_manager).await?);
         if let Err(err) = repository_manager
             .create_default_repository(&self.config)
             .await
@@ -87,9 +84,6 @@ impl Server {
             coordinator_addr,
         };
         let memory_manager = Arc::new(MemoryManager::new(repository_manager.clone()).await?);
-        let index_state = IndexEndpointState {
-            index_manager: index_manager.clone(),
-        };
         let memory_state = MemoryEndpointState {
             memory_manager: memory_manager.clone(),
             coordinator_addr,
@@ -119,8 +113,8 @@ impl Server {
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/index/search",
-                get(index_search).with_state(index_state.clone()),
+                "/repository/search",
+                get(index_search).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/memory/create",
@@ -427,19 +421,19 @@ async fn search_memory_session(
 )]
 #[axum_macros::debug_handler]
 async fn index_search(
-    State(state): State<IndexEndpointState>,
+    State(state): State<RepositoryEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
-    let index = state
-        .index_manager
-        .load(&query.repository, &query.index)
+    let results = state
+        .repository_manager
+        .search(
+            &query.repository,
+            &query.index,
+            &query.query,
+            query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
+        )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let results = index
-        .search(&query.query, query.k.unwrap_or(DEFAULT_SEARCH_LIMIT))
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     let document_fragments: Vec<DocumentFragment> = results
         .iter()
         .map(|text| DocumentFragment {

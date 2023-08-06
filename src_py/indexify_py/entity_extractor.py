@@ -4,19 +4,14 @@ from transformers import AutoTokenizer, AutoModelForTokenClassification
 from transformers import pipeline
 from decimal import Decimal 
 from enum import Enum
+import json
 from typing import Optional
-
-
-@dataclass
-class EntityAttributes:
-    score: Decimal 
+from .extractor_base import Datatype, Extractor, ExtractorInfo, Content
 
 @dataclass
-class Entity:
-   name: str
-   value: str
-   attributes: EntityAttributes
-
+class ExtractedAttributes:
+    content_id: str
+    json: str
 
 class EntityType(Enum): 
     def get_entity_type(type: str) -> str:
@@ -39,17 +34,28 @@ class EntityExtractor:
         self._model = AutoModelForTokenClassification.from_pretrained(self.model_name)
         self._ctx_pipeline = pipeline("ner", model=self._model, tokenizer=self._tokenizer)
 
-        
-    def extract(self, text: str) -> List[Entity]:
-         ner_list = self._ctx_pipeline(text)
-         entities = []
+    def extract(self, content: List[Content], params: dict[str, str]) -> List[ExtractedAttributes]:
+        content_texts = [c.data for c in content]
+        results = self._ctx_pipeline(content_texts)
+        attributes = []
+        for (i, ner_list) in enumerate(results):
+            content_id = content[i].id
+            for ner in ner_list:
+                name = EntityType.get_entity_type(ner["entity"])
+                value = ner["word"]
+                score = ner["score"]
+                data = json.dumps({"entity": name, "value": value, "score": str(score)})
+                attributes.append(ExtractedAttributes(content_id=content_id, json=data))
+        return attributes 
 
-         for ner in ner_list:
-             name = EntityType.get_entity_type(ner["entity"])
-             value = ner["word"]
-             score = ner["score"]
-             entity = Entity(name=name, value=value, attributes=EntityAttributes(score=score))
-             entities.append(entity)
-         return entities
+    def info(self) -> ExtractorInfo:
+        schema = {"entity": "string", "value": "string", "score": "float"}
+        schema_json = json.dumps(schema)
+        return ExtractorInfo(
+            name="EntityExtractor",
+            description="EntityExtractor",
+            output_datatype="attributes",
+            output_schema= schema_json,
+        )
 
     

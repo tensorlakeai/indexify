@@ -26,7 +26,6 @@ pub enum IndexDistance {
 /// A request to create a new vector index in the vector database.
 #[derive(Clone)]
 pub struct CreateIndexParams {
-    pub name: String,
     pub vectordb_index_name: String,
     pub vector_dim: u64,
     pub distance: IndexDistance,

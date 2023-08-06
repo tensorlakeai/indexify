@@ -17,13 +17,9 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
+                    .col(ColumnDef::new(Index::VectorIndexName).string())
                     .col(ColumnDef::new(Index::ExtractorName).string().not_null())
-                    .col(ColumnDef::new(Index::EmbeddingModel).string().not_null())
                     .col(ColumnDef::new(Index::IndexType).string().not_null())
-                    .col(ColumnDef::new(Index::TextSplitter).string().not_null())
-                    .col(ColumnDef::new(Index::VectorDb).string().not_null())
-                    .col(ColumnDef::new(Index::VectorDbParams).json())
-                    .col(ColumnDef::new(Index::UniqueParams).json())
                     .col(ColumnDef::new(Index::RepositoryId).string().not_null())
                     .to_owned(),
             )
@@ -133,27 +129,41 @@ impl MigrationTrait for Migration {
         let _ = manager
             .create_table(
                 Table::create()
-                    .table(ExtractedData::Table)
+                    .table(AttributesIndex::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(ExtractedData::Id)
+                        ColumnDef::new(AttributesIndex::Id)
                             .string()
                             .not_null()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(ExtractedData::RepositoryId)
+                        ColumnDef::new(AttributesIndex::RepositoryId)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(ExtractedData::ExtractorID)
+                        ColumnDef::new(AttributesIndex::ExtractorID)
                             .string()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(ExtractedData::Data).json_binary().not_null())
                     .col(
-                        ColumnDef::new(ExtractedData::CreatedAt)
+                        ColumnDef::new(AttributesIndex::IndexName)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AttributesIndex::Data)
+                            .json_binary()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AttributesIndex::ContentId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AttributesIndex::CreatedAt)
                             .big_unsigned()
                             .not_null(),
                     )
@@ -225,7 +235,7 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(Work::Table).to_owned())
             .await;
         let _ = manager
-            .drop_table(Table::drop().table(ExtractedData::Table).to_owned())
+            .drop_table(Table::drop().table(AttributesIndex::Table).to_owned())
             .await;
         manager
             .drop_table(Table::drop().table(Extractors::Table).to_owned())
@@ -237,13 +247,9 @@ impl MigrationTrait for Migration {
 enum Index {
     Table,
     Name,
+    VectorIndexName,
     ExtractorName,
     IndexType,
-    TextSplitter,
-    EmbeddingModel,
-    VectorDb,
-    VectorDbParams,
-    UniqueParams,
     RepositoryId,
 }
 
@@ -308,12 +314,14 @@ enum Work {
 }
 
 #[derive(Iden)]
-enum ExtractedData {
+enum AttributesIndex {
     Table,
     Id,
     RepositoryId,
     ExtractorID,
     Data,
+    IndexName,
+    ContentId,
     CreatedAt,
 }
 
