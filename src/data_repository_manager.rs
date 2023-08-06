@@ -7,9 +7,11 @@ pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
 
 use crate::{
+    attribute_index::{AttributeIndexManager},
     index::IndexError,
     persistence::{
-        DataRepository, ExtractorBinding, ExtractorType, Repository, RepositoryError, Text,
+        DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorType, Repository,
+        RepositoryError, Text,
     },
     vector_index::VectorIndexManager,
     ServerConfig,
@@ -33,25 +35,30 @@ pub enum DataRepositoryError {
 pub struct DataRepositoryManager {
     repository: Arc<Repository>,
     vector_index_manager: Arc<VectorIndexManager>,
+    attribute_index_manager: Arc<AttributeIndexManager>,
 }
 
 impl DataRepositoryManager {
     pub async fn new(
         repository: Arc<Repository>,
         vector_index_manager: Arc<VectorIndexManager>,
+        attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self, RepositoryError> {
         Ok(Self {
             repository,
             vector_index_manager,
+            attribute_index_manager,
         })
     }
 
     #[allow(dead_code)]
     pub fn new_with_db(db: DbConn, vector_index_manager: Arc<VectorIndexManager>) -> Self {
         let repository = Arc::new(Repository::new_with_db(db));
+        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
         Self {
             repository,
             vector_index_manager,
+            attribute_index_manager,
         }
     }
 
@@ -186,6 +193,17 @@ impl DataRepositoryManager {
             .search(repository, index_name, query, k as usize)
             .await
             .map_err(DataRepositoryError::RetrievalError)
+    }
+
+    pub async fn attribute_lookup(
+        &self,
+        repository: &str,
+        index_name: &str,
+        content_id: Option<&String>,
+    ) -> Result<Vec<ExtractedAttributes>, anyhow::Error> {
+        self.attribute_index_manager
+            .get_attributes(repository, index_name, content_id)
+            .await
     }
 }
 

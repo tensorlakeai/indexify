@@ -891,7 +891,7 @@ impl Repository {
         &self,
         repository: &str,
         index: &str,
-        content_id: Option<&str>,
+        content_id: Option<&String>,
     ) -> Result<Vec<ExtractedAttributes>, RepositoryError> {
         let query = entity::attributes_index::Entity::find()
             .filter(entity::attributes_index::Column::RepositoryId.eq(repository))

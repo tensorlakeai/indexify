@@ -10,9 +10,7 @@ pub struct AttributeIndexManager {
 
 impl AttributeIndexManager {
     pub fn new(repository: Arc<Repository>) -> Self {
-        Self {
-            repository,
-        }
+        Self { repository }
     }
 
     pub async fn add_index(
@@ -21,8 +19,7 @@ impl AttributeIndexManager {
         index_name: &str,
         extracted_attributes: ExtractedAttributes,
     ) -> Result<()> {
-        self
-            .repository
+        self.repository
             .add_attributes(repository, index_name, extracted_attributes)
             .await?;
         Ok(())
@@ -32,7 +29,7 @@ impl AttributeIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        content_id: Option<&str>,
+        content_id: Option<&String>,
     ) -> Result<Vec<ExtractedAttributes>> {
         let extracted_attributes = self
             .repository

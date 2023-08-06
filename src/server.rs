@@ -1,3 +1,4 @@
+use crate::attribute_index::AttributeIndexManager;
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
 use crate::persistence::{DataRepository, Repository};
 use crate::vector_index::VectorIndexManager;
@@ -69,9 +70,16 @@ impl Server {
             repository.clone(),
             vectordb.clone(),
         ));
+        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
-        let repository_manager =
-            Arc::new(DataRepositoryManager::new(repository.clone(), vector_index_manager).await?);
+        let repository_manager = Arc::new(
+            DataRepositoryManager::new(
+                repository.clone(),
+                vector_index_manager,
+                attribute_index_manager,
+            )
+            .await?,
+        );
         if let Err(err) = repository_manager
             .create_default_repository(&self.config)
             .await
@@ -115,6 +123,10 @@ impl Server {
             .route(
                 "/repository/search",
                 get(index_search).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/repository/attribute_lookup",
+                get(attribute_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/memory/create",
@@ -443,6 +455,22 @@ async fn index_search(
         .collect();
     Ok(Json(IndexSearchResponse {
         results: document_fragments,
+    }))
+}
+
+#[axum_macros::debug_handler]
+async fn attribute_lookup(
+    State(state): State<RepositoryEndpointState>,
+    Json(query): Json<AttributeLookupRequest>,
+) -> Result<Json<AttributeLookupResponse>, IndexifyAPIError> {
+    let attributes = state
+        .repository_manager
+        .attribute_lookup(&query.repository, &query.index, query.content_id.as_ref())
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(AttributeLookupResponse {
+        attributes: attributes.into_iter().map(|r| r.into()).collect(),
     }))
 }
 

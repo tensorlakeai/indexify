@@ -330,6 +330,37 @@ pub struct SearchRequest {
     pub k: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedAttributes {
+    pub id: String,
+    pub content_id: String,
+    pub attributes: serde_json::Value,
+    pub extractor_name: String,
+}
+
+impl From<persistence::ExtractedAttributes> for ExtractedAttributes {
+    fn from(value: persistence::ExtractedAttributes) -> Self {
+        Self {
+            id: value.id,
+            content_id: value.content_id,
+            attributes: value.attributes,
+            extractor_name: value.extractor_name,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AttributeLookupRequest {
+    pub repository: String,
+    pub content_id: Option<String>,
+    pub index: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AttributeLookupResponse {
+    pub attributes: Vec<ExtractedAttributes>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateMemorySessionRequest {
     pub session_id: Option<String>,
