@@ -20,11 +20,8 @@ A data repository can be created and updated using the `sync` API call. Extracto
                   "name": "default_embedder",
                   "index_name": "myindex",
                   "filter": {
-                    "content_type": {
-                      "content_type": "text"
-                    }
-                  },
-                  "text_splitter": "none"
+                    "content_type": "text"
+                  }
                 },
               ],
               "metadata": {}
@@ -51,11 +48,8 @@ A data repository can be created and updated using the `sync` API call. Extracto
           "name": "default_embedder",
           "index_name": "default_index",
           "filter": {
-            "content_type": {
-              "content_type": "text"
-            }
-          },
-          "text_splitter": "none"
+            "content_type": "text"
+          }
         },
         {
           "name": "default_embedder",
@@ -64,8 +58,7 @@ A data repository can be created and updated using the `sync` API call. Extracto
             "memory_session": {
               "session_id": "QCwzZ-nznuqisQw4b6Tm4"
             }
-          },
-          "text_splitter": "none"
+          }
         }
       ],
       "metadata": {}
@@ -79,7 +72,9 @@ Adding an extractor is the primary means to create new indexes for a repository.
 
 === "curl"
     ``` console
-    curl -X POST http://localhost:8900/repository/add_extractor -H "Content-Type: application/json" -d '{
+    curl -X POST http://localhost:8900/repository/add_extractor
+        -H "Content-Type: application/json" 
+        -d '{
         "repository": "default",
         "extractor_binding": {
                 "name": "EntityExtractor",
