@@ -27,11 +27,7 @@ impl VectorIndexManager {
         let extractor_index = DashMap::new();
         for extractor in server_config.extractors.iter() {
             let extractor = create_extractor(extractor.clone()).unwrap();
-            if let ExtractorType::Embedding {
-                dim: _,
-                distance: _,
-            } = extractor.info().unwrap().extractor_type
-            {
+            if let ExtractorType::Embedding { .. } = extractor.info().unwrap().extractor_type {
                 extractor_index.insert(extractor.info().unwrap().name, extractor);
             }
         }

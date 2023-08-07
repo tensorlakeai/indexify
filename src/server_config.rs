@@ -170,7 +170,6 @@ pub struct ExecutorConfig {
 #[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
     pub listen_addr: String,
-    pub available_models: Vec<EmbeddingModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAIConfig>,
     pub index_config: VectorIndexConfig,
@@ -184,18 +183,6 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             listen_addr: "0.0.0.0:8900".to_string(),
-            available_models: vec![
-                EmbeddingModel {
-                    model_kind: EmbeddingModelKind::AllMiniLmL12V2,
-                    device_kind: DeviceKind::Cpu,
-                    default: true,
-                },
-                EmbeddingModel {
-                    model_kind: EmbeddingModelKind::OpenAIAda02,
-                    device_kind: DeviceKind::Remote,
-                    default: false,
-                },
-            ],
             openai: Some(OpenAIConfig {
                 api_key: OPENAI_DUMMY_KEY.into(),
             }),
@@ -237,13 +224,6 @@ impl ServerConfig {
         Ok(())
     }
 
-    pub fn default_model(&self) -> EmbeddingModel {
-        self.available_models
-            .iter()
-            .find(|model| model.default)
-            .cloned()
-            .expect("no default embedding model found")
-    }
 }
 
 #[cfg(test)]
@@ -254,7 +234,6 @@ mod tests {
     fn parse_config() {
         // Uses the sample config file to test the config parsing
         let config = super::ServerConfig::from_path("sample_config.yaml").unwrap();
-        assert_eq!(2, config.available_models.len());
         assert_eq!(OPENAI_DUMMY_KEY, config.openai.unwrap().api_key);
         assert_eq!(
             config.index_config.index_store,
