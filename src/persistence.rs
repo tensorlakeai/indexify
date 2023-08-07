@@ -36,6 +36,7 @@ pub struct ExtractorBinding {
     pub extractor_name: String,
     pub index_name: String,
     pub filter: ExtractorFilter,
+    pub input_params: serde_json::Value,
 }
 
 #[derive(Serialize, Debug, Deserialize, Display, EnumString)]
@@ -1022,6 +1023,7 @@ mod tests {
             filter: ExtractorFilter::ContentType {
                 content_type: ContentType::Text,
             },
+            input_params: serde_json::json!({}),
         };
         let extractor2 = ExtractorConfig {
             name: "extractor2".into(),
@@ -1037,6 +1039,7 @@ mod tests {
             filter: ExtractorFilter::MemorySession {
                 session_id: "abcd".into(),
             },
+            input_params: serde_json::json!({}),
         };
         let repo = DataRepository {
             name: "test".to_owned(),

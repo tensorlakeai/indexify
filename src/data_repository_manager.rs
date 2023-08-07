@@ -4,7 +4,6 @@ use thiserror::Error;
 use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
-pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
 
 use crate::{
     attribute_index::AttributeIndexManager,
@@ -241,10 +240,11 @@ mod tests {
             name: "test".to_string(),
             extractor_bindings: vec![ExtractorBinding {
                 extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
-                index_name: DEFAULT_EXTRACTOR_NAME.to_string(),
+                index_name: "default_embedder".to_string(),
                 filter: ExtractorFilter::ContentType {
                     content_type: ContentType::Text,
                 },
+                input_params: serde_json::json!({}),
             }],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {

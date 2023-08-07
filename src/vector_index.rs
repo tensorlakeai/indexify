@@ -166,6 +166,7 @@ mod tests {
                     filter: persistence::ExtractorFilter::ContentType {
                         content_type: persistence::ContentType::Text,
                     },
+                    input_params: serde_json::json!({}),
                 }],
             })
             .await;

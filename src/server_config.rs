@@ -223,7 +223,6 @@ impl ServerConfig {
         std::fs::write(path, str)?;
         Ok(())
     }
-
 }
 
 #[cfg(test)]
