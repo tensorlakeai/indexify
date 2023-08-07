@@ -15,7 +15,7 @@ use tracing::info;
 use utils::{get_messages_from_texts, get_texts_from_messages};
 
 use crate::{
-    data_repository_manager::{DataRepositoryError, DataRepositoryManager, DEFAULT_EXTRACTOR_NAME},
+    data_repository_manager::{DataRepositoryError, DataRepositoryManager},
     persistence::ExtractorBinding,
 };
 
@@ -84,14 +84,9 @@ impl MemoryManager {
             .map_err(|e| MemoryError::InternalError(e.to_string()))?;
 
         let mut repo = self.repository.get(repository_id).await?;
-        let extractor_binding = extractor.unwrap_or(ExtractorBinding {
-            extractor_name: DEFAULT_EXTRACTOR_NAME.to_string(),
-            index_name: session_id.clone(),
-            filter: crate::persistence::ExtractorFilter::MemorySession {
-                session_id: session_id.clone(),
-            },
-        });
-        repo.extractor_bindings.push(extractor_binding);
+        if let Some(extractor_binding) = extractor {
+            repo.extractor_bindings.push(extractor_binding);
+        }
         self.repository.create(&repo).await?;
         Ok(session_id.to_string())
     }
@@ -184,6 +179,7 @@ mod tests {
                     filter: crate::persistence::ExtractorFilter::MemorySession {
                         session_id: session_id.into(),
                     },
+                    input_params: serde_json::json!({}),
                 }),
                 HashMap::new(),
             )

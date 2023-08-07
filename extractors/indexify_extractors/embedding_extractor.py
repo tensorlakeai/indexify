@@ -46,6 +46,7 @@ class MiniLML6Extractor(Extractor):
         return ExtractorInfo(
             name="MiniLML6",
             description="MiniLML6 Embeddings",
+            input_params="{'type': 'object'}",
             output_datatype="embedding",
             output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
         )

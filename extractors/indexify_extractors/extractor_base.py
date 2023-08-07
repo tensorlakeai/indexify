@@ -16,6 +16,7 @@ Content = namedtuple('Content', ['id', 'data'])
 class ExtractorInfo:
     name: str
     description: str
+    input_params: Any
     output_datatype: Datatype
     output_schema: Any
 
