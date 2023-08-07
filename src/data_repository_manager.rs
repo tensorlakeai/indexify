@@ -132,10 +132,10 @@ impl DataRepositoryManager {
             .await
             .unwrap();
         for ex in &data_repository.extractor_bindings {
-            if extractor.extractor_name == ex.extractor_name {
+            if extractor.index_name == ex.index_name {
                 return Err(DataRepositoryError::NotAllowed(format!(
-                    "extractor with name `{}` already exists",
-                    extractor.extractor_name
+                    "index with name `{}` already exists",
+                    extractor.index_name,
                 )));
             }
         }

@@ -54,6 +54,7 @@ class EntityExtractor:
         return ExtractorInfo(
             name="EntityExtractor",
             description="EntityExtractor",
+            input_params="{'type': 'object'}",
             output_datatype="attributes",
             output_schema= schema_json,
         )
