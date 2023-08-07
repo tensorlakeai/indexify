@@ -97,11 +97,7 @@ impl Text {
 #[serde(rename = "extractor_type")]
 pub enum ExtractorType {
     #[serde(rename = "embedding")]
-    Embedding {
-        model: String,
-        dim: usize,
-        distance: IndexDistance,
-    },
+    Embedding { dim: usize, distance: IndexDistance },
 
     #[serde(rename = "attributes")]
     Attributes { schema: String },
@@ -128,7 +124,6 @@ impl Default for ExtractorConfig {
             name: "default-embedder".to_string(),
             description: "Default Text Embedding Extractor".into(),
             extractor_type: ExtractorType::Embedding {
-                model: "all-minilm-l12-v2".to_string(),
                 dim: 384,
                 distance: IndexDistance::Cosine,
             },
@@ -1016,7 +1011,6 @@ mod tests {
         let extractor1 = ExtractorConfig {
             name: "extractor1".into(),
             extractor_type: ExtractorType::Embedding {
-                model: "model1".into(),
                 dim: 2,
                 distance: IndexDistance::Cosine,
             },
@@ -1032,7 +1026,6 @@ mod tests {
         let extractor2 = ExtractorConfig {
             name: "extractor2".into(),
             extractor_type: ExtractorType::Embedding {
-                model: "model2".into(),
                 dim: 2,
                 distance: IndexDistance::Cosine,
             },

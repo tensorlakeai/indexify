@@ -102,7 +102,6 @@ impl DataRepositoryManager {
                 .extractor_by_name(&extractor_binding.extractor_name)
                 .await?;
             if let ExtractorType::Embedding {
-                model: _,
                 dim: _,
                 distance: _,
             } = extractor.extractor_type.clone()

@@ -137,7 +137,6 @@ impl Extractor1 for PythonDriver {
                     let embedding_schema: EmbeddingSchema =
                         info.getattr(py, "output_schema")?.extract(py)?;
                     Ok(ExtractorType::Embedding {
-                        model: "unknown".to_string(),
                         dim: embedding_schema.dim,
                         distance: IndexDistance::from_str(
                             embedding_schema.distance_metric.as_str(),

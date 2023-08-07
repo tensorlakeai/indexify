@@ -28,7 +28,6 @@ impl VectorIndexManager {
         for extractor in server_config.extractors.iter() {
             let extractor = create_extractor(extractor.clone()).unwrap();
             if let ExtractorType::Embedding {
-                model: _,
                 dim: _,
                 distance: _,
             } = extractor.info().unwrap().extractor_type
@@ -50,12 +49,7 @@ impl VectorIndexManager {
         extractor_config: ExtractorConfig,
     ) -> Result<()> {
         let mut index_params: Option<CreateIndexParams> = None;
-        if let ExtractorType::Embedding {
-            model: _,
-            dim,
-            distance,
-        } = &extractor_config.extractor_type
-        {
+        if let ExtractorType::Embedding { dim, distance } = &extractor_config.extractor_type {
             let vector_index_name = format!("{}/{}", repository, index_name);
             let create_index_params = CreateIndexParams {
                 vectordb_index_name: vector_index_name,

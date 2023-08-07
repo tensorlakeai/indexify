@@ -15,11 +15,7 @@ use crate::vectordbs;
 #[serde(rename = "extractor_type")]
 pub enum ExtractorType {
     #[serde(rename = "embedding")]
-    Embedding {
-        model: String,
-        dim: usize,
-        distance: IndexDistance,
-    },
+    Embedding { dim: usize, distance: IndexDistance },
 
     #[serde(rename = "embedding")]
     Attributes { schema: String },
@@ -28,12 +24,7 @@ pub enum ExtractorType {
 impl From<persistence::ExtractorType> for ExtractorType {
     fn from(value: persistence::ExtractorType) -> Self {
         match value {
-            persistence::ExtractorType::Embedding {
-                model,
-                dim,
-                distance,
-            } => ExtractorType::Embedding {
-                model,
+            persistence::ExtractorType::Embedding { dim, distance } => ExtractorType::Embedding {
                 dim,
                 distance: distance.into(),
             },

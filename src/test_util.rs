@@ -67,10 +67,6 @@ pub mod db_utils {
         let default_extractor = ExtractorConfig {
             name: DEFAULT_TEST_EXTRACTOR.into(),
             extractor_type: ExtractorType::Embedding {
-                model: ServerConfig::default()
-                    .default_model()
-                    .model_kind
-                    .to_string(),
                 dim: 384,
                 distance: IndexDistance::Cosine,
             },
