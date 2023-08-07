@@ -29,6 +29,8 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.2.2
     restart: always
+    ports:
+      - 6333:6333
     networks:
         dependencies:
             ipv4_address: 172.20.0.8
