@@ -1,6 +1,6 @@
 # Welcome to Indexify
 
-Indexify is a Retrieval and Memory Service for Generative AI Applications. If you are building a Retrieval Augmented Generation 
+Indexify is a Retrieval and Long Term Memory Service for Generative AI Applications.
 
 Indexes are always kept up to date by running extraction models such as embedding, NER, etc. on new documents that are uploaded to the service. Indexify has a built in distributed extraction scheduler that allows indexing large amount of data for production use cases.
 
