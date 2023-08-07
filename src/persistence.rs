@@ -117,6 +117,7 @@ pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
     pub extractor_type: ExtractorType,
+    pub input_params: serde_json::Value,
 }
 
 impl Default for ExtractorConfig {
@@ -128,6 +129,7 @@ impl Default for ExtractorConfig {
                 dim: 384,
                 distance: IndexDistance::Cosine,
             },
+            input_params: serde_json::json!({}),
         }
     }
 }
@@ -139,6 +141,7 @@ impl From<extractors::Model> for ExtractorConfig {
             name: model.id,
             description: model.description,
             extractor_type,
+            input_params: model.input_params,
         }
     }
 }
@@ -828,6 +831,7 @@ impl Repository {
             name: extractor_model.id,
             description: extractor_model.description,
             extractor_type: serde_json::from_value(extractor_model.extractor_type).unwrap(),
+            input_params: extractor_model.input_params,
         })
     }
 
@@ -892,7 +896,7 @@ impl Repository {
                 id: Set(extractor.name),
                 description: Set(extractor.description),
                 extractor_type: Set(json!(extractor.extractor_type)),
-                config: NotSet,
+                input_params: Set(extractor.input_params),
             });
         }
         let res = entity::extractors::Entity::insert_many(extractor_models)

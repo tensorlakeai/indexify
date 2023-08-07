@@ -48,6 +48,7 @@ class MiniLML6Extractor(Extractor):
             description="MiniLML6 Embeddings",
             input_params="{'type': 'object'}",
             output_datatype="embedding",
+            input_params=str(EmbeddingInputParams.model_json_schema()),
             output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
         )
     

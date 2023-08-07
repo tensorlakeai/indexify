@@ -1,12 +1,17 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Literal
 from transformers import AutoTokenizer, AutoModelForTokenClassification
 from transformers import pipeline
 from decimal import Decimal 
 from enum import Enum
 import json
 from typing import Optional
-from .extractor_base import Datatype, Extractor, ExtractorInfo, Content
+from .extractor_base import Extractor, ExtractorInfo, Content
+from pydantic import BaseModel
+
+class EntityExtractionInputParams(BaseModel):
+    overlap: int = 0
+    text_splitter: Literal['char', 'token', 'recursive', 'new_line']  = 'new_line'
 
 @dataclass
 class ExtractedAttributes:
@@ -56,6 +61,7 @@ class EntityExtractor:
             description="EntityExtractor",
             input_params="{'type': 'object'}",
             output_datatype="attributes",
+            input_params=EntityExtractionInputParams.model_json_schema(),
             output_schema= schema_json,
         )
 

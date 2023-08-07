@@ -47,10 +47,11 @@ pub struct ExtractorInfo {
     pub name: String,
     pub description: String,
     pub output_datatype: String,
+    pub input_params: String,
 }
 
-pub type ExtractorTS = Arc<dyn Extractor1 + Sync + Send>;
-pub trait Extractor1 {
+pub type ExtractorTS = Arc<dyn Extractor + Sync + Send>;
+pub trait Extractor {
     fn info(&self) -> Result<persistence::ExtractorConfig, anyhow::Error>;
 
     fn extract_embedding(
@@ -75,16 +76,6 @@ pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<Ex
         }
         _ => Err(anyhow!("unsupported extractor driver")),
     }
-}
-
-#[async_trait::async_trait]
-pub trait Extractor<I, O> {
-    async fn extract_and_store(
-        &self,
-        content: I,
-        index_name: &str,
-        repository: &str,
-    ) -> Result<(), anyhow::Error>;
 }
 
 pub struct PythonDriver {
@@ -127,7 +118,7 @@ impl PythonDriver {
 }
 
 #[async_trait::async_trait]
-impl Extractor1 for PythonDriver {
+impl Extractor for PythonDriver {
     fn info(&self) -> Result<ExtractorConfig, anyhow::Error> {
         let info = Python::with_gil(|py| {
             let info = self.module_object.call_method0(py, "info")?;
@@ -149,10 +140,13 @@ impl Extractor1 for PythonDriver {
                 }
                 _ => Err(anyhow!("unsupported output datatype")),
             }?;
+            let input_params =
+                serde_json::from_str::<serde_json::Value>(&extractor_info.input_params)?;
             let extractor_config = ExtractorConfig {
                 name: extractor_info.name,
                 description: extractor_info.description,
                 extractor_type,
+                input_params,
             };
             Ok(extractor_config)
         })?;
@@ -275,6 +269,7 @@ mod tests {
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "MiniLML6");
+        assert_eq!(info.input_params, serde_json::json!({}));
 
         let content1 = Content::new("1".into(), "hello world".to_string(), HashMap::new());
         let content2 = Content::new(

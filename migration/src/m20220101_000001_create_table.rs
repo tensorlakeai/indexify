@@ -188,7 +188,11 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(Extractors::Description).string().not_null())
-                    .col(ColumnDef::new(Extractors::Config).json_binary())
+                    .col(
+                        ColumnDef::new(Extractors::InputParams)
+                            .json_binary()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await;
@@ -331,5 +335,5 @@ enum Extractors {
     Id,
     Description,
     ExtractorType,
-    Config,
+    InputParams,
 }
