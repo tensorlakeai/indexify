@@ -38,18 +38,6 @@ pub struct ExtractorBinding {
     pub filter: ExtractorFilter,
 }
 
-impl Default for ExtractorBinding {
-    fn default() -> Self {
-        Self {
-            extractor_name: "default_embedder".to_string(),
-            index_name: "default_index".to_string(),
-            filter: ExtractorFilter::ContentType {
-                content_type: ContentType::Text,
-            },
-        }
-    }
-}
-
 #[derive(Serialize, Debug, Deserialize, Display, EnumString)]
 pub enum ExtractionEventPayload {
     SyncRepository { memory_session: Option<String> },
@@ -182,17 +170,6 @@ pub struct DataRepository {
     pub data_connectors: Vec<DataConnector>,
     pub extractor_bindings: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
-}
-
-impl Default for DataRepository {
-    fn default() -> Self {
-        Self {
-            name: "default".to_string(),
-            data_connectors: vec![],
-            extractor_bindings: vec![ExtractorBinding::default()],
-            metadata: HashMap::new(),
-        }
-    }
 }
 
 impl From<entity::data_repository::Model> for DataRepository {
