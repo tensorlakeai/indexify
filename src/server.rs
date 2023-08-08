@@ -167,7 +167,7 @@ async fn root() -> &'static str {
 #[axum_macros::debug_handler]
 #[utoipa::path(
     post,
-    path = "/repository/sync",
+    path = "/repository/create",
     request_body = SyncRepository,
     tag = "indexify",
     responses(
