@@ -49,19 +49,6 @@ class ARepository:
             async with session.post(f"{self._url}/add_texts", json=req) as resp:
                 return await _get_payload(resp)
 
-    async def _create_repository(self):
-       req = {"name": self._name, "extractors": [], "metadata": {}}
-       async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self._url}/create", json=req) as resp:
-                return await _get_payload(resp)
-
-    async def _list_repositories(self):
-       async with aiohttp.ClientSession() as session:
-            async with session.get(f"{self._url}/list") as resp:
-                return await _get_payload(resp)
-
-
-
 
 class Repository(ARepository):
 
