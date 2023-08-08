@@ -268,7 +268,8 @@ mod tests {
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "MiniLML6");
-        assert_eq!(info.input_params.to_string(), "{\"properties\":{\"overlap\":{\"default\":0,\"title\":\"Overlap\",\"type\":\"integer\"},\"text_splitter\":{\"default\":\"new_line\",\"enum\":[\"char\",\"token\",\"recursive\",\"new_line\"],\"title\":\"Text Splitter\",\"type\":\"string\"}},\"title\":\"EmbeddingInputParams\",\"type\":\"object\"}");
+        let json_schema = "{\"properties\":{\"overlap\":{\"default\":0,\"title\":\"Overlap\",\"type\":\"integer\"},\"text_splitter\":{\"default\":\"recursive\",\"enum\":[\"char\",\"recursive\"],\"title\":\"Text Splitter\",\"type\":\"string\"}},\"title\":\"EmbeddingInputParams\",\"type\":\"object\"}";
+        assert_eq!(info.input_params.to_string(), json_schema);
 
         let content1 = Content::new("1".into(), "hello world".to_string(), HashMap::new());
         let content2 = Content::new(
@@ -279,7 +280,7 @@ mod tests {
 
         let content = vec![content1, content2];
         let input_params =
-            serde_json::from_str("{\"overlap\":5,\"text_splitter\":\"new_line\"}").unwrap();
+            serde_json::from_str("{\"overlap\":5,\"text_splitter\":\"recursive\"}").unwrap();
         let extracted_data = extractor.extract_embedding(content, input_params).unwrap();
         assert_eq!(extracted_data.len(), 2);
     }
