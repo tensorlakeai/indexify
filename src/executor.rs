@@ -158,11 +158,19 @@ impl ExtractorExecutor {
             .text()
             .await?;
 
-        let resp: SyncWorkerResponse = serde_json::from_str(&json_resp)?;
+        let resp: Result<SyncWorkerResponse, serde_json::Error> = serde_json::from_str(&json_resp);
+        if let Err(err) = resp {
+            return Err(anyhow!(
+                "unable to parse server response: err: {:?}, resp: {}",
+                err,
+                &json_resp
+            ));
+        }
 
         self.work_store.remove_finished_work();
 
-        self.work_store.add_work_list(resp.content_to_process);
+        self.work_store
+            .add_work_list(resp.unwrap().content_to_process);
 
         if let Err(err) = self.perform_work().await {
             error!("unable perform work: {:?}", err);

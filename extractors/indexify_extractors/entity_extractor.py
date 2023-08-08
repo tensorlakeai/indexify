@@ -1,12 +1,16 @@
 from dataclasses import dataclass
-from typing import List
-from transformers import AutoTokenizer, AutoModelForTokenClassification
-from transformers import pipeline
+from typing import List, Literal
+from span_marker import SpanMarkerModel
 from decimal import Decimal 
 from enum import Enum
 import json
 from typing import Optional
-from .extractor_base import Datatype, Extractor, ExtractorInfo, Content
+from .extractor_base import Extractor, ExtractorInfo, Content
+from pydantic import BaseModel
+
+class EntityExtractionInputParams(BaseModel):
+    overlap: int = 0
+    text_splitter: Literal['char', 'token', 'recursive', 'new_line']  = 'new_line'
 
 @dataclass
 class ExtractedAttributes:
@@ -16,33 +20,39 @@ class ExtractedAttributes:
 class EntityType(Enum): 
     def get_entity_type(type: str) -> str:
         entity_type_map = {
-            "B-PER": "Person",
-            "B-ORG": "Organization",
-            "I-ORG": "Organization",
-            "B-LOC": "Location",
-            "I-LOC": "Location"
+            "PER": "Person",
+            "ORG": "Organization",
+            "LOC": "Location",
+            "ANIM": "Animal",
+            "BIO": "Biological",
+            "CELL": "Celestial",
+            "DIS": "Disease",
+            "EVE": "Event",
+            "FOOD": "Food",
+            "INST": "Instrument",
+            "MEDIA": "Media",
+            "PLANT": "Plant",
+            "MYTH": "Mythological",
+            "TIME": "Time",
+            "VEHI": "Vehicle",
          }   
         return entity_type_map.get(type, "INVALID")
     
 
 class EntityExtractor:
    
-    def __init__(self, model_name: str = "dslim/bert-base-NER"):
-        self.model_name = model_name
-        # Load model - https://huggingface.co/dslim/bert-base-NER
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModelForTokenClassification.from_pretrained(self.model_name)
-        self._ctx_pipeline = pipeline("ner", model=self._model, tokenizer=self._tokenizer)
+    def __init__(self):
+        self._model = SpanMarkerModel.from_pretrained("tomaarsen/span-marker-xlm-roberta-base-multinerd")
 
     def extract(self, content: List[Content], params: dict[str, str]) -> List[ExtractedAttributes]:
         content_texts = [c.data for c in content]
-        results = self._ctx_pipeline(content_texts)
+        results = self._model.predict(content_texts)
         attributes = []
         for (i, ner_list) in enumerate(results):
             content_id = content[i].id
             for ner in ner_list:
-                name = EntityType.get_entity_type(ner["entity"])
-                value = ner["word"]
+                name = EntityType.get_entity_type(ner["label"])
+                value = ner["span"]
                 score = ner["score"]
                 data = json.dumps({"entity": name, "value": value, "score": str(score)})
                 attributes.append(ExtractedAttributes(content_id=content_id, json=data))
@@ -54,8 +64,8 @@ class EntityExtractor:
         return ExtractorInfo(
             name="EntityExtractor",
             description="EntityExtractor",
-            input_params="{'type': 'object'}",
             output_datatype="attributes",
+            input_params=json.dumps(EntityExtractionInputParams.model_json_schema()),
             output_schema= schema_json,
         )
 
