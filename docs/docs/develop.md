@@ -19,7 +19,7 @@ Install the python server dependencies
 ```
 Install the server libs 
 ```
-(cd src_py && pip install .)
+(cd extractors && pip install .)
 ```
 
 ### MAC OS
@@ -29,7 +29,7 @@ The following workaround is needed until PyO3 can detect virtualenvs in OSX
 ```
 
 ## Running Tests
-We currently have a hard dependency on the Qdrant VectorDB and Postgres to test Indexify. 
+We currently depend on the Qdrant VectorDB and Postgres to test Indexify. 
 
 ### Start Development Dependencies
 ```
@@ -58,7 +58,7 @@ make migrate-dev
 ### Start the server
 Once the binary is built start it with a default config -
 ```
-./target/debug/indexify start -c ./local_config.yaml
+./target/debug/indexify start-server  -d -c local_config.yaml
 ```
 
 ## Visual Studio DevContainer
@@ -66,4 +66,4 @@ Visual Studio Code Devcontainers have been setup as well. Opening the codebase i
 
 1. `make local-dev`
 2. Install the Python Dependencies as described above.
-3. Compile and Run the application as descibed above.
+3. Compile and Run the application as described above.
