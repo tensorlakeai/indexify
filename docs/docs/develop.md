@@ -21,6 +21,10 @@ Install the server libs
 ```
 (cd extractors && pip install .)
 ```
+If you are working on the Python SDK then install the SDK as well 
+```
+(cd sdk-py && pip install .)
+```
 
 ### MAC OS
 The following workaround is needed until PyO3 can detect virtualenvs in OSX
