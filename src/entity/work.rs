@@ -13,8 +13,8 @@ pub struct Model {
     pub content_id: String,
     pub index_name: String,
     pub extractor: String,
-    #[sea_orm(column_type = "JsonBinary", nullable)]
-    pub extractor_params: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub extractor_params: Json,
     pub repository_id: String,
 }
 

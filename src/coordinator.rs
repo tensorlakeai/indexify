@@ -8,9 +8,7 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
-    persistence::{
-        ExtractionEventPayload, ExtractorConfig, ExtractorParams, Repository, Work, WorkState,
-    },
+    persistence::{ExtractionEventPayload, ExtractorConfig, Repository, Work, WorkState},
     ServerConfig,
 };
 use indexmap::{IndexMap, IndexSet};
@@ -174,15 +172,12 @@ impl Coordinator {
                 .await?;
             for content in content_list {
                 info!("Creating work for content {}", &content.id);
-                let extractor_params = &ExtractorParams {
-                    params: HashMap::new(),
-                };
                 let work = Work::new(
                     &content.id,
                     repository_id,
                     &extractor_binding.index_name,
                     &extractor_binding.extractor_name,
-                    extractor_params,
+                    &extractor_binding.input_params,
                     None,
                 );
                 self.repository.insert_work(&work).await?;
