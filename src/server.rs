@@ -453,8 +453,9 @@ async fn index_search(
     let document_fragments: Vec<DocumentFragment> = results
         .iter()
         .map(|text| DocumentFragment {
-            text: text.text.to_owned(),
-            metadata: text.metadata.to_owned(),
+            text: text.text.text.clone(),
+            metadata: text.text.metadata.clone(),
+            confidence_score: text.confidence_score,
         })
         .collect();
     Ok(Json(IndexSearchResponse {

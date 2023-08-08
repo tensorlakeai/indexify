@@ -33,8 +33,8 @@ Indexify comes with Python and Typescript clients. They use the HTTP APIs expose
 Let's bind an embedding extractor to the repository so that we can do semantic search over text, and an named entity extractor so that we can look up some facts in the form of key/value pairs from the doc.
 === "curl"
     ```
-    curl -X POST http://localhost:8900/repository/add_extractor 
-    -H "Content-Type: application/json"
+    curl -X POST http://localhost:8900/repository/add_extractor \
+    -H "Content-Type: application/json" \
     -d '{
         "repository": "default",
         "name": "EntityExtractor",
@@ -44,8 +44,8 @@ Let's bind an embedding extractor to the repository so that we can do semantic s
         }
     }'
 
-    curl -X POST http://localhost:8900/repository/add_extractor
-    -H "Content-Type: application/json"
+    curl -X POST http://localhost:8900/repository/add_extractor \
+    -H "Content-Type: application/json" \
     -d '{
         "repository": "default",
         "name": "MiniLML6",
@@ -86,8 +86,8 @@ Query the index created by the named entity extractor. The index will have json 
 
 === "curl"
     ```
-    curl -X GET http://localhost:8900/repository/attribute_lookup
-    -H "Content-Type: application/json" 
+    curl -X GET http://localhost:8900/repository/attribute_lookup \
+    -H "Content-Type: application/json" \
     -d'{
         "repository": "default",
         "index": "entityindex"
@@ -102,7 +102,7 @@ Next let's query the index created by the embedding extractor. The index will al
     -H "Content-Type: application/json" \
     -d '{
             "repository": "default",
-            "index": "default_index",
+            "index": "embeddingindex",
             "query": "good", 
             "k": 1
         }'
@@ -120,6 +120,32 @@ Memory is usually stored for interactions of an agent with a user or in a given 
     ```
     You can optionally pass in a `session-id` while creating a session if you would
     like to use a user-id or any other application id to retrieve and search for memory.
+
+- Add Extractors for the Memory Session
+=== "curl
+    ```
+    curl -X POST http://localhost:8900/repository/add_extractor \
+    -H "Content-Type: application/json" \
+    -d '{
+        "repository": "default",
+        "name": "MiniLML6",
+        "index_name": "embeddingindex1",
+        "filter": {
+            "session_id": "A-e4dhSBoP4bJtVY0bgQw"
+            }
+        }'
+
+        curl -X POST http://localhost:8900/repository/add_extractor \
+        -H "Content-Type: application/json" \
+        -d '{
+            "repository": "default",
+            "name": "EntityExtractor",
+            "index_name": "entityextractor1",
+            "filter": {
+                "session_id": "A-e4dhSBoP4bJtVY0bgQw"
+                }
+            }'
+    ```
 
 
 - Add Memory Events
@@ -165,7 +191,8 @@ from the messages(like named entities - places, names, etc).
     curl -X GET http://localhost:8900/memory/search \
     -H "Content-Type: application/json" \
     -d '{
-            "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
+            "repository": "default",
+            "index": "embeddingindex1",
             "query": "indexify"
         }'
     ```

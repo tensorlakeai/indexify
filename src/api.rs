@@ -29,7 +29,7 @@ impl From<persistence::ExtractorType> for ExtractorType {
                 distance: distance.into(),
             },
             persistence::ExtractorType::Attributes { schema } => {
-                ExtractorType::Attributes { schema: schema }
+                ExtractorType::Attributes { schema }
             }
         }
     }
@@ -63,7 +63,7 @@ impl From<ExtractorContentType> for persistence::ContentType {
 #[serde(rename = "extractor_filter")]
 #[serde(untagged)]
 pub enum ExtractorFilter {
-    #[serde(rename = "memory_session")]
+    #[serde(rename = "memory_session_id")]
     MemorySession { session_id: String },
 
     #[serde(rename = "content_type")]
@@ -105,6 +105,7 @@ pub struct ExtractorBinding {
     pub name: String,
     pub index_name: Option<String>,
     pub filter: ExtractorFilter,
+    pub input_params: Option<serde_json::Value>,
 }
 
 impl From<persistence::ExtractorBinding> for ExtractorBinding {
@@ -113,6 +114,7 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
             name: value.extractor_name,
             index_name: Some(value.index_name),
             filter: value.filter.into(),
+            input_params: Some(value.input_params),
         }
     }
 }
@@ -123,6 +125,7 @@ impl From<ExtractorBinding> for persistence::ExtractorBinding {
             extractor_name: val.name.clone(),
             index_name: val.index_name.unwrap_or(val.name.clone()),
             filter: val.filter.into(),
+            input_params: val.input_params.unwrap_or(serde_json::json!({})),
         }
     }
 }
@@ -425,6 +428,7 @@ pub struct MemorySessionSearchResponse {
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct DocumentFragment {
     pub text: String,
+    pub confidence_score: f32,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

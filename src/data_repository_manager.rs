@@ -4,7 +4,6 @@ use thiserror::Error;
 use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
-pub const DEFAULT_EXTRACTOR_NAME: &str = "default_embedder";
 
 use crate::{
     attribute_index::AttributeIndexManager,
@@ -13,7 +12,7 @@ use crate::{
         DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorConfig, ExtractorType,
         Repository, RepositoryError, Text,
     },
-    vector_index::VectorIndexManager,
+    vector_index::{ScoredText, VectorIndexManager},
     ServerConfig,
 };
 
@@ -133,10 +132,10 @@ impl DataRepositoryManager {
             .await
             .unwrap();
         for ex in &data_repository.extractor_bindings {
-            if extractor.extractor_name == ex.extractor_name {
+            if extractor.index_name == ex.index_name {
                 return Err(DataRepositoryError::NotAllowed(format!(
-                    "extractor with name `{}` already exists",
-                    extractor.extractor_name
+                    "index with name `{}` already exists",
+                    extractor.index_name,
                 )));
             }
         }
@@ -187,7 +186,7 @@ impl DataRepositoryManager {
         index_name: &str,
         query: &str,
         k: u64,
-    ) -> Result<Vec<Text>, DataRepositoryError> {
+    ) -> Result<Vec<ScoredText>, DataRepositoryError> {
         self.vector_index_manager
             .search(repository, index_name, query, k as usize)
             .await
@@ -241,10 +240,11 @@ mod tests {
             name: "test".to_string(),
             extractor_bindings: vec![ExtractorBinding {
                 extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
-                index_name: DEFAULT_EXTRACTOR_NAME.to_string(),
+                index_name: "default_embedder".to_string(),
                 filter: ExtractorFilter::ContentType {
                     content_type: ContentType::Text,
                 },
+                input_params: serde_json::json!({}),
             }],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {
