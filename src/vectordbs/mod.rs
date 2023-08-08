@@ -36,6 +36,7 @@ pub struct CreateIndexParams {
 pub struct SearchResult {
     pub text: String,
     pub chunk_id: String,
+    pub confidence_score: f32,
 }
 
 /// An enumeration of possible errors that can occur while interacting with the vector database.
