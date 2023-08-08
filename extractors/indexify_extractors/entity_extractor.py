@@ -1,11 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Literal
-<<<<<<< HEAD
 from span_marker import SpanMarkerModel
-=======
-from transformers import AutoTokenizer, AutoModelForTokenClassification
-from transformers import pipeline
->>>>>>> 1d2a255 (added input params to extractorbindings)
 from decimal import Decimal 
 from enum import Enum
 import json
