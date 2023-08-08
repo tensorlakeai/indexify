@@ -4,7 +4,7 @@ from typing import Any, Optional, List, Literal
 
 from dataclasses import dataclass
 from pydantic import BaseModel
-from enum import Enum
+import json
 from .sentence_transformer import SentenceTransformersEmbedding
 from .extractor_base import Datatype, Extractor, ExtractorInfo, Content
 
@@ -46,8 +46,8 @@ class MiniLML6Extractor(Extractor):
         return ExtractorInfo(
             name="MiniLML6",
             description="MiniLML6 Embeddings",
-            input_params="{'type': 'object'}",
             output_datatype="embedding",
+            input_params=json.dumps(EmbeddingInputParams.model_json_schema()),
             output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
         )
     
