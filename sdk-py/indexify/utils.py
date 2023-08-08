@@ -18,11 +18,9 @@ class Metric(str, Enum):
 
 
 async def _get_payload(response):
-    try:
-        resp = await response.text()
-        return json.loads(resp)
-    except:
-        raise ApiException(resp)
+    response.raise_for_status()
+    resp = await response.text()
+    return json.loads(resp)
 
 
 def wait_until(functions):

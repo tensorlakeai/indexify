@@ -10,7 +10,7 @@ repository = "https://github.com/diptanu/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
-asyncio = "^3.4.3"
+# asyncio = "^3.4.3"
 aiohttp = "^3.4"
 
 [tool.poetry.dev-dependencies]
