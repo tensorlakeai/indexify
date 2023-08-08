@@ -130,7 +130,8 @@ impl MemoryManager {
             .repository
             .search(repository, session_id, query, k)
             .await?;
-        let messages = get_messages_from_texts(search_results);
+        let messages = search_results.into_iter().map(|r| r.text).collect();
+        let messages = get_messages_from_texts(messages);
         Ok(messages)
     }
 }

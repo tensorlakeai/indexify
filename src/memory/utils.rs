@@ -4,17 +4,21 @@ use serde_json::json;
 
 use crate::{persistence::Text, Message};
 
-pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
+fn get_role(metadata: &HashMap<String, serde_json::Value>) -> String {
     let default_role = &"unknown".to_string();
+    metadata
+        .get("role")
+        .and_then(|r| r.as_str())
+        .unwrap_or(default_role)
+        .to_string()
+}
+
+pub fn get_messages_from_texts(texts: Vec<Text>) -> Vec<Message> {
     let messages: Vec<Message> = texts
         .iter()
         .map(|text| {
-            let role: &str = text
-                .metadata
-                .get("role")
-                .and_then(|r| r.as_str())
-                .unwrap_or(default_role);
-            Message::new(&text.text, role, text.metadata.clone())
+            let role = get_role(&text.metadata);
+            Message::new(&text.text, &role, text.metadata.clone())
         })
         .collect();
     messages

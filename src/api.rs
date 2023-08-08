@@ -428,6 +428,7 @@ pub struct MemorySessionSearchResponse {
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct DocumentFragment {
     pub text: String,
+    pub confidence_score: f32,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

@@ -12,7 +12,7 @@ use crate::{
         DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorConfig, ExtractorType,
         Repository, RepositoryError, Text,
     },
-    vector_index::VectorIndexManager,
+    vector_index::{ScoredText, VectorIndexManager},
     ServerConfig,
 };
 
@@ -186,7 +186,7 @@ impl DataRepositoryManager {
         index_name: &str,
         query: &str,
         k: u64,
-    ) -> Result<Vec<Text>, DataRepositoryError> {
+    ) -> Result<Vec<ScoredText>, DataRepositoryError> {
         self.vector_index_manager
             .search(repository, index_name, query, k as usize)
             .await

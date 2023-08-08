@@ -18,6 +18,11 @@ pub struct VectorIndexManager {
     embedding_extractors: DashMap<String, ExtractorTS>,
 }
 
+pub struct ScoredText {
+    pub text: Text,
+    pub confidence_score: f32,
+}
+
 impl VectorIndexManager {
     pub fn new(
         server_config: Arc<ServerConfig>,
@@ -101,7 +106,7 @@ impl VectorIndexManager {
         index: &str,
         query: &str,
         k: usize,
-    ) -> Result<Vec<Text>, IndexError> {
+    ) -> Result<Vec<ScoredText>, IndexError> {
         let index_info = self.repository.get_index(index, repository).await?;
         let vector_index_name = index_info.vector_index_name.clone().unwrap();
         let embeddings = self
@@ -122,10 +127,13 @@ impl VectorIndexManager {
                 error!("Chunk with id {} not found", result.chunk_id);
                 continue;
             }
-            let search_result = Text {
-                id: chunk.as_ref().unwrap().content_id.clone(),
-                text: chunk.as_ref().unwrap().text.clone(),
-                metadata: chunk.as_ref().unwrap().metadata.clone(),
+            let search_result = ScoredText {
+                text: Text {
+                    id: chunk.as_ref().unwrap().content_id.clone(),
+                    text: chunk.as_ref().unwrap().text.clone(),
+                    metadata: chunk.as_ref().unwrap().metadata.clone(),
+                },
+                confidence_score: result.confidence_score,
             };
             index_search_results.push(search_result);
         }
