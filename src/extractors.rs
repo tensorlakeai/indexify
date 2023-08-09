@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Ok, Result};
 
+use pythonize::pythonize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, sync::Arc};
@@ -12,7 +13,7 @@ use crate::{
 };
 use pyo3::{
     prelude::*,
-    types::{IntoPyDict, PyList, PyString},
+    types::{PyList, PyString},
 };
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -57,6 +58,7 @@ pub trait Extractor {
     fn extract_embedding(
         &self,
         content: Vec<persistence::Content<String>>,
+        input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error>;
 
     fn extract_embedding_query(&self, query: &str) -> Result<Vec<f32>, anyhow::Error>;
@@ -64,6 +66,7 @@ pub trait Extractor {
     fn extract_attributes(
         &self,
         content: Vec<persistence::Content<String>>,
+        input_params: serde_json::Value,
     ) -> Result<Vec<AttributeData>, anyhow::Error>;
 }
 
@@ -156,13 +159,10 @@ impl Extractor for PythonDriver {
     fn extract_embedding(
         &self,
         content: Vec<persistence::Content<String>>,
+        input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
-            let kwargs = [
-                ("overlap", 0.to_object(py)),
-                ("text_splitter", "new_line".to_object(py)),
-            ];
-            let args = kwargs.into_py_dict(py);
+            let kwargs = pythonize(py, &input_params)?;
             let content = content
                 .into_iter()
                 .map(|c| {
@@ -177,9 +177,9 @@ impl Extractor for PythonDriver {
                 })
                 .collect::<Vec<Py<PyContent>>>();
 
-            let extracted_data = self
-                .module_object
-                .call_method1(py, "extract", (content, args))?;
+            let extracted_data =
+                self.module_object
+                    .call_method1(py, "extract", (content, kwargs))?;
             let extracted_data: Vec<ExtractedEmbeddings> = extracted_data.extract(py)?;
             Ok(extracted_data)
         })?;
@@ -200,14 +200,11 @@ impl Extractor for PythonDriver {
     fn extract_attributes(
         &self,
         content: Vec<persistence::Content<String>>,
+        input_params: serde_json::Value,
     ) -> Result<Vec<AttributeData>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
             let content = content.to_vec();
-            let kwargs = [
-                ("overlap", 0.to_object(py)),
-                ("text_splitter", "new_line".to_object(py)),
-            ];
-            let args = kwargs.into_py_dict(py);
+            let kwargs = pythonize(py, &input_params)?;
             let content = content
                 .into_iter()
                 .map(|c| {
@@ -222,9 +219,9 @@ impl Extractor for PythonDriver {
                 })
                 .collect::<Vec<Py<PyContent>>>();
 
-            let extracted_data = self
-                .module_object
-                .call_method1(py, "extract", (content, args))?;
+            let extracted_data =
+                self.module_object
+                    .call_method1(py, "extract", (content, kwargs))?;
 
             #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
             struct InternalAttributeData {
@@ -257,6 +254,8 @@ impl Extractor for PythonDriver {
 mod tests {
     use std::collections::HashMap;
 
+    use serde_json::json;
+
     use crate::persistence::Content;
 
     use super::*;
@@ -269,7 +268,7 @@ mod tests {
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "MiniLML6");
-        assert_eq!(info.input_params, serde_json::json!({}));
+        assert_eq!(info.input_params.to_string(), "{\"properties\":{\"overlap\":{\"default\":0,\"title\":\"Overlap\",\"type\":\"integer\"},\"text_splitter\":{\"default\":\"new_line\",\"enum\":[\"char\",\"token\",\"recursive\",\"new_line\"],\"title\":\"Text Splitter\",\"type\":\"string\"}},\"title\":\"EmbeddingInputParams\",\"type\":\"object\"}");
 
         let content1 = Content::new("1".into(), "hello world".to_string(), HashMap::new());
         let content2 = Content::new(
@@ -279,7 +278,9 @@ mod tests {
         );
 
         let content = vec![content1, content2];
-        let extracted_data = extractor.extract_embedding(content).unwrap();
+        let input_params =
+            serde_json::from_str("{\"overlap\":5,\"text_splitter\":\"new_line\"}").unwrap();
+        let extracted_data = extractor.extract_embedding(content, input_params).unwrap();
         assert_eq!(extracted_data.len(), 2);
     }
 
@@ -310,7 +311,9 @@ mod tests {
             "My name is Donald and I live in Seattle".to_string(),
             HashMap::new(),
         );
-        let extracted_data = extractor.extract_attributes(vec![content1]).unwrap();
+        let extracted_data = extractor
+            .extract_attributes(vec![content1], json!({}))
+            .unwrap();
         assert_eq!(extracted_data.len(), 2);
     }
 }

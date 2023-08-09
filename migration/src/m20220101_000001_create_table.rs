@@ -120,7 +120,11 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Work::ContentId).string().not_null())
                     .col(ColumnDef::new(Work::IndexName).string().not_null())
                     .col(ColumnDef::new(Work::Extractor).string().not_null())
-                    .col(ColumnDef::new(Work::ExtractorParams).json_binary())
+                    .col(
+                        ColumnDef::new(Work::ExtractorParams)
+                            .json_binary()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(Work::RepositoryId).string().not_null())
                     .to_owned(),
             )

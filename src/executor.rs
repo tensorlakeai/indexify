@@ -219,7 +219,8 @@ impl ExtractorExecutor {
                     "extracting embedding - repository: {}, extractor: {}, index: {}, content id: {}",
                     &work.repository_id, &work.extractor, &work.index_name, &content.id
                 );
-                let extracted_embeddings = extractor.extract_embedding(vec![content.clone()])?;
+                let extracted_embeddings = extractor
+                    .extract_embedding(vec![content.clone()], work.extractor_params.clone())?;
                 self.vector_index_manager
                     .add_embedding(&work.repository_id, &work.index_name, extracted_embeddings)
                     .await?;
@@ -233,7 +234,7 @@ impl ExtractorExecutor {
                     &work.repository_id, &work.extractor, &work.index_name, &content.id
                 );
                 let extracted_attributes = extractor
-                    .extract_attributes(vec![content])?
+                    .extract_attributes(vec![content], work.extractor_params.clone())?
                     .into_iter()
                     .map(|d| {
                         ExtractedAttributes::new(

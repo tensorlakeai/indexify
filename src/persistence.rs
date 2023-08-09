@@ -298,11 +298,6 @@ pub enum WorkState {
     Failed,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ExtractorParams {
-    pub params: HashMap<String, serde_json::Value>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Work {
     pub id: String,
@@ -310,7 +305,7 @@ pub struct Work {
     pub repository_id: String,
     pub index_name: String,
     pub extractor: String,
-    pub extractor_params: ExtractorParams,
+    pub extractor_params: serde_json::Value,
     pub work_state: WorkState,
     pub worker_id: Option<String>,
 }
@@ -321,7 +316,7 @@ impl Work {
         repository: &str,
         index_name: &str,
         extractor: &str,
-        extractor_params: &ExtractorParams,
+        extractor_params: &serde_json::Value,
         worker_id: Option<&str>,
     ) -> Self {
         let mut s = DefaultHasher::new();
@@ -356,10 +351,7 @@ impl From<work::Model> for Work {
             repository_id: model.repository_id,
             index_name: model.index_name,
             extractor: model.extractor,
-            extractor_params: model
-                .extractor_params
-                .map(|s| serde_json::from_value(s).unwrap())
-                .unwrap_or_default(),
+            extractor_params: model.extractor_params,
             work_state: WorkState::from_str(&model.state).unwrap(),
             worker_id: model.worker_id,
         }
@@ -902,7 +894,10 @@ impl Repository {
         let res = entity::extractors::Entity::insert_many(extractor_models)
             .on_conflict(
                 OnConflict::column(entity::extractors::Column::Id)
-                    .do_nothing()
+                    .update_columns(vec![
+                        entity::extractors::Column::Description,
+                        entity::extractors::Column::InputParams,
+                    ])
                     .to_owned(),
             )
             .exec(&self.conn)
@@ -948,7 +943,7 @@ impl Repository {
             content_id: Set(work.content_id.clone()),
             index_name: Set(work.index_name.clone()),
             extractor: Set(work.extractor.clone()),
-            extractor_params: Set(Some(json!(work.extractor_params))),
+            extractor_params: Set(work.extractor_params.clone()),
             repository_id: Set(work.repository_id.clone()),
         };
         WorkEntity::insert(work_model).exec(&self.conn).await?;

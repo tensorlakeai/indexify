@@ -1475,6 +1475,7 @@ dependencies = [
  "nanoid",
  "oneshot",
  "pyo3",
+ "pythonize",
  "qdrant-client",
  "rand",
  "regex",
@@ -2273,6 +2274,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "pythonize"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e35b716d430ace57e2d1b4afb51c9e5b7c46d2bce72926e07f9be6a98ced03e"
+dependencies = [
+ "pyo3",
+ "serde",
 ]
 
 [[package]]
