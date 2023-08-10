@@ -48,6 +48,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
             {"text": "Kevin Durant is the best basketball player in the world.", "metadata": {"topic": "nba"}}
         ]}' 
     ```
+<<<<<<< HEAD
 === "python"
 
     ```python
@@ -93,25 +94,27 @@ Every extractor we bind results in a corresponding index being created in Indexi
     ```bash
     curl -X POST http://localhost:8900/repository/add_extractor \
     -H "Content-Type: application/json" \
+=======
+    curl -X POST http://localhost:8900/repository/default/extractor_bindings
+    -H "Content-Type: application/json"
+>>>>>>> f0ff85b (refactor apis to be more restful)
     -d '{
-        "repository": "default",
-        "name": "EntityExtractor",
-        "index_name": "entityindex",
-        "filter": {
-            "content_type": "text"
-        }
-    }'
+            "name": "EntityExtractor",
+            "index_name": "entityindex",
+            "filter": {
+                "content_type": "text"
+            }
+        }'
 
-    curl -X POST http://localhost:8900/repository/add_extractor \
-    -H "Content-Type: application/json" \
+    curl -X POST http://localhost:8900/repository/default/extractor_bindings
+    -H "Content-Type: application/json"
     -d '{
-        "repository": "default",
-        "name": "MiniLML6",
-        "index_name": "embeddingindex",
-        "filter": {
-            "content_type": "text"
-        }
-    }'
+            "name": "MiniLML6",
+            "index_name": "embeddingindex",
+            "filter": {
+                "content_type": "text"
+            }
+        }'
     ```
 === "python"
 
@@ -128,6 +131,7 @@ Every extractor we bind results in a corresponding index being created in Indexi
 Now we can query the index created by the named entity extractor. The index will have json documents containing the key/value pairs extracted from the text.
 
 === "curl"
+<<<<<<< HEAD
 
     ```bash
     curl -X GET http://localhost:8900/repository/attribute_lookup \
@@ -136,6 +140,10 @@ Now we can query the index created by the named entity extractor. The index will
         "repository": "default",
         "index": "entityindex"
     }'
+=======
+    ```
+    curl -X GET http://localhost:8900/repository/default/indexes/entityindex/attributes
+>>>>>>> f0ff85b (refactor apis to be more restful)
     ```
 === "python"
 
@@ -147,12 +155,16 @@ Now we can query the index created by the named entity extractor. The index will
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
 === "curl"
+<<<<<<< HEAD
 
     ```bash
     curl -v -X GET http://localhost:8900/repository/search \
+=======
+    ```
+    curl -v -X POST http://localhost:8900/repository/default/search \
+>>>>>>> f0ff85b (refactor apis to be more restful)
     -H "Content-Type: application/json" \
     -d '{
-            "repository": "default",
             "index": "embeddingindex",
             "query": "good", 
             "k": 1

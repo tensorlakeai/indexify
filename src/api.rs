@@ -62,7 +62,6 @@ impl From<ExtractorContentType> for persistence::ContentType {
 #[serde(rename = "extractor_filter")]
 #[serde(untagged)]
 pub enum ExtractorFilter {
-<<<<<<< HEAD
     Eq {
         field: String,
         value: serde_json::Value,
@@ -71,27 +70,16 @@ pub enum ExtractorFilter {
         field: String,
         value: serde_json::Value,
     },
-=======
-    #[serde(rename = "content_type")]
-    ContentType { content_type: ExtractorContentType },
->>>>>>> a50263c (removing memory sessions)
 }
 
 impl From<persistence::ExtractorFilter> for ExtractorFilter {
-    fn from(value: persistence::ExtractorFilter) -> Self {
-        match value {
-<<<<<<< HEAD
+    fn from(val: persistence::ExtractorFilter) -> Self {
+        match val {
             persistence::ExtractorFilter::Eq { field, value } => {
                 ExtractorFilter::Eq { field, value }
             }
             persistence::ExtractorFilter::Neq { field, value } => {
                 ExtractorFilter::Neq { field, value }
-=======
-            persistence::ExtractorFilter::ContentType { content_type } => {
-                ExtractorFilter::ContentType {
-                    content_type: content_type.into(),
-                }
->>>>>>> a50263c (removing memory sessions)
             }
         }
     }
@@ -266,7 +254,6 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 /// Request payload for creating a new vector index.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractorBindRequest {
-    pub repository: Option<String>,
     #[serde(flatten)]
     pub extractor_binding: ExtractorBinding,
 }

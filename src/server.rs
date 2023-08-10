@@ -102,12 +102,11 @@ impl Server {
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                // FIXME: this should be /index/search
-                "/repository/search",
+                "/repository/:repository_name/search",
                 get(index_search).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/attribute_lookup",
+                "/repository/:repository_name/attributes",
                 get(attribute_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -228,13 +227,13 @@ async fn get_repository(
 
 #[axum_macros::debug_handler]
 async fn bind_extractor(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<ExtractorBindRequest>,
 ) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
-    let repository = get_or_default_repository(payload.repository);
     state
         .repository_manager
-        .add_extractor_binding(&repository, payload.extractor_binding.into())
+        .add_extractor_binding(&repository_name, payload.extractor_binding.into())
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -375,13 +374,14 @@ async fn list_extractors(
 )]
 #[axum_macros::debug_handler]
 async fn index_search(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
     let results = state
         .repository_manager
         .search(
-            &query.repository,
+            &repository_name,
             &query.index,
             &query.query,
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
@@ -403,12 +403,13 @@ async fn index_search(
 
 #[axum_macros::debug_handler]
 async fn attribute_lookup(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(query): Json<AttributeLookupRequest>,
 ) -> Result<Json<AttributeLookupResponse>, IndexifyAPIError> {
     let attributes = state
         .repository_manager
-        .attribute_lookup(&query.repository, &query.index, query.content_id.as_ref())
+        .attribute_lookup(&repository_name, &query.index, query.content_id.as_ref())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
