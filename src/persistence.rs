@@ -103,6 +103,7 @@ pub enum ExtractorType {
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
 pub enum ExtractorFilter {
+<<<<<<< HEAD
     Eq {
         field: String,
         value: serde_json::Value,
@@ -111,6 +112,9 @@ pub enum ExtractorFilter {
         field: String,
         value: serde_json::Value,
     },
+=======
+    ContentType { content_type: ContentType },
+>>>>>>> a50263c (removing memory sessions)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -637,6 +641,7 @@ impl Repository {
             query.push_str(format!(" and id = ${}", idx).as_str());
             idx += 1;
         }
+<<<<<<< HEAD
         for filter in &extractor_binding.filters {
             match filter {
                 ExtractorFilter::Eq { field, value } => {
@@ -651,6 +656,12 @@ impl Repository {
                     query.push_str(format!(" and metadata->>${} != ${}", idx, idx + 1).as_str());
                     idx += 2;
                 }
+=======
+        match &extractor_binding.filter {
+            ExtractorFilter::ContentType { content_type } => {
+                values.push(content_type.to_string().into());
+                query.push_str(format!(" and content_type = ${}", idx).as_str());
+>>>>>>> a50263c (removing memory sessions)
             }
         }
         info!("query: {}", query);
@@ -1050,6 +1061,7 @@ mod tests {
             }],
             input_params: serde_json::json!({}),
         };
+<<<<<<< HEAD
 
         let extractor_binding2 = ExtractorBinding {
             extractor_name: "extractor1".into(),
@@ -1060,10 +1072,12 @@ mod tests {
             }],
             input_params: serde_json::json!({}),
         };
+=======
+>>>>>>> a50263c (removing memory sessions)
         let repo = DataRepository {
             name: "test".to_owned(),
             data_connectors: vec![],
-            extractor_bindings: vec![extractor_binding1.clone(), extractor_binding2.clone()],
+            extractor_bindings: vec![extractor_binding1.clone()],
             metadata: HashMap::new(),
         };
 
