@@ -6,7 +6,6 @@ mod entity;
 mod executor;
 mod extractors;
 mod index;
-mod memory;
 mod persistence;
 mod server;
 mod server_config;
@@ -14,4 +13,4 @@ mod test_util;
 mod vector_index;
 mod vectordbs;
 
-pub use {coordinator::*, executor::*, memory::*, server::*, server_config::*};
+pub use {coordinator::*, executor::*, server::*, server_config::*};

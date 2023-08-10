@@ -7,7 +7,6 @@ use smart_default::SmartDefault;
 use strum_macros::{Display, EnumString};
 use utoipa::ToSchema;
 
-use crate::memory;
 use crate::persistence;
 use crate::vectordbs;
 
@@ -63,9 +62,6 @@ impl From<ExtractorContentType> for persistence::ContentType {
 #[serde(rename = "extractor_filter")]
 #[serde(untagged)]
 pub enum ExtractorFilter {
-    #[serde(rename = "memory_session_id")]
-    MemorySession { session_id: String },
-
     #[serde(rename = "content_type")]
     ContentType { content_type: ExtractorContentType },
 }
@@ -73,9 +69,6 @@ pub enum ExtractorFilter {
 impl From<persistence::ExtractorFilter> for ExtractorFilter {
     fn from(value: persistence::ExtractorFilter) -> Self {
         match value {
-            persistence::ExtractorFilter::MemorySession { session_id } => {
-                ExtractorFilter::MemorySession { session_id }
-            }
             persistence::ExtractorFilter::ContentType { content_type } => {
                 ExtractorFilter::ContentType {
                     content_type: content_type.into(),
@@ -88,9 +81,6 @@ impl From<persistence::ExtractorFilter> for ExtractorFilter {
 impl From<ExtractorFilter> for persistence::ExtractorFilter {
     fn from(val: ExtractorFilter) -> Self {
         match val {
-            ExtractorFilter::MemorySession { session_id } => {
-                persistence::ExtractorFilter::MemorySession { session_id }
-            }
             ExtractorFilter::ContentType { content_type } => {
                 persistence::ExtractorFilter::ContentType {
                     content_type: content_type.into(),
@@ -365,51 +355,45 @@ pub struct CreateMemorySessionResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-pub struct Message {
+pub struct Event {
     text: String,
-    role: String,
-    #[serde(default)]
-    unix_timestamp: u64,
+    unix_timestamp: Option<u64>,
     metadata: HashMap<String, serde_json::Value>,
 }
 
-impl From<Message> for memory::Message {
-    fn from(value: Message) -> Self {
-        memory::Message::new(&value.text, &value.role, value.metadata)
+impl From<Event> for persistence::Event {
+    fn from(value: Event) -> Self {
+        persistence::Event::new(&value.text, value.unix_timestamp, value.metadata)
     }
 }
 
-impl From<memory::Message> for Message {
-    fn from(value: memory::Message) -> Self {
+impl From<persistence::Event> for Event {
+    fn from(value: persistence::Event) -> Self {
         Self {
-            text: value.text,
-            role: value.role,
-            unix_timestamp: value.unix_timestamp,
+            text: value.message,
+            unix_timestamp: Some(value.unix_timestamp),
             metadata: value.metadata,
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MemorySessionAddRequest {
-    pub session_id: String,
+#[derive(Serialize, Deserialize)]
+pub struct EventAddRequest {
     pub repository: Option<String>,
-    pub messages: Vec<Message>,
-    pub sync: Option<bool>,
+    pub events: Vec<Event>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MemorySessionAddResponse {}
+pub struct EventAddResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MemorySessionRetrieveRequest {
-    pub session_id: String,
+pub struct EventsRetrieveRequest {
     pub repository: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MemorySessionRetrieveResponse {
-    pub messages: Vec<Message>,
+pub struct EventsSessionRetrieveResponse {
+    pub messages: Vec<Event>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]

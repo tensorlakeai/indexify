@@ -40,7 +40,6 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Content::ContentType).string().not_null())
                     .col(ColumnDef::new(Content::Metadata).json())
                     .col(ColumnDef::new(Content::RepositoryId).string().not_null())
-                    .col(ColumnDef::new(Content::MemorySessionId).string())
                     .col(ColumnDef::new(Content::ExtractorsState).json_binary())
                     .to_owned(),
             )
@@ -66,20 +65,17 @@ impl MigrationTrait for Migration {
         let _ = manager
             .create_table(
                 Table::create()
-                    .table(MemorySessions::Table)
+                    .table(Events::Table)
                     .if_not_exists()
+                    .col(ColumnDef::new(Events::Id).string().not_null().primary_key())
+                    .col(ColumnDef::new(Events::RepositoryId).string().not_null())
+                    .col(ColumnDef::new(Events::Message).string().not_null())
                     .col(
-                        ColumnDef::new(MemorySessions::SessionId)
-                            .string()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(MemorySessions::RepositoryId)
-                            .string()
+                        ColumnDef::new(Events::UnixTimeStamp)
+                            .big_integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(MemorySessions::Metadata).json())
+                    .col(ColumnDef::new(Events::Metadata).json_binary())
                     .to_owned(),
             )
             .await;
@@ -231,7 +227,7 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(Content::Table).to_owned())
             .await;
         let _ = manager
-            .drop_table(Table::drop().table(MemorySessions::Table).to_owned())
+            .drop_table(Table::drop().table(Events::Table).to_owned())
             .await;
         let _ = manager
             .drop_table(Table::drop().table(ExtractionEvent::Table).to_owned())
@@ -278,15 +274,16 @@ enum Content {
     Text,
     Metadata,
     RepositoryId,
-    MemorySessionId,
     ExtractorsState,
 }
 
 #[derive(Iden)]
-enum MemorySessions {
+enum Events {
     Table,
-    SessionId,
+    Id,
     RepositoryId,
+    Message,
+    UnixTimeStamp,
     Metadata,
 }
 

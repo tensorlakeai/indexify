@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 use anyhow::Result;
@@ -41,7 +41,7 @@ pub struct ExtractorBinding {
 
 #[derive(Serialize, Debug, Deserialize, Display, EnumString)]
 pub enum ExtractionEventPayload {
-    SyncRepository { memory_session: Option<String> },
+    SyncRepository {},
     CreateContent { content_id: String },
 }
 
@@ -76,14 +76,10 @@ impl Text {
     pub fn from_text(
         repository: &str,
         text: &str,
-        memory_session: Option<&str>,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Self {
         let mut s = DefaultHasher::new();
         repository.hash(&mut s);
-        if let Some(sess) = memory_session {
-            sess.hash(&mut s);
-        }
         text.hash(&mut s);
         let id = format!("{:x}", s.finish());
         Self {
@@ -107,7 +103,6 @@ pub enum ExtractorType {
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
 pub enum ExtractorFilter {
-    MemorySession { session_id: String },
     ContentType { content_type: ContentType },
 }
 
@@ -282,6 +277,36 @@ impl Chunk {
             text,
             chunk_id,
             content_id,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct Event {
+    pub id: String,
+    pub message: String,
+    pub unix_timestamp: u64,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl Event {
+    pub fn new(
+        message: &str,
+        unix_timestamp: Option<u64>,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        let id = nanoid!();
+        let unix_timestamp = unix_timestamp.unwrap_or(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        );
+        Self {
+            id,
+            message: message.into(),
+            unix_timestamp,
+            metadata,
         }
     }
 }
@@ -467,20 +492,24 @@ impl Repository {
             .ok_or(RepositoryError::IndexNotFound(index.into()))
     }
 
-    pub async fn create_memory_session(
+    pub async fn add_events(
         &self,
-        session_id: &str,
-        repo_id: &str,
-        metadata: HashMap<String, serde_json::Value>,
+        repository: &str,
+        events: Vec<Event>,
     ) -> Result<(), RepositoryError> {
-        let memory_session = entity::memory_sessions::ActiveModel {
-            session_id: Set(session_id.to_string()),
-            repository_id: Set(repo_id.into()),
-            metadata: Set(Some(json!(metadata))),
-        };
-        let _ = entity::memory_sessions::Entity::insert(memory_session)
+        let mut event_list = Vec::new();
+        for event in events {
+            event_list.push(entity::events::ActiveModel {
+                id: Set(event.id.clone()),
+                repository_id: Set(repository.into()),
+                message: Set(event.message),
+                unix_time_stamp: Set(event.unix_timestamp as i64),
+                metadata: Set(Some(json!(event.metadata))),
+            });
+        }
+        let _ = entity::events::Entity::insert_many(event_list)
             .on_conflict(
-                OnConflict::column(entity::memory_sessions::Column::SessionId)
+                OnConflict::column(entity::events::Column::Id)
                     .do_nothing()
                     .to_owned(),
             )
@@ -489,45 +518,32 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn retrieve_messages_from_memory(
-        &self,
-        repository_name: &str,
-        session_id: &str,
-    ) -> Result<Vec<Text>, RepositoryError> {
-        let contents = entity::content::Entity::find()
-            .filter(entity::content::Column::RepositoryId.eq(repository_name))
-            .filter(entity::content::Column::MemorySessionId.eq(session_id))
+    pub async fn list_events(&self, repository: &str) -> Result<Vec<Event>, RepositoryError> {
+        let events = entity::events::Entity::find()
+            .filter(entity::events::Column::RepositoryId.eq(repository))
             .all(&self.conn)
             .await?;
-        let mut texts = Vec::new();
-        for content in contents {
-            let metadata: HashMap<String, serde_json::Value> = content
+        let mut event_list = Vec::new();
+        for event in events {
+            let metadata: HashMap<String, serde_json::Value> = event
                 .metadata
                 .map(|s| serde_json::from_value(s).unwrap())
                 .unwrap_or_default();
-            texts.push(Text {
-                text: content.text,
-                id: content.id,
+            event_list.push(Event {
+                id: event.id,
+                message: event.message,
+                unix_timestamp: event.unix_time_stamp as u64,
                 metadata,
             });
         }
-        Ok(texts)
+        Ok(event_list)
     }
 
     pub async fn add_content(
         &self,
         repository_name: &str,
         texts: Vec<Text>,
-        memory_session: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        if memory_session.is_some() {
-            // Ensure that the session exists
-            let _session = entity::memory_sessions::Entity::find()
-                .filter(entity::memory_sessions::Column::SessionId.eq(memory_session))
-                .one(&self.conn)
-                .await?
-                .ok_or(RepositoryError::SessionNotFound("session not found".into()))?;
-        }
         let mut content_list = Vec::new();
         let mut extraction_events = Vec::new();
         for text in texts {
@@ -535,7 +551,6 @@ impl Repository {
             content_list.push(entity::content::ActiveModel {
                 id: Set(text.id.clone()),
                 repository_id: Set(repository_name.into()),
-                memory_session_id: Set(memory_session.map(|s| s.into())),
                 text: Set(text.text),
                 metadata: Set(Some(json!(text.metadata))),
                 content_type: Set(ContentType::Text.to_string()),
@@ -616,15 +631,9 @@ impl Repository {
             idx += 1;
         }
         match &extractor_binding.filter {
-            ExtractorFilter::MemorySession { session_id } => {
-                values.push(session_id.into());
-                query.push_str(format!(" and memory_session_id = ${}", idx).as_str());
-            }
             ExtractorFilter::ContentType { content_type } => {
                 values.push(content_type.to_string().into());
-                query.push_str(
-                    format!(" and content_type = ${} and memory_session_id is NULL", idx).as_str(),
-                );
+                query.push_str(format!(" and content_type = ${}", idx).as_str());
             }
         }
         let result = entity::content::Entity::find()
@@ -751,9 +760,7 @@ impl Repository {
         let extractor_event = ExtractionEvent {
             id: nanoid!(),
             repository_id: repository.name.clone(),
-            payload: ExtractionEventPayload::SyncRepository {
-                memory_session: None,
-            },
+            payload: ExtractionEventPayload::SyncRepository {},
         };
         let repository_model = entity::data_repository::ActiveModel {
             name: Set(repository.name),
@@ -1024,33 +1031,17 @@ mod tests {
             },
             input_params: serde_json::json!({}),
         };
-        let extractor2 = ExtractorConfig {
-            name: "extractor2".into(),
-            extractor_type: ExtractorType::Embedding {
-                dim: 2,
-                distance: IndexDistance::Cosine,
-            },
-            ..Default::default()
-        };
-        let extractor_binding2 = ExtractorBinding {
-            extractor_name: "extractor2".into(),
-            index_name: "extractor2".into(),
-            filter: ExtractorFilter::MemorySession {
-                session_id: "abcd".into(),
-            },
-            input_params: serde_json::json!({}),
-        };
         let repo = DataRepository {
             name: "test".to_owned(),
             data_connectors: vec![],
-            extractor_bindings: vec![extractor_binding1.clone(), extractor_binding2.clone()],
+            extractor_bindings: vec![extractor_binding1.clone()],
             metadata: HashMap::new(),
         };
 
         let db = create_db().await.unwrap();
         let repository = Repository::new_with_db(db);
         repository
-            .record_extractors(vec![extractor1, extractor2])
+            .record_extractors(vec![extractor1])
             .await
             .unwrap();
         repository.upsert_repository(repo.clone()).await.unwrap();
@@ -1059,39 +1050,9 @@ mod tests {
             .add_content(
                 &repo.name,
                 vec![
-                    Text::from_text(&repo.name, "hello", None, HashMap::new()),
-                    Text::from_text(&repo.name, "world", None, HashMap::new()),
+                    Text::from_text(&repo.name, "hello", HashMap::new()),
+                    Text::from_text(&repo.name, "world", HashMap::new()),
                 ],
-                None,
-            )
-            .await
-            .unwrap();
-
-        let memory_session_id = "abcd";
-
-        repository
-            .create_memory_session(memory_session_id, &repo.name, HashMap::new())
-            .await
-            .unwrap();
-
-        repository
-            .add_content(
-                &repo.name,
-                vec![
-                    Text::from_text(
-                        &repo.name,
-                        "hello ai",
-                        Some(memory_session_id),
-                        HashMap::new(),
-                    ),
-                    Text::from_text(
-                        &repo.name,
-                        "hello human",
-                        Some(memory_session_id),
-                        HashMap::new(),
-                    ),
-                ],
-                Some("abcd"),
             )
             .await
             .unwrap();
@@ -1101,11 +1062,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(2, content_list1.len());
-
-        let content_list2 = repository
-            .content_with_unapplied_extractor(&repo.name, &extractor_binding2, None)
-            .await
-            .unwrap();
-        assert_eq!(2, content_list2.len());
     }
 }

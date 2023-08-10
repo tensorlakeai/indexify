@@ -3,9 +3,9 @@
 pub use super::attributes_index::Entity as AttributesIndex;
 pub use super::content::Entity as Content;
 pub use super::data_repository::Entity as DataRepository;
+pub use super::events::Entity as Events;
 pub use super::extraction_event::Entity as ExtractionEvent;
 pub use super::extractors::Entity as Extractors;
 pub use super::index::Entity as Index;
 pub use super::index_chunks::Entity as IndexChunks;
-pub use super::memory_sessions::Entity as MemorySessions;
 pub use super::work::Entity as Work;

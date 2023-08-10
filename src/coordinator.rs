@@ -116,7 +116,7 @@ impl Coordinator {
                 continue;
             }
             let content = match &event.payload {
-                ExtractionEventPayload::SyncRepository { memory_session: _ } => {
+                ExtractionEventPayload::SyncRepository {} => {
                     processed_events_for_repository.insert(&event.repository_id);
                     None
                 }
@@ -434,10 +434,9 @@ mod tests {
             .add_texts(
                 DEFAULT_TEST_REPOSITORY,
                 vec![
-                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello", None, HashMap::new()),
-                    Text::from_text(DEFAULT_TEST_REPOSITORY, "world", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello", HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "world", HashMap::new()),
                 ],
-                None,
             )
             .await?;
 

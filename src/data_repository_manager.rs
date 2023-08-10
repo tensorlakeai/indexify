@@ -9,8 +9,8 @@ use crate::{
     attribute_index::AttributeIndexManager,
     index::IndexError,
     persistence::{
-        DataRepository, ExtractedAttributes, ExtractorBinding, ExtractorConfig, ExtractorType,
-        Repository, RepositoryError, Text,
+        DataRepository, Event, ExtractedAttributes, ExtractorBinding, ExtractorConfig,
+        ExtractorType, Repository, RepositoryError, Text,
     },
     vector_index::{ScoredText, VectorIndexManager},
     ServerConfig,
@@ -147,35 +147,10 @@ impl DataRepositoryManager {
         &self,
         repo_name: &str,
         texts: Vec<Text>,
-        memory_session: Option<&str>,
     ) -> Result<(), DataRepositoryError> {
         let _ = self.repository.repository_by_name(repo_name).await?;
         self.repository
-            .add_content(repo_name, texts, memory_session)
-            .await
-            .map_err(DataRepositoryError::Persistence)
-    }
-
-    pub async fn create_memory_session(
-        &self,
-        session_id: &str,
-        repository_id: &str,
-        metadata: HashMap<String, serde_json::Value>,
-    ) -> Result<(), DataRepositoryError> {
-        let _ = self.repository.repository_by_name(repository_id).await?;
-        self.repository
-            .create_memory_session(session_id, repository_id, metadata)
-            .await
-            .map_err(DataRepositoryError::Persistence)
-    }
-
-    pub async fn memory_messages_for_session(
-        &self,
-        repository: &str,
-        id: &str,
-    ) -> Result<Vec<Text>, DataRepositoryError> {
-        self.repository
-            .retrieve_messages_from_memory(repository, id)
+            .add_content(repo_name, texts)
             .await
             .map_err(DataRepositoryError::Persistence)
     }
@@ -212,6 +187,24 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)?;
         Ok(extractors)
     }
+
+    pub async fn add_events(
+        &self,
+        repository: &str,
+        events: Vec<Event>,
+    ) -> Result<(), DataRepositoryError> {
+        self.repository
+            .add_events(repository, events)
+            .await
+            .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn list_events(&self, repository: &str) -> Result<Vec<Event>, DataRepositoryError> {
+        self.repository
+            .list_events(repository)
+            .await
+            .map_err(DataRepositoryError::Persistence)
+    }
 }
 
 #[cfg(test)]
@@ -219,10 +212,10 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::persistence::{
-        ContentType, DataConnector, ExtractorBinding, ExtractorFilter, SourceType,
+        ContentType, DataConnector, Event, ExtractorBinding, ExtractorFilter, SourceType,
     };
     use crate::test_util;
-    use crate::test_util::db_utils::DEFAULT_TEST_EXTRACTOR;
+    use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};
 
     use serde_json::json;
 
@@ -260,5 +253,54 @@ mod tests {
         assert_eq!(repositories[0].extractor_bindings.len(), 1);
         assert_eq!(repositories[0].data_connectors.len(), 1);
         assert_eq!(repositories[0].metadata, meta);
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_events() {
+        let db = test_util::db_utils::create_db().await.unwrap();
+        let (index_manager, extractor_executor, coordinator) =
+            test_util::db_utils::create_index_manager(db.clone()).await;
+        let repository_manager = Arc::new(DataRepositoryManager::new_with_db(
+            db.clone(),
+            index_manager.clone(),
+        ));
+        info!("creating repository");
+
+        repository_manager
+            .create(&test_util::db_utils::default_test_data_repository())
+            .await
+            .unwrap();
+
+        let messages: Vec<Event> = vec![
+            Event::new("hello world", None, HashMap::new()),
+            Event::new("hello friend", None, HashMap::new()),
+            Event::new("how are you", None, HashMap::new()),
+        ];
+
+        info!("adding messages to session");
+        repository_manager
+            .add_events(DEFAULT_TEST_REPOSITORY, messages.clone())
+            .await
+            .unwrap();
+
+        let retrieve_result = repository_manager
+            .list_events(DEFAULT_TEST_REPOSITORY)
+            .await
+            .unwrap();
+        assert_eq!(retrieve_result.len(), 3);
+
+        info!("manually syncing messages");
+        coordinator.process_and_distribute_work().await.unwrap();
+        let executor_id = extractor_executor.get_executor_info().id;
+        let work_list = coordinator.get_work_for_worker(&executor_id).await.unwrap();
+
+        extractor_executor.sync_repo_test(work_list).await.unwrap();
+
+        //let search_results = repository_manager
+        //    .search(DEFAULT_TEST_REPOSITORY, "memory_session_embeddings", "hello", 2)
+        //    .await
+        //    .unwrap();
+        //assert_eq!(search_results.len(), 2);
     }
 }

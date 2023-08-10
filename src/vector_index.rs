@@ -183,11 +183,10 @@ mod tests {
             .add_texts(
                 DEFAULT_TEST_REPOSITORY,
                 vec![
-                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello world", None, HashMap::new()),
-                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello pipe", None, HashMap::new()),
-                    Text::from_text(DEFAULT_TEST_REPOSITORY, "nba", None, HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello world", HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "hello pipe", HashMap::new()),
+                    Text::from_text(DEFAULT_TEST_REPOSITORY, "nba", HashMap::new()),
                 ],
-                None,
             )
             .await
             .unwrap();
@@ -197,10 +196,8 @@ mod tests {
                 vec![Text::from_text(
                     DEFAULT_TEST_REPOSITORY,
                     "hello world",
-                    None,
                     HashMap::new(),
                 )],
-                None,
             )
             .await
             .unwrap();
