@@ -2,8 +2,8 @@ use crate::attribute_index::AttributeIndexManager;
 use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
 use crate::persistence::{DataRepository, Repository};
 use crate::vector_index::VectorIndexManager;
+use crate::ServerConfig;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
-use crate::{MemoryManager, ServerConfig};
 
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -19,12 +19,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
-
-#[derive(Clone)]
-pub struct MemoryEndpointState {
-    memory_manager: Arc<MemoryManager>,
-    coordinator_addr: SocketAddr,
-}
 
 #[derive(Clone)]
 pub struct RepositoryEndpointState {
@@ -90,11 +84,6 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_addr,
         };
-        let memory_manager = Arc::new(MemoryManager::new(repository_manager.clone()).await?);
-        let memory_state = MemoryEndpointState {
-            memory_manager: memory_manager.clone(),
-            coordinator_addr,
-        };
         // TODO: add a method for creating a repository (instead of syncing)
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -121,16 +110,12 @@ impl Server {
                 get(attribute_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/memory/create",
-                post(create_memory_session).with_state(memory_state.clone()),
+                "/events",
+                post(add_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/memory/add",
-                post(add_to_memory_session).with_state(memory_state.clone()),
-            )
-            .route(
-                "/memory/get",
-                get(get_from_memory_session).with_state(memory_manager.clone()),
+                "/events",
+                get(list_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repository/create",
@@ -278,11 +263,11 @@ async fn add_texts(
     let texts = payload
         .documents
         .iter()
-        .map(|d| persistence::Text::from_text(&repo, &d.text, None, d.metadata.clone()))
+        .map(|d| persistence::Text::from_text(&repo, &d.text, d.metadata.clone()))
         .collect();
     state
         .repository_manager
-        .add_texts(&repo, texts, None)
+        .add_texts(&repo, texts)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -325,39 +310,15 @@ async fn run_extractors(
 }
 
 #[axum_macros::debug_handler]
-async fn create_memory_session(
-    State(state): State<MemoryEndpointState>,
-    Json(payload): Json<CreateMemorySessionRequest>,
-) -> Result<Json<CreateMemorySessionResponse>, IndexifyAPIError> {
-    let repo = &get_or_default_repository(payload.repository);
-    let extractor_binding = payload.extractor_binding.map(|e| e.into());
-    let session_id = state
-        .memory_manager
-        .create_session(
-            repo,
-            payload.session_id,
-            extractor_binding,
-            payload.metadata.unwrap_or_default(),
-        )
-        .await
-        .map_err(|e| {
-            error!("unable to create memory session: {}", e.to_string());
-            IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-        })?;
-
-    Ok(Json(CreateMemorySessionResponse { session_id }))
-}
-
-#[axum_macros::debug_handler]
-async fn add_to_memory_session(
-    State(state): State<MemoryEndpointState>,
-    Json(payload): Json<MemorySessionAddRequest>,
-) -> Result<Json<MemorySessionAddResponse>, IndexifyAPIError> {
+async fn add_events(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<EventAddRequest>,
+) -> Result<Json<EventAddResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
-    let messages = payload.messages.iter().map(|m| m.clone().into()).collect();
+    let events = payload.events.iter().map(|m| m.clone().into()).collect();
     state
-        .memory_manager
-        .add_messages(&repo, &payload.session_id, messages)
+        .repository_manager
+        .add_events(&repo, events)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -365,24 +326,25 @@ async fn add_to_memory_session(
         error!("unable to run extractors: {}", err.to_string());
     }
 
-    Ok(Json(MemorySessionAddResponse {}))
+    Ok(Json(EventAddResponse {}))
 }
 
 #[axum_macros::debug_handler]
-async fn get_from_memory_session(
-    State(memory_manager): State<Arc<MemoryManager>>,
-    Json(payload): Json<MemorySessionRetrieveRequest>,
-) -> Result<Json<MemorySessionRetrieveResponse>, IndexifyAPIError> {
+async fn list_events(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<EventsRetrieveRequest>,
+) -> Result<Json<EventsSessionRetrieveResponse>, IndexifyAPIError> {
     let repo = get_or_default_repository(payload.repository);
-    let messages = memory_manager
-        .retrieve_messages(&repo, payload.session_id)
+    let messages = state
+        .repository_manager
+        .list_events(&repo)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .iter()
         .map(|m| m.to_owned().into())
         .collect();
 
-    Ok(Json(MemorySessionRetrieveResponse { messages }))
+    Ok(Json(EventsSessionRetrieveResponse { messages }))
 }
 
 #[axum_macros::debug_handler]

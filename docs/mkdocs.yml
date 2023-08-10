@@ -20,7 +20,7 @@ markdown_extensions:
 nav:
   - Home: 'index.md'
   - Getting Started: 'getting_started.md'
-  - Overview: 'overview.md'
+  - Concepts: 'concepts.md'
   - APIs:
     - Overview: 'apis/index.md'
     - Data Repository: 'apis/data_repository.md'
