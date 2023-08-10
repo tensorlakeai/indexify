@@ -1,6 +1,6 @@
 import aiohttp
 
-from .data_containers import *
+from .data_containers import SearchChunk, TextChunk
 from .utils import _get_payload, wait_until
 
 
