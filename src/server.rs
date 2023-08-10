@@ -132,10 +132,6 @@ impl Server {
                 get(get_from_memory_session).with_state(memory_manager.clone()),
             )
             .route(
-                "/memory/search",
-                get(search_memory_session).with_state(memory_manager.clone()),
-            )
-            .route(
                 "/repository/create",
                 post(create_repository).with_state(repository_endpoint_state.clone()),
             )
@@ -386,28 +382,6 @@ async fn get_from_memory_session(
         .collect();
 
     Ok(Json(MemorySessionRetrieveResponse { messages }))
-}
-
-#[axum_macros::debug_handler]
-async fn search_memory_session(
-    State(memory_manager): State<Arc<MemoryManager>>,
-    Json(payload): Json<MemorySessionSearchRequest>,
-) -> Result<Json<MemorySessionSearchResponse>, IndexifyAPIError> {
-    let repo = get_or_default_repository(payload.repository);
-    let messages = memory_manager
-        .search(
-            &repo,
-            &payload.session_id,
-            &payload.query,
-            payload.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
-        )
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .iter()
-        .map(|m| m.to_owned().into())
-        .collect();
-
-    Ok(Json(MemorySessionSearchResponse { messages }))
 }
 
 #[axum_macros::debug_handler]

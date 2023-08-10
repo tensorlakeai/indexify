@@ -118,22 +118,6 @@ impl MemoryManager {
         let messages = get_messages_from_texts(texts);
         Ok(messages)
     }
-
-    pub async fn search(
-        &self,
-        repository: &str,
-        session_id: &str,
-        query: &str,
-        k: u64,
-    ) -> Result<Vec<Message>, MemoryError> {
-        let search_results = self
-            .repository
-            .search(repository, session_id, query, k)
-            .await?;
-        let messages = search_results.into_iter().map(|r| r.text).collect();
-        let messages = get_messages_from_texts(messages);
-        Ok(messages)
-    }
 }
 
 #[cfg(test)]
@@ -157,7 +141,7 @@ mod tests {
         let (index_manager, extractor_executor, coordinator) =
             test_util::db_utils::create_index_manager(db.clone()).await;
         let repository_manager =
-            DataRepositoryManager::new_with_db(db.clone(), index_manager.clone());
+            Arc::new(DataRepositoryManager::new_with_db(db.clone(), index_manager.clone()));
         info!("creating repository");
 
         repository_manager
@@ -165,7 +149,7 @@ mod tests {
             .await
             .unwrap();
 
-        let memory_manager = MemoryManager::new(Arc::new(repository_manager))
+        let memory_manager = MemoryManager::new(repository_manager.clone())
             .await
             .unwrap();
 
@@ -176,7 +160,7 @@ mod tests {
                 Some(session_id.into()),
                 Some(ExtractorBinding {
                     extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    index_name: session_id.to_string(),
+                    index_name: "memory_session_embeddings".to_string(),
                     filter: crate::persistence::ExtractorFilter::MemorySession {
                         session_id: session_id.into(),
                     },
@@ -212,8 +196,8 @@ mod tests {
 
         extractor_executor.sync_repo_test(work_list).await.unwrap();
 
-        let search_results = memory_manager
-            .search(DEFAULT_TEST_REPOSITORY, session_id, "hello", 2)
+        let search_results = repository_manager 
+            .search(DEFAULT_TEST_REPOSITORY, "memory_session_embeddings", "hello", 2)
             .await
             .unwrap();
         assert_eq!(search_results.len(), 2);

@@ -412,19 +412,6 @@ pub struct MemorySessionRetrieveResponse {
     pub messages: Vec<Message>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MemorySessionSearchRequest {
-    pub session_id: String,
-    pub repository: Option<String>,
-    pub query: String,
-    pub k: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MemorySessionSearchResponse {
-    pub messages: Vec<Message>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct DocumentFragment {
     pub text: String,
