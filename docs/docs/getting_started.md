@@ -109,62 +109,25 @@ Next let's query the index created by the embedding extractor. The index will al
     ```
 
 
-#### Start Using Memory
+#### Start Using Long Term Memory
+Long Term Memory in Indexify indicates there may be some causal relationships in data ingested into the system. And to serve such use cases where the order of messages in extraction or generation is important, Indexify provides a `Event` abstraction. Events contain a message and a timestamp in addition to any other opaque metadata that you might want to use for filtering events while creating indexes and retrieving from them.
 - Create Memory Session
 Memory is usually stored for interactions of an agent with a user or in a given context. Related messages are grouped in Indexify as a `Session`, so first create a session!
-=== "curl"
-    ```
-    curl -X POST http://localhost:8900/memory/create \
-    -H "Content-Type: application/json" \
-    -d '{}'
-    ```
-    You can optionally pass in a `session-id` while creating a session if you would
-    like to use a user-id or any other application id to retrieve and search for memory.
-
-- Add Extractors for the Memory Session
-=== "curl
-    ```
-    curl -X POST http://localhost:8900/repository/add_extractor \
-    -H "Content-Type: application/json" \
-    -d '{
-        "repository": "default",
-        "name": "MiniLML6",
-        "index_name": "embeddingindex1",
-        "filter": {
-            "session_id": "A-e4dhSBoP4bJtVY0bgQw"
-            }
-        }'
-
-        curl -X POST http://localhost:8900/repository/add_extractor \
-        -H "Content-Type: application/json" \
-        -d '{
-            "repository": "default",
-            "name": "EntityExtractor",
-            "index_name": "entityextractor1",
-            "filter": {
-                "session_id": "A-e4dhSBoP4bJtVY0bgQw"
-                }
-            }'
-    ```
-
 
 - Add Memory Events
 === "curl"
     ```
-    curl -X POST http://localhost:8900/memory/add \
+    curl -X POST http://localhost:8900/events \
     -H "Content-Type: application/json" \
     -d '{
-            "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13",
-            "messages": [
+            "events": [
                 {
-                "role": "human",
                 "text": "Indexify is amazing!",
-                "metadata": {}
+                "metadata": {"role": "human"}
                 },
                 {
-                "role": "ai",
                 "text": "How are you planning on using Indexify?!",
-                "metadata": {}
+                "metadata": {"role": "ai"}
                 }
         ]}'
     ```
@@ -174,13 +137,9 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
     ```
-    curl -X GET http://localhost:8900/memory/get \
+    curl -X GET http://localhost:8900/events/get \
     -H "Content-Type: application/json" \
     -d '{
-            "session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13"
+            "repository": "default"
         }'
     ```
-
-
-- Retrieve using search
-Searching or retrieving data from indexes created from memory is similar to retrieving data from any other indexes in repository. You can search `embeddingindex1` using the `/search` API as earlier and look up the attributes from `entityindex1` indexes using the `/attributes_lookup` API.
