@@ -32,6 +32,11 @@ The following workaround is needed until PyO3 can detect virtualenvs in OSX
  export PYTHONPATH=${PYTHONPATH}:${PWD}/ve/lib/python3.11/site-packages
 ```
 
+Install coreutils 
+```
+brew install coreutils
+```
+
 ## Running Tests
 We currently depend on the Qdrant VectorDB and Postgres to test Indexify. 
 
