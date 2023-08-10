@@ -29,18 +29,3 @@ print(attributes)
 # %%
 search_results = repo.search_index("embeddingindex", "Indexify", 10)
 print(search_results)
-
-# # %%
-# import random
-# lucky_number = random.randint(1, 100)
-# doc = {
-#     # "text": "Indexify is amazing!",
-#     "text": f"My lucky number is {lucky_number}!",
-#     "metadata": {
-#         "key": "k1",
-#         "lucky_number": lucky_number,
-#     }
-# }
-
-# # # %%
-# repo.add_documents(doc)
