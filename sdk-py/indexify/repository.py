@@ -1,4 +1,3 @@
-from typing import Any, Coroutine
 import aiohttp
 import requests
 
@@ -52,15 +51,6 @@ class ARepository:
             async with session.post(f"{self._url}/run_extractors", json=req) as resp:
                 return await _get_payload(resp)
 
-    async def add(self, *chunks: TextChunk) -> None:
-        parsed_chunks = []
-        for chunk in chunks:
-            parsed_chunks.append(chunk.to_dict())
-        req = {"documents": parsed_chunks, "repository": self._name}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self._url}/add_texts", json=req) as resp:
-                return await _get_payload(resp)
-
     async def add_documents(self, *documents: dict) -> None:
         if isinstance(documents[0], dict):
             documents = [documents[0]]  # single document passed
@@ -79,9 +69,6 @@ class Repository(ARepository):
         if not self._name_exists():
             print(f"creating repo {self._name}")
             create_repository(name=self._name, base_url=self._base_url)
-
-    def add(self, *chunks: TextChunk) -> None:
-        return wait_until(ARepository.add(self, *chunks))
 
     def add_documents(self, *documents: dict) -> None:
         return wait_until(ARepository.add_documents(self, *documents))

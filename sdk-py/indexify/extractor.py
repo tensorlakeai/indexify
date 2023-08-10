@@ -1,10 +1,6 @@
 import requests
 
-
-from .index import Index
-from .data_containers import TextChunk
 from .settings import DEFAULT_INDEXIFY_URL
-from .utils import _get_payload, wait_until
 
 
 def list_extractors(base_url: str = DEFAULT_INDEXIFY_URL) -> list[dict]:
@@ -14,6 +10,7 @@ def list_extractors(base_url: str = DEFAULT_INDEXIFY_URL) -> list[dict]:
 
 
 # TODO: consider naming this IndexifyExtractor
+# TODO: consider making this a dataclass
 class Extractor:
 
     def __init__(self, name: str, description: str, extractor_type : dict):
