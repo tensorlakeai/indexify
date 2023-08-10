@@ -183,16 +183,4 @@ You can retrieve all the previously stored messages in Indexify for a given sess
 
 
 - Retrieve using search
-Now, search for something specific! Every memory session comes with a default index, you could also
-add more extractors to a session, and add more than one index or extract other specific information
-from the messages(like named entities - places, names, etc).
-=== "curl"
-    ```
-    curl -X GET http://localhost:8900/memory/search \
-    -H "Content-Type: application/json" \
-    -d '{
-            "repository": "default",
-            "index": "embeddingindex1",
-            "query": "indexify"
-        }'
-    ```
+Searching or retrieving data from indexes created from memory is similar to retrieving data from any other indexes in repository. You can search `embeddingindex1` using the `/search` API as earlier and look up the attributes from `entityindex1` indexes using the `/attributes_lookup` API.

@@ -65,7 +65,7 @@ class EntityExtractor:
             name="EntityExtractor",
             description="EntityExtractor",
             output_datatype="attributes",
-            input_params=json.dumps(EntityExtractionInputParams.model_json_schema()),
+            input_params=json.dumps(EntityExtractionInputParams.schema_json()),
             output_schema= schema_json,
         )
 
