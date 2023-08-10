@@ -27,7 +27,6 @@ nav:
     - Retrieval: 'apis/retrieval.md'
     - Memory: 'apis/memory.md'
   - Configuration: 'configuration.md'
-  - Python SDK: python_sdk.ipynb
   - Deployment: 'deployment.md'
   - Develop Indexify: 'develop.md'
   - Integrations:
