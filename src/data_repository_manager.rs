@@ -121,7 +121,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
-    pub async fn add_extractor(
+    pub async fn add_extractor_binding(
         &self,
         repository: &str,
         extractor: ExtractorBinding,

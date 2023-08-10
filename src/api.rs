@@ -265,14 +265,14 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 
 /// Request payload for creating a new vector index.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ExtractorAddRequest {
+pub struct ExtractorBindRequest {
     pub repository: Option<String>,
     #[serde(flatten)]
     pub extractor_binding: ExtractorBinding,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ExtractorAddResponse {}
+pub struct ExtractorBindResponse {}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Text {

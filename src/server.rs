@@ -6,6 +6,7 @@ use crate::ServerConfig;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
 
 use anyhow::Result;
+use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
@@ -89,8 +90,8 @@ impl Server {
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route("/", get(root))
             .route(
-                "/repository/add_extractor",
-                post(index_create).with_state(repository_endpoint_state.clone()),
+                "/repository/:repository_name/extractor_bindings",
+                post(bind_extractor).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repository/add_texts",
@@ -118,15 +119,15 @@ impl Server {
                 get(list_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/create",
+                "/repositories",
                 post(create_repository).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/list",
+                "/repositories",
                 get(list_repositories).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/get",
+                "/repositories/:repository_name",
                 get(get_repository).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -207,12 +208,12 @@ async fn list_repositories(
 }
 
 async fn get_repository(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<GetRepository>,
 ) -> Result<Json<GetRepositoryResponse>, IndexifyAPIError> {
     let data_repo = state
         .repository_manager
-        .get(&payload.name)
+        .get(&repository_name)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -226,14 +227,14 @@ async fn get_repository(
 }
 
 #[axum_macros::debug_handler]
-async fn index_create(
+async fn bind_extractor(
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<ExtractorAddRequest>,
-) -> Result<Json<ExtractorAddResponse>, IndexifyAPIError> {
+    Json(payload): Json<ExtractorBindRequest>,
+) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
     let repository = get_or_default_repository(payload.repository);
     state
         .repository_manager
-        .add_extractor(&repository, payload.extractor_binding.into())
+        .add_extractor_binding(&repository, payload.extractor_binding.into())
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -241,7 +242,7 @@ async fn index_create(
                 format!("failed to add extractor: {}", e),
             )
         })?;
-    Ok(Json(ExtractorAddResponse {}))
+    Ok(Json(ExtractorBindResponse {}))
 }
 
 #[utoipa::path(
