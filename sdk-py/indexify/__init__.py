@@ -1,4 +1,5 @@
 from .index import Index, AIndex
+from .client import IndexifyClient
 from .memory import Memory, AMemory
 from .repository import Repository, ARepository, create_repository, list_repositories
 from .data_containers import TextChunk, Message

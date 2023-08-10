@@ -112,6 +112,7 @@ impl Server {
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
+                // FIXME: this should be /index/search
                 "/repository/search",
                 get(index_search).with_state(repository_endpoint_state.clone()),
             )
