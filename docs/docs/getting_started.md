@@ -3,12 +3,12 @@
 Indexify is very easy to get started with Docker Compose.
 
 ### Clone the Repository
-```
+```shell
 git clone https://github.com/diptanu/indexify.git
 ```
 
 ### Start the Service using Docker Compose
-```
+```shell
 docker compose up indexify
 ```
 This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and Qdrant for storing embeddings.
@@ -18,11 +18,13 @@ That's it! Let's explore some primary document storage and retrieval APIs.
 ### Install the client libraries (Optional)
 Indexify comes with Python and Typescript clients. They use the HTTP APIs exposed by Indexify under the hood, and provide a convenient way of interacting with the server.
 === "python"
-    ```
+
+    ```shell
     pip install indexify
     ```
 === "typescript"
-    ```
+
+    ```shell
     npm install getindexify
     ```
 
@@ -34,7 +36,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 
 === "curl"
 
-    ```
+    ```bash
     curl -v -X POST http://localhost:8900/repository/add_texts \
     -H "Content-Type: application/json" \
     -d '{
@@ -47,7 +49,8 @@ Data Repositories are logical buckets that store content. Indexify starts with a
         ]}' 
     ```
 === "python"
-    ```
+
+    ```python
     from indexify import Repository
 
     repo = Repository()
@@ -65,12 +68,14 @@ Extractors are used to extract information from the documents in our repository.
 #### Get available extractors
 
 === "curl"
-    ```
+
+    ```bash
     curl -X GET http://localhost:8900/extractors \
     -H "Content-Type: application/json" 
     ```
 === "python"
-    ```
+
+    ```python
     from indexify import IndexifyClient
 
     client = IndexifyClient()
@@ -84,7 +89,8 @@ To start extracting information from the documents, we need to bind some extract
 Every extractor we bind results in a corresponding index being created in Indexify to store the extracted information for fast retrieval. So we must also provide an index name for each extractor.
 
 === "curl"
-    ```
+
+    ```bash
     curl -X POST http://localhost:8900/repository/add_extractor \
     -H "Content-Type: application/json" \
     -d '{
@@ -108,9 +114,9 @@ Every extractor we bind results in a corresponding index being created in Indexi
     }'
     ```
 === "python"
-    ```
-    repo.add_extractor("EntityExtractor", index_name="entityindex", filter={"content_type": "text"})
 
+    ```python
+    repo.add_extractor("EntityExtractor", index_name="entityindex", filter={"content_type": "text"})
     repo.add_extractor("MiniLML6", index_name="embeddingindex", filter={"content_type": "text"})
 
     print(repo.extractors)
@@ -122,7 +128,8 @@ Every extractor we bind results in a corresponding index being created in Indexi
 Now we can query the index created by the named entity extractor. The index will have json documents containing the key/value pairs extracted from the text.
 
 === "curl"
-    ```
+
+    ```bash
     curl -X GET http://localhost:8900/repository/attribute_lookup \
     -H "Content-Type: application/json" \
     -d'{
@@ -131,7 +138,8 @@ Now we can query the index created by the named entity extractor. The index will
     }'
     ```
 === "python"
-    ```
+
+    ```python
     attributes = repo.query_attribute("entityindex")
     print(attributes)
     ```
@@ -139,7 +147,8 @@ Now we can query the index created by the named entity extractor. The index will
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
 === "curl"
-    ```
+
+    ```bash
     curl -v -X GET http://localhost:8900/repository/search \
     -H "Content-Type: application/json" \
     -d '{
@@ -150,7 +159,8 @@ Next let's query the index created by the embedding extractor. The index will al
         }'
     ```
 === "python"
-    ```
+
+    ```python
     search_results = repo.search_index("embeddingindex", "Indexify", 10)
     print(search_results)
     ```
