@@ -212,7 +212,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::persistence::{
-        ContentType, DataConnector, Event, ExtractorBinding, ExtractorFilter, SourceType,
+        DataConnector, Event, ExtractorBinding, SourceType,
     };
     use crate::test_util;
     use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};

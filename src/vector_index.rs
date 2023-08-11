@@ -148,7 +148,7 @@ mod tests {
     use std::env;
 
     use crate::data_repository_manager::DataRepositoryManager;
-    use crate::persistence::{self, DataRepository, ExtractorBinding, Text};
+    use crate::persistence::{DataRepository, ExtractorBinding, Text};
     use crate::test_util;
     use crate::test_util::db_utils::{
         create_index_manager, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
