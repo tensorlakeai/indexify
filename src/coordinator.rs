@@ -403,7 +403,7 @@ mod tests {
 
     use crate::{
         data_repository_manager::DataRepositoryManager,
-        persistence::{self, DataRepository, Text},
+        persistence::{DataRepository, Text},
     };
 
     #[tokio::test]

@@ -9,7 +9,7 @@ pub mod db_utils {
     use crate::attribute_index::AttributeIndexManager;
     use crate::executor::ExtractorExecutor;
     use crate::persistence::DataRepository;
-    use crate::persistence::{self, ExtractorBinding, ExtractorConfig, ExtractorType, Repository};
+    use crate::persistence::{ExtractorBinding, ExtractorConfig, ExtractorType, Repository};
     use crate::vector_index::VectorIndexManager;
     use crate::vectordbs::{self, IndexDistance};
     use crate::Coordinator;
