@@ -27,9 +27,7 @@ pub mod db_utils {
             extractor_bindings: vec![ExtractorBinding {
                 extractor_name: DEFAULT_TEST_EXTRACTOR.into(),
                 index_name: DEFAULT_TEST_EXTRACTOR.into(),
-                filter: persistence::ExtractorFilter::ContentType {
-                    content_type: persistence::ContentType::Text,
-                },
+                filters: vec![],
                 input_params: serde_json::json!({}),
             }],
         }

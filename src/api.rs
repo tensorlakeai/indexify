@@ -62,29 +62,37 @@ impl From<ExtractorContentType> for persistence::ContentType {
 #[serde(rename = "extractor_filter")]
 #[serde(untagged)]
 pub enum ExtractorFilter {
-    #[serde(rename = "content_type")]
-    ContentType { content_type: ExtractorContentType },
+    Eq {
+        field: String,
+        value: serde_json::Value,
+    },
+    Neq {
+        field: String,
+        value: serde_json::Value,
+    },
 }
 
 impl From<persistence::ExtractorFilter> for ExtractorFilter {
     fn from(value: persistence::ExtractorFilter) -> Self {
         match value {
-            persistence::ExtractorFilter::ContentType { content_type } => {
-                ExtractorFilter::ContentType {
-                    content_type: content_type.into(),
-                }
+            persistence::ExtractorFilter::Eq { field, value } => {
+                ExtractorFilter::Eq { field, value }
+            }
+            persistence::ExtractorFilter::Neq { field, value } => {
+                ExtractorFilter::Neq { field, value }
             }
         }
     }
 }
 
 impl From<ExtractorFilter> for persistence::ExtractorFilter {
-    fn from(val: ExtractorFilter) -> Self {
-        match val {
-            ExtractorFilter::ContentType { content_type } => {
-                persistence::ExtractorFilter::ContentType {
-                    content_type: content_type.into(),
-                }
+    fn from(value: ExtractorFilter) -> Self {
+        match value {
+            ExtractorFilter::Eq { field, value } => {
+                persistence::ExtractorFilter::Eq { field, value }
+            }
+            ExtractorFilter::Neq { field, value } => {
+                persistence::ExtractorFilter::Neq { field, value }
             }
         }
     }
@@ -94,7 +102,7 @@ impl From<ExtractorFilter> for persistence::ExtractorFilter {
 pub struct ExtractorBinding {
     pub name: String,
     pub index_name: Option<String>,
-    pub filter: ExtractorFilter,
+    pub filters: Vec<ExtractorFilter>,
     pub input_params: Option<serde_json::Value>,
 }
 
@@ -103,19 +111,19 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
         Self {
             name: value.extractor_name,
             index_name: Some(value.index_name),
-            filter: value.filter.into(),
+            filters: value.filters.into_iter().map(|f| f.into()).collect(),
             input_params: Some(value.input_params),
         }
     }
 }
 
 impl From<ExtractorBinding> for persistence::ExtractorBinding {
-    fn from(val: ExtractorBinding) -> Self {
+    fn from(value: ExtractorBinding) -> Self {
         persistence::ExtractorBinding {
-            extractor_name: val.name.clone(),
-            index_name: val.index_name.unwrap_or(val.name.clone()),
-            filter: val.filter.into(),
-            input_params: val.input_params.unwrap_or(serde_json::json!({})),
+            extractor_name: value.name.clone(),
+            index_name: value.index_name.unwrap_or(value.name.clone()),
+            filters: value.filters.into_iter().map(|f| f.into()).collect(),
+            input_params: value.input_params.unwrap_or(serde_json::json!({})),
         }
     }
 }

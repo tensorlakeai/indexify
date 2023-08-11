@@ -234,9 +234,7 @@ mod tests {
             extractor_bindings: vec![ExtractorBinding {
                 extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
                 index_name: "default_embedder".to_string(),
-                filter: ExtractorFilter::ContentType {
-                    content_type: ContentType::Text,
-                },
+                filters: vec![],
                 input_params: serde_json::json!({}),
             }],
             metadata: meta.clone(),

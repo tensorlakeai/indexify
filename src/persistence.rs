@@ -35,7 +35,7 @@ use entity::work::Entity as WorkEntity;
 pub struct ExtractorBinding {
     pub extractor_name: String,
     pub index_name: String,
-    pub filter: ExtractorFilter,
+    pub filters: Vec<ExtractorFilter>,
     pub input_params: serde_json::Value,
 }
 
@@ -103,7 +103,14 @@ pub enum ExtractorType {
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
 pub enum ExtractorFilter {
-    ContentType { content_type: ContentType },
+    Eq {
+        field: String,
+        value: serde_json::Value,
+    },
+    Neq {
+        field: String,
+        value: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -630,12 +637,23 @@ impl Repository {
             query.push_str(format!(" and id = ${}", idx).as_str());
             idx += 1;
         }
-        match &extractor_binding.filter {
-            ExtractorFilter::ContentType { content_type } => {
-                values.push(content_type.to_string().into());
-                query.push_str(format!(" and content_type = ${}", idx).as_str());
+        for filter in &extractor_binding.filters {
+            match filter {
+                ExtractorFilter::Eq { field, value } => {
+                    values.push(field.to_string().into());
+                    values.push(value.as_str().unwrap().into());
+                    query.push_str(format!(" and metadata->>${} = ${}", idx, idx + 1).as_str());
+                    idx += 2;
+                }
+                ExtractorFilter::Neq { field, value } => {
+                    values.push(field.to_string().into());
+                    values.push(value.as_str().unwrap().into());
+                    query.push_str(format!(" and metadata->>${} != ${}", idx, idx + 1).as_str());
+                    idx += 2;
+                }
             }
         }
+        info!("query: {}", query);
         let result = entity::content::Entity::find()
             .from_raw_sql(Statement::from_sql_and_values(
                 DbBackend::Postgres,
@@ -1026,15 +1044,26 @@ mod tests {
         let extractor_binding1 = ExtractorBinding {
             extractor_name: "extractor1".into(),
             index_name: "extractor1".into(),
-            filter: ExtractorFilter::ContentType {
-                content_type: ContentType::Text,
-            },
+            filters: vec![ExtractorFilter::Eq {
+                field: "topic".to_string(),
+                value: json!("pipe"),
+            }],
+            input_params: serde_json::json!({}),
+        };
+
+        let extractor_binding2 = ExtractorBinding {
+            extractor_name: "extractor1".into(),
+            index_name: "extractor2".into(),
+            filters: vec![ExtractorFilter::Neq {
+                field: "topic".to_string(),
+                value: json!("pipe"),
+            }],
             input_params: serde_json::json!({}),
         };
         let repo = DataRepository {
             name: "test".to_owned(),
             data_connectors: vec![],
-            extractor_bindings: vec![extractor_binding1.clone()],
+            extractor_bindings: vec![extractor_binding1.clone(), extractor_binding2.clone()],
             metadata: HashMap::new(),
         };
 
@@ -1050,8 +1079,16 @@ mod tests {
             .add_content(
                 &repo.name,
                 vec![
-                    Text::from_text(&repo.name, "hello", HashMap::new()),
-                    Text::from_text(&repo.name, "world", HashMap::new()),
+                    Text::from_text(
+                        "test",
+                        "hello",
+                        HashMap::from([("topic".to_string(), json!("pipe"))]),
+                    ),
+                    Text::from_text(
+                        "test",
+                        "world",
+                        HashMap::from([("topic".to_string(), json!("baz"))]),
+                    ),
                 ],
             )
             .await
@@ -1061,6 +1098,13 @@ mod tests {
             .content_with_unapplied_extractor(&repo.name, &extractor_binding1, None)
             .await
             .unwrap();
-        assert_eq!(2, content_list1.len());
+        assert_eq!(1, content_list1.len());
+
+        let content_list2 = repository
+            .content_with_unapplied_extractor(&repo.name, &extractor_binding2, None)
+            .await
+            .unwrap();
+        assert_eq!(1, content_list2.len());
+        assert_ne!(content_list1[0].id, content_list2[0].id);
     }
 }
