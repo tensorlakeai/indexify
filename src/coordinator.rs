@@ -23,11 +23,12 @@ use std::{
 pub struct ExecutorInfo {
     pub id: String,
     pub last_seen: u64,
+    pub available_extractors: Vec<ExtractorConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SyncWorker {
-    pub worker_id: String,
+pub struct SyncExecutor {
+    pub executor_id: String,
     pub available_extractors: Vec<ExtractorConfig>,
     pub work_status: Vec<Work>,
 }
@@ -85,7 +86,7 @@ impl Coordinator {
         coordinator
     }
 
-    pub async fn record_node(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
+    pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
         self.executor_health_checks
             .write()
             .unwrap()
@@ -302,10 +303,15 @@ async fn root() -> &'static str {
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
+    // TODO FIX THIS - available extractors needs to be populated.
     let executors = coordinator.executor_health_checks.read().unwrap().clone();
     let executors = executors
         .into_iter()
-        .map(|(id, last_seen)| ExecutorInfo { id, last_seen })
+        .map(|(id, last_seen)| ExecutorInfo {
+            id,
+            last_seen,
+            available_extractors: vec![],
+        })
         .collect();
     Ok(Json(ListExecutors { executors }))
 }
@@ -313,17 +319,18 @@ async fn list_executors(
 #[axum_macros::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(worker): Json<SyncWorker>,
+    Json(worker): Json<SyncExecutor>,
 ) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
     // Record the health check of the worker
-    let worker_id = worker.worker_id.clone();
+    let worker_id = worker.executor_id.clone();
     let _ = coordinator
-        .record_node(ExecutorInfo {
+        .record_executor(ExecutorInfo {
             id: worker_id.clone(),
             last_seen: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            available_extractors: worker.available_extractors.clone(),
         })
         .await;
     // Record the outcome of any work the worker has done
@@ -340,7 +347,7 @@ async fn sync_executor(
 
     // Find more work for the worker
     let queued_work = coordinator
-        .get_work_for_worker(&worker.worker_id)
+        .get_work_for_worker(&worker.executor_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

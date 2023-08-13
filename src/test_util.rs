@@ -59,7 +59,7 @@ pub mod db_utils {
         )
         .unwrap();
         coordinator
-            .record_node(extractor_executor.get_executor_info())
+            .record_executor(extractor_executor.get_executor_info())
             .await
             .unwrap();
 

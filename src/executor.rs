@@ -5,7 +5,7 @@ use crate::{
     persistence::{ExtractedAttributes, Work, WorkState},
     persistence::{ExtractorConfig, ExtractorType, Repository},
     vector_index::VectorIndexManager,
-    vectordbs, ExecutorInfo, ServerConfig, SyncWorker, SyncWorkerResponse,
+    vectordbs, ExecutorInfo, ServerConfig, SyncExecutor, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get, routing::post, Router};
@@ -130,6 +130,7 @@ impl ExtractorExecutor {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            available_extractors: self.extractor_info_list.clone(),
         }
     }
 
@@ -142,8 +143,8 @@ impl ExtractorExecutor {
             .values()
             .cloned()
             .collect();
-        let sync_executor_req = SyncWorker {
-            worker_id: self.executor_id.clone(),
+        let sync_executor_req = SyncExecutor {
+            executor_id: self.executor_id.clone(),
             available_extractors: self.extractor_info_list.clone(),
             work_status: work_status.clone(),
         };

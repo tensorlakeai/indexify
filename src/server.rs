@@ -39,7 +39,8 @@ pub struct RepositoryEndpointState {
             bind_extractor,
             list_events,
             add_events,
-            attribute_lookup
+            attribute_lookup,
+            list_executors
         ),
         components(
             schemas(CreateRepository, CreateRepositoryResponse, DataConnector,
@@ -47,7 +48,7 @@ pub struct RepositoryEndpointState {
                 SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse,
-        ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes)
+        ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -136,6 +137,10 @@ impl Server {
             .route(
                 "/repository/:repository_name",
                 get(get_repository).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/executors",
+                get(list_executors).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
@@ -399,6 +404,22 @@ async fn list_events(
         .collect();
 
     Ok(Json(ListEventsResponse { messages }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/executors",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of currently running executors", body = ListExecutorsResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to load executors")
+    ),
+)]
+#[axum_macros::debug_handler]
+async fn list_executors(
+    State(_state): State<RepositoryEndpointState>,
+) -> Result<Json<ListExecutorsResponse>, IndexifyAPIError> {
+    Ok(Json(ListExecutorsResponse { executors: vec![] }))
 }
 
 #[utoipa::path(

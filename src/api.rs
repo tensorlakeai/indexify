@@ -298,6 +298,17 @@ impl From<persistence::ExtractorConfig> for ExtractorConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Executor {
+    pub id: String,
+    pub extractors: Vec<ExtractorConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListExecutorsResponse {
+    pub executors: Vec<Executor>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct ListExtractorsResponse {
     pub extractors: Vec<ExtractorConfig>,
