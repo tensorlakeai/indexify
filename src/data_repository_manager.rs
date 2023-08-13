@@ -1,7 +1,8 @@
+use anyhow::Result;
 use sea_orm::DbConn;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tracing::info;
+use tracing::{error, info};
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 
@@ -89,6 +90,28 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    async fn create_index(
+        &self,
+        repository: &str,
+        extractor_binding: &ExtractorBinding,
+    ) -> Result<(), DataRepositoryError> {
+        let extractor = self
+            .repository
+            .extractor_by_name(&extractor_binding.extractor_name)
+            .await?;
+        if let ExtractorType::Embedding {
+            dim: _,
+            distance: _,
+        } = extractor.extractor_type.clone()
+        {
+            self.vector_index_manager
+                .create_index(repository, &extractor_binding.index_name, extractor)
+                .await
+                .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
         let _ = self
             .repository
@@ -96,19 +119,9 @@ impl DataRepositoryManager {
             .await
             .map_err(DataRepositoryError::Persistence);
         for extractor_binding in &repository.extractor_bindings {
-            let extractor = self
-                .repository
-                .extractor_by_name(&extractor_binding.extractor_name)
-                .await?;
-            if let ExtractorType::Embedding {
-                dim: _,
-                distance: _,
-            } = extractor.extractor_type.clone()
-            {
-                self.vector_index_manager
-                    .create_index(&repository.name, &extractor_binding.index_name, extractor)
-                    .await
-                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            let result = self.create_index(&repository.name, extractor_binding).await;
+            if result.is_err() {
+                error!("unable to create index: {:?}", result.err());
             }
         }
         Ok(())
@@ -126,6 +139,7 @@ impl DataRepositoryManager {
         repository: &str,
         extractor: ExtractorBinding,
     ) -> Result<(), DataRepositoryError> {
+        self.create_index(repository, &extractor).await?;
         let mut data_repository = self
             .repository
             .repository_by_name(repository)
@@ -139,8 +153,9 @@ impl DataRepositoryManager {
                 )));
             }
         }
-        data_repository.extractor_bindings.push(extractor);
-        self.create(&data_repository).await
+        data_repository.extractor_bindings.push(extractor.clone());
+        self.repository.upsert_repository(data_repository).await?;
+        Ok(())
     }
 
     pub async fn add_texts(

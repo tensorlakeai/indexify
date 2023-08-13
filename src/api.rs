@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use strum_macros::{Display, EnumString};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::persistence;
 use crate::vectordbs;
@@ -60,47 +60,22 @@ impl From<ExtractorContentType> for persistence::ContentType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
-#[serde(untagged)]
 pub enum ExtractorFilter {
+    #[serde(rename = "eq")]
     Eq {
-        field: String,
-        value: serde_json::Value,
+        #[serde(flatten)]
+        filters: HashMap<String, serde_json::Value>,
     },
+    #[serde(rename = "neq")]
     Neq {
-        field: String,
-        value: serde_json::Value,
+        #[serde(flatten)]
+        filters: HashMap<String, serde_json::Value>,
     },
-}
-
-impl From<persistence::ExtractorFilter> for ExtractorFilter {
-    fn from(val: persistence::ExtractorFilter) -> Self {
-        match val {
-            persistence::ExtractorFilter::Eq { field, value } => {
-                ExtractorFilter::Eq { field, value }
-            }
-            persistence::ExtractorFilter::Neq { field, value } => {
-                ExtractorFilter::Neq { field, value }
-            }
-        }
-    }
-}
-
-impl From<ExtractorFilter> for persistence::ExtractorFilter {
-    fn from(value: ExtractorFilter) -> Self {
-        match value {
-            ExtractorFilter::Eq { field, value } => {
-                persistence::ExtractorFilter::Eq { field, value }
-            }
-            ExtractorFilter::Neq { field, value } => {
-                persistence::ExtractorFilter::Neq { field, value }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
-    pub name: String,
+    pub extractor_name: String,
     pub index_name: Option<String>,
     pub filters: Vec<ExtractorFilter>,
     pub input_params: Option<serde_json::Value>,
@@ -108,10 +83,33 @@ pub struct ExtractorBinding {
 
 impl From<persistence::ExtractorBinding> for ExtractorBinding {
     fn from(value: persistence::ExtractorBinding) -> Self {
+        let mut eq_filters = HashMap::new();
+        let mut neq_filters = HashMap::new();
+        for filter in value.filters {
+            match filter {
+                persistence::ExtractorFilter::Eq { field, value } => {
+                    eq_filters.insert(field, value);
+                }
+                persistence::ExtractorFilter::Neq { field, value } => {
+                    neq_filters.insert(field, value);
+                }
+            }
+        }
+        let mut filters = vec![];
+        if !eq_filters.is_empty() {
+            filters.push(ExtractorFilter::Eq {
+                filters: eq_filters,
+            });
+        }
+        if !neq_filters.is_empty() {
+            filters.push(ExtractorFilter::Neq {
+                filters: neq_filters,
+            });
+        }
         Self {
-            name: value.extractor_name,
+            extractor_name: value.extractor_name,
             index_name: Some(value.index_name),
-            filters: value.filters.into_iter().map(|f| f.into()).collect(),
+            filters,
             input_params: Some(value.input_params),
         }
     }
@@ -119,10 +117,25 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
 
 impl From<ExtractorBinding> for persistence::ExtractorBinding {
     fn from(value: ExtractorBinding) -> Self {
+        let mut extraction_filters = vec![];
+        for filter in value.filters {
+            match filter {
+                ExtractorFilter::Eq { filters } => {
+                    for (field, value) in filters {
+                        extraction_filters.push(persistence::ExtractorFilter::Eq { field, value });
+                    }
+                }
+                ExtractorFilter::Neq { filters } => {
+                    for (field, value) in filters {
+                        extraction_filters.push(persistence::ExtractorFilter::Neq { field, value });
+                    }
+                }
+            }
+        }
         persistence::ExtractorBinding {
-            extractor_name: value.name.clone(),
-            index_name: value.index_name.unwrap_or(value.name.clone()),
-            filters: value.filters.into_iter().map(|f| f.into()).collect(),
+            extractor_name: value.extractor_name.clone(),
+            index_name: value.index_name.unwrap_or(value.extractor_name.clone()),
+            filters: extraction_filters,
             input_params: value.input_params.unwrap_or(serde_json::json!({})),
         }
     }
@@ -293,14 +306,14 @@ pub struct ListExtractorsResponse {
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct TextAdditionResponse {}
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct SearchRequest {
     pub index: String,
     pub query: String,
     pub k: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractedAttributes {
     pub id: String,
     pub content_id: String,
@@ -319,7 +332,7 @@ impl From<persistence::ExtractedAttributes> for ExtractedAttributes {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct AttributeLookupRequest {
     pub content_id: Option<String>,
     pub index: String,
@@ -330,7 +343,7 @@ pub struct AttributeLookupResponse {
     pub attributes: Vec<ExtractedAttributes>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, ToSchema)]
 pub struct Event {
     text: String,
     unix_timestamp: Option<u64>,
@@ -353,16 +366,16 @@ impl From<persistence::Event> for Event {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct EventAddRequest {
     pub events: Vec<Event>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct EventAddResponse {}
 
-#[derive(Serialize, Deserialize)]
-pub struct EventsSessionRetrieveResponse {
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct ListEventsResponse {
     pub messages: Vec<Event>,
 }
 

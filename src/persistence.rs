@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::info;
+use tracing::{error, info};
 
 use anyhow::Result;
 use entity::data_repository::Entity as DataRepositoryEntity;
@@ -841,8 +841,13 @@ impl Repository {
         let extractor_model = extractors::Entity::find()
             .filter(entity::extractors::Column::Id.eq(name))
             .one(&self.conn)
-            .await?
-            .ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
+            .await;
+
+        if let Err(e) = &extractor_model {
+            error!("Error getting extractor by name {}: {:?}", name, e);
+        }
+        let extractor_model =
+            extractor_model?.ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
         Ok(ExtractorConfig {
             name: extractor_model.id,
             description: extractor_model.description,
