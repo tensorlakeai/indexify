@@ -14,6 +14,9 @@ use tokio::signal;
 use tracing::{error, info};
 
 use utoipa::OpenApi;
+use utoipa_rapidoc::RapiDoc;
+use utoipa_redoc::{Redoc, Servable};
+
 use utoipa_swagger_ui::SwaggerUi;
 
 use std::net::SocketAddr;
@@ -47,7 +50,7 @@ pub struct RepositoryEndpointState {
                 IndexDistance, ExtractorType, ExtractorContentType,
                 SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
-            , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse,
+            , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,
         ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
         ),
         tags(
@@ -97,6 +100,8 @@ impl Server {
         };
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+            .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
+            .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
                 "/repository/:repository_name/extractor_bindings",

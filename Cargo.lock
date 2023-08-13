@@ -1497,6 +1497,8 @@ dependencies = [
  "tracing-test",
  "unescape",
  "utoipa",
+ "utoipa-rapidoc",
+ "utoipa-redoc",
  "utoipa-swagger-ui",
  "vergen",
 ]
@@ -3755,6 +3757,30 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.18",
+]
+
+[[package]]
+name = "utoipa-rapidoc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e5b9ebae0a8e5860e19ddaae755f5caade84b2de93cfde1c88d8c8d1da62843"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "utoipa",
+]
+
+[[package]]
+name = "utoipa-redoc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d0ecce4acc6580d87b052a48fb142b1ddaf4d6d70e547d25012a4387f3cf3bd"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "utoipa",
 ]
 
 [[package]]
