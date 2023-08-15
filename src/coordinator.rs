@@ -121,6 +121,10 @@ impl Coordinator {
                     processed_events_for_repository.insert(&event.repository_id);
                     None
                 }
+                ExtractionEventPayload::ExtractorBindingAdded { repository, id } => {
+                    processed_events_for_repository.insert(&event.repository_id);
+                    None
+                }
                 ExtractionEventPayload::CreateContent { content_id } => Some(content_id.as_str()),
             };
             if let Err(err) = self.create_work(&event.repository_id, content).await {
@@ -428,12 +432,13 @@ mod tests {
                 name: DEFAULT_TEST_REPOSITORY.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),
-                extractor_bindings: vec![ExtractorBinding {
-                    extractor_name: DEFAULT_TEST_EXTRACTOR.into(),
-                    index_name: DEFAULT_TEST_EXTRACTOR.into(),
-                    filters: vec![],
-                    input_params: serde_json::json!({}),
-                }],
+                extractor_bindings: vec![ExtractorBinding::new(
+                    DEFAULT_TEST_REPOSITORY,
+                    DEFAULT_TEST_EXTRACTOR.into(),
+                    DEFAULT_TEST_EXTRACTOR.into(),
+                    vec![],
+                    serde_json::json!({}),
+                )],
             })
             .await?;
 

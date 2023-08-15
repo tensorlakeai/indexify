@@ -244,12 +244,13 @@ mod tests {
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
             name: "test".to_string(),
-            extractor_bindings: vec![ExtractorBinding {
-                extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
-                index_name: "default_embedder".to_string(),
-                filters: vec![],
-                input_params: serde_json::json!({}),
-            }],
+            extractor_bindings: vec![ExtractorBinding::new(
+                "test",
+                DEFAULT_TEST_EXTRACTOR.to_string(),
+                "default_embedder".to_string(),
+                vec![],
+                serde_json::json!({}),
+            )],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {
                 source: SourceType::GoogleContact {

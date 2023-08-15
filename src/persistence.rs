@@ -33,15 +33,40 @@ use entity::work::Entity as WorkEntity;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
+    pub id: String,
     pub extractor_name: String,
     pub index_name: String,
     pub filters: Vec<ExtractorFilter>,
     pub input_params: serde_json::Value,
 }
 
+impl ExtractorBinding {
+    pub fn new(
+        repository: &str,
+        extractor_name: String,
+        index_name: String,
+        filters: Vec<ExtractorFilter>,
+        input_params: serde_json::Value,
+    ) -> ExtractorBinding {
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        extractor_name.hash(&mut s);
+        index_name.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        ExtractorBinding {
+            id,
+            extractor_name,
+            index_name,
+            filters,
+            input_params,
+        }
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Display, EnumString)]
 pub enum ExtractionEventPayload {
     SyncRepository {},
+    ExtractorBindingAdded { repository: String, id: String },
     CreateContent { content_id: String },
 }
 
@@ -1045,25 +1070,27 @@ mod tests {
             },
             ..Default::default()
         };
-        let extractor_binding1 = ExtractorBinding {
-            extractor_name: "extractor1".into(),
-            index_name: "extractor1".into(),
-            filters: vec![ExtractorFilter::Eq {
+        let extractor_binding1 = ExtractorBinding::new(
+            "repository",
+            "extractor1".into(),
+            "extractor1".into(),
+            vec![ExtractorFilter::Eq {
                 field: "topic".to_string(),
                 value: json!("pipe"),
             }],
-            input_params: serde_json::json!({}),
-        };
+            serde_json::json!({}),
+        );
 
-        let extractor_binding2 = ExtractorBinding {
-            extractor_name: "extractor1".into(),
-            index_name: "extractor2".into(),
-            filters: vec![ExtractorFilter::Neq {
+        let extractor_binding2 = ExtractorBinding::new(
+            "repository1",
+            "extractor1".into(),
+            "extractor2".into(),
+            vec![ExtractorFilter::Neq {
                 field: "topic".to_string(),
                 value: json!("pipe"),
             }],
-            input_params: serde_json::json!({}),
-        };
+            serde_json::json!({}),
+        );
         let repo = DataRepository {
             name: "test".to_owned(),
             data_connectors: vec![],

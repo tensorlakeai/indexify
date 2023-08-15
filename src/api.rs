@@ -115,30 +115,36 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
     }
 }
 
-impl From<ExtractorBinding> for persistence::ExtractorBinding {
-    fn from(value: ExtractorBinding) -> Self {
-        let mut extraction_filters = vec![];
-        for filter in value.filters {
-            match filter {
-                ExtractorFilter::Eq { filters } => {
-                    for (field, value) in filters {
-                        extraction_filters.push(persistence::ExtractorFilter::Eq { field, value });
-                    }
+pub fn into_persistence_extractor_binding(
+    repository: &str,
+    extractor_binding: ExtractorBinding,
+) -> persistence::ExtractorBinding {
+    let mut extraction_filters = vec![];
+    for filter in extractor_binding.filters {
+        match filter {
+            ExtractorFilter::Eq { filters } => {
+                for (field, value) in filters {
+                    extraction_filters.push(persistence::ExtractorFilter::Eq { field, value });
                 }
-                ExtractorFilter::Neq { filters } => {
-                    for (field, value) in filters {
-                        extraction_filters.push(persistence::ExtractorFilter::Neq { field, value });
-                    }
+            }
+            ExtractorFilter::Neq { filters } => {
+                for (field, value) in filters {
+                    extraction_filters.push(persistence::ExtractorFilter::Neq { field, value });
                 }
             }
         }
-        persistence::ExtractorBinding {
-            extractor_name: value.extractor_name.clone(),
-            index_name: value.index_name.unwrap_or(value.extractor_name.clone()),
-            filters: extraction_filters,
-            input_params: value.input_params.unwrap_or(serde_json::json!({})),
-        }
     }
+    persistence::ExtractorBinding::new(
+        repository,
+        extractor_binding.extractor_name.clone(),
+        extractor_binding
+            .index_name
+            .unwrap_or(extractor_binding.extractor_name.clone()),
+        extraction_filters,
+        extractor_binding
+            .input_params
+            .unwrap_or(serde_json::json!({})),
+    )
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]

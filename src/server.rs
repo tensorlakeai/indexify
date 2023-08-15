@@ -183,7 +183,7 @@ async fn create_repository(
         .extractors
         .clone()
         .into_iter()
-        .map(|e| e.into())
+        .map(|e| into_persistence_extractor_binding(&payload.name, e))
         .collect();
     let data_repository = &persistence::DataRepository {
         name: payload.name.clone(),
@@ -279,7 +279,10 @@ async fn bind_extractor(
 ) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
     state
         .repository_manager
-        .add_extractor_binding(&repository_name, payload.extractor_binding.into())
+        .add_extractor_binding(
+            &repository_name,
+            into_persistence_extractor_binding(&repository_name, payload.extractor_binding),
+        )
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
