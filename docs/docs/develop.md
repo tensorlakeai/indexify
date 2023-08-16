@@ -59,15 +59,10 @@ Build the server in development mode
 cargo build
 ```
 
-### Create a development database
-```
-make migrate-dev
-```
-
 ### Start the server
 Once the binary is built start it with a default config -
 ```
-./target/debug/indexify start-server  -d -c local_config.yaml
+./target/debug/indexify start-server -d -c local_config.yaml
 ```
 
 ## Visual Studio DevContainer
