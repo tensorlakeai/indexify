@@ -15,7 +15,7 @@ use crate::{
 };
 use indexmap::{IndexMap, IndexSet};
 use std::{
-    collections::{HashMap},
+    collections::HashMap,
     net::SocketAddr,
     sync::{Arc, RwLock},
     time::SystemTime,

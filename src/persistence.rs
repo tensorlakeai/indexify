@@ -843,9 +843,12 @@ impl Repository {
                         )
                         .exec(txn)
                         .await?;
-                    let _ = ExtractionEventEntity::insert_many(extractor_event_models)
-                        .exec(txn)
-                        .await?;
+                    if extractor_event_models.len() > 0 {
+                        // TODO Figure out why this doesn't throw an exception when the query fails
+                        let _ = ExtractionEventEntity::insert_many(extractor_event_models)
+                            .exec(txn)
+                            .await?;
+                    }
                     Ok(())
                 })
             })

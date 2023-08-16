@@ -290,6 +290,10 @@ async fn bind_extractor(
                 format!("failed to add extractor: {}", e),
             )
         })?;
+
+    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
+        error!("unable to run extractors: {}", err.to_string());
+    }
     Ok(Json(ExtractorBindResponse {}))
 }
 

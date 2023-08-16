@@ -74,7 +74,7 @@ pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<Ex
     match extractor_config.driver {
         server_config::ExtractorDriver::Python => {
             let extractor = PythonDriver::new(extractor_config.path)?;
-            info!("extractor created: {:?}", extractor.info()?);
+            info!("extractor created: {:?}", extractor.info()?.name);
             Ok(Arc::new(extractor))
         }
         _ => Err(anyhow!("unsupported extractor driver")),

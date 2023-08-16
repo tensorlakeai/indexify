@@ -117,7 +117,7 @@ impl DataRepositoryManager {
             .repository
             .upsert_repository(repository.clone())
             .await
-            .map_err(DataRepositoryError::Persistence);
+            .map_err(DataRepositoryError::Persistence)?;
         for extractor_binding in &repository.extractor_bindings {
             let result = self.create_index(&repository.name, extractor_binding).await;
             if result.is_err() {
