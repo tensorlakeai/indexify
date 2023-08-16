@@ -24,12 +24,13 @@ pub mod db_utils {
             name: DEFAULT_TEST_REPOSITORY.into(),
             data_connectors: vec![],
             metadata: HashMap::new(),
-            extractor_bindings: vec![ExtractorBinding {
-                extractor_name: DEFAULT_TEST_EXTRACTOR.into(),
-                index_name: DEFAULT_TEST_EXTRACTOR.into(),
-                filters: vec![],
-                input_params: serde_json::json!({}),
-            }],
+            extractor_bindings: vec![ExtractorBinding::new(
+                DEFAULT_TEST_REPOSITORY,
+                DEFAULT_TEST_EXTRACTOR.into(),
+                DEFAULT_TEST_EXTRACTOR.into(),
+                vec![],
+                serde_json::json!({}),
+            )],
         }
     }
 
@@ -59,7 +60,7 @@ pub mod db_utils {
         )
         .unwrap();
         coordinator
-            .record_node(extractor_executor.get_executor_info())
+            .record_executor(extractor_executor.get_executor_info())
             .await
             .unwrap();
 

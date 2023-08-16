@@ -91,27 +91,25 @@ Every extractor we bind results in a corresponding index being created in Indexi
 === "curl"
 
     ```bash
-    curl -X POST http://localhost:8900/repository/add_extractor \
-    -H "Content-Type: application/json" \
+    curl -X POST http://localhost:8900/repository/default/extractor_bindings
+    -H "Content-Type: application/json"
     -d '{
-        "repository": "default",
-        "name": "EntityExtractor",
-        "index_name": "entityindex",
-        "filter": {
-            "content_type": "text"
-        }
-    }'
+            "name": "EntityExtractor",
+            "index_name": "entityindex",
+            "filter": {
+                "content_type": "text"
+            }
+        }'
 
-    curl -X POST http://localhost:8900/repository/add_extractor \
-    -H "Content-Type: application/json" \
+    curl -X POST http://localhost:8900/repository/default/extractor_bindings
+    -H "Content-Type: application/json"
     -d '{
-        "repository": "default",
-        "name": "MiniLML6",
-        "index_name": "embeddingindex",
-        "filter": {
-            "content_type": "text"
-        }
-    }'
+            "name": "MiniLML6",
+            "index_name": "embeddingindex",
+            "filter": {
+                "content_type": "text"
+            }
+        }'
     ```
 === "python"
 
@@ -128,14 +126,8 @@ Every extractor we bind results in a corresponding index being created in Indexi
 Now we can query the index created by the named entity extractor. The index will have json documents containing the key/value pairs extracted from the text.
 
 === "curl"
-
     ```bash
-    curl -X GET http://localhost:8900/repository/attribute_lookup \
-    -H "Content-Type: application/json" \
-    -d'{
-        "repository": "default",
-        "index": "entityindex"
-    }'
+    curl -X GET http://localhost:8900/repository/default/indexes/entityindex/attributes
     ```
 === "python"
 
@@ -147,12 +139,10 @@ Now we can query the index created by the named entity extractor. The index will
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
 === "curl"
-
     ```bash
-    curl -v -X GET http://localhost:8900/repository/search \
+    curl -v -X POST http://localhost:8900/repository/default/search \
     -H "Content-Type: application/json" \
     -d '{
-            "repository": "default",
             "index": "embeddingindex",
             "query": "good", 
             "k": 1

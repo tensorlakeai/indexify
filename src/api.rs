@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use strum_macros::{Display, EnumString};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::persistence;
 use crate::vectordbs;
@@ -58,49 +58,24 @@ impl From<ExtractorContentType> for persistence::ContentType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
-#[serde(untagged)]
 pub enum ExtractorFilter {
+    #[serde(rename = "eq")]
     Eq {
-        field: String,
-        value: serde_json::Value,
+        #[serde(flatten)]
+        filters: HashMap<String, serde_json::Value>,
     },
+    #[serde(rename = "neq")]
     Neq {
-        field: String,
-        value: serde_json::Value,
+        #[serde(flatten)]
+        filters: HashMap<String, serde_json::Value>,
     },
 }
 
-impl From<persistence::ExtractorFilter> for ExtractorFilter {
-    fn from(value: persistence::ExtractorFilter) -> Self {
-        match value {
-            persistence::ExtractorFilter::Eq { field, value } => {
-                ExtractorFilter::Eq { field, value }
-            }
-            persistence::ExtractorFilter::Neq { field, value } => {
-                ExtractorFilter::Neq { field, value }
-            }
-        }
-    }
-}
-
-impl From<ExtractorFilter> for persistence::ExtractorFilter {
-    fn from(value: ExtractorFilter) -> Self {
-        match value {
-            ExtractorFilter::Eq { field, value } => {
-                persistence::ExtractorFilter::Eq { field, value }
-            }
-            ExtractorFilter::Neq { field, value } => {
-                persistence::ExtractorFilter::Neq { field, value }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
-    pub name: String,
+    pub extractor_name: String,
     pub index_name: Option<String>,
     pub filters: Vec<ExtractorFilter>,
     pub input_params: Option<serde_json::Value>,
@@ -108,27 +83,71 @@ pub struct ExtractorBinding {
 
 impl From<persistence::ExtractorBinding> for ExtractorBinding {
     fn from(value: persistence::ExtractorBinding) -> Self {
+        let mut eq_filters = HashMap::new();
+        let mut neq_filters = HashMap::new();
+        for filter in value.filters {
+            match filter {
+                persistence::ExtractorFilter::Eq { field, value } => {
+                    eq_filters.insert(field, value);
+                }
+                persistence::ExtractorFilter::Neq { field, value } => {
+                    neq_filters.insert(field, value);
+                }
+            }
+        }
+        let mut filters = vec![];
+        if !eq_filters.is_empty() {
+            filters.push(ExtractorFilter::Eq {
+                filters: eq_filters,
+            });
+        }
+        if !neq_filters.is_empty() {
+            filters.push(ExtractorFilter::Neq {
+                filters: neq_filters,
+            });
+        }
         Self {
-            name: value.extractor_name,
+            extractor_name: value.extractor_name,
             index_name: Some(value.index_name),
-            filters: value.filters.into_iter().map(|f| f.into()).collect(),
+            filters,
             input_params: Some(value.input_params),
         }
     }
 }
 
-impl From<ExtractorBinding> for persistence::ExtractorBinding {
-    fn from(value: ExtractorBinding) -> Self {
-        persistence::ExtractorBinding {
-            extractor_name: value.name.clone(),
-            index_name: value.index_name.unwrap_or(value.name.clone()),
-            filters: value.filters.into_iter().map(|f| f.into()).collect(),
-            input_params: value.input_params.unwrap_or(serde_json::json!({})),
+pub fn into_persistence_extractor_binding(
+    repository: &str,
+    extractor_binding: ExtractorBinding,
+) -> persistence::ExtractorBinding {
+    let mut extraction_filters = vec![];
+    for filter in extractor_binding.filters {
+        match filter {
+            ExtractorFilter::Eq { filters } => {
+                for (field, value) in filters {
+                    extraction_filters.push(persistence::ExtractorFilter::Eq { field, value });
+                }
+            }
+            ExtractorFilter::Neq { filters } => {
+                for (field, value) in filters {
+                    extraction_filters.push(persistence::ExtractorFilter::Neq { field, value });
+                }
+            }
         }
     }
+    persistence::ExtractorBinding::new(
+        repository,
+        extractor_binding.extractor_name.clone(),
+        extractor_binding
+            .index_name
+            .unwrap_or(extractor_binding.extractor_name.clone()),
+        extraction_filters,
+        extractor_binding
+            .input_params
+            .unwrap_or(serde_json::json!({})),
+    )
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataRepository {
     pub name: String,
     pub extractors: Vec<ExtractorBinding>,
@@ -194,22 +213,14 @@ pub struct CreateRepository {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct SyncRepositoryResponse {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetRepository {
-    pub name: String,
-}
+pub struct CreateRepositoryResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetRepositoryResponse {
     pub repository: DataRepository,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListRepositories {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ListRepositoriesResponse {
     pub repositories: Vec<DataRepository>,
 }
@@ -252,15 +263,14 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 }
 
 /// Request payload for creating a new vector index.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ExtractorAddRequest {
-    pub repository: Option<String>,
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ExtractorBindRequest {
     #[serde(flatten)]
     pub extractor_binding: ExtractorBinding,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ExtractorAddResponse {}
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
+pub struct ExtractorBindResponse {}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Text {
@@ -270,20 +280,14 @@ pub struct Text {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TextAddRequest {
-    pub repository: Option<String>,
     pub documents: Vec<Text>,
     pub sync: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RunExtractors {
-    pub repository: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
@@ -300,25 +304,33 @@ impl From<persistence::ExtractorConfig> for ExtractorConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Executor {
+    pub id: String,
+    pub extractors: Vec<ExtractorConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListExecutorsResponse {
+    pub executors: Vec<Executor>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct ListExtractorsResponse {
     pub extractors: Vec<ExtractorConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
-pub struct IndexAdditionResponse {
-    pub sequence: u64,
-}
+pub struct TextAdditionResponse {}
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct SearchRequest {
-    pub repository: String,
     pub index: String,
     pub query: String,
     pub k: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractedAttributes {
     pub id: String,
     pub content_id: String,
@@ -337,9 +349,8 @@ impl From<persistence::ExtractedAttributes> for ExtractedAttributes {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct AttributeLookupRequest {
-    pub repository: String,
     pub content_id: Option<String>,
     pub index: String,
 }
@@ -349,20 +360,7 @@ pub struct AttributeLookupResponse {
     pub attributes: Vec<ExtractedAttributes>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateMemorySessionRequest {
-    pub session_id: Option<String>,
-    pub repository: Option<String>,
-    pub extractor_binding: Option<ExtractorBinding>,
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CreateMemorySessionResponse {
-    pub session_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, ToSchema)]
 pub struct Event {
     text: String,
     unix_timestamp: Option<u64>,
@@ -385,22 +383,16 @@ impl From<persistence::Event> for Event {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct EventAddRequest {
-    pub repository: Option<String>,
     pub events: Vec<Event>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct EventAddResponse {}
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EventsRetrieveRequest {
-    pub repository: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct EventsSessionRetrieveResponse {
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct ListEventsResponse {
     pub messages: Vec<Event>,
 }
 

@@ -38,7 +38,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(Content::Text).text().not_null())
                     .col(ColumnDef::new(Content::ContentType).string().not_null())
-                    .col(ColumnDef::new(Content::Metadata).json())
+                    .col(ColumnDef::new(Content::Metadata).json_binary())
                     .col(ColumnDef::new(Content::RepositoryId).string().not_null())
                     .col(ColumnDef::new(Content::ExtractorsState).json_binary())
                     .to_owned(),
@@ -90,10 +90,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(ExtractionEvent::Payload).json().not_null())
+                    .col(
+                        ColumnDef::new(ExtractionEvent::Payload)
+                            .json_binary()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(ExtractionEvent::AllocationInfo)
-                            .json()
+                            .json_binary()
                             .null(),
                     )
                     .col(
@@ -208,9 +212,9 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(DataRepository::ExtractorBindings).json())
-                    .col(ColumnDef::new(DataRepository::Metadata).json())
-                    .col(ColumnDef::new(DataRepository::DataConnectors).json())
+                    .col(ColumnDef::new(DataRepository::ExtractorBindings).json_binary())
+                    .col(ColumnDef::new(DataRepository::Metadata).json_binary())
+                    .col(ColumnDef::new(DataRepository::DataConnectors).json_binary())
                     .to_owned(),
             )
             .await

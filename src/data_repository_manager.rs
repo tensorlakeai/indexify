@@ -1,7 +1,8 @@
+use anyhow::Result;
 use sea_orm::DbConn;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tracing::info;
+use tracing::{error, info};
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 
@@ -89,26 +90,38 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    async fn create_index(
+        &self,
+        repository: &str,
+        extractor_binding: &ExtractorBinding,
+    ) -> Result<(), DataRepositoryError> {
+        let extractor = self
+            .repository
+            .extractor_by_name(&extractor_binding.extractor_name)
+            .await?;
+        if let ExtractorType::Embedding {
+            dim: _,
+            distance: _,
+        } = extractor.extractor_type.clone()
+        {
+            self.vector_index_manager
+                .create_index(repository, &extractor_binding.index_name, extractor)
+                .await
+                .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
         let _ = self
             .repository
             .upsert_repository(repository.clone())
             .await
-            .map_err(DataRepositoryError::Persistence);
+            .map_err(DataRepositoryError::Persistence)?;
         for extractor_binding in &repository.extractor_bindings {
-            let extractor = self
-                .repository
-                .extractor_by_name(&extractor_binding.extractor_name)
-                .await?;
-            if let ExtractorType::Embedding {
-                dim: _,
-                distance: _,
-            } = extractor.extractor_type.clone()
-            {
-                self.vector_index_manager
-                    .create_index(&repository.name, &extractor_binding.index_name, extractor)
-                    .await
-                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            let result = self.create_index(&repository.name, extractor_binding).await;
+            if result.is_err() {
+                error!("unable to create index: {:?}", result.err());
             }
         }
         Ok(())
@@ -121,11 +134,12 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
-    pub async fn add_extractor(
+    pub async fn add_extractor_binding(
         &self,
         repository: &str,
         extractor: ExtractorBinding,
     ) -> Result<(), DataRepositoryError> {
+        self.create_index(repository, &extractor).await?;
         let mut data_repository = self
             .repository
             .repository_by_name(repository)
@@ -139,8 +153,9 @@ impl DataRepositoryManager {
                 )));
             }
         }
-        data_repository.extractor_bindings.push(extractor);
-        self.create(&data_repository).await
+        data_repository.extractor_bindings.push(extractor.clone());
+        self.repository.upsert_repository(data_repository).await?;
+        Ok(())
     }
 
     pub async fn add_texts(
@@ -211,9 +226,7 @@ impl DataRepositoryManager {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::persistence::{
-        DataConnector, Event, ExtractorBinding, SourceType,
-    };
+    use crate::persistence::{DataConnector, Event, ExtractorBinding, SourceType};
     use crate::test_util;
     use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};
 
@@ -231,12 +244,13 @@ mod tests {
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
             name: "test".to_string(),
-            extractor_bindings: vec![ExtractorBinding {
-                extractor_name: DEFAULT_TEST_EXTRACTOR.to_string(),
-                index_name: "default_embedder".to_string(),
-                filters: vec![],
-                input_params: serde_json::json!({}),
-            }],
+            extractor_bindings: vec![ExtractorBinding::new(
+                "test",
+                DEFAULT_TEST_EXTRACTOR.to_string(),
+                "default_embedder".to_string(),
+                vec![],
+                serde_json::json!({}),
+            )],
             metadata: meta.clone(),
             data_connectors: vec![DataConnector {
                 source: SourceType::GoogleContact {

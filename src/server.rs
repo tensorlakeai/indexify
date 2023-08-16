@@ -1,11 +1,12 @@
 use crate::attribute_index::AttributeIndexManager;
-use crate::data_repository_manager::{DataRepositoryManager, DEFAULT_REPOSITORY_NAME};
-use crate::persistence::{DataRepository, Repository};
+use crate::data_repository_manager::DataRepositoryManager;
+use crate::persistence::Repository;
 use crate::vector_index::VectorIndexManager;
 use crate::ServerConfig;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
 
 use anyhow::Result;
+use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
@@ -13,6 +14,9 @@ use tokio::signal;
 use tracing::{error, info};
 
 use utoipa::OpenApi;
+use utoipa_rapidoc::RapiDoc;
+use utoipa_redoc::{Redoc, Servable};
+
 use utoipa_swagger_ui::SwaggerUi;
 
 use std::net::SocketAddr;
@@ -30,14 +34,24 @@ pub struct RepositoryEndpointState {
 #[openapi(
         paths(
             create_repository,
+            list_repositories,
+            get_repository,
             add_texts,
             index_search,
+            list_extractors,
+            bind_extractor,
+            list_events,
+            add_events,
+            attribute_lookup,
+            list_executors
         ),
         components(
-            schemas(CreateRepository, SyncRepositoryResponse, DataConnector,
+            schemas(CreateRepository, CreateRepositoryResponse, DataConnector,
                 IndexDistance, ExtractorType, ExtractorContentType,
-                SourceType, TextAddRequest, IndexAdditionResponse, Text, IndexSearchResponse,
-                DocumentFragment, SearchRequest,)
+                SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
+                DocumentFragment, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
+            , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,
+        ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -84,50 +98,54 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_addr,
         };
-        // TODO: add a method for creating a repository (instead of syncing)
         let app = Router::new()
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+            .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
+            .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
-                "/repository/add_extractor",
-                post(index_create).with_state(repository_endpoint_state.clone()),
+                "/repositories/:repository_name/extractor_bindings",
+                post(bind_extractor).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/add_texts",
+                "/repositories/:repository_name/add_texts",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/run_extractors",
+                "/repositories/:repository_name/run_extractors",
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                // FIXME: this should be /index/search
-                "/repository/search",
-                get(index_search).with_state(repository_endpoint_state.clone()),
+                "/repositories/:repository_name/search",
+                post(index_search).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/attribute_lookup",
+                "/repositories/:repository_name/attributes",
                 get(attribute_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/events",
+                "/repositories/:repository_name/events",
                 post(add_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/events",
+                "/repositories/:repository_name/events",
                 get(list_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/create",
+                "/repositories",
                 post(create_repository).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/list",
+                "/repositories",
                 get(list_repositories).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/get",
+                "/repositories/:repository_name",
                 get(get_repository).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/executors",
+                get(list_executors).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
@@ -149,25 +167,25 @@ async fn root() -> &'static str {
 #[axum_macros::debug_handler]
 #[utoipa::path(
     post,
-    path = "/repository/create",
-    request_body = SyncRepository,
+    path = "/repositories",
+    request_body = CreateRepository,
     tag = "indexify",
     responses(
-        (status = 200, description = "Repository synced successfully", body = SyncRepositoryResponse),
+        (status = 200, description = "Repository synced successfully", body = CreateRepositoryResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
     ),
 )]
 async fn create_repository(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<CreateRepository>,
-) -> Result<Json<SyncRepositoryResponse>, IndexifyAPIError> {
+) -> Result<Json<CreateRepositoryResponse>, IndexifyAPIError> {
     let extractor_bindings = payload
         .extractors
         .clone()
         .into_iter()
-        .map(|e| e.into())
+        .map(|e| into_persistence_extractor_binding(&payload.name, e))
         .collect();
-    let data_repository = &DataRepository {
+    let data_repository = &persistence::DataRepository {
         name: payload.name.clone(),
         extractor_bindings,
         metadata: payload.metadata.clone(),
@@ -183,12 +201,20 @@ async fn create_repository(
                 format!("failed to sync repository: {}", e),
             )
         })?;
-    Ok(Json(SyncRepositoryResponse {}))
+    Ok(Json(CreateRepositoryResponse {}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/repositories",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of Data Repositories registered on the server", body = ListRepositoriesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
+    ),
+)]
 async fn list_repositories(
     State(state): State<RepositoryEndpointState>,
-    _payload: Option<Json<ListRepositories>>,
 ) -> Result<Json<ListRepositoriesResponse>, IndexifyAPIError> {
     let repositories = state
         .repository_manager
@@ -206,13 +232,23 @@ async fn list_repositories(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/repositories/{repository_name}",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "repository with a given name"),
+        (status = 404, description = "Repository not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to get repository")
+    ),
+)]
 async fn get_repository(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<GetRepository>,
 ) -> Result<Json<GetRepositoryResponse>, IndexifyAPIError> {
     let data_repo = state
         .repository_manager
-        .get(&payload.name)
+        .get(&repository_name)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -225,15 +261,28 @@ async fn get_repository(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/repositories/{repository_name}/extractor_bindings",
+    request_body = ExtractorBindRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Extractor binded successfully", body = ExtractorBindResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to bind extractor to repository")
+    ),
+)]
 #[axum_macros::debug_handler]
-async fn index_create(
+async fn bind_extractor(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<ExtractorAddRequest>,
-) -> Result<Json<ExtractorAddResponse>, IndexifyAPIError> {
-    let repository = get_or_default_repository(payload.repository);
+    Json(payload): Json<ExtractorBindRequest>,
+) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
     state
         .repository_manager
-        .add_extractor(&repository, payload.extractor_binding.into())
+        .add_extractor_binding(
+            &repository_name,
+            into_persistence_extractor_binding(&repository_name, payload.extractor_binding),
+        )
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -241,33 +290,37 @@ async fn index_create(
                 format!("failed to add extractor: {}", e),
             )
         })?;
-    Ok(Json(ExtractorAddResponse {}))
+
+    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
+        error!("unable to run extractors: {}", err.to_string());
+    }
+    Ok(Json(ExtractorBindResponse {}))
 }
 
 #[utoipa::path(
     post,
-    path = "/repository/add_texts",
+    path = "/repositories/{repository_name}/add_texts",
     request_body = TextAddRequest,
     tag = "indexify",
     responses(
-        (status = 200, description = "Texts were successfully added to the repository", body = IndexAdditionResponse),
+        (status = 200, description = "Texts were successfully added to the repository", body = TextAdditionResponse),
         (status = BAD_REQUEST, description = "Unable to add texts")
     ),
 )]
 #[axum_macros::debug_handler]
 async fn add_texts(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<TextAddRequest>,
-) -> Result<Json<IndexAdditionResponse>, IndexifyAPIError> {
-    let repo = get_or_default_repository(payload.repository);
+) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
     let texts = payload
         .documents
         .iter()
-        .map(|d| persistence::Text::from_text(&repo, &d.text, d.metadata.clone()))
+        .map(|d| persistence::Text::from_text(&repository_name, &d.text, d.metadata.clone()))
         .collect();
     state
         .repository_manager
-        .add_texts(&repo, texts)
+        .add_texts(&repository_name, texts)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -276,11 +329,11 @@ async fn add_texts(
             )
         })?;
 
-    if let Err(err) = _run_extractors(&repo, &state.coordinator_addr.to_string()).await {
+    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
         error!("unable to run extractors: {}", err.to_string());
     }
 
-    Ok(Json(IndexAdditionResponse::default()))
+    Ok(Json(TextAdditionResponse::default()))
 }
 
 async fn _run_extractors(repository: &str, coordinator_addr: &str) -> Result<(), anyhow::Error> {
@@ -300,53 +353,96 @@ async fn _run_extractors(repository: &str, coordinator_addr: &str) -> Result<(),
 }
 
 async fn run_extractors(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<RunExtractors>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    _run_extractors(&payload.repository, &state.coordinator_addr.to_string())
+    _run_extractors(&repository_name, &state.coordinator_addr.to_string())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RunExtractorsResponse {}))
 }
 
+#[utoipa::path(
+    post,
+    path = "/repositories/{repository_name}/events",
+    request_body =  EventAddRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Events were successfully added to the repository", body = EventAddResponse),
+        (status = BAD_REQUEST, description = "Unable to add event")
+    ),
+)]
 #[axum_macros::debug_handler]
 async fn add_events(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<EventAddRequest>,
 ) -> Result<Json<EventAddResponse>, IndexifyAPIError> {
-    let repo = get_or_default_repository(payload.repository);
     let events = payload.events.iter().map(|m| m.clone().into()).collect();
     state
         .repository_manager
-        .add_events(&repo, events)
+        .add_events(&repository_name, events)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Err(err) = _run_extractors(&repo, &state.coordinator_addr.to_string()).await {
+    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
         error!("unable to run extractors: {}", err.to_string());
     }
 
     Ok(Json(EventAddResponse {}))
 }
 
+#[utoipa::path(
+    get,
+    path = "/repositories/{repository_name}/events",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of Events in a repository", body = ListEventsResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
+    ),
+)]
 #[axum_macros::debug_handler]
 async fn list_events(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<EventsRetrieveRequest>,
-) -> Result<Json<EventsSessionRetrieveResponse>, IndexifyAPIError> {
-    let repo = get_or_default_repository(payload.repository);
+) -> Result<Json<ListEventsResponse>, IndexifyAPIError> {
     let messages = state
         .repository_manager
-        .list_events(&repo)
+        .list_events(&repository_name)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .iter()
         .map(|m| m.to_owned().into())
         .collect();
 
-    Ok(Json(EventsSessionRetrieveResponse { messages }))
+    Ok(Json(ListEventsResponse { messages }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/executors",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of currently running executors", body = ListExecutorsResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to load executors")
+    ),
+)]
+#[axum_macros::debug_handler]
+async fn list_executors(
+    State(_state): State<RepositoryEndpointState>,
+) -> Result<Json<ListExecutorsResponse>, IndexifyAPIError> {
+    Ok(Json(ListExecutorsResponse { executors: vec![] }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/extractors",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of extractors available", body = ListExtractorsResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
+    ),
+)]
 #[axum_macros::debug_handler]
 async fn list_extractors(
     State(state): State<RepositoryEndpointState>,
@@ -363,9 +459,8 @@ async fn list_extractors(
 }
 
 #[utoipa::path(
-    get,
-    path = "/index/search",
-    request_body = SearchRequest,
+    post,
+    path = "/repository/{repository_name}/search",
     tag = "indexify",
     responses(
         (status = 200, description = "Index search results", body = IndexSearchResponse),
@@ -374,13 +469,14 @@ async fn list_extractors(
 )]
 #[axum_macros::debug_handler]
 async fn index_search(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
     let results = state
         .repository_manager
         .search(
-            &query.repository,
+            &repository_name,
             &query.index,
             &query.query,
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
@@ -400,14 +496,25 @@ async fn index_search(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/repository/{repository_name}/attributes",
+    tag = "indexify",
+    params(AttributeLookupRequest),
+    responses(
+        (status = 200, description = "List of Events in a repository", body = AttributeLookupResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
+    ),
+)]
 #[axum_macros::debug_handler]
 async fn attribute_lookup(
+    Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Json(query): Json<AttributeLookupRequest>,
+    Query(query): Query<AttributeLookupRequest>,
 ) -> Result<Json<AttributeLookupResponse>, IndexifyAPIError> {
     let attributes = state
         .repository_manager
-        .attribute_lookup(&query.repository, &query.index, query.content_id.as_ref())
+        .attribute_lookup(&repository_name, &query.index, query.content_id.as_ref())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -443,8 +550,4 @@ async fn shutdown_signal() {
         },
     }
     info!("signal received, shutting down server gracefully");
-}
-
-fn get_or_default_repository(repo: Option<String>) -> String {
-    repo.unwrap_or(DEFAULT_REPOSITORY_NAME.into())
 }

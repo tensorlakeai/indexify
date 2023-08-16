@@ -8,12 +8,14 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
-    persistence::{ExtractionEventPayload, ExtractorConfig, Repository, Work, WorkState},
+    persistence::{
+        ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
+    },
     ServerConfig,
 };
 use indexmap::{IndexMap, IndexSet};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::SocketAddr,
     sync::{Arc, RwLock},
     time::SystemTime,
@@ -23,11 +25,12 @@ use std::{
 pub struct ExecutorInfo {
     pub id: String,
     pub last_seen: u64,
+    pub available_extractors: Vec<ExtractorConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SyncWorker {
-    pub worker_id: String,
+pub struct SyncExecutor {
+    pub executor_id: String,
     pub available_extractors: Vec<ExtractorConfig>,
     pub work_status: Vec<Work>,
 }
@@ -85,7 +88,7 @@ impl Coordinator {
         coordinator
     }
 
-    pub async fn record_node(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
+    pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
         self.executor_health_checks
             .write()
             .unwrap()
@@ -98,37 +101,43 @@ impl Coordinator {
 
     pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.repository.unprocessed_extraction_events().await?;
-        let mut processed_events_for_repository = HashSet::new();
         for event in &events {
             info!("processing extraction event: {}", event.id);
-            if processed_events_for_repository.contains(&event.repository_id) {
-                if let Err(err) = self
-                    .repository
-                    .mark_extraction_event_as_processed(&event.id)
-                    .await
-                {
-                    error!(
-                        "unable to mark extraction event as processed: {}",
-                        &err.to_string()
-                    );
-                    return Err(err);
+            match &event.payload {
+                ExtractionEventPayload::ExtractorBindingAdded { repository, id } => {
+                    let binding = self.repository.binding_by_id(repository, id).await?;
+                    self.generate_work_for_extractor_bindings(repository, &binding)
+                        .await?;
                 }
-                continue;
-            }
-            let content = match &event.payload {
-                ExtractionEventPayload::SyncRepository {} => {
-                    processed_events_for_repository.insert(&event.repository_id);
-                    None
+                ExtractionEventPayload::CreateContent { content_id } => {
+                    if let Err(err) = self
+                        .create_work(&event.repository_id, Some(content_id))
+                        .await
+                    {
+                        error!("unable to create work: {}", &err.to_string());
+                        return Err(err);
+                    }
                 }
-                ExtractionEventPayload::CreateContent { content_id } => Some(content_id.as_str()),
             };
-            if let Err(err) = self.create_work(&event.repository_id, content).await {
-                error!("unable to create work: {}", &err.to_string());
-                return Err(err);
-            }
+
             self.repository
                 .mark_extraction_event_as_processed(&event.id)
                 .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn generate_work_for_extractor_bindings(
+        &self,
+        repository: &str,
+        extractor_binding: &ExtractorBinding,
+    ) -> Result<(), anyhow::Error> {
+        let content_list = self
+            .repository
+            .content_with_unapplied_extractor(repository, extractor_binding, None)
+            .await?;
+        for content in content_list {
+            self.create_work(repository, Some(&content.id)).await?;
         }
         Ok(())
     }
@@ -302,10 +311,15 @@ async fn root() -> &'static str {
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
+    // TODO FIX THIS - available extractors needs to be populated.
     let executors = coordinator.executor_health_checks.read().unwrap().clone();
     let executors = executors
         .into_iter()
-        .map(|(id, last_seen)| ExecutorInfo { id, last_seen })
+        .map(|(id, last_seen)| ExecutorInfo {
+            id,
+            last_seen,
+            available_extractors: vec![],
+        })
         .collect();
     Ok(Json(ListExecutors { executors }))
 }
@@ -313,17 +327,18 @@ async fn list_executors(
 #[axum_macros::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(worker): Json<SyncWorker>,
+    Json(worker): Json<SyncExecutor>,
 ) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
     // Record the health check of the worker
-    let worker_id = worker.worker_id.clone();
+    let worker_id = worker.executor_id.clone();
     let _ = coordinator
-        .record_node(ExecutorInfo {
+        .record_executor(ExecutorInfo {
             id: worker_id.clone(),
             last_seen: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            available_extractors: worker.available_extractors.clone(),
         })
         .await;
     // Record the outcome of any work the worker has done
@@ -340,7 +355,7 @@ async fn sync_executor(
 
     // Find more work for the worker
     let queued_work = coordinator
-        .get_work_for_worker(&worker.worker_id)
+        .get_work_for_worker(&worker.executor_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -421,12 +436,13 @@ mod tests {
                 name: DEFAULT_TEST_REPOSITORY.into(),
                 data_connectors: vec![],
                 metadata: HashMap::new(),
-                extractor_bindings: vec![ExtractorBinding {
-                    extractor_name: DEFAULT_TEST_EXTRACTOR.into(),
-                    index_name: DEFAULT_TEST_EXTRACTOR.into(),
-                    filters: vec![],
-                    input_params: serde_json::json!({}),
-                }],
+                extractor_bindings: vec![ExtractorBinding::new(
+                    DEFAULT_TEST_REPOSITORY,
+                    DEFAULT_TEST_EXTRACTOR.into(),
+                    DEFAULT_TEST_EXTRACTOR.into(),
+                    vec![],
+                    serde_json::json!({}),
+                )],
             })
             .await?;
 
