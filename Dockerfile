@@ -31,7 +31,7 @@ RUN apt install -y libssl-dev gcc python3-venv python3-dev
 
 RUN python3 -m "venv" /venv && /venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-RUN /venv/bin/pip install transformers[torch] optimum[onnxruntime] onnx onnxruntime pydantic
+RUN /venv/bin/pip install transformers[torch] optimum[onnxruntime] onnx onnxruntime pydantic span_marker
 
 WORKDIR /indexify
 
