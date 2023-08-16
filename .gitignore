@@ -9,3 +9,4 @@ sdk-typescript/node_modules
 sdk-typescript/lib
 *.tgz
 .venv
+.idea
