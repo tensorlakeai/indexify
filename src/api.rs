@@ -77,7 +77,7 @@ pub enum ExtractorFilter {
 pub struct ExtractorBinding {
     pub extractor_name: String,
     pub index_name: Option<String>,
-    pub filters: Vec<ExtractorFilter>,
+    pub filters: Option<Vec<ExtractorFilter>>,
     pub input_params: Option<serde_json::Value>,
 }
 
@@ -109,7 +109,7 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
         Self {
             extractor_name: value.extractor_name,
             index_name: Some(value.index_name),
-            filters,
+            filters: Some(filters),
             input_params: Some(value.input_params),
         }
     }
@@ -120,7 +120,7 @@ pub fn into_persistence_extractor_binding(
     extractor_binding: ExtractorBinding,
 ) -> persistence::ExtractorBinding {
     let mut extraction_filters = vec![];
-    for filter in extractor_binding.filters {
+    for filter in extractor_binding.filters.unwrap_or_default() {
         match filter {
             ExtractorFilter::Eq { filters } => {
                 for (field, value) in filters {

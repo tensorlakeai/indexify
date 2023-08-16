@@ -37,13 +37,11 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 === "curl"
 
     ```bash
-    curl -v -X POST http://localhost:8900/repository/add_texts \
+    curl -v -X POST http://localhost:8900/repositories/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{
             "documents": [ 
-            {"text": "Indexify is amazing!", 
-            "metadata":{"topic": "llm"} 
-            },
+            {"text": "Indexify is amazing!", "metadata":{"topic": "llm"}},
             {"text": "Indexify is a retrieval service for LLM agents!", "metadata": {"topic": "ai"}}, 
             {"text": "Kevin Durant is the best basketball player in the world.", "metadata": {"topic": "nba"}}
         ]}' 
@@ -70,8 +68,7 @@ Extractors are used to extract information from the documents in our repository.
 === "curl"
 
     ```bash
-    curl -X GET http://localhost:8900/extractors \
-    -H "Content-Type: application/json" 
+    curl -X GET http://localhost:8900/extractors
     ```
 === "python"
 
@@ -91,24 +88,18 @@ Every extractor we bind results in a corresponding index being created in Indexi
 === "curl"
 
     ```bash
-    curl -X POST http://localhost:8900/repository/default/extractor_bindings
-    -H "Content-Type: application/json"
+    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
+    -H "Content-Type: application/json" \
     -d '{
-            "name": "EntityExtractor",
-            "index_name": "entityindex",
-            "filter": {
-                "content_type": "text"
-            }
+            "extractor_name": "EntityExtractor",
+            "index_name": "entityindex"
         }'
 
-    curl -X POST http://localhost:8900/repository/default/extractor_bindings
-    -H "Content-Type: application/json"
+    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
+    -H "Content-Type: application/json" \
     -d '{
-            "name": "MiniLML6",
-            "index_name": "embeddingindex",
-            "filter": {
-                "content_type": "text"
-            }
+            "extractor_name": "MiniLML6",
+            "index_name": "embeddingindex"
         }'
     ```
 === "python"
@@ -127,7 +118,7 @@ Now we can query the index created by the named entity extractor. The index will
 
 === "curl"
     ```bash
-    curl -X GET http://localhost:8900/repository/default/indexes/entityindex/attributes
+    curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entityindex
     ```
 === "python"
 
@@ -140,7 +131,7 @@ Next let's query the index created by the embedding extractor. The index will al
 
 === "curl"
     ```bash
-    curl -v -X POST http://localhost:8900/repository/default/search \
+    curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
             "index": "embeddingindex",
@@ -164,7 +155,7 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 - Add Memory Events
 === "curl"
     ```
-    curl -X POST http://localhost:8900/events \
+    http://localhost:8900/repositories/default/events \
     -H "Content-Type: application/json" \
     -d '{
             "events": [
@@ -184,9 +175,5 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
     ```
-    curl -X GET http://localhost:8900/events/get \
-    -H "Content-Type: application/json" \
-    -d '{
-            "repository": "default"
-        }'
+    curl -v -X GET http://localhost:8900/repositories/default/events
     ```
