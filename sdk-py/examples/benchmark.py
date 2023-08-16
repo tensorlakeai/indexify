@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from indexify import AIndex, ARepository, AMemory, TextChunk, DEFAULT_INDEXIFY_URL, wait_until, Message
+from indexify import AIndex, ARepository, AMemory, TextChunk, DEFAULT_SERVICE_URL, wait_until, Message
 from datasets import load_dataset
 
 
@@ -9,7 +9,7 @@ class BulkUploadRepository:
 
     def __init__(self, url):
         self.url = url
-        self.repository = ARepository(url)
+        self.repository = ARepository(, url
         self.idx = AIndex(url)
 
     def benchmark_repository(self, concurrency: int, loop: int):
@@ -62,7 +62,7 @@ class BulkUploadRepository:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("-u", "--url", default=DEFAULT_INDEXIFY_URL, help="indexify url to connect to")
+    parser.add_argument("-u", "--url", default=DEFAULT_SERVICE_URL, help="indexify url to connect to")
     parser.add_argument("-c", "--concurrency", default=10,
                         help="We deal with Async functions its how often we wait")
     parser.add_argument("-l", "--loop", default=100,

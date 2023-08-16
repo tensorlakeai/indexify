@@ -51,6 +51,7 @@ impl VectorIndexManager {
     ) -> Result<()> {
         let mut index_params: Option<CreateIndexParams> = None;
         if let ExtractorType::Embedding { dim, distance } = &extractor_config.extractor_type {
+            // FIXME: "{}/{}" should be "{}.{}" or some other separator that's not url encoded
             let vector_index_name = format!("{}/{}", repository, index_name);
             let create_index_params = CreateIndexParams {
                 vectordb_index_name: vector_index_name,

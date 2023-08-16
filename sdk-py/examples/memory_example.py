@@ -1,9 +1,9 @@
-from indexify import Memory, Message, DEFAULT_INDEXIFY_URL
+from indexify import Memory, Message, DEFAULT_SERVICE_URL
 
 
 class DemoMemoryExample:
     def __init__(self):
-        self._memory = Memory(DEFAULT_INDEXIFY_URL, "default")
+        self._memory = Memory(DEFAULT_SERVICE_URL, "default")
 
     def execute(self):
         print("Running memory example...")

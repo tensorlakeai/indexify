@@ -273,6 +273,9 @@ async fn get_repository(
 )]
 #[axum_macros::debug_handler]
 async fn bind_extractor(
+    // TODO: shouldn't index_name be required here?
+    // FIXME: this throws a 500 when the binding already exists
+    // FIXME: also throws a 500 when the index name already exists
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<ExtractorBindRequest>,
@@ -287,7 +290,7 @@ async fn bind_extractor(
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to add extractor: {}", e),
+                format!("failed to bind extractor: {}", e),
             )
         })?;
 
