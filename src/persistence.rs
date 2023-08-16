@@ -65,7 +65,6 @@ impl ExtractorBinding {
 
 #[derive(Serialize, Debug, Deserialize, Display, EnumString)]
 pub enum ExtractionEventPayload {
-    SyncRepository {},
     ExtractorBindingAdded { repository: String, id: String },
     CreateContent { content_id: String },
 }
@@ -202,7 +201,10 @@ impl From<entity::data_repository::Model> for DataRepository {
     fn from(model: entity::data_repository::Model) -> Self {
         let extractors = model
             .extractor_bindings
-            .map(|s| serde_json::from_value(s).unwrap())
+            .map(|s| {
+                let eb_hash: HashMap<String, ExtractorBinding> = serde_json::from_value(s).unwrap();
+                eb_hash.values().cloned().collect()
+            })
             .unwrap_or_default();
         let data_connectors = model
             .data_connectors
@@ -799,23 +801,33 @@ impl Repository {
         &self,
         repository: DataRepository,
     ) -> Result<(), RepositoryError> {
-        let extractor_event = ExtractionEvent {
-            id: nanoid!(),
-            repository_id: repository.name.clone(),
-            payload: ExtractionEventPayload::SyncRepository {},
-        };
+        let mut extractor_event_models = Vec::new();
+        let mut extractor_bindings = HashMap::new();
+        for eb in &repository.extractor_bindings {
+            extractor_bindings.insert(eb.id.clone(), eb.clone());
+            let extractor_event = ExtractionEvent {
+                id: nanoid!(),
+                repository_id: repository.name.clone(),
+                payload: ExtractionEventPayload::ExtractorBindingAdded {
+                    repository: repository.name.clone(),
+                    id: eb.id.clone(),
+                },
+            };
+            let extraction_event_model = entity::extraction_event::ActiveModel {
+                id: Set(extractor_event.id.clone()),
+                payload: Set(json!(extractor_event)),
+                allocation_info: NotSet,
+                processed_at: NotSet,
+            };
+            extractor_event_models.push(extraction_event_model);
+        }
         let repository_model = entity::data_repository::ActiveModel {
             name: Set(repository.name),
-            extractor_bindings: Set(Some(json!(repository.extractor_bindings))),
+            extractor_bindings: Set(Some(json!(extractor_bindings))),
             metadata: Set(Some(json!(repository.metadata))),
             data_connectors: Set(Some(json!(repository.data_connectors))),
         };
-        let extraction_event_model = entity::extraction_event::ActiveModel {
-            id: Set(extractor_event.id.clone()),
-            payload: Set(json!(extractor_event)),
-            allocation_info: NotSet,
-            processed_at: NotSet,
-        };
+
         let _ = self
             .conn
             .transaction::<_, (), RepositoryError>(|txn| {
@@ -831,7 +843,7 @@ impl Repository {
                         )
                         .exec(txn)
                         .await?;
-                    let _ = ExtractionEventEntity::insert(extraction_event_model)
+                    let _ = ExtractionEventEntity::insert_many(extractor_event_models)
                         .exec(txn)
                         .await?;
                     Ok(())
@@ -1050,6 +1062,27 @@ impl Repository {
             .map(|m| m.into())
             .collect();
         Ok(work_models)
+    }
+
+    pub async fn binding_by_id(
+        &self,
+        repository: &str,
+        id: &str,
+    ) -> Result<ExtractorBinding, RepositoryError> {
+        let query = "select name, metadata, data_connectors, extractor_bindings  from data_repository, jsonb_each(data_repository.extractor_bindings) binding_ids where binding_ids.key = $1";
+        let data_repository = entity::data_repository::Entity::find()
+            .from_raw_sql(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                query,
+                vec![id.into()],
+            ))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::RepositoryNotFound(repository.into()))?;
+
+        let bindings_map: HashMap<String, ExtractorBinding> =
+            serde_json::from_value(data_repository.extractor_bindings.unwrap()).unwrap();
+        Ok(bindings_map.get(id).unwrap().clone())
     }
 }
 

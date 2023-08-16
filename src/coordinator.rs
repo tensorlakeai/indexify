@@ -8,12 +8,14 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
-    persistence::{ExtractionEventPayload, ExtractorConfig, Repository, Work, WorkState},
+    persistence::{
+        ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
+    },
     ServerConfig,
 };
 use indexmap::{IndexMap, IndexSet};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     net::SocketAddr,
     sync::{Arc, RwLock},
     time::SystemTime,
@@ -99,41 +101,43 @@ impl Coordinator {
 
     pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.repository.unprocessed_extraction_events().await?;
-        let mut processed_events_for_repository = HashSet::new();
         for event in &events {
             info!("processing extraction event: {}", event.id);
-            if processed_events_for_repository.contains(&event.repository_id) {
-                if let Err(err) = self
-                    .repository
-                    .mark_extraction_event_as_processed(&event.id)
-                    .await
-                {
-                    error!(
-                        "unable to mark extraction event as processed: {}",
-                        &err.to_string()
-                    );
-                    return Err(err);
-                }
-                continue;
-            }
-            let content = match &event.payload {
-                ExtractionEventPayload::SyncRepository {} => {
-                    processed_events_for_repository.insert(&event.repository_id);
-                    None
-                }
+            match &event.payload {
                 ExtractionEventPayload::ExtractorBindingAdded { repository, id } => {
-                    processed_events_for_repository.insert(&event.repository_id);
-                    None
+                    let binding = self.repository.binding_by_id(repository, id).await?;
+                    self.generate_work_for_extractor_bindings(repository, &binding)
+                        .await?;
                 }
-                ExtractionEventPayload::CreateContent { content_id } => Some(content_id.as_str()),
+                ExtractionEventPayload::CreateContent { content_id } => {
+                    if let Err(err) = self
+                        .create_work(&event.repository_id, Some(content_id))
+                        .await
+                    {
+                        error!("unable to create work: {}", &err.to_string());
+                        return Err(err);
+                    }
+                }
             };
-            if let Err(err) = self.create_work(&event.repository_id, content).await {
-                error!("unable to create work: {}", &err.to_string());
-                return Err(err);
-            }
+
             self.repository
                 .mark_extraction_event_as_processed(&event.id)
                 .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn generate_work_for_extractor_bindings(
+        &self,
+        repository: &str,
+        extractor_binding: &ExtractorBinding,
+    ) -> Result<(), anyhow::Error> {
+        let content_list = self
+            .repository
+            .content_with_unapplied_extractor(repository, extractor_binding, None)
+            .await?;
+        for content in content_list {
+            self.create_work(repository, Some(&content.id)).await?;
         }
         Ok(())
     }
