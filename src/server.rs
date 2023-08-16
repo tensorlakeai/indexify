@@ -104,31 +104,31 @@ impl Server {
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
-                "/repository/:repository_name/extractor_bindings",
+                "/repositories/:repository_name/extractor_bindings",
                 post(bind_extractor).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name/add_texts",
+                "/repositories/:repository_name/add_texts",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name/run_extractors",
+                "/repositories/:repository_name/run_extractors",
                 post(run_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name/search",
+                "/repositories/:repository_name/search",
                 post(index_search).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name/attributes",
+                "/repositories/:repository_name/attributes",
                 get(attribute_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name/events",
+                "/repositories/:repository_name/events",
                 post(add_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name/events",
+                "/repositories/:repository_name/events",
                 get(list_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -140,7 +140,7 @@ impl Server {
                 get(list_repositories).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repository/:repository_name",
+                "/repositories/:repository_name",
                 get(get_repository).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -234,7 +234,7 @@ async fn list_repositories(
 
 #[utoipa::path(
     get,
-    path = "/repository/{repository_name}",
+    path = "/repositories/{repository_name}",
     tag = "indexify",
     responses(
         (status = 200, description = "repository with a given name"),
@@ -263,7 +263,7 @@ async fn get_repository(
 
 #[utoipa::path(
     post,
-    path = "/repository/{repository_name}/extractor_bindings",
+    path = "/repositories/{repository_name}/extractor_bindings",
     request_body = ExtractorBindRequest,
     tag = "indexify",
     responses(
@@ -299,7 +299,7 @@ async fn bind_extractor(
 
 #[utoipa::path(
     post,
-    path = "/repository/{repository_name}/add_texts",
+    path = "/repositories/{repository_name}/add_texts",
     request_body = TextAddRequest,
     tag = "indexify",
     responses(
@@ -364,7 +364,7 @@ async fn run_extractors(
 
 #[utoipa::path(
     post,
-    path = "/repository/{repository_name}/events",
+    path = "/repositories/{repository_name}/events",
     request_body =  EventAddRequest,
     tag = "indexify",
     responses(
@@ -394,7 +394,7 @@ async fn add_events(
 
 #[utoipa::path(
     get,
-    path = "/repository/{repository_name}/events",
+    path = "/repositories/{repository_name}/events",
     tag = "indexify",
     responses(
         (status = 200, description = "List of Events in a repository", body = ListEventsResponse),
