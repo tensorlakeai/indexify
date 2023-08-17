@@ -1,6 +1,7 @@
 # Retrieval APIs
 
 Retrieval APIs allow querying the indexes, derived from the content added in data repositories. Currently there are two types of indexes supported:
+
 - Vector Indexes for Semantic Search 
 - Content Attribute Indexes
 

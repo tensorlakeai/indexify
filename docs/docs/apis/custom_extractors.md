@@ -57,9 +57,8 @@ class SentimentExtractor(Extractor):
         results = self._pipeline(texts)
         output = []
         for (content, result) in zip(content, results):
-            content_id = content.id
             data = json.dumps({"sentiment": result["label"], "score": result["score"]})
-            output.append(ExtractedAttributes(content_id=content_id, json=data))
+            output.append(ExtractedAttributes(content_id=content.id, json=data))
         return output
 
     def info(self) -> ExtractorInfo:
