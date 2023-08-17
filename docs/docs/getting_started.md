@@ -53,9 +53,9 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 
     repo = Repository()
     repo.add_documents([
-        {"text": "Indexify is amazing!", "metadata": {"topic": "llm"}},
-        {"text": "Indexify is a retrieval service for LLM agents!", "metadata": {"topic": "ai"}},
-        {"text": "Kevin Durant is the best basketball player in the world.", "metadata": {"topic": "nba"}}
+        {"text": "Indexify is amazing!"},
+        {"text": "Indexify is a retrieval service for LLM agents!"},
+        {"text": "Kevin Durant is the best basketball player in the world."}
     ])
     ```
 
@@ -105,8 +105,8 @@ Every extractor we bind results in a corresponding index being created in Indexi
 === "python"
 
     ```python
-    repo.add_extractor("EntityExtractor", index_name="entityindex", filter={"content_type": "text"})
-    repo.add_extractor("MiniLML6", index_name="embeddingindex", filter={"content_type": "text"})
+    repo.bind_extractor("EntityExtractor", index_name="entityindex")
+    repo.bind_extractor("MiniLML6", index_name="embeddingindex")
 
     print(repo.extractors)
     ```
@@ -143,7 +143,9 @@ Next let's query the index created by the embedding extractor. The index will al
 
     ```python
     search_results = repo.search_index("embeddingindex", "Indexify", 10)
-    print(search_results)
+    print('Search results: ')
+    for r in search_results:
+        print(r)
     ```
 
 

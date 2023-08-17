@@ -1,12 +1,12 @@
-from indexify import AIndex, ARepository, TextChunk, DEFAULT_INDEXIFY_URL, wait_until
+from indexify import AIndex, ARepository, TextChunk, DEFAULT_SERVICE_URL, wait_until
 from datasets import load_dataset
 
 
 class DemoQA:
 
     def __init__(self):
-        self.repository = ARepository(DEFAULT_INDEXIFY_URL, "default")
-        self.idx = AIndex(DEFAULT_INDEXIFY_URL, "default/default")
+        self.repository = ARepository("default", DEFAULT_SERVICE_URL)
+        self.idx = AIndex(DEFAULT_SERVICE_URL, "default/default")
 
     def execute(self):
         # Add All Wikipedia articles

@@ -1,9 +1,9 @@
 import requests
 
-from .settings import DEFAULT_INDEXIFY_URL
+from .settings import DEFAULT_SERVICE_URL
 
 
-def list_extractors(base_url: str = DEFAULT_INDEXIFY_URL) -> list[dict]:
+def list_extractors(base_url: str = DEFAULT_SERVICE_URL) -> list[dict]:
     response = requests.get(f"{base_url}/extractors")
     response.raise_for_status()
     return response.json()['extractors']
