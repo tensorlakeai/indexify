@@ -27,6 +27,7 @@ nav:
   - APIs:
     - Overview: 'apis/index.md'
     - Data Repository: 'apis/data_repository.md'
+    - Extractors: 'apis/extractors.md'
     - Retrieval: 'apis/retrieval.md'
     - Custom Extractors: 'apis/custom_extractors.md'
     - Memory: 'apis/memory.md'
