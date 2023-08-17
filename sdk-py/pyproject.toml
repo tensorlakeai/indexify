@@ -4,13 +4,12 @@ version = "0.0.2"
 description = "Python Client for Indexify"
 authors = ["Diptanu Gon Choudhury <diptanuc@gmail.com>", "Vijay Parthasarathy <vijay2win@gmail.com>"]
 license = "Apache 2.0"
-readme = "README.rst"
+readme = "README.md"
 homepage = "https://github.com/diptanu/indexify"
 repository = "https://github.com/diptanu/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
-# asyncio = "^3.4.3"
 aiohttp = "^3.4"
 
 [tool.poetry.dev-dependencies]
