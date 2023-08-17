@@ -150,7 +150,7 @@ pub fn into_persistence_extractor_binding(
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataRepository {
     pub name: String,
-    pub extractors: Vec<ExtractorBinding>,
+    pub extractor_bindings: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -163,7 +163,7 @@ impl From<persistence::DataRepository> for DataRepository {
             .collect();
         DataRepository {
             name: value.name,
-            extractors: ap_extractors,
+            extractor_bindings: ap_extractors,
             metadata: value.metadata,
         }
     }
@@ -208,7 +208,7 @@ impl From<DataConnector> for persistence::DataConnector {
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct CreateRepository {
     pub name: String,
-    pub extractors: Vec<ExtractorBinding>,
+    pub extractor_bindings: Vec<ExtractorBinding>,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

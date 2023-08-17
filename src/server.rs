@@ -180,7 +180,7 @@ async fn create_repository(
     Json(payload): Json<CreateRepository>,
 ) -> Result<Json<CreateRepositoryResponse>, IndexifyAPIError> {
     let extractor_bindings = payload
-        .extractors
+        .extractor_bindings
         .clone()
         .into_iter()
         .map(|e| into_persistence_extractor_binding(&payload.name, e))

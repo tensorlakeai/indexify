@@ -4,29 +4,22 @@ Data Repository APIs allow users to create a new repository where documents and 
 
 
 ## Create or Update a Data Repository
-A data repository can be created and updated using the `sync` API call. Extractors are started, stopped or refreshed when the repository definition are updated. In some cases indexes might be recreated if the extractor definitions change such as changing the distance from `cosine` to `dot` or changing the embedding model.
+A data repository can be created by specifying a unique name, and any additional metadata or extractor bindings.
 
 === "curl"
     ```
-    curl -X POST http://localhost:8900/repository/sync \
+    curl -X POST http://localhost:8900/repositories \
     -H 'Content-Type: application/json' \
     -d '
         {
-          "repositories": [
+          "name": "default",
+          "extractor_bindings": [
             {
-              "name": "default",
-              "extractors": [
-                {
-                  "name": "default_embedder",
-                  "index_name": "myindex",
-                  "filter": {
-                    "content_type": "text"
-                  }
-                },
-              ],
-              "metadata": {}
+              "extractor_name": "MiniLML6",
+              "index_name": "search_index"
             }
-          ]
+          ],
+          "metadata": {"sensitive": true}
         }
     '
     ```
@@ -34,7 +27,7 @@ A data repository can be created and updated using the `sync` API call. Extracto
 ## List Repositories
 === "curl"
     ``` console
-    curl -X GET http://localhost:8900/repository/list
+    curl -X GET http://localhost:8900/repositories
     ```
 
 #### Output
@@ -43,45 +36,41 @@ A data repository can be created and updated using the `sync` API call. Extracto
   "repositories": [
     {
       "name": "default",
-      "extractors": [
+      "extractor_bindings": [
         {
-          "name": "default_embedder",
-          "index_name": "default_index",
-          "filter": {
-            "content_type": "text"
-          }
-        },
-        {
-          "name": "default_embedder",
-          "index_name": "QCwzZ-nznuqisQw4b6Tm4",
-          "filter": {
-            "memory_session": {
-              "session_id": "QCwzZ-nznuqisQw4b6Tm4"
-            }
-          }
+          "extractor_name": "MiniLML6",
+          "index_name": "search_index",
+          "filters": [],
+          "input_params": {}
         }
       ],
-      "metadata": {}
+      "metadata": {
+        "sensitive": true
+      }
     }
   ]
 }
 ```
 
-## Adding Extractors to a Repository
-Adding an extractor is the primary means to create new indexes for a repository. This can be achieved by adding a new extractor to the repository spec, and syncing it back with Indexify. There is also a convenience api to add extractors. The API `/repository/add_extractor` adds an extractor to an existing data repository.
+## Adding Extractor Bindings to a Repository
+Adding an extractor binding creating indexes from content in a repository by running extractors on them. Once a binding is added, any new content being ingested is automatically extracted and indexes are updated. Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
+
+For ex, the example below binds the extractor `MiniLML6` to all the content in the repository `default` which has metadata `url` as `https://www.example.com`. Anytime any text is added to the repository with metadata that matches the content they are indexed.
 
 === "curl"
     ``` console
-    curl -X POST http://localhost:8900/repository/add_extractor
-        -H "Content-Type: application/json" 
-        -d '{
-        "repository": "default",
-        "extractor_binding": {
-                "name": "EntityExtractor",
-                "index_name": "myentityindex",
-                "filter": {
-                     "content_type": "text"
+    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
+    -H "Content-Type: application/json" \
+    -d '{
+            "repository": "default",
+            "extractor_name": "MiniLML6",
+            "index_name": "myindex",
+            "filters": [
+                {
+                    "eq": {
+                        "url": "https://example.com/"
+                    }
                 }
-        }
-    }'
+            ]
+        }'
     ```
