@@ -1,6 +1,6 @@
 # Data Repository API
 
-Data Repository APIs allow users to create a new repository where documents and memory of interactive LLM agents can be stored for retrieval. One or many extractors can be added to the repositories to extract information from data, such as creating indexes by embedding documents for semantic search. 
+Data Repository APIs allow users to create a new repository where documents and memory of interactive LLM agents can be stored for retrieval. One or many extractor bindings can be added to the repositories to extract information from data, such as creating indexes by embedding documents for semantic search. 
 
 
 ## Create or Update a Data Repository

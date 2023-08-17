@@ -4,23 +4,15 @@ from typing import Any, Optional, List, Literal, Callable, Union
 
 from dataclasses import dataclass
 from pydantic import BaseModel
-import json
 
 from .extractor_base import Content
 from .sentence_transformer import SentenceTransformersEmbedding
-from .extractor_base import Datatype, Extractor, ExtractorInfo, Content
+from .extractor_base import Datatype, Extractor, ExtractorInfo, Content, ExtractedEmbedding
 import langchain
 
 class EmbeddingInputParams(BaseModel):
     overlap: int = 0
     text_splitter: Literal['char', 'recursive']  = 'recursive'
-
-@dataclass
-class ExtractedEmbedding:
-    content_id: str
-    text: str
-    embeddings: List[float]
-
 
 @dataclass
 class EmbeddingSchema:

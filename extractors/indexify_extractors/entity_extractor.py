@@ -5,17 +5,12 @@ from decimal import Decimal
 from enum import Enum
 import json
 from typing import Optional
-from .extractor_base import Extractor, ExtractorInfo, Content
+from .extractor_base import Extractor, ExtractorInfo, Content, ExtractedAttributes
 from pydantic import BaseModel
 
 class EntityExtractionInputParams(BaseModel):
     overlap: int = 0
     text_splitter: Literal['char', 'token', 'recursive', 'new_line']  = 'new_line'
-
-@dataclass
-class ExtractedAttributes:
-    content_id: str
-    json: str
 
 class EntityType(Enum): 
     def get_entity_type(type: str) -> str:
