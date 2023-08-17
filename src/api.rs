@@ -275,6 +275,7 @@ pub struct ExtractorBindResponse {}
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Text {
     pub text: String,
+    #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

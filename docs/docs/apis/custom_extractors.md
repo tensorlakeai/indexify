@@ -1,6 +1,6 @@
 # Custom Extractors
 
-Extractors being the components which extracts information from data are central to what is possible to do with data in Indexify. So we have made it possible to create custom extractors by developers.
+Extractors being the components which extracts information from data are central to what is possible to do with data in Indexify. So we have made it possible to create custom extractors by developers and extend the functionality of Indexify.
 
 ## Creating a Custom Extractor
 A custom extractor is a python class which inherits from the `Extractor` class in `indexify-extractors`. 

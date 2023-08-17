@@ -41,9 +41,9 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     -H "Content-Type: application/json" \
     -d '{
             "documents": [ 
-            {"text": "Indexify is amazing!", "metadata":{"topic": "llm"}},
-            {"text": "Indexify is a retrieval service for LLM agents!", "metadata": {"topic": "ai"}}, 
-            {"text": "Kevin Durant is the best basketball player in the world.", "metadata": {"topic": "nba"}}
+            {"text": "Indexify is amazing!"},
+            {"text": "Indexify is a retrieval service for LLM agents!"}, 
+            {"text": "Kevin Durant is the best basketball player in the world."}
         ]}' 
     ```
 === "python"
@@ -147,6 +147,58 @@ Next let's query the index created by the embedding extractor. The index will al
     for r in search_results:
         print(r)
     ```
+
+## Add Filters to Indexes
+Sometimes you might want to restrict the content from a data repository that's extracted and added to an index. For example, you might want to index only the documents that are downloaded from a specific URL. Indexify provides a way to do that using filters.
+
+=== "curl"
+
+    ```bash
+    curl -v -X POST http://localhost:8900/repositories/default/add_texts \
+    -H "Content-Type: application/json" \
+    -d '{
+            "documents": [ 
+            {"text": "The Cayuga was launched in 2245.", "metadata": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}}
+        ]}' 
+    ```
+=== "python"
+
+    ```python
+    from indexify import Repository
+
+    repo = Repository()
+    repo.add_documents([
+        {"text": "The Cayuga was launched in 2245.", "metadata": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}},
+    ])
+    ```
+
+Now you can add extractor bindings with filters which match the URL and index content only from those documents.
+
+=== "curl"
+
+    ```bash
+    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
+    -H "Content-Type: application/json" \
+    -d '{
+            "extractor_name": "MiniLML6",
+            "index_name": "star_trek_embeddingindex",
+            "filters": [
+                {
+                    "eq": {
+                        "url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
+                    }
+                }
+            ]
+        }'
+    ```
+=== "python"
+
+    ```python
+    repo.bind_extractor("MiniLML6", index_name="embeddingindex", filters=[{"eq": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}}])
+
+    print(repo.extractors)
+    ```
+
 
 
 #### Start Using Long Term Memory
