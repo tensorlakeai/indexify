@@ -48,3 +48,8 @@ The following example queries the repository `default` for the index `entityinde
       ```
 
 The following example queries the repository `default` for the index `entityindex` and returns the attributes for the content id `foo`.
+
+=== "curl"
+      ```
+      curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entityindex&content_id=foo
+      ```
