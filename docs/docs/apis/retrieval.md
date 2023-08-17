@@ -1,17 +1,22 @@
 # Retrieval APIs
 
-Retrieval APIs allow querying vector indexes and other datastores, derived from the content added in data repositories. A default extractor to embed and create indexes are automatically created by indexify for every data repository, but you can add a new extractor using any embedding model available on the platform and create as many indexes you need.
+Retrieval APIs allow querying the indexes, derived from the content added in data repositories. Currently there are two types of indexes supported:
+- Vector Indexes for Semantic Search 
+- Content Attribute Indexes
 
-## Index Query
+## Vector Indexes
+
+Vector Indexes are created by running embedding models on content. They allow doing semantic search on the indexes. The search results contain the chunks of text which matched the query and their corresponding scores.
+
+The following example searches the repository `default` for the index `embeddingindex` for the query `good` and returns the top `k` results.
 
 === "curl"
       ```
-      curl -X GET http://localhost:8900/index/search \
+      curl -v -X POST http://localhost:8900/repositories/default/search \
       -H "Content-Type: application/json" \
       -d '{
-            "repository": "default",
-            "index": "default_index",
-            "query": "good",
+            "index": "embeddingindex",
+            "query": "good", 
             "k": 1
       }'
       ```
@@ -27,7 +32,19 @@ Retrieval APIs allow querying vector indexes and other datastores, derived from 
             }
       ]}
 ```
-### Request Body
-* `index` - Name of the index to search on.
-* `query` - Query string.
-* `k` - top k responses.
+
+## Attribute Indexes
+Attribute Indexes are created by extractors powered by AI Models which produced structured data. The output of such extractors are JSON documents and stored in a document store. 
+
+The schema of such indexes are defined by the extractors. The retrieval API for attribute indexes allows querying all the attributes in the index or the ones of a specific content id. 
+
+In the future we will add support for searching these indexes as well using sparse vectors, or add them to knowledge graphs.
+
+The following example queries the repository `default` for the index `entityindex` and returns all the attributes in the index.
+
+=== "curl"
+      ```
+      curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entityindex
+      ```
+
+The following example queries the repository `default` for the index `entityindex` and returns the attributes for the content id `foo`.
