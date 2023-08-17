@@ -9,7 +9,7 @@ class BulkUploadRepository:
 
     def __init__(self, url):
         self.url = url
-        self.repository = ARepository(, url
+        self.repository = ARepository('benchmark', url)
         self.idx = AIndex(url)
 
     def benchmark_repository(self, concurrency: int, loop: int):

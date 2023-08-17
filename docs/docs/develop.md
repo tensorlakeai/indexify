@@ -53,10 +53,15 @@ cargo test -- --test-threads 1
 
 ## Running the service locally 
 
-## Build the Binary
+### Build the Binary
 Build the server in development mode 
 ```
 cargo build
+```
+
+### Create a development database
+```
+make local-dev
 ```
 
 ### Start the server

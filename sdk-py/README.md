@@ -1,8 +1,22 @@
 # Indexify Python Client
 
+## Installation
+
+This is the Python client for interacting with the Indexify service.
+
+To install it, simply run:
+
+```shell
+pip install indexify
+```
+
+## Usage
+
+See the [getting started](https://getindexify.com/getting_started/) guide for examples of how to use the client.
+
 ## Development
 
-For first time setup, follow the steps [here](https://getindexify.com/develop/)
+For first time setup, follow the steps [here](https://getindexify.com/develop/).
 
 ### Steps for restarting dev server after updating server code
 
