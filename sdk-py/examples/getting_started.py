@@ -14,20 +14,21 @@ print(client.extractors)
 
 # %%
 # FIXME: this throws a 500 error if the binding exists
-repo.bind_extractor("EntityExtractor", index_name="entityindex")
+# repo.bind_extractor("EntityExtractor", index_name="entityindex")
 
 # FIXME: this throws a 500 error if the binding exists
 # FIXME: also throws a 500 if the index name doesn't exist
 #         -> b'index `embeddingindex` not found'
-repo.bind_extractor("MiniLML6", index_name="embeddingindex")
+# repo.bind_extractor("MiniLML6", index_name="embeddingindex")
 
 # %%
 print(repo.extractors)
 
 # %%
-# FIXME: this is currently borked
-# attributes = repo.query_attribute("entityindex")
-# print(attributes)
+attributes = repo.query_attribute("entityindex")
+print('Attributes: ')
+for a in attributes:
+    print(a)
 
 # %%
 search_results = repo.search_index("embeddingindex", "Indexify", 10)

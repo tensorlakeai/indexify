@@ -90,13 +90,13 @@ class Repository(ARepository):
         # TODO: implement this - can take from extractors but not correct
         pass
 
-    # FIXME: this is throwing a 400 with the current API, what is content_id?
-    # FIXME: returns b'Failed to deserialize query string: missing field `index`'
     # FIXME: query type should depend on index type
-    def query_attribute(self, index_name: str, content_id: str = "") -> dict:
+    def query_attribute(self, index_name: str, content_id: str = None) -> dict:
         # TODO: this should be async
-        req = {"index": index_name, "content_id": content_id}
-        response = requests.get(f"{self.url}/attributes", json=req)
+        params = {"index": index_name}
+        if content_id:
+            params.update({"content_id": content_id})
+        response = requests.get(f"{self.url}/attributes", params=params)
         response.raise_for_status()
         return response.json()['attributes']
 
