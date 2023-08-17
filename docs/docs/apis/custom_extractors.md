@@ -31,3 +31,48 @@ extractors:
 
 
 ## Example
+Let's build a new extractor that predicts sentiments of text. We will use Huggingface sentiment analysis pipeline to do this.
+
+```python
+import json
+from .extractor_base import ExtractorInfo, Content, ExtractedAttributes, Extractor
+from transformers import pipeline
+from typing import List
+
+class SentimentExtractor(Extractor):
+   
+    def __init__(self):
+        self._pipeline = pipeline("sentiment-analysis")
+
+    def extract(self, content: List[Content], params: dict[str, str]) -> List[ExtractedAttributes]:
+        texts = [c.data for c in content]
+        results = self._pipeline(texts)
+        output = []
+        for (content, result) in zip(content, results):
+            content_id = content.id
+            data = json.dumps({"sentiment": result["label"], "score": result["score"]})
+            output.append(ExtractedAttributes(content_id=content_id, json=data))
+        return output
+
+    def info(self) -> ExtractorInfo:
+        schema = {"sentiment": "string",  "score": "float"}
+        schema_json = json.dumps(schema)
+        return ExtractorInfo(
+            name="SentimentExtractor",
+            description="An extractor that extracts sentiment from text.",
+            output_datatype="attributes",
+            input_params=json.dumps({}),
+            output_schema= schema_json,
+        )
+```
+
+Once the extractor is implemented, we need to enable it in the executor configuration. We can do this by adding the following to the executor config file.
+
+```yaml
+extractors:
+  - name: "my-sentiment-extractor"
+    path : "mymodule.SentimentExtractor"
+    driver: "python"
+```
+
+After that the executor will automatically discover this extractor module, register with Indexify server and be able to run content through it when a user binds it to a data repository.
