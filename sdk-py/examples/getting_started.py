@@ -51,7 +51,7 @@ repo.add_documents([
 
 # %%
 repo.bind_extractor("MiniLML6", index_name="star_trek_embeddings",
-                    filters=dict(url="https://memory-alpha.fandom.com/wiki/USS_Cayuga"))
+                    include=dict(url="https://memory-alpha.fandom.com/wiki/USS_Cayuga"))
 
 print(repo.extractor_bindings)
 
