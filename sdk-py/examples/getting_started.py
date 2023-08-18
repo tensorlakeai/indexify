@@ -14,12 +14,12 @@ print(client.extractors)
 
 # %%
 # FIXME: this throws a 500 error if the binding exists
-# repo.bind_extractor("EntityExtractor", index_name="entities")
+repo.bind_extractor("EntityExtractor", index_name="entities")
 
 # FIXME: this throws a 500 error if the binding exists
 # FIXME: also throws a 500 if the index name doesn't exist
 #         -> b'index `embeddings` not found'
-# repo.bind_extractor("MiniLML6", index_name="embeddings")
+repo.bind_extractor("MiniLML6", index_name="embeddings")
 
 # %%
 print(repo.extractor_bindings)
