@@ -27,8 +27,8 @@ For first time setup, follow the steps [here](https://getindexify.com/develop/).
 # use `-e`` if you're developing sdk-py
 (cd sdk-py && pip install -e .)
 
-make local-dev
 cargo build
+make local-dev
 
 # start the server
 ./target/debug/indexify start-server -d -c local_config.yaml

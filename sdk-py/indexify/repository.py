@@ -82,8 +82,8 @@ class Repository(ARepository):
         return response.json()
 
     @property
-    def extractors(self) -> list[ExtractorBinding]:
-        return [ExtractorBinding(**e) for e in self._get_repository_info()['extractors']]
+    def extractor_bindings(self) -> list[ExtractorBinding]:
+        return [ExtractorBinding(**e) for e in self._get_repository_info()['extractor_bindings']]
 
     @property
     def indexes(self) -> list[Index]:
