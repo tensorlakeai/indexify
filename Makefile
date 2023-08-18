@@ -43,3 +43,5 @@ install-py:
 shell:
 	docker run --net host -v ${current_dir}:/indexify-build/indexify -it diptanu/indexify-build /bin/bash
 
+serve-docs:
+	(cd docs && mkdocs serve)

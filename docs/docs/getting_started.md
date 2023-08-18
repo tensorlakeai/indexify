@@ -39,8 +39,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     ```bash
     curl -v -X POST http://localhost:8900/repositories/default/add_texts \
     -H "Content-Type: application/json" \
-    -d '{
-            "documents": [ 
+    -d '{"documents": [ 
             {"text": "Indexify is amazing!"},
             {"text": "Indexify is a retrieval service for LLM agents!"}, 
             {"text": "Kevin Durant is the best basketball player in the world."}
@@ -70,6 +69,33 @@ Extractors are used to extract information from the documents in our repository.
     ```bash
     curl -X GET http://localhost:8900/extractors
     ```
+
+    Response:
+
+    ```json
+    {"extractors": [
+        {
+            "name": "EntityExtractor",
+            "description": "EntityExtractor",
+            "extractor_type": {
+                "embedding": {
+                    "schema": "{\"entity\": \"string\", \"value\": \"string\", \"score\": \"float\"}"
+                }
+            }
+        },
+        {
+            "name": "MiniLML6",
+            "description": "MiniLML6 Embeddings",
+            "extractor_type": {
+                "embedding": {
+                    "dim": 384,
+                    "distance": "cosine"
+                }
+            }
+        }
+    ]}
+    ```
+
 === "python"
 
     ```python
@@ -77,6 +103,13 @@ Extractors are used to extract information from the documents in our repository.
 
     client = IndexifyClient()
     print(client.extractors)
+    ```
+
+    Output:
+
+    ```
+    [Extractor(name=EntityExtractor, description=EntityExtractor),
+     Extractor(name=MiniLML6, description=MiniLML6 Embeddings)]
     ```
 
 #### Bind some extractors to the repository
@@ -108,67 +141,241 @@ Every extractor we bind results in a corresponding index being created in Indexi
     repo.bind_extractor("EntityExtractor", index_name="entityindex")
     repo.bind_extractor("MiniLML6", index_name="embeddingindex")
 
-    print(repo.extractors)
+    print(repo.extractor_bindings)
     ```
 
+    Output:
 
-#### Query the Indexes
+    ```
+    [ExtractorBinding(extractor_name=MiniLML6, index_name=embeddingindex), 
+     ExtractorBinding(extractor_name=EntityExtractor, index_name=entityindex)]
+    ```
+
+We now have two indexes - one for entity data extracted by the EntityExtractor and one for embeddings extracted by MiniLML6.
+
+
+#### Query the entity index
 
 Now we can query the index created by the named entity extractor. The index will have json documents containing the key/value pairs extracted from the text.
 
 === "curl"
+
     ```bash
     curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entityindex
     ```
+
+    Response:
+
+    ```json
+    {"attributes": [
+        {
+            "id": "6cb7908f79888e9b",
+            "content_id": "a64c6ddc9683f031",
+            "attributes": {
+                "entity": "Organization",
+                "score": "0.99146568775177",
+                "value": "LLM"
+            },
+            "extractor_name": "EntityExtractor"
+        },
+        {
+            "id": "5b414b846bad4ba3",
+            "content_id": "b11de1146ff5f9ec",
+            "attributes": {
+                "entity": "Person",
+                "score": "0.9999637603759766",
+                "value": "Kevin Durant"
+            },
+            "extractor_name": "EntityExtractor"
+        },
+        {
+            "id": "fc682f2bb202cb2d",
+            "content_id": "5e55fda07f7be40b",
+            "attributes": {
+                "entity": "Media",
+                "score": "0.7528226971626282",
+                "value": "Indexify"
+            },
+            "extractor_name": "EntityExtractor"
+        }
+    ]}
+    ```
+
 === "python"
 
     ```python
     attributes = repo.query_attribute("entityindex")
-    print(attributes)
+    print('Attributes:', *attributes, sep='\n')
     ```
+
+    Output:
+
+    ```
+    Attributes: 
+    {'id': '6cb7908f79888e9b', 'content_id': 'a64c6ddc9683f031', 'attributes': {'entity': 'Organization', 'score': '0.99146568775177', 'value': 'LLM'}, 'extractor_name': 'EntityExtractor'}
+    {'id': '5b414b846bad4ba3', 'content_id': 'b11de1146ff5f9ec', 'attributes': {'entity': 'Person', 'score': '0.9999637603759766', 'value': 'Kevin Durant'}, 'extractor_name': 'EntityExtractor'}
+    {'id': 'fc682f2bb202cb2d', 'content_id': '5e55fda07f7be40b', 'attributes': {'entity': 'Media', 'score': '0.7528226971626282', 'value': 'Indexify'}, 'extractor_name': 'EntityExtractor'}
+    ```
+
+#### Query the embedding index
 
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
+Let's look for documents related to "sports":
+
 === "curl"
+
     ```bash
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
             "index": "embeddingindex",
-            "query": "good", 
-            "k": 1
+            "query": "sports", 
+            "k": 3
         }'
     ```
+
+    Here are the results:
+
+    ```json
+    {"results": [
+        {
+            "text": "Kevin Durant is the best basketball player in the world.",
+            "confidence_score": 0.22862448,
+            "metadata": {}
+        },
+        {
+            "text": "Indexify is a retrieval service for LLM agents!",
+            "confidence_score": -0.012608046,
+            "metadata": {}
+        },
+        {
+            "text": "Indexify is amazing!",
+            "confidence_score": -0.04807447,
+            "metadata": {}
+        }
+    ]}
+    ```
+
 === "python"
 
     ```python
-    search_results = repo.search_index("embeddingindex", "Indexify", 10)
-    print('Search results: ')
-    for r in search_results:
-        print(r)
+    search_results = repo.search_index("embeddingindex", "sports", 3)
+    print('Search results:', *search_results, sep='\n')
+    ```
+    
+    Here are the results:
+
+    ```
+    Search results: 
+    {'text': 'Kevin Durant is the best basketball player in the world.', 'confidence_score': 0.22862448, 'metadata': {}}
+    {'text': 'Indexify is a retrieval service for LLM agents!', 'confidence_score': -0.012608046, 'metadata': {}}
+    {'text': 'Indexify is amazing!', 'confidence_score': -0.04807447, 'metadata': {}}
     ```
 
-## Add Filters to Indexes
-Sometimes you might want to restrict the content from a data repository that's extracted and added to an index. For example, you might want to index only the documents that are downloaded from a specific URL. Indexify provides a way to do that using filters.
+### Automatic extraction and indexing
+
+Indexify automatically watches your data repository and runs your extractors whenever new documents are added. Let's go through an example. 
+
+#### Add a new document to the repository
 
 === "curl"
 
     ```bash
     curl -v -X POST http://localhost:8900/repositories/default/add_texts \
     -H "Content-Type: application/json" \
-    -d '{
-            "documents": [ 
-            {"text": "The Cayuga was launched in 2245.", "metadata": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}}
+    -d '{"documents": [ 
+            {"text": "Steph Curry is also an amazing player!"}
         ]}' 
     ```
 === "python"
 
     ```python
-    from indexify import Repository
-
-    repo = Repository()
     repo.add_documents([
-        {"text": "The Cayuga was launched in 2245.", "metadata": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}},
+        {"text": "Steph Curry is also an amazing player!"}
+    ])
+    ```
+
+#### Query the embedding index
+
+Now let's rerun our query for documents related to "sports":
+
+=== "curl"
+
+    ```bash
+    curl -v -X POST http://localhost:8900/repositories/default/search \
+    -H "Content-Type: application/json" \
+    -d '{
+            "index": "embeddingindex",
+            "query": "sports", 
+            "k": 3
+        }'
+    ```
+
+    Here's the new response:
+
+    ```json
+    {"results": [
+        {
+            "text": "Kevin Durant is the best basketball player in the world.",
+            "confidence_score": 0.22862448,
+            "metadata": {}
+        },
+        {
+            "text": "Steph Curry is also an amazing player!",
+            "confidence_score": 0.17857659,
+            "metadata": {}
+        },
+        {
+            "text": "Indexify is a retrieval service for LLM agents!",
+            "confidence_score": -0.012608046,
+            "metadata": {}
+        }
+    ]}
+    ```
+
+=== "python"
+
+    ```python
+    search_results = repo.search_index("embeddingindex", "sports", 3)
+    print('Updated search results:', *search_results, sep='\n')
+    ```
+
+    Here are the new search results:
+
+    ```
+    Updated search results: 
+    {'text': 'Kevin Durant is the best basketball player in the world.', 'confidence_score': 0.22862448, 'metadata': {}}
+    {'text': 'Steph Curry is also an amazing player!', 'confidence_score': 0.17857659, 'metadata': {}}
+    {'text': 'Indexify is a retrieval service for LLM agents!', 'confidence_score': -0.012608046, 'metadata': {}}
+    ```
+
+We can see the new document we added about Steph Curry is now included in the search results. Indexify automatically ran our extractors when we added the new document and updated the relevant indexes.
+
+### Specify filters for extractor bindings
+
+Sometimes you might want to restrict the content from a data repository that's extracted and added to an index. For example, you might only want to process the documents that are downloaded from a specific URL. Indexify provides an easy way to do this using filters.
+
+=== "curl"
+
+    ```bash
+    curl -v -X POST http://localhost:8900/repositories/default/add_texts \
+    -H "Content-Type: application/json" \
+    -d '{"documents": [ 
+            {"text": "The Cayuga was launched in 2245.", 
+             "metadata": 
+                {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
+            },
+        ]}' 
+    ```
+=== "python"
+
+    ```python
+    repo.add_documents([
+        {"text": "The Cayuga was launched in 2245.", 
+         "metadata": 
+            {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
+        },
     ])
     ```
 
@@ -181,7 +388,7 @@ Now you can add extractor bindings with filters which match the URL and index co
     -H "Content-Type: application/json" \
     -d '{
             "extractor_name": "MiniLML6",
-            "index_name": "star_trek_embeddingindex",
+            "index_name": "star_trek_embeddings",
             "filters": [
                 {
                     "eq": {
@@ -194,7 +401,11 @@ Now you can add extractor bindings with filters which match the URL and index co
 === "python"
 
     ```python
-    repo.bind_extractor("MiniLML6", index_name="embeddingindex", filters=[{"eq": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}}])
+    repo.bind_extractor("MiniLML6", 
+                        index_name="star_trek_embeddings", 
+                        filters=[
+                            {"eq": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}}
+                        ])
 
     print(repo.extractors)
     ```

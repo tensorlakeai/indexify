@@ -22,26 +22,19 @@ repo.bind_extractor("EntityExtractor", index_name="entityindex")
 repo.bind_extractor("MiniLML6", index_name="embeddingindex")
 
 # %%
-print(repo.extractors)
+print(repo.extractor_bindings)
 
 # %%
 attributes = repo.query_attribute("entityindex")
-print('Attributes: ')
-for a in attributes:
-    print(a)
+print('Attributes:', *attributes, sep='\n')
 
 # %%
-search_results = repo.search_index("embeddingindex", "Indexify", 10)
-print('Search results: ')
-for r in search_results:
-    print(r)
+search_results = repo.search_index("embeddingindex", "sports", 3)
+print('Search results:', *search_results, sep='\n')
 
 # %%
-# FIXME: this is not running the bound extractor automatically
 repo.add_documents(
     {"text": "Steph Curry is also an amazing player!"}
 )
-search_results = repo.search_index("embeddingindex", "basketball", 10)
-print('Updated search results: ')
-for r in search_results:
-    print(r)
+search_results = repo.search_index("embeddingindex", "sports", 3)
+print('Updated search results:', *search_results, sep='\n')
