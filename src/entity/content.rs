@@ -11,10 +11,11 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub text: String,
     pub content_type: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
     pub repository_id: String,
     #[sea_orm(column_type = "JsonBinary", nullable)]
-    pub extractors_state: Option<Json>,
+    pub extractor_bindings_state: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

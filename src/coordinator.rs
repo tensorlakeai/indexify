@@ -180,7 +180,13 @@ impl Coordinator {
                 .content_with_unapplied_extractor(repository_id, extractor_binding, content_id)
                 .await?;
             for content in content_list {
-                info!("Creating work for content {}", &content.id);
+                info!(
+                    "Creating work for repository: {}, content: {}, extractor: {}, index: {}",
+                    &repository_id,
+                    &content.id,
+                    &extractor_binding.extractor_name,
+                    &extractor_binding.index_name
+                );
                 let work = Work::new(
                     &content.id,
                     repository_id,
@@ -191,7 +197,7 @@ impl Coordinator {
                 );
                 self.repository.insert_work(&work).await?;
                 self.repository
-                    .mark_content_as_processed(&work.content_id, &work.extractor)
+                    .mark_content_as_processed(&work.content_id, &extractor_binding.id)
                     .await?;
             }
         }

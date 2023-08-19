@@ -139,6 +139,10 @@ impl DataRepositoryManager {
         repository: &str,
         extractor: ExtractorBinding,
     ) -> Result<(), DataRepositoryError> {
+        info!(
+            "adding extractor binding: repository: {}, extractor: {}, index: {}",
+            repository, extractor.extractor_name, extractor.index_name
+        );
         self.create_index(repository, &extractor).await?;
         let mut data_repository = self
             .repository
