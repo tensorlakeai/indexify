@@ -8,6 +8,18 @@ Extractors can be parameterized as well when a binding of the extractor is creat
 
 The following extractors are available out of the box:
 
-### MiniLML6 Embedding Extractors
+### Embedding Extractors
+Indexify bundles a few different Embedding Extractors to embed documents. In addition to the models themselves, the text splitting algorithm can be configured. If you want to use an embedding model besides the one directly supported here, please send a pull request or file an issue.
+
+#### OpenAI Text Embedding 
+
+#### Instructor XL
+
+#### MiniLML6 Extractor
+
+#### DPR Extractor
+
+#### MPNet Extractor
 
 ### NER Extractor
+We use the `span-marker-xlm-roberta-base-multinerd` model for NER. 
