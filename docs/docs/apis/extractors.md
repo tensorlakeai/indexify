@@ -8,8 +8,8 @@ Extractors can be parameterized as well when a binding of the extractor is creat
 
 The following extractors are available out of the box:
 
-### Embedding Extractors
-Indexify bundles a few different Embedding Extractors to embed documents. In addition to the models themselves, the text splitting algorithm can be configured. If you want to use an embedding model besides the one directly supported here, please send a pull request or file an issue.
+### Text Embedding Extractors
+Indexify bundles a few different text Embedding Extractors to embed documents. In addition to the models themselves, the text splitting algorithm can be configured. If you want to use an embedding model besides the one directly supported here, please send a pull request or file an issue.
 
 #### OpenAI Text Embedding 
 
