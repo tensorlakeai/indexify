@@ -40,7 +40,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Content::ContentType).string().not_null())
                     .col(ColumnDef::new(Content::Metadata).json_binary())
                     .col(ColumnDef::new(Content::RepositoryId).string().not_null())
-                    .col(ColumnDef::new(Content::ExtractorsState).json_binary())
+                    .col(ColumnDef::new(Content::ExtractorBindingsState).json_binary())
                     .to_owned(),
             )
             .await;
@@ -278,7 +278,7 @@ enum Content {
     Text,
     Metadata,
     RepositoryId,
-    ExtractorsState,
+    ExtractorBindingsState,
 }
 
 #[derive(Iden)]

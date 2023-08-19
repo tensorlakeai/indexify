@@ -77,7 +77,7 @@ pub struct ExtractionEvent {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct ExtractorsState {
+struct ExtractorBindingsState {
     #[serde(default)]
     state: HashMap<String, u64>,
 }
@@ -588,7 +588,7 @@ impl Repository {
                 text: Set(text.text),
                 metadata: Set(Some(json!(text.metadata))),
                 content_type: Set(ContentType::Text.to_string()),
-                extractors_state: Set(Some(json!(ExtractorsState::default()))),
+                extractor_bindings_state: Set(Some(json!(ExtractorBindingsState::default()))),
             });
             let extraction_event = ExtractionEvent {
                 id: nanoid!(),
@@ -653,11 +653,8 @@ impl Repository {
         extractor_binding: &ExtractorBinding,
         content_id: Option<&str>,
     ) -> Result<Vec<entity::content::Model>, RepositoryError> {
-        let mut values = vec![
-            repo_id.into(),
-            extractor_binding.extractor_name.clone().into(),
-        ];
-        let mut query: String = "select * from content where repository_id=$1 and COALESCE(cast(extractors_state->'state'->>$2 as int),0) < 1".to_string();
+        let mut values = vec![repo_id.into(), extractor_binding.id.clone().into()];
+        let mut query: String = "select * from content where repository_id=$1 and COALESCE(cast(extractor_bindings_state->'state'->>$2 as int),0) < 1".to_string();
         let mut idx = 3;
         if let Some(content_id) = content_id {
             values.push(content_id.into());
@@ -694,14 +691,12 @@ impl Repository {
     pub async fn mark_content_as_processed(
         &self,
         content_id: &str,
-        extractor: &str,
+        binding_id: &str,
     ) -> Result<(), anyhow::Error> {
-        let content_id = content_id.to_string();
-        let extractor = extractor.to_string();
         // TODO change the '1' to a timestamp so that the state value reflects
         // when was the worker state updated.
-        let query = r#"update content set extractors_state['state'][$2] = '1' where id=$1"#;
-        let values = vec![content_id.into(), extractor.clone().into()];
+        let query = r#"update content set extractor_bindings_state['state'][$2] = '1' where id=$1"#;
+        let values = vec![content_id.into(), binding_id.into()];
         let _ = self
             .conn
             .execute(Statement::from_sql_and_values(
@@ -762,14 +757,19 @@ impl Repository {
                 index_name: Set(index_name.into()),
             })
             .collect();
-        let _ = entity::index_chunks::Entity::insert_many(chunk_models)
+        let result = entity::index_chunks::Entity::insert_many(chunk_models)
             .on_conflict(
                 OnConflict::column(entity::index_chunks::Column::ChunkId)
                     .do_nothing()
                     .to_owned(),
             )
             .exec(&self.conn)
-            .await?;
+            .await;
+        if let Err(err) = result {
+            if err != DbErr::RecordNotInserted {
+                return Err(RepositoryError::DatabaseError(err));
+            }
+        }
         Ok(())
     }
 

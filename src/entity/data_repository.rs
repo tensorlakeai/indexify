@@ -8,8 +8,11 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub name: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub extractor_bindings: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub data_connectors: Option<Json>,
 }
 

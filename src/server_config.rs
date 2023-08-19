@@ -5,7 +5,6 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
-use strum_macros::Display;
 
 const OPENAI_DUMMY_KEY: &str = "xxxxx";
 
@@ -33,88 +32,6 @@ impl Default for Extractor {
             driver: ExtractorDriver::Python,
         }
     }
-}
-
-/// Enum representing the different kinds of text embedding models available for use.
-/// Each variant is associated with specific dimensions, which represent the size of the embeddings.
-#[derive(Debug, Clone, Serialize, Deserialize, Display)]
-pub enum EmbeddingModelKind {
-    #[serde(rename = "all-minilm-l12-v2")]
-    #[strum(serialize = "all-minilm-l12-v2")]
-    AllMiniLmL12V2,
-
-    #[serde(rename = "all-minilm-l6-v2")]
-    #[strum(serialize = "all-minilm-l6-v2")]
-    AllMiniLmL6V2,
-
-    #[serde(rename = "all-mpnet-base-v2")]
-    #[strum(serialize = "all-mpnet-base-v2")]
-    AllMpnetBaseV2,
-
-    #[serde(rename = "all-distilroberta-v1")]
-    #[strum(serialize = "all-distilroberta-v1")]
-    AllDistilrobertaV1,
-
-    /// T5 Model
-    #[serde(rename = "t5-base")]
-    #[strum(serialize = "t5-base")]
-    T5Base,
-
-    /// OpenAI Ada Model
-    #[serde(rename = "text-embedding-ada-002")]
-    #[strum(serialize = "text-embedding-ada-002")]
-    OpenAIAda02,
-
-    #[serde(rename = "dpr")]
-    #[strum(serialize = "dpr")]
-    DPRModel,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
-#[strum(serialize_all = "kebab-case")]
-pub enum MemoryStoragePolicyKind {
-    #[serde(rename = "indefinite")]
-    Indefinite,
-    #[serde(rename = "window")]
-    Window,
-    #[serde(rename = "lru")]
-    Lru,
-}
-
-/// Enum representing the different kinds of devices on which the text embedding models can be run.
-/// The available options are CPU, GPU, and Remote (for remote services such as OpenAI).
-#[derive(Debug, Clone, Serialize, Deserialize, strum_macros::Display)]
-#[strum(serialize_all = "kebab-case")]
-pub enum DeviceKind {
-    #[serde(rename = "cpu")]
-    Cpu,
-    #[serde(rename = "gpu")]
-    Gpu,
-    #[serde(rename = "remote")]
-    Remote,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct EmbeddingModel {
-    #[serde(rename = "model")]
-    pub model_kind: EmbeddingModelKind,
-    #[serde(rename = "device")]
-    pub device_kind: DeviceKind,
-
-    #[serde(default)]
-    pub default: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct MemoryStoragePolicy {
-    #[serde(rename = "policy")]
-    pub policy_kind: MemoryStoragePolicyKind,
-    #[serde(rename = "size")]
-    pub window_size: Option<usize>,
-    #[serde(rename = "capacity")]
-    pub capacity: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
