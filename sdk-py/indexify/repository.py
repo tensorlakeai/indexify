@@ -74,9 +74,40 @@ class Repository(ARepository):
     def add_documents(self, *documents: dict) -> None:
         return wait_until(ARepository.add_documents(self, *documents))
 
-    # FIXME: filter should be filters to be consistent with extractor_bindings
-    def bind_extractor(self, name, index_name, filter={"content_type": "text"}) -> dict:
-        req = {"extractor_name": name, "index_name": index_name, "filter": filter}
+    def bind_extractor(self, extractor_name: str, index_name: str,
+                       include: dict | None = None,
+                       exclude: dict | None = None) -> dict:
+        """Bind an extractor to this repository
+
+        Args:
+            extractor_name (str): Name of extractor
+            index_name (str): Name of corresponding index
+            include (dict | None, optional): Conditions that must be true
+                for an extractor to run on a document in the repository.
+                Defaults to None.
+            exclude (dict | None, optional): Conditions that must be false
+                for an extractor to run on a document in the repository.
+                Defaults to None.
+
+        Returns:
+            dict: response payload
+
+        Examples:
+            >>> repo.bind_extractor("EfficientNet", "png_embeddings",
+                                    include={"file_ext": "png"})
+
+            >>> repo.bind_extractor("MiniLML6", "non_english",
+                                    exclude={"language": "en"})
+
+        """
+        filters = []
+        if include is not None:
+            filters.extend([{'eq': {k: v}} for k, v in include.items()])
+        if exclude is not None:
+            filters.extend([{'ne': {k: v}} for k, v in exclude.items()])
+        req = {"extractor_name": extractor_name,
+               "index_name": index_name,
+               "filters": filters}
         response = requests.post(f"{self.url}/extractor_bindings", json=req)
         response.raise_for_status()
         return response.json()

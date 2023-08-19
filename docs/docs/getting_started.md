@@ -125,21 +125,21 @@ Every extractor we bind results in a corresponding index being created in Indexi
     -H "Content-Type: application/json" \
     -d '{
             "extractor_name": "EntityExtractor",
-            "index_name": "entityindex"
+            "index_name": "entities"
         }'
 
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
             "extractor_name": "MiniLML6",
-            "index_name": "embeddingindex"
+            "index_name": "embeddings"
         }'
     ```
 === "python"
 
     ```python
-    repo.bind_extractor("EntityExtractor", index_name="entityindex")
-    repo.bind_extractor("MiniLML6", index_name="embeddingindex")
+    repo.bind_extractor("EntityExtractor", index_name="entities")
+    repo.bind_extractor("MiniLML6", index_name="embeddings")
 
     print(repo.extractor_bindings)
     ```
@@ -147,8 +147,8 @@ Every extractor we bind results in a corresponding index being created in Indexi
     Output:
 
     ```
-    [ExtractorBinding(extractor_name=MiniLML6, index_name=embeddingindex), 
-     ExtractorBinding(extractor_name=EntityExtractor, index_name=entityindex)]
+    [ExtractorBinding(extractor_name=MiniLML6, index_name=embeddings), 
+     ExtractorBinding(extractor_name=EntityExtractor, index_name=entities)]
     ```
 
 We now have two indexes - one for entity data extracted by the EntityExtractor and one for embeddings extracted by MiniLML6.
@@ -161,7 +161,7 @@ Now we can query the index created by the named entity extractor. The index will
 === "curl"
 
     ```bash
-    curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entityindex
+    curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entities
     ```
 
     Response:
@@ -204,7 +204,7 @@ Now we can query the index created by the named entity extractor. The index will
 === "python"
 
     ```python
-    attributes = repo.query_attribute("entityindex")
+    attributes = repo.query_attribute("entities")
     print('Attributes:', *attributes, sep='\n')
     ```
 
@@ -229,7 +229,7 @@ Let's look for documents related to "sports":
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
-            "index": "embeddingindex",
+            "index": "embeddings",
             "query": "sports", 
             "k": 3
         }'
@@ -260,7 +260,7 @@ Let's look for documents related to "sports":
 === "python"
 
     ```python
-    search_results = repo.search_index("embeddingindex", "sports", 3)
+    search_results = repo.search_index("embeddings", "sports", 3)
     print('Search results:', *search_results, sep='\n')
     ```
     
@@ -306,7 +306,7 @@ Now let's rerun our query for documents related to "sports":
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
-            "index": "embeddingindex",
+            "index": "embeddings",
             "query": "sports", 
             "k": 3
         }'
@@ -337,7 +337,7 @@ Now let's rerun our query for documents related to "sports":
 === "python"
 
     ```python
-    search_results = repo.search_index("embeddingindex", "sports", 3)
+    search_results = repo.search_index("embeddings", "sports", 3)
     print('Updated search results:', *search_results, sep='\n')
     ```
 
@@ -365,7 +365,7 @@ Sometimes you might want to restrict the content from a data repository that's e
             {"text": "The Cayuga was launched in 2245.", 
              "metadata": 
                 {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
-            },
+            }
         ]}' 
     ```
 === "python"
@@ -375,7 +375,7 @@ Sometimes you might want to restrict the content from a data repository that's e
         {"text": "The Cayuga was launched in 2245.", 
          "metadata": 
             {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
-        },
+        }
     ])
     ```
 
@@ -401,13 +401,10 @@ Now you can add extractor bindings with filters which match the URL and index co
 === "python"
 
     ```python
-    repo.bind_extractor("MiniLML6", 
-                        index_name="star_trek_embeddings", 
-                        filters=[
-                            {"eq": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}}
-                        ])
+    repo.bind_extractor("MiniLML6", index_name="star_trek_embeddings",
+                        include=dict(url="https://memory-alpha.fandom.com/wiki/USS_Cayuga"))
 
-    print(repo.extractors)
+    print(repo.extractor_bindings)
     ```
 
 
