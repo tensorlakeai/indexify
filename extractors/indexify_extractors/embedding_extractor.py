@@ -45,6 +45,31 @@ class BaseEmbeddingExtractor(Extractor):
     def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
         ...
 
+
+class FlagEmbedding(BaseEmbeddingExtractor):
+    def __init__(self):
+        self.embedding_model = FastFlagEmbedding(model_name="BAAI/bge-small-en", max_length=512)
+    
+
+    def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
+        # prepend "passage:" to each text
+        texts = ["passage: " + text for text in texts]
+        return list(self.embedding_model.encode(texts))
+
+    def extract_query_embeddings(self, query: str) -> List[float]:
+        # prepend "query:" to query
+        query = "query: " + query
+        return list(self.embedding_model.encode([query])[0])
+
+    def info(self) -> ExtractorInfo:
+        return ExtractorInfo(
+            name="bge-small-en",
+            description="Flag Embeddings",
+            output_datatype="embedding",
+            input_params=EmbeddingInputParams.schema_json(),
+            output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
+        )   
+
 class MiniLML6Extractor(BaseEmbeddingExtractor):
 
     def __init__(self):
@@ -64,4 +89,4 @@ class MiniLML6Extractor(BaseEmbeddingExtractor):
             output_datatype="embedding",
             input_params=EmbeddingInputParams.schema_json(),
             output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
-        )
+        )        
