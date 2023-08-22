@@ -3,6 +3,9 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional, List, Literal, Callable, Union
 
 from dataclasses import dataclass
+from typing import Any, Callable, List, Literal, Optional, Union
+
+from fastembed import FlagEmbedding as FastFlagEmbedding
 from pydantic import BaseModel
 
 from .extractor_base import Content
