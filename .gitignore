@@ -10,3 +10,5 @@ sdk-typescript/lib
 *.tgz
 .venv
 .idea
+local_cache
+
