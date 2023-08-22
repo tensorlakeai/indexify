@@ -9,7 +9,7 @@ readme = "README.md"
 python = "^3.9"
 pydantic = "^1"
 langchain = "^0.0.258"
-
+fastembed = ">0.0.1"
 
 [build-system]
 requires = ["poetry-core"]
