@@ -26,7 +26,7 @@ openai:
   api_key: xxxxx
 
 # Database URL for storing document and memory
-db_url: postgres://postgres:postgres@172.20.0.5/indexify
+db_url: postgres://postgres:postgres@postgres/indexify
 
 coordinator_addr: 0.0.0.0:8950
 
@@ -44,4 +44,4 @@ executor_config:
 index_config:
   index_store: Qdrant
   qdrant_config:
-    addr: "http://172.20.0.8:6334"
+    addr: "http://qdrant:6334"
