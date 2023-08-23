@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, List, Literal
 
 # alias to avoid name conflict with FlagEmbedding class below
-from fastembed import FlagEmbedding as FastFlagEmbedding
+from fastembed.embedding import FlagEmbedding as FastFlagEmbedding
 from pydantic import BaseModel
 
 import langchain
