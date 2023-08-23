@@ -1,14 +1,16 @@
-from abc import ABC, abstractmethod
-
-from typing import Any, Optional, List, Literal, Callable, Union
-
+from abc import abstractmethod
 from dataclasses import dataclass
+from typing import Any, Callable, List, Literal
+
+# alias to avoid name conflict with FlagEmbedding class below
+from fastembed.embedding import FlagEmbedding as FastFlagEmbedding
 from pydantic import BaseModel
 
-from .extractor_base import Content
-from .sentence_transformer import SentenceTransformersEmbedding
-from .extractor_base import Datatype, Extractor, ExtractorInfo, Content, ExtractedEmbedding
 import langchain
+
+from .extractor_base import Content, ExtractedEmbedding, Extractor, ExtractorInfo
+from .sentence_transformer import SentenceTransformersEmbedding
+
 
 class EmbeddingInputParams(BaseModel):
     overlap: int = 0
@@ -45,6 +47,28 @@ class BaseEmbeddingExtractor(Extractor):
     def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
         ...
 
+
+class FlagEmbedding(BaseEmbeddingExtractor):
+    def __init__(self, max_length: int = 512):
+        super(FlagEmbedding, self).__init__(max_context_length=max_length)
+        self.embedding_model = FastFlagEmbedding(model_name="BAAI/bge-small-en", max_length=max_length)
+    
+
+    def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
+        return list(self.embedding_model.passage_embed(texts))
+
+    def extract_query_embeddings(self, query: str) -> List[float]:
+        return list(self.embedding_model.query_embed([query])[0])
+
+    def info(self) -> ExtractorInfo:
+        return ExtractorInfo(
+            name="bge-small-en",
+            description="Flag Embeddings",
+            output_datatype="embedding",
+            input_params=EmbeddingInputParams.schema_json(),
+            output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
+        )   
+
 class MiniLML6Extractor(BaseEmbeddingExtractor):
 
     def __init__(self):
@@ -64,4 +88,4 @@ class MiniLML6Extractor(BaseEmbeddingExtractor):
             output_datatype="embedding",
             input_params=EmbeddingInputParams.schema_json(),
             output_schema=EmbeddingSchema(distance_metric="cosine", dim=384),
-        )
+        )        
