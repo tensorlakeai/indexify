@@ -1,9 +1,6 @@
-from abc import ABC, abstractmethod
-
-from typing import Any, Optional, List, Literal, Callable, Union
-
+from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, List, Literal, Optional, Union
+from typing import Any, Callable, List, Literal
 
 # alias to avoid name conflict with FlagEmbedding class below
 from fastembed import FlagEmbedding as FastFlagEmbedding
@@ -11,13 +8,7 @@ from pydantic import BaseModel
 
 import langchain
 
-from .extractor_base import (
-    Content,
-    Datatype,
-    ExtractedEmbedding,
-    Extractor,
-    ExtractorInfo,
-)
+from .extractor_base import Content, ExtractedEmbedding, Extractor, ExtractorInfo
 from .sentence_transformer import SentenceTransformersEmbedding
 
 
