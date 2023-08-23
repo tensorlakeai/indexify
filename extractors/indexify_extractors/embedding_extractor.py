@@ -58,7 +58,7 @@ class FlagEmbedding(BaseEmbeddingExtractor):
         return list(self.embedding_model.passage_embed(texts))
 
     def extract_query_embeddings(self, query: str) -> List[float]:
-        return list(self.embedding_model.query_embed([query])[0])
+        return list(next(self.embedding_model.query_embed([query])))
 
     def info(self) -> ExtractorInfo:
         return ExtractorInfo(
