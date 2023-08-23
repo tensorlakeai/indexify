@@ -5,13 +5,21 @@ from typing import Any, Optional, List, Literal, Callable, Union
 from dataclasses import dataclass
 from typing import Any, Callable, List, Literal, Optional, Union
 
+# alias to avoid name conflict with FlagEmbedding class below
 from fastembed import FlagEmbedding as FastFlagEmbedding
 from pydantic import BaseModel
 
-from .extractor_base import Content
-from .sentence_transformer import SentenceTransformersEmbedding
-from .extractor_base import Datatype, Extractor, ExtractorInfo, Content, ExtractedEmbedding
 import langchain
+
+from .extractor_base import (
+    Content,
+    Datatype,
+    ExtractedEmbedding,
+    Extractor,
+    ExtractorInfo,
+)
+from .sentence_transformer import SentenceTransformersEmbedding
+
 
 class EmbeddingInputParams(BaseModel):
     overlap: int = 0
