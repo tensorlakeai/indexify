@@ -30,7 +30,7 @@ services:
     image: qdrant/qdrant:v1.2.2
     restart: always
     ports:
-      - 6333:6333
+      - 6333
     networks:
         dependencies:
             ipv4_address: 172.20.0.8
@@ -38,7 +38,7 @@ services:
     image: postgres
     restart: always
     ports:
-      - 5432:5432
+      - 5432
     environment:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=indexify
