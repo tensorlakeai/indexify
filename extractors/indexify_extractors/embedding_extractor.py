@@ -50,8 +50,9 @@ class BaseEmbeddingExtractor(Extractor):
 
 
 class FlagEmbedding(BaseEmbeddingExtractor):
-    def __init__(self):
-        self.embedding_model = FastFlagEmbedding(model_name="BAAI/bge-small-en", max_length=512)
+    def __init__(self, max_length: int = 512):
+        super(FlagEmbedding, self).__init__(max_context_length=max_length)
+        self.embedding_model = FastFlagEmbedding(model_name="BAAI/bge-small-en", max_length=max_length)
     
 
     def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
