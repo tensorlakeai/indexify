@@ -27,7 +27,7 @@ services:
             ipv4_address: 172.21.0.2
         dependencies:
   qdrant:
-    image: qdrant/qdrant:v1.2.2
+    image: qdrant/qdrant:v1.4.1
     restart: always
     ports:
       - 6333

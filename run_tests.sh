@@ -12,7 +12,7 @@ function stop_docker()
 # Ensure current path is project root
 #cd "$(dirname "$0")/../"
 
-QDRANT_VERSION='v1.2.2'
+QDRANT_VERSION='v1.4.1'
 QDRANT_HOST='localhost:6333'
 
 docker run -d --rm \

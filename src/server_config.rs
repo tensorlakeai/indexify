@@ -157,7 +157,7 @@ mod tests {
         );
         assert_eq!(
             config.index_config.qdrant_config.unwrap().addr,
-            "http://172.20.0.8:6334".to_string()
+            "http://qdrant:6334".to_string()
         );
     }
 }
