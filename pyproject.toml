@@ -4,6 +4,10 @@ version = "0.0.1"
 description = "Extractors Interfaces for Indexify"
 authors = ["diptanu <diptanuc@gmail.com>", "Kanchi Shah <kanchi.shah957@gmail.com>"]
 readme = "README.md"
+packages = [
+    { include = "extractors" },
+]
+
 
 [tool.poetry.dependencies]
 python = "^3.9"
