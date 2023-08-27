@@ -1,4 +1,6 @@
 import requests
+from dataclasses import dataclass
+from typing import Union
 
 from .settings import DEFAULT_SERVICE_URL
 
@@ -9,8 +11,21 @@ def list_extractors(base_url: str = DEFAULT_SERVICE_URL) -> list[dict]:
     return response.json()['extractors']
 
 
-# TODO: consider naming this IndexifyExtractor
-# TODO: consider making this a dataclass
+@dataclass
+class EmbeddingExtractor:
+    dim: int
+    distance: str
+
+@dataclass
+class AttributeExtractor:
+    json_schema: str
+
+@dataclass
+class Extractor:
+    name: str
+    description: str
+    extractor_type: Union[EmbeddingExtractor, AttributeExtractor]
+
 class Extractor:
 
     def __init__(self, name: str, description: str, extractor_type : dict):

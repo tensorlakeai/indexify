@@ -1,34 +1,60 @@
-import aiohttp
-import requests
+import httpx
+import json
 
-from .index import Index
+from dataclasses import dataclass
+from collections import namedtuple
+
 from .data_containers import TextChunk
 from .settings import DEFAULT_SERVICE_URL
-from .utils import _get_payload, wait_until
+from typing import List
+from .utils import json_set_default
+from indexify.exceptions import ApiException
+
+Document = namedtuple("Document", ["text", "metadata"])
 
 
-def create_repository(name: str, extractors: list = (), metadata: dict = {},
-                      service_url: str = DEFAULT_SERVICE_URL) -> dict:
-    req = {"name": name, "extractors": extractors, "metadata": metadata}
-    response = requests.post(f"{service_url}/repositories", json=req)
-    response.raise_for_status()
-    return response.json()
+@dataclass
+class Filter:
+    includes: dict[str, str]
+    excludes: dict[str, str]
+
+    @classmethod
+    def from_dict(cls, json: dict):
+        includes = json.get("eq", {})
+        excludes = json.get("ne", {})
+        return Filter(includes=includes, excludes=excludes)
+
+    def json(self):
+        filters = []
+        for k, v in self.includes.items():
+            filters.append({"eq": {k: v}})
+        for k, v in self.excludes.items():
+            filters.append({"neq": {k: v}})
+        return filters
 
 
-def list_repositories(service_url: str = DEFAULT_SERVICE_URL) -> list[dict]:
-    response = requests.get(f"{service_url}/repositories")
-    response.raise_for_status()
-    return response.json()['repositories']
+class FilterBuilder:
+    def __init__(self) -> None:
+        self._filter = Filter(includes={}, excludes={})
+
+    def include(self, key: str, value: str) -> "FilterBuilder":
+        self._filter.includes[key] = value
+        return self
+
+    def exclude(self, key: str, value: str) -> "FilterBuilder":
+        self._filter.excludes[key] = value
+        return self
+
+    def build(self) -> Filter:
+        return self._filter
 
 
-# TODO: consider tying this back to IndexifyExtractor
+@dataclass
 class ExtractorBinding:
-
-    def __init__(self, extractor_name: str, index_name: str, filters: dict, input_params: dict):
-        self.extractor_name = extractor_name
-        self.index_name = index_name
-        self.filters = filters
-        self.input_params = input_params
+    extractor_name: str
+    index_name: str
+    filters: list[Filter]
+    input_params: dict
 
     def __repr__(self) -> str:
         return f"ExtractorBinding(extractor_name={self.extractor_name}, index_name={self.index_name})"
@@ -36,47 +62,48 @@ class ExtractorBinding:
     def __str__(self) -> str:
         return self.__repr__()
 
+    @classmethod
+    def from_dict(cls, json: dict):
+        filters_dict = json["filters"]
+        filters = []
+        for filter_dict in filters_dict:
+            filters.append(Filter.from_dict(filter_dict))
+        json["filters"] = filters
+        return ExtractorBinding(**json)
 
-class ARepository:
 
-    def __init__(self, name: str, service_url: str):
+class Repository:
+    def __init__(
+        self,
+        name: str,
+        service_url: str,
+        extractor_bindings: List[ExtractorBinding] = None,
+        metadata: dict = None,
+    ) -> None:
         self.name = name
         self._service_url = service_url
-        self.url = f"{self._service_url}/repositories/{self.name}"
+        self.extractor_bindings = extractor_bindings
+        self.metadata = metadata
 
     async def run_extractors(self) -> dict:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self.url}/run_extractors") as resp:
-                return await _get_payload(resp)
+        response = httpx.post(f"{self._service_url}/run_extractors")
+        response.raise_for_status()
 
-    async def add_documents(self, *documents: dict) -> None:
-        if isinstance(documents[0], dict):
-            documents = [documents[0]]  # single document passed
-        else:
-            documents = documents[0]  # list of documents passed
-        for doc in documents:
-            if "metadata" not in doc:
-                doc.update({"metadata": {}})
+    def add_documents(self, documents: List[Document]) -> None:
+        if isinstance(documents, Document):
+            documents = [documents]
         req = {"documents": documents}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self.url}/add_texts", json=req) as resp:
-                return await _get_payload(resp)
+        response = httpx.post(
+            f"{self._service_url}/repositories/{self.name}/add_texts", json=req
+        )
+        response.raise_for_status()
 
-
-class Repository(ARepository):
-
-    def __init__(self, name: str = "default", service_url: str = DEFAULT_SERVICE_URL):
-        super().__init__(name, service_url)
-        if not self._name_exists():
-            print(f"creating repo {self.name}")
-            create_repository(name=self.name, service_url=self._service_url)
-
-    def add_documents(self, *documents: dict) -> None:
-        return wait_until(ARepository.add_documents(self, *documents))
-
-    def bind_extractor(self, extractor_name: str, index_name: str,
-                       include: dict | None = None,
-                       exclude: dict | None = None) -> dict:
+    def bind_extractor(
+        self,
+        extractor_name: str,
+        index_name: str,
+        filter: Filter = None,
+    ) -> dict:
         """Bind an extractor to this repository
 
         Args:
@@ -100,59 +127,60 @@ class Repository(ARepository):
                                     exclude={"language": "en"})
 
         """
-        filters = []
-        if include is not None:
-            filters.extend([{'eq': {k: v}} for k, v in include.items()])
-        if exclude is not None:
-            filters.extend([{'ne': {k: v}} for k, v in exclude.items()])
-        req = {"extractor_name": extractor_name,
-               "index_name": index_name,
-               "filters": filters}
-        response = requests.post(f"{self.url}/extractor_bindings", json=req)
-        response.raise_for_status()
+        req = {
+            "extractor_name": extractor_name,
+            "index_name": index_name,
+            "filters": filter.json() if filter else {},
+        }
+        request_body = json.dumps(req, default=json_set_default)
+        response = httpx.post(
+            f"{self._service_url}/repositories/{self.name}/extractor_bindings",
+            data=request_body,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ApiException(exc.response.text)
         return response.json()
 
-    @property
-    def extractor_bindings(self) -> list[ExtractorBinding]:
-        return [ExtractorBinding(**e) for e in self._get_repository_info()['extractor_bindings']]
+    @classmethod
+    def get(cls, name: str, service_url: str = DEFAULT_SERVICE_URL) -> "Repository":
+        response = httpx.get(f"{service_url}/repositories/{name}")
+        response.raise_for_status()
+        repository_json = response.json()["repository"]
+        return Repository._from_json(repository_json)
 
-    @property
-    def indexes(self) -> list[Index]:
-        # TODO: implement this - can take from extractors but not correct
-        pass
+    @classmethod
+    def _from_json(cls, service_url: str, repository_json: dict):
+        extractor_bindings = []
+        for eb in repository_json["repository"]["extractor_bindings"]:
+            extractor_bindings.append(ExtractorBinding.from_dict(eb))
+        metadata = repository_json["repository"]["metadata"]
+        return Repository(
+            name=repository_json["repository"]["name"],
+            service_url=service_url,
+            extractor_bindings=extractor_bindings,
+            metadata=metadata,
+        )
 
-    # FIXME: query type should depend on index type
     def query_attribute(self, index_name: str, content_id: str = None) -> dict:
-        # TODO: this should be async
         params = {"index": index_name}
         if content_id:
             params.update({"content_id": content_id})
-        response = requests.get(f"{self.url}/attributes", params=params)
+        response = httpx.get(
+            f"{self._service_url}/repositories/{self.name}/attributes", params=params
+        )
         response.raise_for_status()
-        return response.json()['attributes']
+        return response.json()["attributes"]
 
-    def unbind_extractor(self, name) -> dict:
-        # TODO: implement this
-        pass
-
-    def run_extractors(self) -> dict:
-        return wait_until(ARepository.run_extractors(self, self.name))
-
-    # TODO: this should move to index
     def search_index(self, index_name: str, query: str, top_k: int) -> list[TextChunk]:
-        # TODO: this should be async
         req = {"index": index_name, "query": query, "k": top_k}
-        response = requests.post(f"{self.url}/search", json=req)
+        response = httpx.post(
+            f"{self._service_url}/repositories/{self.name}/search", json=req
+        )
         response.raise_for_status()
-        return response.json()['results']
-
-    def _get_repository_info(self) -> dict:
-        response = requests.get(f"{self.url}")
-        response.raise_for_status()
-        return response.json()['repository']
-
-    def _name_exists(self) -> bool:
-        return self.name in [r['name'] for r in list_repositories(self._service_url)]
+        return response.json()["results"]
 
     def __repr__(self) -> str:
         return f"Repository(name={self.name})"

@@ -113,6 +113,7 @@ impl DataRepositoryManager {
     }
 
     pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
+        info!("creating data repository: {}", repository.name);
         let _ = self
             .repository
             .upsert_repository(repository.clone())

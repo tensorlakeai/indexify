@@ -1,30 +1,32 @@
-from .extractor import Extractor, list_extractors
-from .repository import Repository, create_repository, list_repositories
+import httpx
+from .repository import Repository
 from .settings import DEFAULT_SERVICE_URL
 
 
 class IndexifyClient:
-
     def __init__(self, service_url: str = DEFAULT_SERVICE_URL):
         self._service_url = service_url
 
-    def create_repository(self, name: str, extractors: list = [], metadata: dict = {}) -> dict:
-        return create_repository(name, extractors, metadata, self._service_url)
-
-    @property
-    def extractors(self) -> list[Extractor]:
-        return [Extractor(**extractor) for extractor in list_extractors(self._service_url)]
-
-    def get_or_create_repository(self, name: str) -> Repository:
-        return Repository(name=name, service_url=self._service_url)
-
-    def list_extractors(self) -> list[dict]:
-        return list_extractors(base_url=self._service_url)
-
-    def list_repositories(self) -> list[dict]:
-        return list_repositories(service_url=self._service_url)
-
-    @property
     def repositories(self) -> list[Repository]:
-        # TODO: implement this
-        pass
+        response = httpx.get(f"{self._service_url}/repositories")
+        response.raise_for_status()
+        repositories_dict = response.json()["repositories"]
+        repositories = []
+        for rd in repositories_dict:
+            repositories.append(Repository(rd["name"], self._service_url))
+        return repositories
+
+    def create_repository(
+        self, name: str, extractor_bindings: list = [], metadata: dict = {}
+    ) -> Repository:
+        req = {
+            "name": name,
+            "extractor_bindings": extractor_bindings,
+            "metadata": metadata,
+        }
+        response = httpx.post(f"{self._service_url}/repositories", json=req)
+        response.raise_for_status()
+        return Repository(name, self._service_url)
+
+    def get_repository(self, name: str) -> Repository:
+        return Repository(name, self._service_url)
