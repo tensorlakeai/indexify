@@ -1,5 +1,5 @@
 import json
-from .extractor_base import ExtractorInfo, Content, ExtractedAttributes, Extractor
+from .base_extractor import ExtractorInfo, Content, ExtractedAttributes, Extractor
 from transformers import pipeline
 from typing import List
 

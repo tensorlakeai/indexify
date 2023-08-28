@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 import langchain
 
-from .extractor_base import Content, ExtractedEmbedding, Extractor, ExtractorInfo
+from .base_extractor import Content, ExtractedEmbedding, Extractor, ExtractorInfo
 from .sentence_transformer import SentenceTransformersEmbedding
 
 

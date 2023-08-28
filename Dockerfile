@@ -43,9 +43,11 @@ COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
 COPY --from=builder /indexify-build/extractors/ /indexify/extractors/
 
+COPY --from=builder /indexify-build/pyproject.toml /indexify/
+
 COPY ./scripts/docker_compose_start.sh .
 
-RUN cd extractors && /venv/bin/pip install .
+RUN /venv/bin/pip install .
 
 ENV PATH=/venv/bin:$PATH
 

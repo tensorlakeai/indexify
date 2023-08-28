@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 import json
 from typing import Optional
-from .extractor_base import Extractor, ExtractorInfo, Content, ExtractedAttributes
+from .base_extractor import Extractor, ExtractorInfo, Content, ExtractedAttributes
 from pydantic import BaseModel
 
 class EntityExtractionInputParams(BaseModel):
