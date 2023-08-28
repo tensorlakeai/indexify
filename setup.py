@@ -32,8 +32,12 @@ REQUIRED = [
     "fastembed",
     "openai",
     "pydantic==1.10.9",
-    "typer",
-    "griffe",
+    "transformers[torch]",
+    "optimum[onnxruntime]", 
+    "onnx",
+    "onnxruntime",
+    "span_marker",
+    "torch",
 ]
 
 # What packages are optional?
