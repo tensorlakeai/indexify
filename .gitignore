@@ -11,4 +11,5 @@ sdk-typescript/lib
 .venv
 .idea
 local_cache
-
+build
+indexify_extractors.egg-info/

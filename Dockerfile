@@ -41,9 +41,9 @@ COPY --from=builder /indexify-build/target/release/migration ./
 
 COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
-COPY --from=builder /indexify-build/extractors/ /indexify/extractors/
+COPY --from=builder /indexify-build/indexify_extractors/ /indexify/indexify_extractors/
 
-COPY --from=builder /indexify-build/pyproject.toml /indexify/
+COPY --from=builder /indexify-build/setup.py /indexify/
 
 COPY ./scripts/docker_compose_start.sh .
 
