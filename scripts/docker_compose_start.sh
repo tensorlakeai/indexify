@@ -8,5 +8,5 @@ do
   sleep 5s
 done
 
-# Srart server
+# Start server
 /indexify/indexify start-server -d -c ./config/indexify.yaml
