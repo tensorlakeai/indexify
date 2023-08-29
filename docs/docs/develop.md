@@ -13,10 +13,6 @@ Create a virtual env
 python3.11 -m venv ve
 source ve/bin/activate
 ```
-Install the python server dependencies 
-```
-./install_python_deps.sh
-```
 Install the  extractors
 ```
 pip install .

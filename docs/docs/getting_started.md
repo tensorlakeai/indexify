@@ -420,8 +420,9 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 
 - Add Memory Events
 === "curl"
+
     ```bash
-    curl -v -X GET http://localhost:8900/repositories/default/events \
+    curl -v -X POST http://localhost:8900/repositories/default/events \
     -H "Content-Type: application/json" \
     -d '{
             "events": [
