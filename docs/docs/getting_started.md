@@ -164,7 +164,7 @@ Now we can query the index created by the named entity extractor. The index will
 === "curl"
 
     ```bash
-    curl -v -X GET http://localhost:8900/repositories/default/attributes?index=entities
+    curl -v -X GET http://localhost:8900/repositories/default/attributes\?index=entities
     ```
 
     Response:
