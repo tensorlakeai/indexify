@@ -54,3 +54,4 @@ tracing-test = {version = "^0", features = ["no-env-filter"]}
 [build-dependencies]
 # All features enabled
 vergen = { version = "8.0.0", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
+pyo3-build-config = "0.19.2"
