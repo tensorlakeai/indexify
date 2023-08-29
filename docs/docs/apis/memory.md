@@ -41,7 +41,7 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 
 ## Retrieve Memory
 === "curl"
-    ```
+    ```console
     curl -X GET http://localhost:8900/memory/get \
     -H "Content-Type: application/json" \
     -d '{
@@ -53,7 +53,7 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 
 ## Search Memory
 === "curl"
-    ```
+    ```console
     curl -X GET http://localhost:8900/memory/search \
     -H "Content-Type: application/json" \
     -d '{
