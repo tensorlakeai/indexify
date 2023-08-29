@@ -44,13 +44,13 @@ In the future we will add support for searching these indexes as well using spar
 The following example queries the repository `default` for the index `entities` and returns all the attributes in the index.
 
 === "curl"
-      ``` console
+      ``` bash
       curl -v -X GET http://localhost:8900/repositories/default/attributes\?index=entities
       ```
 
 The following example queries the repository `default` for the index `entities` and returns the attributes for the content id `foo`.
 
 === "curl"
-      ``` console
+      ``` bash
       curl -v -X GET http://localhost:8900/repositories/default/attributes\?index=entities&content_id=foo
       ```

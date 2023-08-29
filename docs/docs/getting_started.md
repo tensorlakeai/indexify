@@ -441,6 +441,6 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 - Retrieve All Memory Events
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
-    ```console
+    ```bash
     curl -v -X GET http://localhost:8900/repositories/default/events
     ```

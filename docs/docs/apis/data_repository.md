@@ -7,7 +7,7 @@ Data Repository APIs allow users to create a new repository where documents and 
 A data repository can be created by specifying a unique name, and any additional metadata or extractor bindings.
 
 === "curl"
-    ``` console
+    ``` bash
     curl -X POST http://localhost:8900/repositories \
     -H 'Content-Type: application/json' \
     -d '
@@ -26,7 +26,7 @@ A data repository can be created by specifying a unique name, and any additional
 
 ## List Repositories
 === "curl"
-    ``` console
+    ``` bash
     curl -X GET http://localhost:8900/repositories
     ```
 
@@ -58,7 +58,7 @@ Adding an extractor binding creating indexes from content in a repository by run
 For ex, the example below binds the extractor `MiniLML6` to all the content in the repository `default` which has metadata `url` as `https://www.example.com`. Anytime any text is added to the repository with metadata that matches the content they are indexed.
 
 === "curl"
-    ``` console
+    ``` bash
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
