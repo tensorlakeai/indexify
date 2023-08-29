@@ -414,13 +414,14 @@ Now you can add extractor bindings with filters which match the URL and index co
 
 #### Start Using Long Term Memory
 Long Term Memory in Indexify indicates there may be some causal relationships in data ingested into the system. And to serve such use cases where the order of messages in extraction or generation is important, Indexify provides a `Event` abstraction. Events contain a message and a timestamp in addition to any other opaque metadata that you might want to use for filtering events while creating indexes and retrieving from them.
+
 - Create Memory Session
 Memory is usually stored for interactions of an agent with a user or in a given context. Related messages are grouped in Indexify as a `Session`, so first create a session!
 
 - Add Memory Events
 === "curl"
-    ```
-    http://localhost:8900/repositories/default/events \
+    ```bash
+    curl -v -X GET http://localhost:8900/repositories/default/events \
     -H "Content-Type: application/json" \
     -d '{
             "events": [
@@ -439,6 +440,6 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 - Retrieve All Memory Events
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
-    ```
+    ```bash
     curl -v -X GET http://localhost:8900/repositories/default/events
     ```
