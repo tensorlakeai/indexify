@@ -22,7 +22,7 @@ That's it! Let's explore some primary document storage and retrieval APIs.
 Indexify comes with Python and Typescript clients. They use the HTTP APIs exposed by Indexify under the hood, and provide a convenient way of interacting with the server.
 === "python"
 
-    ```shell
+    ```python
     pip install indexify
     ```
 === "typescript"
@@ -39,7 +39,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
@@ -69,7 +69,7 @@ Extractors are used to extract information from the documents in our repository.
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -X GET http://localhost:8900/extractors
     ```
 
@@ -123,7 +123,7 @@ Every extractor we bind results in a corresponding index being created in Indexi
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
@@ -163,7 +163,7 @@ Now we can query the index created by the named entity extractor. The index will
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X GET http://localhost:8900/repositories/default/attributes\?index=entities
     ```
 
@@ -228,7 +228,7 @@ Let's look for documents related to "sports":
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
@@ -284,7 +284,7 @@ Indexify automatically watches your data repository and runs your extractors whe
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
@@ -305,7 +305,7 @@ Now let's rerun our query for documents related to "sports":
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
@@ -361,7 +361,7 @@ Sometimes you might want to restrict the content from a data repository that's e
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
@@ -386,7 +386,7 @@ Now you can add extractor bindings with filters which match the URL and index co
 
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
@@ -421,7 +421,7 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 - Add Memory Events
 === "curl"
 
-    ```bash
+    ```shell
     curl -v -X POST http://localhost:8900/repositories/default/events \
     -H "Content-Type: application/json" \
     -d '{
@@ -441,6 +441,6 @@ Memory is usually stored for interactions of an agent with a user or in a given 
 - Retrieve All Memory Events
 You can retrieve all the previously stored messages in Indexify for a given session.
 === "curl"
-    ```bash
+    ```shell
     curl -v -X GET http://localhost:8900/repositories/default/events
     ```

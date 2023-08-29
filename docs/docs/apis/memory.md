@@ -7,7 +7,7 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 
 ## Create Memory Session
 === "curl"
-    ``` bash
+    ``` shell
     curl -X POST http://localhost:8900/memory/create \
     -H "Content-Type: application/json" -d '{}'
     
@@ -27,7 +27,7 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 
 ## Add Memory
 === "curl"
-    ```bash
+    ```shell
     curl -X POST http://localhost:8900/memory/add \
     -H "Content-Type: application/json" \
     -d '{"session_id": "77569cf7-8f4c-4f4b-bcdb-aa54355eee13", "messages": [{"role": "Human", "text": "Indexify is amazing!", "metadata": {}}]}'
@@ -41,7 +41,7 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 
 ## Retrieve Memory
 === "curl"
-    ```bash
+    ```shell
     curl -X GET http://localhost:8900/memory/get \
     -H "Content-Type: application/json" \
     -d '{
@@ -53,7 +53,7 @@ Create a new Memory Session to begin logging memory events for a user or a co-pi
 
 ## Search Memory
 === "curl"
-    ```bash
+    ```shell
     curl -X GET http://localhost:8900/memory/search \
     -H "Content-Type: application/json" \
     -d '{
