@@ -17,9 +17,9 @@ Install the python server dependencies
 ```
 ./install_python_deps.sh
 ```
-Install the server libs 
+Install the  extractors
 ```
-(cd extractors && pip install .)
+pip install .
 ```
 If you are working on the Python SDK then install the SDK as well 
 ```
