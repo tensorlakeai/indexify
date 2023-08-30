@@ -8,8 +8,11 @@ Indexify has a built in data parallel content extraction engine which enables sc
 
 ## Why use Indexify
 **Knowledge Base for LLMs:** Real time retrieval of knowledge and context from private documents and structured data to improve accuracy of LLM models.
+
 **Memory Engine for Co-Pilot agents:** Store and retrieve long-term memory of agents in real-time, providing enhanced personalization and improved user experiences for co-pilot and chat based applications.
+
 **Distributed Extraction Engine For Scale:** Distributed extraction to scale indexing large amount of data without sacrificing retrieval performance.
+
 **Custom Extractors:** You can extend Indexify by writing a custom extractor for your use cases to extract specific information from data.
 
 ## Getting Started
