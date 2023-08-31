@@ -2,7 +2,7 @@
 
 ### Example 
 Run the getting started example
-```
+```shell
 npm install
 npm run filerun examples/getting_started.ts
 ```

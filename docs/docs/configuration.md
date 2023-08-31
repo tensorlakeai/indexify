@@ -3,12 +3,12 @@
 Indexify is configured by a YAML configuration file. The easiest way to start is by generating it with the CLI or by downloading a sample configuration file, and then tweaking it to fit your needs.
 
 ### Generate with CLI
-```
+```shell
 indexify server init-config /tmp/indexify.yaml
 ```
 
 ### Sample Configuration
-```
+```yaml
 listen_addr: 0.0.0.0:8900
 
 available_models:
