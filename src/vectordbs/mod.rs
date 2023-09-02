@@ -16,10 +16,15 @@ use qdrant::QdrantDb;
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
 pub enum IndexDistance {
     #[strum(serialize = "cosine")]
+    #[serde(rename = "cosine")]
     Cosine,
+
     #[strum(serialize = "dot")]
+    #[serde(rename = "dot")]
     Dot,
+
     #[strum(serialize = "euclidean")]
+    #[serde(rename = "euclidean")]
     Euclidean,
 }
 

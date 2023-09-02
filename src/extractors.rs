@@ -3,13 +3,12 @@ use anyhow::{anyhow, Ok, Result};
 use pythonize::pythonize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    persistence::{self, ExtractorConfig, ExtractorType},
+    persistence::{self, ExtractorConfig},
     server_config,
-    vectordbs::IndexDistance,
 };
 use pyo3::{
     prelude::*,
@@ -40,6 +39,7 @@ pub struct ExtractedEmbeddings {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct AttributeData {
     pub content_id: String,
+    pub text: String,
     pub json: Option<serde_json::Value>,
 }
 
@@ -124,33 +124,9 @@ impl PythonDriver {
 impl Extractor for PythonDriver {
     fn info(&self) -> Result<ExtractorConfig, anyhow::Error> {
         let info = Python::with_gil(|py| {
-            let info = self.module_object.call_method0(py, "info")?;
-            let extractor_info: ExtractorInfo = info.extract(py)?;
-            let extractor_type = match extractor_info.output_datatype.as_str() {
-                "embedding" => {
-                    let embedding_schema: EmbeddingSchema =
-                        info.getattr(py, "output_schema")?.extract(py)?;
-                    Ok(ExtractorType::Embedding {
-                        dim: embedding_schema.dim,
-                        distance: IndexDistance::from_str(
-                            embedding_schema.distance_metric.as_str(),
-                        )?,
-                    })
-                }
-                "attributes" => {
-                    let schema: String = info.getattr(py, "output_schema")?.extract(py)?;
-                    Ok(ExtractorType::Attributes { schema })
-                }
-                _ => Err(anyhow!("unsupported output datatype")),
-            }?;
-            let input_params =
-                serde_json::from_str::<serde_json::Value>(&extractor_info.input_params)?;
-            let extractor_config = ExtractorConfig {
-                name: extractor_info.name,
-                description: extractor_info.description,
-                extractor_type,
-                input_params,
-            };
+            let info = self.module_object.call_method0(py, "_info")?;
+            let extractor_info: String = info.extract(py)?;
+            let extractor_config: ExtractorConfig = serde_json::from_str(&extractor_info)?;
             Ok(extractor_config)
         })?;
         Ok(info)
@@ -219,20 +195,22 @@ impl Extractor for PythonDriver {
                 })
                 .collect::<Vec<Py<PyContent>>>();
 
-            let extracted_data =
-                self.module_object
-                    .call_method1(py, "extract", (content, kwargs))?;
+            let extracted_data = self
+                .module_object
+                .call_method1(py, "extract", (content, kwargs))
+                .unwrap();
 
             #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
             struct InternalAttributeData {
                 content_id: String,
-                json: Option<String>,
+                text: String,
+                attributes: Option<String>,
             }
-            let extracted_data: Vec<InternalAttributeData> = extracted_data.extract(py)?;
+            let extracted_data: Vec<InternalAttributeData> = extracted_data.extract(py).unwrap();
             let extracted_data = extracted_data
                 .into_iter()
                 .map(|attr| {
-                    let json = if let Some(d) = attr.json.as_ref() {
+                    let json = if let Some(d) = attr.attributes.as_ref() {
                         let json_value: serde_json::Value = serde_json::from_str(d).unwrap();
                         Some(json_value)
                     } else {
@@ -240,6 +218,7 @@ impl Extractor for PythonDriver {
                     };
                     AttributeData {
                         content_id: attr.content_id,
+                        text: attr.text,
                         json,
                     }
                 })

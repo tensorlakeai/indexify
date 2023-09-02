@@ -10,30 +10,6 @@ use utoipa::{IntoParams, ToSchema};
 use crate::persistence;
 use crate::vectordbs;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename = "extractor_type")]
-pub enum ExtractorType {
-    #[serde(rename = "embedding")]
-    Embedding { dim: usize, distance: IndexDistance },
-
-    #[serde(rename = "embedding")]
-    Attributes { schema: String },
-}
-
-impl From<persistence::ExtractorType> for ExtractorType {
-    fn from(value: persistence::ExtractorType) -> Self {
-        match value {
-            persistence::ExtractorType::Embedding { dim, distance } => ExtractorType::Embedding {
-                dim,
-                distance: distance.into(),
-            },
-            persistence::ExtractorType::Attributes { schema } => {
-                ExtractorType::Attributes { schema }
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize, ToSchema, SmartDefault)]
 pub enum ExtractorContentType {
     #[strum(serialize = "text")]
@@ -289,10 +265,34 @@ pub struct TextAddRequest {
 pub struct RunExtractorsResponse {}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum ExtractorOuputSchema {
+    #[serde(rename = "embedding")]
+    Embedding { dim: usize, distance: IndexDistance },
+    #[serde(rename = "attributes")]
+    Attributes { schema: serde_json::Value },
+}
+
+impl From<persistence::ExtractorOutputSchema> for ExtractorOuputSchema {
+    fn from(value: persistence::ExtractorOutputSchema) -> Self {
+        match value {
+            persistence::ExtractorOutputSchema::Embedding { dim, distance } => {
+                ExtractorOuputSchema::Embedding {
+                    dim,
+                    distance: distance.into(),
+                }
+            }
+            persistence::ExtractorOutputSchema::Attributes(schema) => {
+                ExtractorOuputSchema::Attributes { schema }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
-    pub extractor_type: ExtractorType,
+    pub output_schema: ExtractorOuputSchema,
 }
 
 impl From<persistence::ExtractorConfig> for ExtractorConfig {
@@ -300,7 +300,7 @@ impl From<persistence::ExtractorConfig> for ExtractorConfig {
         Self {
             name: value.name,
             description: value.description,
-            extractor_type: value.extractor_type.into(),
+            output_schema: value.output_schema.into(),
         }
     }
 }

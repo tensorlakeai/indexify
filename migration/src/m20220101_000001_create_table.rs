@@ -20,6 +20,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Index::VectorIndexName).string())
                     .col(ColumnDef::new(Index::ExtractorName).string().not_null())
                     .col(ColumnDef::new(Index::IndexType).string().not_null())
+                    .col(ColumnDef::new(Index::IndexSchema).json_binary().not_null())
                     .col(ColumnDef::new(Index::RepositoryId).string().not_null())
                     .to_owned(),
             )
@@ -186,14 +187,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(Extractors::ExtractorType)
-                            .json_binary()
-                            .not_null(),
-                    )
                     .col(ColumnDef::new(Extractors::Description).string().not_null())
                     .col(
                         ColumnDef::new(Extractors::InputParams)
+                            .json_binary()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Extractors::OutputSchema)
                             .json_binary()
                             .not_null(),
                     )
@@ -258,6 +259,7 @@ enum Index {
     VectorIndexName,
     ExtractorName,
     IndexType,
+    IndexSchema,
     RepositoryId,
 }
 
@@ -339,6 +341,6 @@ enum Extractors {
     Table,
     Id,
     Description,
-    ExtractorType,
     InputParams,
+    OutputSchema,
 }
