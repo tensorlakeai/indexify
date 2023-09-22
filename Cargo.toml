@@ -17,6 +17,7 @@ clap = {version="^4", features=["derive"]}
 figment = {version="0.10.8", features=["yaml", "env"]}
 oneshot = {version="^0"}
 qdrant-client = "1.2.0"
+itertools = "0.11.0"
 regex = {version="^1"}
 sea-orm = { version = "^0", features = ["sqlx-postgres", "runtime-tokio-native-tls", "macros", "sqlx-dep", "debug-print", "with-json", "with-time"] }
 sea-query = {version = "^0"}

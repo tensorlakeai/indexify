@@ -9,6 +9,7 @@ use thiserror::Error;
 
 use crate::VectorIndexConfig;
 
+pub mod pg_embedding;
 pub mod qdrant;
 
 use qdrant::QdrantDb;
@@ -29,6 +30,7 @@ pub struct CreateIndexParams {
     pub vectordb_index_name: String,
     pub vector_dim: u64,
     pub distance: IndexDistance,
+    // TODO: Probably better if this is a HashMap<String, String> (?), or a generic (?)
     pub unique_params: Option<Vec<String>>,
 }
 

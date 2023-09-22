@@ -62,6 +62,20 @@ impl Default for QdrantConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct PgEmbeddingConfig {
+    pub addr: String,
+}
+
+impl Default for PgEmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            addr: "postgres://postgres:postgres@localhost/indexify".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
