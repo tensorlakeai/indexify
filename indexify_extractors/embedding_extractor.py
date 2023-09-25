@@ -30,7 +30,7 @@ class BaseEmbeddingExtractor(Extractor):
     def extract(
         self, content_list: List[Content], params: dict[str, Any]
     ) -> List[Embeddings]:
-        input_params: EmbeddingInputParams = EmbeddingInputParams.parse_obj(params)
+        input_params: EmbeddingInputParams = EmbeddingInputParams.model_validate(params)
         text_splitter: Any[[str], List[str]] = self._create_splitter(
             input_params.text_splitter
         )

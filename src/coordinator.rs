@@ -414,6 +414,7 @@ mod tests {
     use serde_json::json;
 
     use crate::{
+        blob_storage::BlobStorageBuilder,
         persistence::ExtractorBinding,
         test_util::{
             self,
@@ -424,7 +425,7 @@ mod tests {
 
     use crate::{
         data_repository_manager::DataRepositoryManager,
-        persistence::{DataRepository, Text},
+        persistence::{ContentPayload, DataRepository},
     };
 
     #[tokio::test]
@@ -433,8 +434,10 @@ mod tests {
         let db = test_util::db_utils::create_db().await.unwrap();
         let (vector_index_manager, extractor_executor, coordinator) =
             test_util::db_utils::create_index_manager(db.clone()).await;
+        let blob_storage =
+            BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).unwrap();
         let repository_manager =
-            DataRepositoryManager::new_with_db(db.clone(), vector_index_manager);
+            DataRepositoryManager::new_with_db(db.clone(), vector_index_manager, blob_storage);
 
         // Create a repository
         repository_manager
@@ -456,12 +459,12 @@ mod tests {
             .add_texts(
                 DEFAULT_TEST_REPOSITORY,
                 vec![
-                    Text::from_text(
+                    ContentPayload::from_text(
                         DEFAULT_TEST_REPOSITORY,
                         "hello",
                         HashMap::from([("topic".to_string(), json!("pipe"))]),
                     ),
-                    Text::from_text(
+                    ContentPayload::from_text(
                         DEFAULT_TEST_REPOSITORY,
                         "world",
                         HashMap::from([("topic".to_string(), json!("baz"))]),

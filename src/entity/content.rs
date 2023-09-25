@@ -9,8 +9,9 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
     #[sea_orm(column_type = "Text")]
-    pub text: String,
+    pub payload: String,
     pub content_type: String,
+    pub payload_type: String,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
     pub repository_id: String,
