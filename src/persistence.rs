@@ -1,5 +1,5 @@
 use nanoid::nanoid;
-use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryTrait};
+use sea_orm::{ConnectionTrait, QueryTrait};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -30,6 +30,11 @@ use crate::entity::{index, work};
 use crate::vectordbs::{self};
 use crate::{entity, vectordbs::IndexDistance};
 use entity::work::Entity as WorkEntity;
+
+pub struct Index {
+    pub name: String,
+    pub schema: ExtractorOutputSchema,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
@@ -488,6 +493,22 @@ impl Repository {
             }
         }
         Ok(())
+    }
+
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>, RepositoryError> {
+        let index_models = IndexEntity::find()
+            .filter(index::Column::RepositoryId.eq(repository))
+            .all(&self.conn)
+            .await
+            .map_err(|e| RepositoryError::DatabaseError(e.into()))?;
+        let indexes: Vec<Index> = index_models
+            .into_iter()
+            .map(|i| Index {
+                name: i.name,
+                schema: serde_json::from_value(i.index_schema).unwrap(),
+            })
+            .collect();
+        Ok(indexes)
     }
 
     pub async fn get_index(
@@ -1059,34 +1080,6 @@ impl Repository {
             serde_json::from_value(data_repository.extractor_bindings.unwrap()).unwrap();
         Ok(bindings_map.get(id).unwrap().clone())
     }
-}
-
-pub async fn _create_index(
-    txn: &DatabaseTransaction,
-    repository: String,
-    index_name: String,
-    storage_index_name: String,
-    index_type: String,
-    extractor_name: String,
-    schema: serde_json::Value,
-) -> Result<(), sea_orm::DbErr> {
-    let index = entity::index::ActiveModel {
-        name: Set(index_name),
-        vector_index_name: Set(Some(storage_index_name)),
-        extractor_name: Set(extractor_name),
-        index_type: Set(index_type),
-        index_schema: Set(schema.clone()),
-        repository_id: Set(repository),
-    };
-    let _insert_result = IndexEntity::insert(index)
-        .on_conflict(
-            OnConflict::column(entity::index::Column::Name)
-                .do_nothing()
-                .to_owned(),
-        )
-        .exec(txn)
-        .await?;
-    Ok(())
 }
 
 #[cfg(test)]

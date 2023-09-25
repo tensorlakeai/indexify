@@ -11,7 +11,7 @@ use crate::{
     index::IndexError,
     persistence::{
         DataRepository, Event, ExtractedAttributes, ExtractorBinding, ExtractorConfig,
-        ExtractorOutputSchema, Repository, RepositoryError, Text,
+        ExtractorOutputSchema, Index, Repository, RepositoryError, Text,
     },
     vector_index::{ScoredText, VectorIndexManager},
     ServerConfig,
@@ -178,6 +178,18 @@ impl DataRepositoryManager {
             .add_content(repo_name, texts)
             .await
             .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn list_indexes(
+        &self,
+        repository_name: &str,
+    ) -> Result<Vec<Index>, DataRepositoryError> {
+        let indexes = self
+            .repository
+            .list_indexes(repository_name)
+            .await
+            .map_err(DataRepositoryError::Persistence)?;
+        Ok(indexes)
     }
 
     pub async fn search(

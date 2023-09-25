@@ -108,6 +108,10 @@ impl Server {
                 post(bind_extractor).with_state(repository_endpoint_state.clone()),
             )
             .route(
+                "/repositories/:repository_name/indexes",
+                get(list_indexes).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
                 "/repositories/:repository_name/add_texts",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
@@ -459,6 +463,31 @@ async fn list_extractors(
         .map(|e| e.into())
         .collect();
     Ok(Json(ListExtractorsResponse { extractors }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/repositories/{repository_name}/indexes",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of indexes in a repository", body = ListIndexesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in repository")
+    ),
+)]
+#[axum_macros::debug_handler]
+async fn list_indexes(
+    Path(repository_name): Path<String>,
+    State(state): State<RepositoryEndpointState>,
+) -> Result<Json<ListIndexesResponse>, IndexifyAPIError> {
+    let indexes = state
+        .repository_manager
+        .list_indexes(&repository_name)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_iter()
+        .map(|i| i.into())
+        .collect();
+    Ok(Json(ListIndexesResponse { indexes }))
 }
 
 #[utoipa::path(
