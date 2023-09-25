@@ -33,7 +33,6 @@ pub struct QdrantDb {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QdrantPayload {
-    pub text: String,
     pub chunk_id: String,
     pub metadata: serde_json::Value,
 }
@@ -104,7 +103,6 @@ impl VectorDb for QdrantDb {
         for chunk in chunks {
             let chunk_id = chunk.chunk_id.clone();
             let payload: Payload = json!(QdrantPayload {
-                text: chunk.text.clone(),
                 chunk_id: chunk_id.clone(),
                 metadata: json!(HashMap::<String, String>::new()),
             })
@@ -150,7 +148,6 @@ impl VectorDb for QdrantDb {
             let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
                 .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
             documents.push(SearchResult {
-                text: qdrant_payload.text,
                 confidence_score: point.score,
                 chunk_id: qdrant_payload.chunk_id,
             });
@@ -208,7 +205,6 @@ mod tests {
             .unwrap();
         let chunk = VectorChunk {
             chunk_id: "0".into(),
-            text: "test".into(),
             embeddings: vec![0., 2.],
         };
         qdrant
@@ -243,7 +239,6 @@ mod tests {
             .unwrap();
         let chunk = VectorChunk {
             chunk_id: "0".into(),
-            text: "test".into(),
             embeddings: vec![0., 2.],
         };
         qdrant
