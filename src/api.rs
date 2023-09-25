@@ -292,6 +292,7 @@ impl From<persistence::ExtractorOutputSchema> for ExtractorOuputSchema {
 pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
+    pub input_params: serde_json::Value,
     pub output_schema: ExtractorOuputSchema,
 }
 
@@ -300,6 +301,7 @@ impl From<persistence::ExtractorConfig> for ExtractorConfig {
         Self {
             name: value.name,
             description: value.description,
+            input_params: value.input_params,
             output_schema: value.output_schema.into(),
         }
     }
