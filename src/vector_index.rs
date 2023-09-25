@@ -90,11 +90,8 @@ impl VectorIndexManager {
         let mut chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
             let chunk = Chunk::new(embedding.text.clone(), embedding.content_id.clone());
-            let vector_chunk = VectorChunk::new(
-                chunk.chunk_id.clone(),
-                chunk.text.clone(),
-                embedding.embeddings.clone(),
-            );
+            let vector_chunk =
+                VectorChunk::new(chunk.chunk_id.clone(), embedding.embeddings.clone());
             chunks.push(chunk);
             vector_chunks.push(vector_chunk);
         });
