@@ -47,7 +47,7 @@ pub struct RepositoryEndpointState {
         ),
         components(
             schemas(CreateRepository, CreateRepositoryResponse, DataConnector,
-                IndexDistance, ExtractorType, ExtractorContentType,
+                IndexDistance, ExtractorContentType,
                 SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,

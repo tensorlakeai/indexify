@@ -11,7 +11,7 @@ use crate::{
     index::IndexError,
     persistence::{
         DataRepository, Event, ExtractedAttributes, ExtractorBinding, ExtractorConfig,
-        ExtractorType, Repository, RepositoryError, Text,
+        ExtractorOutputSchema, Repository, RepositoryError, Text,
     },
     vector_index::{ScoredText, VectorIndexManager},
     ServerConfig,
@@ -99,23 +99,28 @@ impl DataRepositoryManager {
             .repository
             .extractor_by_name(&extractor_binding.extractor_name)
             .await?;
-        if let ExtractorType::Embedding {
-            dim: _,
-            distance: _,
-        } = extractor.extractor_type.clone()
-        {
-            self.vector_index_manager
-                .create_index(repository, &extractor_binding.index_name, extractor)
-                .await
-                .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
-        }
+
+        match extractor.output_schema.clone() {
+            ExtractorOutputSchema::Embedding { .. } => {
+                self.vector_index_manager
+                    .create_index(repository, &extractor_binding.index_name, extractor.clone())
+                    .await
+                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            }
+            ExtractorOutputSchema::Attributes { .. } => {
+                self.attribute_index_manager
+                    .create_index(repository, &extractor_binding.index_name, extractor.clone())
+                    .await
+                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            }
+        };
+
         Ok(())
     }
 
     pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
         info!("creating data repository: {}", repository.name);
-        let _ = self
-            .repository
+        self.repository
             .upsert_repository(repository.clone())
             .await
             .map_err(DataRepositoryError::Persistence)?;

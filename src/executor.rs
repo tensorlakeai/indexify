@@ -3,7 +3,7 @@ use crate::{
     attribute_index::AttributeIndexManager,
     extractors::{self, ExtractorTS},
     persistence::{ExtractedAttributes, Work, WorkState},
-    persistence::{ExtractorConfig, ExtractorType, Repository},
+    persistence::{ExtractorConfig, ExtractorOutputSchema, Repository},
     vector_index::VectorIndexManager,
     vectordbs, ExecutorInfo, ServerConfig, SyncExecutor, SyncWorkerResponse,
 };
@@ -215,7 +215,7 @@ impl ExtractorExecutor {
                 .await
                 .map_err(|e| anyhow!(e.to_string()))?;
 
-            if let ExtractorType::Embedding { .. } = extractor.info()?.extractor_type {
+            if let ExtractorOutputSchema::Embedding { .. } = extractor.info()?.output_schema {
                 info!(
                     "extracting embedding - repository: {}, extractor: {}, index: {}, content id: {}",
                     &work.repository_id, &work.extractor, &work.index_name, &content.id
@@ -229,7 +229,7 @@ impl ExtractorExecutor {
                     .update_work_state(&work.id, WorkState::Completed);
             }
 
-            if let ExtractorType::Attributes { .. } = extractor.info()?.extractor_type {
+            if let ExtractorOutputSchema::Attributes { .. } = extractor.info()?.output_schema {
                 info!(
                     "extracting attributes - repository: {}, extractor: {}, index: {}, content id: {}",
                     &work.repository_id, &work.extractor, &work.index_name, &content.id

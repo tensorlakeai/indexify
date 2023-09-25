@@ -16,20 +16,10 @@ class TextSplitter(str, Enum):
 class TextChunk:
     text: str
     metadata: dict[str, any] = field(default_factory=dict)
+    score: float = 0.0
 
     def to_dict(self):
         return {"text": self.text, "metadata": self.metadata}
-
-
-@dataclass
-class Message:
-    role: str
-    text: str
-    metadata: dict[str, any] = field(default_factory=dict)
-
-    def to_dict(self):
-        return {"role": self.role, "text": self.text, "metadata": self.metadata}
-
 
 @dataclass
 class SearchChunk:

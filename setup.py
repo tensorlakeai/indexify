@@ -28,16 +28,13 @@ VERSION = main_ns["__version__"]
 
 # What packages are required for this module to be executed?
 REQUIRED = [
+    "torch",
     "langchain",
     "fastembed",
     "openai",
-    "pydantic==1.10.9",
-    "transformers[torch]",
-    "optimum[onnxruntime]", 
-    "onnx",
-    "onnxruntime",
+    "pydantic",
+    "transformers",
     "span_marker",
-    "torch",
 ]
 
 # What packages are optional?
@@ -54,6 +51,7 @@ EXTRAS = {
         "pypdfium2",
         "pytest",
         "pytest-asyncio",
+        "parameterized",
     ],
     "manifest": "manifest-ml",
     "profanity": ["alt-profanity-check"],
