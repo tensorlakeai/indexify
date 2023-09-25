@@ -500,7 +500,7 @@ impl Repository {
             .filter(index::Column::RepositoryId.eq(repository))
             .all(&self.conn)
             .await
-            .map_err(|e| RepositoryError::DatabaseError(e.into()))?;
+            .map_err(RepositoryError::DatabaseError)?;
         let indexes: Vec<Index> = index_models
             .into_iter()
             .map(|i| Index {
