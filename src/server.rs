@@ -37,6 +37,7 @@ pub struct RepositoryEndpointState {
             list_repositories,
             get_repository,
             add_texts,
+            list_indexes,
             index_search,
             list_extractors,
             bind_extractor,
@@ -49,7 +50,7 @@ pub struct RepositoryEndpointState {
             schemas(CreateRepository, CreateRepositoryResponse, DataConnector,
                 IndexDistance, ExtractorContentType,
                 SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
-                DocumentFragment, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
+                DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,
         ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
         ),
