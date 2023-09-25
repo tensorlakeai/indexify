@@ -36,7 +36,6 @@ pub struct CreateIndexParams {
 
 #[derive(Debug, Default, Clone)]
 pub struct SearchResult {
-    pub text: String,
     pub chunk_id: String,
     pub confidence_score: f32,
 }
@@ -68,14 +67,12 @@ pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 #[derive(Debug, Clone)]
 pub struct VectorChunk {
     pub chunk_id: String,
-    pub text: String,
     pub embeddings: Vec<f32>,
 }
 impl VectorChunk {
-    pub fn new(chunk_id: String, text: String, embeddings: Vec<f32>) -> Self {
+    pub fn new(chunk_id: String, embeddings: Vec<f32>) -> Self {
         Self {
             chunk_id,
-            text,
             embeddings,
         }
     }
