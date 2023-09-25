@@ -4,7 +4,6 @@ from typing import Union
 
 from .settings import DEFAULT_SERVICE_URL
 
-
 def list_extractors(base_url: str = DEFAULT_SERVICE_URL) -> list[dict]:
     response = requests.get(f"{base_url}/extractors")
     response.raise_for_status()

@@ -27,9 +27,14 @@ use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
 use crate::entity::{index, work};
-use crate::vectordbs::{self, CreateIndexParams};
+use crate::vectordbs::{self};
 use crate::{entity, vectordbs::IndexDistance};
 use entity::work::Entity as WorkEntity;
+
+pub struct Index {
+    pub name: String,
+    pub schema: ExtractorOutputSchema,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
@@ -116,12 +121,12 @@ impl Text {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Display)]
 #[serde(rename = "extractor_type")]
-pub enum ExtractorType {
+pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
     Embedding { dim: usize, distance: IndexDistance },
 
     #[serde(rename = "attributes")]
-    Attributes { schema: String },
+    Attributes(serde_json::Value),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
@@ -142,32 +147,19 @@ pub enum ExtractorFilter {
 pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
-    pub extractor_type: ExtractorType,
     pub input_params: serde_json::Value,
-}
-
-impl Default for ExtractorConfig {
-    fn default() -> Self {
-        Self {
-            name: "default-embedder".to_string(),
-            description: "Default Text Embedding Extractor".into(),
-            extractor_type: ExtractorType::Embedding {
-                dim: 384,
-                distance: IndexDistance::Cosine,
-            },
-            input_params: serde_json::json!({}),
-        }
-    }
+    pub output_schema: ExtractorOutputSchema,
 }
 
 impl From<extractors::Model> for ExtractorConfig {
     fn from(model: extractors::Model) -> Self {
-        let extractor_type = serde_json::from_value(model.extractor_type).unwrap();
+        // TODO remove unwrap()
+        let output_schema = serde_json::from_value(model.output_schema).unwrap();
         Self {
             name: model.id,
             description: model.description,
-            extractor_type,
             input_params: model.input_params,
+            output_schema,
         }
     }
 }
@@ -470,47 +462,53 @@ impl Repository {
         Self { conn: db }
     }
 
-    pub async fn create_vector_index(
+    pub async fn create_index_metadata(
         &self,
-        repository_name: &str,
+        repository: &str,
         extractor_name: &str,
         index_name: &str,
-        index_params: CreateIndexParams,
-        vectordb: vectordbs::VectorDBTS,
+        storage_index_name: &str,
+        index_schema: serde_json::Value,
+        index_type: &str,
     ) -> Result<(), RepositoryError> {
         let index = entity::index::ActiveModel {
             name: Set(index_name.into()),
-            vector_index_name: Set(Some(index_params.clone().vectordb_index_name)),
+            vector_index_name: Set(Some(storage_index_name.into())),
             extractor_name: Set(extractor_name.into()),
-            index_type: Set("embedding".to_string()),
-            repository_id: Set(repository_name.into()),
+            index_type: Set(index_type.into()),
+            index_schema: Set(index_schema),
+            repository_id: Set(repository.into()),
         };
-
-        self.conn
-            .transaction::<_, (), RepositoryError>(|txn| {
-                Box::pin(async move {
-                    let insert_result = IndexEntity::insert(index)
-                        .on_conflict(
-                            OnConflict::column(entity::index::Column::Name)
-                                .do_nothing()
-                                .to_owned(),
-                        )
-                        .exec(txn)
-                        .await;
-                    if let Err(err) = insert_result {
-                        if err != DbErr::RecordNotInserted {
-                            return Err(RepositoryError::DatabaseError(err));
-                        }
-                    }
-                    if let Err(err) = vectordb.create_index(index_params.clone()).await {
-                        return Err(RepositoryError::VectorDb(err));
-                    }
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        let insert_result = IndexEntity::insert(index)
+            .on_conflict(
+                OnConflict::column(entity::index::Column::Name)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&self.conn)
+            .await;
+        if let Err(err) = insert_result {
+            if err != DbErr::RecordNotInserted {
+                return Err(RepositoryError::DatabaseError(err));
+            }
+        }
         Ok(())
+    }
+
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>, RepositoryError> {
+        let index_models = IndexEntity::find()
+            .filter(index::Column::RepositoryId.eq(repository))
+            .all(&self.conn)
+            .await
+            .map_err(RepositoryError::DatabaseError)?;
+        let indexes: Vec<Index> = index_models
+            .into_iter()
+            .map(|i| Index {
+                name: i.name,
+                schema: serde_json::from_value(i.index_schema).unwrap(),
+            })
+            .collect();
+        Ok(indexes)
     }
 
     pub async fn get_index(
@@ -843,7 +841,7 @@ impl Repository {
                         )
                         .exec(txn)
                         .await?;
-                    if extractor_event_models.len() > 0 {
+                    if !extractor_event_models.is_empty() {
                         // TODO Figure out why this doesn't throw an exception when the query fails
                         let _ = ExtractionEventEntity::insert_many(extractor_event_models)
                             .exec(txn)
@@ -888,12 +886,7 @@ impl Repository {
         }
         let extractor_model =
             extractor_model?.ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
-        Ok(ExtractorConfig {
-            name: extractor_model.id,
-            description: extractor_model.description,
-            extractor_type: serde_json::from_value(extractor_model.extractor_type).unwrap(),
-            input_params: extractor_model.input_params,
-        })
+        Ok(extractor_model.into())
     }
 
     pub async fn add_attributes(
@@ -956,8 +949,8 @@ impl Repository {
             extractor_models.push(entity::extractors::ActiveModel {
                 id: Set(extractor.name),
                 description: Set(extractor.description),
-                extractor_type: Set(json!(extractor.extractor_type)),
                 input_params: Set(extractor.input_params),
+                output_schema: Set(json!(extractor.output_schema)),
             });
         }
         let res = entity::extractors::Entity::insert_many(extractor_models)
@@ -1100,11 +1093,12 @@ mod tests {
     async fn test_extractors_for_repository() {
         let extractor1 = ExtractorConfig {
             name: "extractor1".into(),
-            extractor_type: ExtractorType::Embedding {
-                dim: 2,
+            description: "extractor1".into(),
+            input_params: json!({}),
+            output_schema: ExtractorOutputSchema::Embedding {
+                dim: 1,
                 distance: IndexDistance::Cosine,
             },
-            ..Default::default()
         };
         let extractor_binding1 = ExtractorBinding::new(
             "repository",

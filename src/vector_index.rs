@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use crate::{
     extractors::{create_extractor, ExtractedEmbeddings, ExtractorTS},
     index::IndexError,
-    persistence::{Chunk, ExtractorConfig, ExtractorType, Repository, Text},
+    persistence::{Chunk, ExtractorConfig, ExtractorOutputSchema, Repository, Text},
     vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
     ServerConfig,
 };
@@ -32,7 +32,8 @@ impl VectorIndexManager {
         let extractor_index = DashMap::new();
         for extractor in server_config.extractors.iter() {
             let extractor = create_extractor(extractor.clone()).unwrap();
-            if let ExtractorType::Embedding { .. } = extractor.info().unwrap().extractor_type {
+            if let ExtractorOutputSchema::Embedding { .. } = extractor.info().unwrap().output_schema
+            {
                 extractor_index.insert(extractor.info().unwrap().name, extractor);
             }
         }
@@ -50,10 +51,11 @@ impl VectorIndexManager {
         extractor_config: ExtractorConfig,
     ) -> Result<()> {
         let mut index_params: Option<CreateIndexParams> = None;
-        if let ExtractorType::Embedding { dim, distance } = &extractor_config.extractor_type {
-            let vector_index_name = format!("{}-{}", repository, index_name);
+        let vector_index_name = format!("{}-{}", repository, index_name);
+        if let ExtractorOutputSchema::Embedding { dim, distance } = &extractor_config.output_schema
+        {
             let create_index_params = CreateIndexParams {
-                vectordb_index_name: vector_index_name,
+                vectordb_index_name: vector_index_name.clone(),
                 vector_dim: *dim as u64,
                 distance: distance.clone(),
                 unique_params: None,
@@ -61,15 +63,18 @@ impl VectorIndexManager {
             index_params.replace(create_index_params);
         }
         self.repository
-            .create_vector_index(
+            .create_index_metadata(
                 repository,
                 &extractor_config.name,
                 index_name,
-                index_params.unwrap(),
-                self.vector_db.clone(),
+                &vector_index_name,
+                serde_json::json!(extractor_config.output_schema),
+                "embedding",
             )
-            .await
-            .unwrap();
+            .await?;
+        // Remove this unwrap and refactor the code to return a proper error
+        // if the extractor config doesn't have embedding type
+        self.vector_db.create_index(index_params.unwrap()).await?;
         Ok(())
     }
 
@@ -85,11 +90,8 @@ impl VectorIndexManager {
         let mut chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
             let chunk = Chunk::new(embedding.text.clone(), embedding.content_id.clone());
-            let vector_chunk = VectorChunk::new(
-                chunk.chunk_id.clone(),
-                chunk.text.clone(),
-                embedding.embeddings.clone(),
-            );
+            let vector_chunk =
+                VectorChunk::new(chunk.chunk_id.clone(), embedding.embeddings.clone());
             chunks.push(chunk);
             vector_chunks.push(vector_chunk);
         });

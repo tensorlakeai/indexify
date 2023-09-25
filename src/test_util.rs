@@ -1,6 +1,7 @@
 #[cfg(test)]
 pub mod db_utils {
     use migration::{Migrator, MigratorTrait};
+    use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -8,8 +9,8 @@ pub mod db_utils {
 
     use crate::attribute_index::AttributeIndexManager;
     use crate::executor::ExtractorExecutor;
-    use crate::persistence::DataRepository;
-    use crate::persistence::{ExtractorBinding, ExtractorConfig, ExtractorType, Repository};
+    use crate::persistence::{DataRepository, ExtractorOutputSchema};
+    use crate::persistence::{ExtractorBinding, ExtractorConfig, Repository};
     use crate::vector_index::VectorIndexManager;
     use crate::vectordbs::{self, IndexDistance};
     use crate::Coordinator;
@@ -66,11 +67,12 @@ pub mod db_utils {
 
         let default_extractor = ExtractorConfig {
             name: DEFAULT_TEST_EXTRACTOR.into(),
-            extractor_type: ExtractorType::Embedding {
+            description: "test extractor".into(),
+            input_params: json!({}),
+            output_schema: ExtractorOutputSchema::Embedding {
                 dim: 384,
                 distance: IndexDistance::Cosine,
             },
-            ..Default::default()
         };
         coordinator
             .record_extractors(vec![default_extractor])

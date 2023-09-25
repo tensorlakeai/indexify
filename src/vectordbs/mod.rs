@@ -16,10 +16,15 @@ use qdrant::QdrantDb;
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
 pub enum IndexDistance {
     #[strum(serialize = "cosine")]
+    #[serde(rename = "cosine")]
     Cosine,
+
     #[strum(serialize = "dot")]
+    #[serde(rename = "dot")]
     Dot,
+
     #[strum(serialize = "euclidean")]
+    #[serde(rename = "euclidean")]
     Euclidean,
 }
 
@@ -34,7 +39,6 @@ pub struct CreateIndexParams {
 
 #[derive(Debug, Default, Clone)]
 pub struct SearchResult {
-    pub text: String,
     pub chunk_id: String,
     pub confidence_score: f32,
 }
@@ -66,14 +70,12 @@ pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 #[derive(Debug, Clone)]
 pub struct VectorChunk {
     pub chunk_id: String,
-    pub text: String,
     pub embeddings: Vec<f32>,
 }
 impl VectorChunk {
-    pub fn new(chunk_id: String, text: String, embeddings: Vec<f32>) -> Self {
+    pub fn new(chunk_id: String, embeddings: Vec<f32>) -> Self {
         Self {
             chunk_id,
-            text,
             embeddings,
         }
     }

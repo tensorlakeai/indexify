@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use std::sync::Arc;
 
-use crate::persistence::{ExtractedAttributes, Repository};
+use crate::persistence::{ExtractedAttributes, ExtractorConfig, Repository};
 
 pub struct AttributeIndexManager {
     repository: Arc<Repository>,
@@ -11,6 +11,26 @@ pub struct AttributeIndexManager {
 impl AttributeIndexManager {
     pub fn new(repository: Arc<Repository>) -> Self {
         Self { repository }
+    }
+
+    pub async fn create_index(
+        &self,
+        repository: &str,
+        index_name: &str,
+        extractor_config: ExtractorConfig,
+    ) -> Result<()> {
+        // TODO: create a new table for the index from a postgres schema
+        self.repository
+            .create_index_metadata(
+                repository,
+                &extractor_config.name,
+                index_name,
+                "structured_store",
+                serde_json::json!(extractor_config.output_schema),
+                "structured_index",
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn add_index(
