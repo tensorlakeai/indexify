@@ -20,9 +20,7 @@ pub struct PgEmbeddingPayload {
 }
 
 impl PgEmbeddingDb {
-    pub async fn new(config: PgEmbeddingConfig, db_conn: DbConn) -> PgEmbeddingDb {
-        // Create a new pool based on the config
-
+    pub fn new(config: PgEmbeddingConfig, db_conn: DbConn) -> PgEmbeddingDb {
         Self {
             pg_embedding_config: config,
             db_conn,
@@ -65,13 +63,37 @@ impl VectorDb for PgEmbeddingDb {
             crate::vectordbs::IndexDistance::Dot => "ann_manhattan_ops",
         };
 
+        // TODO: @diptanu, the "id" here corresponds to the chunk-id, and is NOT SERIAL, right?
         let mut query = r#"
-            CREATE TABLE {index_name}(id integer PRIMARY KEY , embedding real[]);
-            CREATE INDEX ON {index_name} USING hnsw(embedding {distance_extension}) WITH (dims={dims}, m={m}, efconstruction={efconstruction}, efsearch={efsearch});
+            CREATE TABLE $1(id integer PRIMARY KEY , embedding real[]);
+            CREATE INDEX ON $1 USING hnsw(embedding {distance_extension}) WITH (dims={dims}, m={m}, efconstruction={efconstruction}, efsearch={efsearch});
             SET enable_seqscan = off;
         )"#;
-        // sqlx::query(query).execute(self.pool).await?;
-        Ok(())
+        let exec_res: ExecResult = self
+            .db_conn
+            .execute(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                query,
+                [],
+            ))
+            .await
+            .map_err(|e| {
+                VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
+            })?;
+        if exec_res.rows_affected() == 0 {
+            Err(VectorDbError::IndexCreationError(format!(
+                "No tables affected when deleting: {:?}",
+                index_name.clone()
+            )))
+        } else if exec_res.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(VectorDbError::IndexCreationError(format!(
+                "More than one table affected! {:?} {:?}",
+                index_name.clone(),
+                exec_res.rows_affected()
+            )))
+        }
     }
 
     async fn add_embedding(
@@ -79,17 +101,62 @@ impl VectorDb for PgEmbeddingDb {
         index: &str,
         chunks: Vec<VectorChunk>,
     ) -> Result<(), VectorDbError> {
+        // Due to the limitations of sea-query (we cannot encode tuples, nor can we encode arrays of arrays)
+        // We iteratively build out the query manually
         // Insert an array into the index
-        let mut query = r#"
-            INSERT INTO {index_name} VALUES
+        let flattened_chunks = chunks
+            .into_iter()
+            .map(|x| {
+                (x.chunk_id, x.embeddings)
+                // It is very disgusting, but let's just run each insert one by one.
+                // TODO: Revisit this, @diptanu maybe you have ideas
+            })
+            .collect::<Vec<(String, Vec<f32>)>>();
+        // String serialization seems to be the most fitting solution for sea-orm, let's go with this for now, if it's bad we'll revisit ... May need to use sqlx or similar for speed
+        let values_str: String = flattened_chunks
+            .iter()
+            .map(|(id, embedding)| {
+                let embedding_str = embedding
+                    .iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("('{}', ARRAY[{}])", id, embedding_str)
+            })
+            .join(", ");
+        let query = r#"
+            INSERT INTO $1 (id, embedding) VALUES {values_str};
         )"#;
-        // unroll vectors... maybe don't use strings, strings will make things slow!
-        // TODO: What is a vector chunk
-        // sqlx::query_as(query)
-        //     .bind(chunks)
-        //     .execute(self.pool)
-        //     .await?;
-        Ok(())
+        let exec_res: ExecResult = self
+            .db_conn
+            .execute(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                query,
+                [
+                    // WIP, but doesn't seem to be supported sea_orm::Value::Array(ArrayType::), // sea_query::ValueTuple(sea_query::Value::String, sea_query::Value::Array((), ())), Some(Box::new())
+                    sea_orm::Value::String(Some(Box::new(index.to_string()))),
+                ],
+            ))
+            .await
+            .map_err(|e| {
+                VectorDbError::IndexDeletionError(index.to_string(), format!("{:?}", e))
+            })?;
+        if exec_res.rows_affected() == 0 {
+            Err(VectorDbError::IndexDeletionError(
+                index.to_string(),
+                "No tables affected when deleting".to_string(),
+            ))
+        } else if exec_res.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(VectorDbError::IndexDeletionError(
+                index.to_string(),
+                format!(
+                    "More than one table affected! {:?}",
+                    exec_res.rows_affected()
+                ),
+            ))
+        }
     }
 
     async fn search(
@@ -99,21 +166,31 @@ impl VectorDb for PgEmbeddingDb {
         k: u64,
     ) -> Result<Vec<SearchResult>, VectorDbError> {
         // TODO: How to turn query_embedding into an array[...]
-        let mut query = r#"
-            SELECT id FROM {index} ORDER BY embedding <-> array[3,3,3] LIMIT {k};
+        let query = r#"
+            SELECT id FROM $1 ORDER BY embedding <-> $2 LIMIT $3;
         )"#;
-        // sqlx::query_as(query)
-        //     .bind(index, query_embedding, k)
-        //     .fetch_all(&self.db_connol)
-        //     .await
-        //     .map_err(|e| e)
-        todo!()
+        let query_embedding = query_embedding
+            .into_iter()
+            .map(|x| sea_orm::Value::Float(Some(x)))
+            .collect();
+        SearchResult::find_by_statement(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            query,
+            [
+                sea_orm::Value::String(Some(Box::new(index.to_string()))),
+                sea_orm::Value::Array(sea_query::ArrayType::Float, Some(Box::new(query_embedding))),
+                sea_orm::Value::BigUnsigned(Some(k)),
+            ],
+        ))
+        .all(&self.db_conn)
+        .await
+        .map_err(|e| VectorDbError::IndexReadError(format!("{:?}: {:?}", index, e)))
     }
 
     // TODO: Should change index to &str
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
         let query = r#"
-            DROP TABLE {index_name};
+            DROP TABLE $1;
         )"#;
         let exec_res: ExecResult = self
             .db_conn
@@ -144,7 +221,7 @@ impl VectorDb for PgEmbeddingDb {
 
     async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
         let query = r#"
-            SELECT COUNT(*) FROM TABLE {index_name};
+            SELECT COUNT(*) FROM TABLE $1;
         )"#;
         let response: JsonValue = JsonValue::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
