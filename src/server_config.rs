@@ -64,12 +64,19 @@ impl Default for QdrantConfig {
 #[serde(rename_all = "snake_case")]
 pub struct PgEmbeddingConfig {
     pub addr: String,
+    pub m: i32,
+    pub efconstruction: i32,
+    pub efsearch: i32,
 }
 
 impl Default for PgEmbeddingConfig {
     fn default() -> Self {
         Self {
             addr: "postgres://postgres:postgres@localhost/indexify".into(),
+            // Figure out best default parameters for the following values
+            m: 3,
+            efsearch: 5,
+            efconstruction: 5,
         }
     }
 }
