@@ -128,16 +128,10 @@ impl VectorDb for PgEmbedding {
             Err(VectorDbError::IndexWriteError(format!(
                 "{:?} {:?}",
                 index.to_string(),
-                "No tables affected when deleting".to_string(),
+                "No rows were inserted".to_string(),
             )))
-        } else if exec_res.rows_affected() == 1 {
-            Ok(())
         } else {
-            Err(VectorDbError::IndexWriteError(format!(
-                "{:?}: More than one table affected! {:?}",
-                index.to_string(),
-                exec_res.rows_affected()
-            )))
+            Ok(())
         }
     }
 
