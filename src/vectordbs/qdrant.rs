@@ -191,7 +191,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_search_basic() {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
-            addr: "http://localhost:6334".into(),
+            addr: "http://localhost:6333".into(),
         }));
         qdrant.drop_index("hello-index".into()).await.unwrap();
         qdrant
@@ -225,7 +225,7 @@ mod tests {
         let index_name = "idempotent-index";
         let hash_on = vec!["user_id".to_string(), "url".to_string()];
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
-            addr: "http://localhost:6334".into(),
+            addr: "http://localhost:6333".into(),
         }));
         qdrant.drop_index(index_name.into()).await.unwrap();
         qdrant
