@@ -24,6 +24,8 @@ impl PgEmbedding {
     }
 }
 
+const INDEX_TABLE_PREFIX: &'static str = "index_";
+
 #[async_trait]
 impl VectorDb for PgEmbedding {
     fn name(&self) -> String {
@@ -52,7 +54,10 @@ impl VectorDb for PgEmbedding {
             .execute(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 query,
-                [],
+                [sea_orm::Value::String(Some(Box::new(format!(
+                    "{:?}{:?}",
+                    INDEX_TABLE_PREFIX, index_name
+                ))))],
             ))
             .await
             .map_err(|e| {
@@ -83,14 +88,16 @@ impl VectorDb for PgEmbedding {
         // After the table-name, and with an offset of 1 (because chunk_id is inserted), every second item is the embedding
         // The final query looks similar to:
         // INSERT INTO index_table (id, embedding) VALUES (chunk_id_1, embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);
-        //             |------> $1                        |>(2+2*0)=$2 |>(3+2*0)=$3  |>(2+2*1)=$4 |>(3+2*4)=$5       |>(2+2*n) |>(3+2*n)
+        //             |------> $1                        |>(2+2*0)=$2 |>(3+2*0)=$3  |>(2+2*1)=$4 |>(3+2*4)=$5       |>(2+2*n)    |>(3+2*n)
         let _value_placeholders = chunks
             .iter()
             .enumerate()
             .map(|(idx, _)| format!("(${}, ${})", 2 + 2 * idx, 3 + 2 * idx))
             .join(", ");
         let query = r#"
-            INSERT INTO $1 (id, embedding) VALUES {_value_placeholders};
+            INSERT INTO $1 (id, embedding) VALUES {_value_placeholders} 
+            ON CONFLICT (id) 
+            DO UPDATE SET embedding = EXCLUDED.embedding;
         )"#;
         // Due to the limitations of sea-query (we cannot encode tuples, nor can we encode arrays of arrays)
         // We iteratively build out the query manually
@@ -112,7 +119,13 @@ impl VectorDb for PgEmbedding {
                 ]
             })
             .collect::<Vec<sea_orm::Value>>();
-        parameters.insert(0, sea_orm::Value::String(Some(Box::new(index.to_string()))));
+        parameters.insert(
+            0,
+            sea_orm::Value::String(Some(Box::new(format!(
+                "{:?}{:?}",
+                INDEX_TABLE_PREFIX, index
+            )))),
+        );
         let exec_res: ExecResult = self
             .db_conn
             .execute(Statement::from_sql_and_values(
@@ -153,7 +166,10 @@ impl VectorDb for PgEmbedding {
             DbBackend::Postgres,
             query,
             [
-                sea_orm::Value::String(Some(Box::new(index.to_string()))),
+                sea_orm::Value::String(Some(Box::new(format!(
+                    "{:?}{:?}",
+                    INDEX_TABLE_PREFIX, index
+                )))),
                 sea_orm::Value::Array(sea_query::ArrayType::Float, Some(Box::new(query_embedding))),
                 sea_orm::Value::BigUnsigned(Some(k)),
             ],
@@ -173,7 +189,10 @@ impl VectorDb for PgEmbedding {
             .execute(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 query,
-                [sea_orm::Value::String(Some(Box::new(index.clone())))],
+                [sea_orm::Value::String(Some(Box::new(format!(
+                    "{:?}{:?}",
+                    INDEX_TABLE_PREFIX, index
+                ))))],
             ))
             .await
             .map_err(|e| VectorDbError::IndexDeletionError(index.clone(), format!("{:?}", e)))?;
@@ -202,7 +221,10 @@ impl VectorDb for PgEmbedding {
         let response: JsonValue = JsonValue::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
             query,
-            [sea_orm::Value::String(Some(Box::new(index.to_string())))],
+            [sea_orm::Value::String(Some(Box::new(format!(
+                "{:?}{:?}",
+                INDEX_TABLE_PREFIX, index
+            ))))],
         ))
         .one(&self.db_conn)
         .await
@@ -218,5 +240,103 @@ impl VectorDb for PgEmbedding {
                 "COUNT(*) did not return Number".to_string(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sea_orm::Database;
+
+    use crate::vectordbs::{pg_embedding::PgEmbedding, IndexDistance, VectorChunk, VectorDBTS};
+
+    use super::CreateIndexParams;
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_search_basic() {
+        // Create the sea-orm connection, s.t. we can share it with the application-level pool
+        let database_url = "postgres://postgres:postgres@localhost/indexify";
+        let db_conn = Database::connect(database_url).await.unwrap();
+        let vector_db: VectorDBTS = Arc::new(PgEmbedding::new(
+            crate::PgEmbeddingConfig {
+                addr: database_url.to_string(),
+                m: 3,
+                efconstruction: 5,
+                efsearch: 5,
+            },
+            db_conn,
+        ));
+        // Drop index (this is idempotent)
+        vector_db.drop_index("hello-index".into()).await.unwrap();
+        vector_db
+            .create_index(CreateIndexParams {
+                vectordb_index_name: "hello-index".into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+        let chunk = VectorChunk {
+            chunk_id: "0".into(),
+            embeddings: vec![0., 2.],
+        };
+        vector_db
+            .add_embedding("hello-index", vec![chunk])
+            .await
+            .unwrap();
+
+        let results = vector_db
+            .search("hello-index".into(), vec![10., 8.], 1)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_insertion_idempotent() {
+        let index_name = "idempotent-index";
+        let hash_on = vec!["user_id".to_string(), "url".to_string()];
+
+        let database_url = "postgres://postgres:postgres@localhost/indexify";
+        let db_conn = Database::connect(database_url).await.unwrap();
+        let vector_db: VectorDBTS = Arc::new(PgEmbedding::new(
+            crate::PgEmbeddingConfig {
+                addr: database_url.to_string(),
+                m: 3,
+                efconstruction: 5,
+                efsearch: 5,
+            },
+            db_conn,
+        ));
+
+        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db
+            .create_index(CreateIndexParams {
+                vectordb_index_name: index_name.into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: Some(hash_on.clone()),
+            })
+            .await
+            .unwrap();
+        let chunk = VectorChunk {
+            chunk_id: "0".into(),
+            embeddings: vec![0., 2.],
+        };
+        vector_db
+            .add_embedding(index_name, vec![chunk.clone()])
+            .await
+            .unwrap();
+        vector_db
+            .add_embedding(index_name, vec![chunk])
+            .await
+            .unwrap();
+        let num_elements = vector_db.num_vectors(index_name).await.unwrap();
+
+        assert_eq!(num_elements, 1);
     }
 }
