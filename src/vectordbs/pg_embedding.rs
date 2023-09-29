@@ -8,28 +8,24 @@ use itertools::Itertools;
 use sea_orm::{self, DbBackend, DbConn, Statement};
 
 /// PgEmbeddingDb
-pub struct PgEmbeddingDb {
-    pg_embedding_config: PgEmbeddingConfig,
+pub struct PgEmbedding {
+    config: PgEmbeddingConfig,
     db_conn: DbConn,
 }
 
 pub struct PgEmbeddingPayload {
-    pub text: String,
     pub chunk_id: String,
     pub metadata: serde_json::Value,
 }
 
-impl PgEmbeddingDb {
-    pub fn new(config: PgEmbeddingConfig, db_conn: DbConn) -> PgEmbeddingDb {
-        Self {
-            pg_embedding_config: config,
-            db_conn,
-        }
+impl PgEmbedding {
+    pub fn new(config: PgEmbeddingConfig, db_conn: DbConn) -> PgEmbedding {
+        Self { config, db_conn }
     }
 }
 
 #[async_trait]
-impl VectorDb for PgEmbeddingDb {
+impl VectorDb for PgEmbedding {
     fn name(&self) -> String {
         "pg_embedding".into()
     }
@@ -45,7 +41,7 @@ impl VectorDb for PgEmbeddingDb {
             crate::vectordbs::IndexDistance::Dot => "ann_manhattan_ops",
         };
 
-        // TODO: @diptanu, the "id" here corresponds to the chunk-id, and is NOT SERIAL, right?
+        // the "id" here corresponds to the chunk-id, and is NOT SERIAL
         let query = r#"
             CREATE TABLE $1(id integer PRIMARY KEY , embedding real[]);
             CREATE INDEX ON $1 USING hnsw(embedding {distance_extension}) WITH (dims={vector_dim}, m={self.pg_embedding_config.m}, efconstruction={self.pg_embedding_config.efconstruction}, efsearch={self.pg_embedding_config.efsearch});
@@ -62,12 +58,8 @@ impl VectorDb for PgEmbeddingDb {
             .map_err(|e| {
                 VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
-        if exec_res.rows_affected() == 0 {
-            Err(VectorDbError::IndexCreationError(format!(
-                "No tables affected when deleting: {:?}",
-                index_name.clone()
-            )))
-        } else if exec_res.rows_affected() == 1 {
+        if exec_res.rows_affected() <= 1 {
+            // Create's are idempotent. If no tables are affected (i.e. added), Ok(()) is returned
             Ok(())
         } else {
             Err(VectorDbError::IndexCreationError(format!(
@@ -83,6 +75,15 @@ impl VectorDb for PgEmbeddingDb {
         index: &str,
         chunks: Vec<VectorChunk>,
     ) -> Result<(), VectorDbError> {
+        // Because sea-orm is not super flexible in accepting arrays of tuples, we build the query somewhat manually.
+        // Indexing starts at 1 (with $1) in Postgres
+        // The first parameter is the table-name (as you can see in the below "query" variable)
+        // Then, we "unroll" tuples of (chunk_id, embedding).
+        // After the table-name, every second item is the chunk_id.
+        // After the table-name, and with an offset of 1 (because chunk_id is inserted), every second item is the embedding
+        // The final query looks similar to:
+        // INSERT INTO index_table (id, embedding) VALUES (chunk_id_1, embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);
+        //             |------> $1                        |>(2+2*0)=$2 |>(3+2*0)=$3  |>(2+2*1)=$4 |>(3+2*4)=$5       |>(2+2*n) |>(3+2*n)
         let _value_placeholders = chunks
             .iter()
             .enumerate()
@@ -95,13 +96,14 @@ impl VectorDb for PgEmbeddingDb {
         // We iteratively build out the query manually
         let mut parameters = chunks
             .into_iter()
-            .flat_map(|x| {
+            .flat_map(|chunk| {
                 vec![
-                    sea_orm::Value::String(Some(Box::new(x.chunk_id))),
+                    sea_orm::Value::String(Some(Box::new(chunk.chunk_id))),
                     sea_orm::Value::Array(
                         sea_query::ArrayType::Float,
                         Some(Box::new(
-                            x.embeddings
+                            chunk
+                                .embeddings
                                 .into_iter()
                                 .map(|x| sea_orm::Value::Float(Some(x)))
                                 .collect(),
@@ -120,23 +122,22 @@ impl VectorDb for PgEmbeddingDb {
             ))
             .await
             .map_err(|e| {
-                VectorDbError::IndexDeletionError(index.to_string(), format!("{:?}", e))
+                VectorDbError::IndexWriteError(format!("{:?} {:?}", index.to_string(), e))
             })?;
         if exec_res.rows_affected() == 0 {
-            Err(VectorDbError::IndexDeletionError(
+            Err(VectorDbError::IndexWriteError(format!(
+                "{:?} {:?}",
                 index.to_string(),
                 "No tables affected when deleting".to_string(),
-            ))
+            )))
         } else if exec_res.rows_affected() == 1 {
             Ok(())
         } else {
-            Err(VectorDbError::IndexDeletionError(
+            Err(VectorDbError::IndexWriteError(format!(
+                "{:?}: More than one table affected! {:?}",
                 index.to_string(),
-                format!(
-                    "More than one table affected! {:?}",
-                    exec_res.rows_affected()
-                ),
-            ))
+                exec_res.rows_affected()
+            )))
         }
     }
 
