@@ -37,8 +37,9 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Content::Text).text().not_null())
+                    .col(ColumnDef::new(Content::Payload).text().not_null())
                     .col(ColumnDef::new(Content::ContentType).string().not_null())
+                    .col(ColumnDef::new(Content::PayloadType).string().not_null())
                     .col(ColumnDef::new(Content::Metadata).json_binary())
                     .col(ColumnDef::new(Content::RepositoryId).string().not_null())
                     .col(ColumnDef::new(Content::ExtractorBindingsState).json_binary())
@@ -49,17 +50,25 @@ impl MigrationTrait for Migration {
         let _ = manager
             .create_table(
                 Table::create()
-                    .table(IndexChunks::Table)
+                    .table(ChunkedContent::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(IndexChunks::ChunkId)
+                        ColumnDef::new(ChunkedContent::ChunkId)
                             .string()
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(IndexChunks::ContentId).string().not_null())
-                    .col(ColumnDef::new(IndexChunks::Text).text().not_null())
-                    .col(ColumnDef::new(IndexChunks::IndexName).string().not_null())
+                    .col(
+                        ColumnDef::new(ChunkedContent::ContentId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(ChunkedContent::Text).text().not_null())
+                    .col(
+                        ColumnDef::new(ChunkedContent::IndexName)
+                            .string()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await;
@@ -226,7 +235,7 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(Index::Table).to_owned())
             .await;
         let _ = manager
-            .drop_table(Table::drop().table(IndexChunks::Table).to_owned())
+            .drop_table(Table::drop().table(ChunkedContent::Table).to_owned())
             .await;
         let _ = manager
             .drop_table(Table::drop().table(Content::Table).to_owned())
@@ -264,7 +273,7 @@ enum Index {
 }
 
 #[derive(Iden)]
-enum IndexChunks {
+enum ChunkedContent {
     Table,
     ContentId,
     ChunkId,
@@ -277,7 +286,8 @@ enum Content {
     Table,
     Id,
     ContentType,
-    Text,
+    PayloadType,
+    Payload,
     Metadata,
     RepositoryId,
     ExtractorBindingsState,

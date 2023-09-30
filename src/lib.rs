@@ -1,5 +1,7 @@
 mod api;
 mod attribute_index;
+mod blob_storage;
+mod content_reader;
 mod coordinator;
 mod data_repository_manager;
 mod entity;

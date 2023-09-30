@@ -7,13 +7,16 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    persistence::{self, ExtractorConfig},
+    content_reader::ContentReaderBuilder,
+    persistence::{self, ContentPayload, ExtractorConfig},
     server_config,
 };
 use pyo3::{
     prelude::*,
     types::{PyList, PyString},
 };
+
+const EXTRACT_METHOD: &str = "_extract";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
@@ -22,11 +25,38 @@ pub struct EmbeddingSchema {
 }
 
 #[pyclass]
-struct PyContent {
+#[derive(Clone)]
+pub struct Content {
     #[pyo3(get, set)]
-    id: String,
+    pub id: String,
     #[pyo3(get, set)]
-    data: String,
+    pub content_type: String,
+    #[pyo3(get, set)]
+    pub data: Vec<u8>,
+}
+
+impl Content {
+    pub async fn form_content_payload(
+        content_payload: ContentPayload,
+        content_reader_builder: &ContentReaderBuilder,
+    ) -> Result<Self> {
+        let content_reader = content_reader_builder.build(content_payload.clone());
+        let data = content_reader.read().await?;
+        Ok(Self {
+            id: content_payload.id,
+            content_type: content_payload.content_type.to_string(),
+            data: data,
+        })
+    }
+
+    pub fn new(id: String, data: String) -> Self {
+        let content = Content {
+            id,
+            content_type: "text".to_string(),
+            data: data.into_bytes().to_vec().into(),
+        };
+        content
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -57,7 +87,7 @@ pub trait Extractor {
 
     fn extract_embedding(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error>;
 
@@ -65,7 +95,7 @@ pub trait Extractor {
 
     fn extract_attributes(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<AttributeData>, anyhow::Error>;
 }
@@ -134,28 +164,14 @@ impl Extractor for PythonDriver {
 
     fn extract_embedding(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
             let kwargs = pythonize(py, &input_params)?;
-            let content = content
-                .into_iter()
-                .map(|c| {
-                    Py::new(
-                        py,
-                        PyContent {
-                            id: c.id,
-                            data: c.content,
-                        },
-                    )
-                    .unwrap()
-                })
-                .collect::<Vec<Py<PyContent>>>();
-
             let extracted_data =
                 self.module_object
-                    .call_method1(py, "extract", (content, kwargs))?;
+                    .call_method1(py, EXTRACT_METHOD, (content, kwargs))?;
             let extracted_data: Vec<ExtractedEmbeddings> = extracted_data.extract(py)?;
             Ok(extracted_data)
         })?;
@@ -175,29 +191,14 @@ impl Extractor for PythonDriver {
 
     fn extract_attributes(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<AttributeData>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
-            let content = content.to_vec();
             let kwargs = pythonize(py, &input_params)?;
-            let content = content
-                .into_iter()
-                .map(|c| {
-                    Py::new(
-                        py,
-                        PyContent {
-                            id: c.id,
-                            data: c.content,
-                        },
-                    )
-                    .unwrap()
-                })
-                .collect::<Vec<Py<PyContent>>>();
-
             let extracted_data = self
                 .module_object
-                .call_method1(py, "extract", (content, kwargs))
+                .call_method1(py, EXTRACT_METHOD, (content, kwargs))
                 .unwrap();
 
             #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -231,11 +232,7 @@ impl Extractor for PythonDriver {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use serde_json::json;
-
-    use crate::persistence::Content;
 
     use super::*;
 
@@ -250,12 +247,8 @@ mod tests {
         let json_schema = "{\"properties\":{\"overlap\":{\"default\":0,\"title\":\"Overlap\",\"type\":\"integer\"},\"text_splitter\":{\"default\":\"recursive\",\"enum\":[\"char\",\"recursive\"],\"title\":\"Text Splitter\",\"type\":\"string\"}},\"title\":\"EmbeddingInputParams\",\"type\":\"object\"}";
         assert_eq!(info.input_params.to_string(), json_schema);
 
-        let content1 = Content::new("1".into(), "hello world".to_string(), HashMap::new());
-        let content2 = Content::new(
-            "2".into(),
-            "indexify is awesome".to_string(),
-            HashMap::new(),
-        );
+        let content1 = Content::new("1".into(), "hello world".to_string());
+        let content2 = Content::new("2".into(), "indexify is awesome".to_string());
 
         let content = vec![content1, content2];
         let input_params =
@@ -289,7 +282,6 @@ mod tests {
         let content1 = Content::new(
             "1".into(),
             "My name is Donald and I live in Seattle".to_string(),
-            HashMap::new(),
         );
         let extracted_data = extractor
             .extract_attributes(vec![content1], json!({}))

@@ -1,7 +1,9 @@
 use crate::{
     api::IndexifyAPIError,
     attribute_index::AttributeIndexManager,
-    extractors::{self, ExtractorTS},
+    blob_storage::BlobStorageBuilder,
+    content_reader,
+    extractors::{self, Content, ExtractorTS},
     persistence::{ExtractedAttributes, Work, WorkState},
     persistence::{ExtractorConfig, ExtractorOutputSchema, Repository},
     vector_index::VectorIndexManager,
@@ -59,6 +61,7 @@ pub struct ExtractorExecutor {
     extractor_info_list: Vec<ExtractorConfig>,
     vector_index_manager: Arc<VectorIndexManager>,
     attribute_index_manager: Arc<AttributeIndexManager>,
+    content_reader_builder: content_reader::ContentReaderBuilder,
 
     work_store: WorkStore,
 }
@@ -74,6 +77,10 @@ impl ExtractorExecutor {
             vector_db,
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
+
+        let blob_storage = BlobStorageBuilder::new(config.clone()).build()?;
+        let content_reader_builder =
+            content_reader::ContentReaderBuilder::new(blob_storage.clone());
 
         let available_extractors: DashMap<String, ExtractorTS> = DashMap::new();
         let mut extractor_info_list: Vec<ExtractorConfig> = vec![];
@@ -91,6 +98,7 @@ impl ExtractorExecutor {
             extractor_info_list,
             vector_index_manager,
             attribute_index_manager,
+            content_reader_builder,
             work_store: WorkStore::new(),
         };
         Ok(extractor_executor)
@@ -110,6 +118,10 @@ impl ExtractorExecutor {
             extractor_info_list.push(extractor.info()?);
             available_extractors.insert(extractor_name, extractor);
         }
+        let blob_storage = BlobStorageBuilder::new(config.clone()).build()?;
+        let content_reader_builder =
+            content_reader::ContentReaderBuilder::new(blob_storage.clone());
+
         let executor_id = get_host_name(config.clone()).unwrap();
         Ok(Self {
             repository,
@@ -119,6 +131,7 @@ impl ExtractorExecutor {
             extractor_info_list,
             vector_index_manager,
             attribute_index_manager,
+            content_reader_builder,
             work_store: WorkStore::new(),
         })
     }
@@ -215,6 +228,9 @@ impl ExtractorExecutor {
                 .await
                 .map_err(|e| anyhow!(e.to_string()))?;
 
+            let content =
+                Content::form_content_payload(content.clone(), &self.content_reader_builder)
+                    .await?;
             if let ExtractorOutputSchema::Embedding { .. } = extractor.info()?.output_schema {
                 info!(
                     "extracting embedding - repository: {}, extractor: {}, index: {}, content id: {}",

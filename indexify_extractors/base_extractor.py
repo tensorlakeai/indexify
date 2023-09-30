@@ -27,6 +27,7 @@ class EmbeddingSchema(BaseModel):
 
 class Content(BaseModel):
     id: str
+    content_type: str
     data: Any
 
 
@@ -72,6 +73,22 @@ class ExtractorInfo(BaseModel):
 
 
 class Extractor(ABC):
+    def _extract(self, content, params: dict[str, Any]):
+        content_list = []
+        for c in content:
+            data = c.data
+            if c.content_type == "text":
+                data = bytearray(c.data).decode("ascii")
+
+            content_list.append(
+                Content(
+                    id=c.id,
+                    content_type=c.content_type,
+                    data=data,
+                )
+            )
+        return self.extract(content_list, params)
+
     @abstractmethod
     def extract(
         self, content: List[Content], params: dict[str, Any]

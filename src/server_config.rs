@@ -9,6 +9,24 @@ use std::fs;
 const OPENAI_DUMMY_KEY: &str = "xxxxx";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3Config {
+    pub bucket: String,
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskStorageConfig {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlobStorage {
+    pub backend: String,
+    pub s3: Option<S3Config>,
+    pub disk: Option<DiskStorageConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExtractorDriver {
     #[serde(rename = "builtin")]
     BuiltIn,
@@ -94,6 +112,7 @@ pub struct ServerConfig {
     pub coordinator_addr: String,
     pub executor_config: ExecutorConfig,
     pub extractors: Vec<Extractor>,
+    pub blob_storage: BlobStorage,
 }
 
 impl Default for ServerConfig {
@@ -111,6 +130,13 @@ impl Default for ServerConfig {
                 executor_id: None,
             },
             extractors: vec![Extractor::default()],
+            blob_storage: BlobStorage {
+                backend: "disk".to_string(),
+                s3: None,
+                disk: Some(DiskStorageConfig {
+                    path: "blobs".to_string(),
+                }),
+            },
         }
     }
 }
