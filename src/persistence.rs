@@ -92,16 +92,31 @@ pub enum ContentType {
     #[strum(serialize = "text")]
     #[default]
     Text,
+
+    #[strum(serialize = "pdf")]
+    Pdf,
+}
+
+#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
+pub enum PayloadType {
+    #[strum(serialize = "embedded_storage")]
+    #[default]
+    EmbeddedStorage,
+
+    #[strum(serialize = "blob_storage_link")]
+    BlobStorageLink,
 }
 
 #[derive(Debug, Clone)]
-pub struct Text {
+pub struct ContentPayload {
     pub id: String,
-    pub text: String,
+    pub content_type: ContentType,
+    pub payload: String,
+    pub payload_type: PayloadType,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-impl Text {
+impl ContentPayload {
     pub fn from_text(
         repository: &str,
         text: &str,
@@ -113,8 +128,26 @@ impl Text {
         let id = format!("{:x}", s.finish());
         Self {
             id,
-            text: text.into(),
+            content_type: ContentType::Text,
+            payload: text.into(),
+            payload_type: PayloadType::EmbeddedStorage,
             metadata,
+        }
+    }
+
+    pub fn from_file(repository: &str, name: &str, path: &str) -> Self {
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        name.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        // TODO remove hardcoding of pdf with some thing thats
+        // parameterized.
+        Self {
+            id,
+            content_type: ContentType::Pdf,
+            payload: path.into(),
+            payload_type: PayloadType::BlobStorageLink,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -252,36 +285,6 @@ impl From<entity::attributes_index::Model> for ExtractedAttributes {
             content_id: model.content_id,
             attributes: model.data,
             extractor_name: model.extractor_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Content<T> {
-    pub id: String,
-    pub content: T,
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
-impl<T> Content<T> {
-    pub fn new(id: String, content: T, metadata: HashMap<String, serde_json::Value>) -> Self {
-        Self {
-            id,
-            content,
-            metadata,
-        }
-    }
-}
-
-impl From<entity::content::Model> for Content<String> {
-    fn from(model: entity::content::Model) -> Self {
-        Self {
-            id: model.id,
-            content: model.text,
-            metadata: model
-                .metadata
-                .map(|s| serde_json::from_value(s).unwrap())
-                .unwrap_or_default(),
         }
     }
 }
@@ -573,8 +576,8 @@ impl Repository {
 
     pub async fn add_content(
         &self,
-        repository_name: &str,
-        texts: Vec<Text>,
+        repository: &str,
+        texts: Vec<ContentPayload>,
     ) -> Result<(), RepositoryError> {
         let mut content_list = Vec::new();
         let mut extraction_events = Vec::new();
@@ -582,15 +585,16 @@ impl Repository {
             info!("adding text: {}", &text.id);
             content_list.push(entity::content::ActiveModel {
                 id: Set(text.id.clone()),
-                repository_id: Set(repository_name.into()),
-                text: Set(text.text),
+                repository_id: Set(repository.into()),
+                payload: Set(text.payload),
+                payload_type: Set(PayloadType::EmbeddedStorage.to_string()),
                 metadata: Set(Some(json!(text.metadata))),
                 content_type: Set(ContentType::Text.to_string()),
                 extractor_bindings_state: Set(Some(json!(ExtractorBindingsState::default()))),
             });
             let extraction_event = ExtractionEvent {
                 id: nanoid!(),
-                repository_id: repository_name.into(),
+                repository_id: repository.into(),
                 payload: ExtractionEventPayload::CreateContent {
                     content_id: text.id.clone(),
                 },
@@ -635,14 +639,20 @@ impl Repository {
         &self,
         content_id: &str,
         repo_id: &str,
-    ) -> Result<Content<String>, RepositoryError> {
+    ) -> Result<ContentPayload, RepositoryError> {
         let model = entity::content::Entity::find()
             .filter(entity::content::Column::RepositoryId.eq(repo_id))
             .filter(entity::content::Column::Id.eq(content_id))
             .one(&self.conn)
             .await?
             .ok_or(RepositoryError::ContentNotFound(content_id.to_owned()))?;
-        Ok(model.into())
+        Ok(ContentPayload {
+            id: model.id,
+            content_type: ContentType::from_str(&model.content_type).unwrap(),
+            payload: model.payload,
+            payload_type: PayloadType::from_str(&model.payload_type).unwrap(),
+            metadata: serde_json::from_value(model.metadata.unwrap()).unwrap(),
+        })
     }
 
     pub async fn content_with_unapplied_extractor(
@@ -746,18 +756,18 @@ impl Repository {
         chunks: Vec<Chunk>,
         index_name: &str,
     ) -> Result<(), RepositoryError> {
-        let chunk_models: Vec<entity::index_chunks::ActiveModel> = chunks
+        let chunk_models: Vec<entity::chunked_content::ActiveModel> = chunks
             .iter()
-            .map(|chunk| entity::index_chunks::ActiveModel {
+            .map(|chunk| entity::chunked_content::ActiveModel {
                 chunk_id: Set(chunk.chunk_id.clone()),
                 content_id: Set(chunk.content_id.clone()),
                 text: Set(chunk.text.clone()),
                 index_name: Set(index_name.into()),
             })
             .collect();
-        let result = entity::index_chunks::Entity::insert_many(chunk_models)
+        let result = entity::chunked_content::Entity::insert_many(chunk_models)
             .on_conflict(
-                OnConflict::column(entity::index_chunks::Column::ChunkId)
+                OnConflict::column(entity::chunked_content::Column::ChunkId)
                     .do_nothing()
                     .to_owned(),
             )
@@ -772,8 +782,8 @@ impl Repository {
     }
 
     pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata, RepositoryError> {
-        let chunk = entity::index_chunks::Entity::find()
-            .filter(entity::index_chunks::Column::ChunkId.eq(id))
+        let chunk = entity::chunked_content::Entity::find()
+            .filter(entity::chunked_content::Column::ChunkId.eq(id))
             .one(&self.conn)
             .await?
             .ok_or(RepositoryError::ChunkNotFound(id.to_string()))?;
@@ -1140,12 +1150,12 @@ mod tests {
             .add_content(
                 &repo.name,
                 vec![
-                    Text::from_text(
+                    ContentPayload::from_text(
                         "test",
                         "hello",
                         HashMap::from([("topic".to_string(), json!("pipe"))]),
                     ),
-                    Text::from_text(
+                    ContentPayload::from_text(
                         "test",
                         "world",
                         HashMap::from([("topic".to_string(), json!("baz"))]),

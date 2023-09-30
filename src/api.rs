@@ -16,12 +16,17 @@ pub enum ExtractorContentType {
     #[serde(rename = "text")]
     #[default]
     Text,
+
+    #[strum(serialize = "pdf")]
+    #[serde(rename = "pdf")]
+    Pdf,
 }
 
 impl From<persistence::ContentType> for ExtractorContentType {
     fn from(value: persistence::ContentType) -> Self {
         match value {
             persistence::ContentType::Text => ExtractorContentType::Text,
+            persistence::ContentType::Pdf => ExtractorContentType::Pdf,
         }
     }
 }
@@ -30,6 +35,7 @@ impl From<ExtractorContentType> for persistence::ContentType {
     fn from(val: ExtractorContentType) -> Self {
         match val {
             ExtractorContentType::Text => persistence::ContentType::Text,
+            ExtractorContentType::Pdf => persistence::ContentType::Pdf,
         }
     }
 }
@@ -421,6 +427,7 @@ pub struct ListEventsResponse {
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct DocumentFragment {
+    pub content_id: String,
     pub text: String,
     pub confidence_score: f32,
     pub metadata: HashMap<String, serde_json::Value>,

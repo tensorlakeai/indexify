@@ -11,7 +11,7 @@ members = [".", "migration"]
 anyhow = {version="^1"}
 async-openai = "*"
 async-trait = "*"
-axum = {version="^0"}
+axum = {version="^0", features = ["multipart"]}
 axum-macros = {version = "0.3.7"}
 clap = {version="^4", features=["derive"]}
 figment = {version="0.10.8", features=["yaml", "env"]}
@@ -46,6 +46,8 @@ reqwest = {version="^0"}
 hostname = {version="^0"}
 pythonize = "0.19.0"
 unescape = "0.1.0"
+object_store = "0.7.0"
+bytes = "1.5.0"
 
 [dev-dependencies]
 migration = {path ="./migration"}
