@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::info;
 
 use super::BlobStorage;
 

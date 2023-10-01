@@ -35,6 +35,7 @@ REQUIRED = [
     "pydantic",
     "transformers",
     "span_marker",
+    "pypdf",
 ]
 
 # What packages are optional?
