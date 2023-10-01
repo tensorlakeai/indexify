@@ -18,7 +18,7 @@ class TestMiniLML6Extractor(unittest.TestCase):
         [("minilm6", MiniLML6Extractor()), ("flag-embedding", FlagEmbedding())]
     )
     def test_ctx_embeddings(self, extractor_name: str, extractor: Type[Extractor]):
-        embeddings = extractor.extract([Content(id="1", data="hello world")], {})
+        embeddings = extractor.extract([Content(id="1", content_type="text", data="hello world")], {})
         self.assertEqual(len(embeddings), 1)
         self.assertEqual(len(embeddings[0].embeddings), 384)
 

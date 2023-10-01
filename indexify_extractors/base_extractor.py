@@ -12,7 +12,7 @@ class Embeddings(BaseModel):
     content_id: str
     text: str
     embeddings: List[float]
-
+    metadata: Json
 
 class Attributes(BaseModel):
     content_id: str
@@ -48,7 +48,7 @@ class ExtractorInfo(BaseModel):
         return {
             "name": self.name,
             "description": self.description,
-            "input_params": self.input_params.model_json_schema(),
+            "input_params": self.input_params.model_json_schema() if self.input_params else {},
             "output_schema": {output_schema_type: output_schema},
         }
 
@@ -76,9 +76,9 @@ class Extractor(ABC):
     def _extract(self, content, params: dict[str, Any]):
         content_list = []
         for c in content:
-            data = c.data
+            data = bytearray(c.data)
             if c.content_type == "text":
-                data = bytearray(c.data).decode("ascii")
+                data = data.decode("ascii")
 
             content_list.append(
                 Content(
