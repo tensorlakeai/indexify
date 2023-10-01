@@ -57,6 +57,14 @@ impl Content {
         };
         content
     }
+
+    pub fn from_bytes(id: String, data: Vec<u8>, content_type: &str) -> Self {
+        Content {
+            id,
+            content_type: content_type.to_string(),
+            data: data.into(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -287,5 +295,23 @@ mod tests {
             .extract_attributes(vec![content1], json!({}))
             .unwrap();
         assert_eq!(extracted_data.len(), 2);
+    }
+
+    #[test]
+    fn extract_from_blob() {
+        let extractor =
+            PythonDriver::new("indexify_extractors.pdf_embedder.PDFEmbedder".into()).unwrap();
+
+        let info = extractor.info().unwrap();
+        assert_eq!(info.name, "PDFEmbedder");
+
+        let data = std::fs::read("extractors_tests/data/test.pdf").unwrap();
+        let content = Content::from_bytes("1".into(), data, "pdf");
+        let extracted_data = extractor
+            .extract_embedding(vec![content], json!({}))
+            .unwrap();
+
+        assert_eq!(extracted_data.len(), 28);
+        assert_eq!(extracted_data[0].embeddings.len(), 384);
     }
 }

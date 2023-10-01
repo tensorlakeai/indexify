@@ -577,26 +577,26 @@ impl Repository {
     pub async fn add_content(
         &self,
         repository: &str,
-        texts: Vec<ContentPayload>,
+        content_payloads: Vec<ContentPayload>,
     ) -> Result<(), RepositoryError> {
         let mut content_list = Vec::new();
         let mut extraction_events = Vec::new();
-        for text in texts {
-            info!("adding text: {}", &text.id);
+        for content_payload in content_payloads {
+            info!("adding text: {}", &content_payload.id);
             content_list.push(entity::content::ActiveModel {
-                id: Set(text.id.clone()),
+                id: Set(content_payload.id.clone()),
                 repository_id: Set(repository.into()),
-                payload: Set(text.payload),
-                payload_type: Set(PayloadType::EmbeddedStorage.to_string()),
-                metadata: Set(Some(json!(text.metadata))),
-                content_type: Set(ContentType::Text.to_string()),
+                payload: Set(content_payload.payload),
+                payload_type: Set(content_payload.payload_type.to_string()),
+                metadata: Set(Some(json!(content_payload.metadata))),
+                content_type: Set(content_payload.content_type.to_string()),
                 extractor_bindings_state: Set(Some(json!(ExtractorBindingsState::default()))),
             });
             let extraction_event = ExtractionEvent {
                 id: nanoid!(),
                 repository_id: repository.into(),
                 payload: ExtractionEventPayload::CreateContent {
-                    content_id: text.id.clone(),
+                    content_id: content_payload.id.clone(),
                 },
             };
             extraction_events.push(entity::extraction_event::ActiveModel {
