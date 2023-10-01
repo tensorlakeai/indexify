@@ -1,12 +1,13 @@
 from abc import abstractmethod
 from dataclasses import dataclass
+import json 
 from typing import Any, Callable, List, Literal
 
 # alias to avoid name conflict with FlagEmbedding class below
 from fastembed.embedding import FlagEmbedding as FastFlagEmbedding
 from pydantic import BaseModel
 
-import langchain
+from langchain import text_splitter
 
 from .base_extractor import (
     Content,
@@ -31,26 +32,26 @@ class BaseEmbeddingExtractor(Extractor):
         self, content_list: List[Content], params: dict[str, Any]
     ) -> List[Embeddings]:
         input_params: EmbeddingInputParams = EmbeddingInputParams.model_validate(params)
-        text_splitter: Any[[str], List[str]] = self._create_splitter(
+        splitter: Callable[[str], List[str]] = self._create_splitter(
             input_params.text_splitter
         )
         extracted_embeddings = []
         for content in content_list:
-            chunks: List[str] = text_splitter(content.data)
+            chunks: List[str] = splitter(content.data)
             embeddings_list = self.extract_embeddings(chunks)
             for chunk, embeddings in zip(chunks, embeddings_list):
                 extracted_embeddings.append(
-                    Embeddings(content_id=content.id, text=chunk, embeddings=embeddings)
+                    Embeddings(content_id=content.id, text=chunk, embeddings=embeddings, metadata=json.dumps({}))
                 )
         return extracted_embeddings
 
-    def _create_splitter(self, text_splitter: str) -> Callable[[str], List[str]]:
-        if text_splitter == "recursive":
-            return langchain.text_splitter.RecursiveCharacterTextSplitter(
+    def _create_splitter(self, text_splitter_name: str) -> Callable[[str], List[str]]:
+        if text_splitter_name == "recursive":
+            return text_splitter.RecursiveCharacterTextSplitter(
                 chunk_size=self._model_context_length
             ).split_text
-        elif text_splitter == "char":
-            return langchain.text_splitter.CharacterTextSplitter(
+        elif text_splitter_name == "char":
+            return text_splitter.CharacterTextSplitter(
                 chunk_size=self._model_context_length, separator="\n\n"
             ).split_text
 
@@ -88,7 +89,7 @@ class FlagEmbedding(BaseEmbeddingExtractor):
 
 class MiniLML6Extractor(BaseEmbeddingExtractor):
     def __init__(self):
-        super(MiniLML6Extractor, self).__init__(max_context_length=384)
+        super(MiniLML6Extractor, self).__init__(max_context_length=128)
         self._model = SentenceTransformersEmbedding(model_name="all-MiniLM-L6-v2")
 
     def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
