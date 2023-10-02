@@ -17,12 +17,32 @@
 	},
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [
-		8900,
-		6333,
-		5432,
-		5433,
-		18306
-	]
+		8900
+	],
+	// "mounts": [
+	// 	{
+	// 		"source": "devcontainer-cargo-cache-${devcontainerId}",
+	// 		"target": "/usr/local/cargo",
+	// 		"type": "volume"
+	// 	}
+	// ],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml", // for Cargo.toml
+				"eamodio.gitlens", // IDE Git information
+				"davidanson.vscode-markdownlint",
+				"ms-azuretools.vscode-docker", // Docker integration and linting
+				"shardulm94.trailing-spaces", // Show trailing spaces
+				"Gruntfuggly.todo-tree", // Highlights TODO comments
+				"bierner.emojisense", // Emoji sense for markdown
+				"stkb.rewrap", // rewrap comments after n characters on one line
+				"vscode-icons-team.vscode-icons", // Better file extension icons
+				"IBM.output-colorizer" // Colorize your output/test logs
+			]
+		}
+	}
 	// Uncomment the next line to run commands after the container is created.
 	// "postCreateCommand": "cat /etc/os-release",
 	// Configure tool-specific properties.
