@@ -25,7 +25,7 @@ impl PgEmbedding {
 }
 
 /// Acts as a salt, to make sure there are no collisions with other tables
-const INDEX_TABLE_PREFIX: &'static str = "index_";
+const INDEX_TABLE_PREFIX: &str = "index_";
 
 #[async_trait]
 impl VectorDb for PgEmbedding {
@@ -45,10 +45,13 @@ impl VectorDb for PgEmbedding {
             crate::vectordbs::IndexDistance::Dot => "ann_manhattan_ops",
         };
 
-        let query = format!(r#"CREATE EXTENSION IF NOT EXISTS EMBEDDING;"#);
+        let query = r#"CREATE EXTENSION IF NOT EXISTS EMBEDDING;"#;
         let exec_res: ExecResult = self
             .db_conn
-            .execute(Statement::from_string(DbBackend::Postgres, query))
+            .execute(Statement::from_string(
+                DbBackend::Postgres,
+                query.to_string(),
+            ))
             .await
             .map_err(|e| {
                 VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
@@ -102,13 +105,14 @@ impl VectorDb for PgEmbedding {
                 exec_res.rows_affected()
             )));
         };
-        let query = format!(
-            r#"SET enable_seqscan = off;"#,
-            // The "enable seqscan = off" should not be set for the whole server. Will need to put this out
-        );
+        let query = r#"SET enable_seqscan = off;"#;
+        // The "enable seqscan = off" should not be set for the whole server. Will need to put this out
         let exec_res: ExecResult = self
             .db_conn
-            .execute(Statement::from_string(DbBackend::Postgres, query))
+            .execute(Statement::from_string(
+                DbBackend::Postgres,
+                query.to_string(),
+            ))
             .await
             .map_err(|e| {
                 VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
@@ -122,19 +126,17 @@ impl VectorDb for PgEmbedding {
             )));
         };
         // Make a SELECT to make sure that the table exists (i.e. there was no insertion error)
-        let query = format!(
-            r#"
+        let query = r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM information_schema.tables
                     WHERE table_name = $1
                 ) AS table_existence;
-            "#
-        );
+            "#;
         warn!("Running query: {:?}", query);
         let response: JsonValue = JsonValue::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            query.as_str(),
+            query,
             [sea_orm::Value::String(Some(Box::new(format!(
                 "{INDEX_TABLE_PREFIX}{index_name}"
             ))))],
@@ -312,7 +314,7 @@ impl VectorDb for PgEmbedding {
 
     async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
         let index = Self::escape_to_valid_indexname(index.to_string());
-        let query = format!("SELECT COUNT(*) FROM TABLE {INDEX_TABLE_PREFIX}{index};");
+        let query = format!("SELECT COUNT(*) FROM {INDEX_TABLE_PREFIX}{index};");
         let response: JsonValue =
             JsonValue::find_by_statement(Statement::from_string(DbBackend::Postgres, query))
                 .one(&self.db_conn)
@@ -323,12 +325,23 @@ impl VectorDb for PgEmbedding {
                 .ok_or(VectorDbError::IndexReadError(
                     "num_vectors did not run successfully".to_string(),
                 ))?;
+        warn!("Response is: {:?}", response);
         match response {
-            Value::Number(n) => n.as_u64().ok_or(VectorDbError::IndexReadError(
-                "COUNT(*) did not return a positive integer".to_string(),
-            )),
+            Value::Object(mut x) => {
+                let x = x.remove("count").ok_or(VectorDbError::IndexReadError(
+                    "SELECT COUNT(*) did not return a dictionary with key 'count'".to_string(),
+                ))?;
+                match x {
+                    Value::Number(n) => n.as_u64().ok_or(VectorDbError::IndexReadError(
+                        "COUNT(*) did not return a positive integer".to_string(),
+                    )),
+                    _ => Err(VectorDbError::IndexReadError(
+                        "COUNT(*) did not return Number".to_string(),
+                    )),
+                }
+            }
             _ => Err(VectorDbError::IndexReadError(
-                "COUNT(*) did not return Number".to_string(),
+                "SELECT COUNT(*) did not an object".to_string(),
             )),
         }
     }
