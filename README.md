@@ -26,5 +26,7 @@ Our comprehensive documentation is available - https://getindexify.ai
 ## Contributions
 Please open an issue to discuss new features, or join our Discord group. Contributions are welcome, there are a bunch of open tasks we could use help with! 
 
+If you want to contribute on the Rust codebase, please read the [developer readme](docs/docs/develop.md).
+
 ## Contact 
 Join the Discord Server - https://discord.gg/mrXrq3DmV8 <br />
