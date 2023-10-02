@@ -57,11 +57,11 @@ index_config:
     addr: "http://127.0.0.1:6334"
 
 # The pg_embedding_config parameter specifies the configuration for the Postgres pg_embedding extension
-# index_config:
-#   index_store: pg_embedding
-#   pg_embedding_config:
-#      addr: postgres://postgres:postgres@localhost/indexify
-#      m: 3
-#      efconstruction: 5
-#      efsearch: 5
+index_config:
+  index_store: pg_embedding
+  pg_embedding_config:
+     addr: postgres://postgres:postgres@localhost/indexify
+     m: 3
+     efconstruction: 5
+     efsearch: 5
 
