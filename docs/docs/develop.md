@@ -17,9 +17,9 @@ Install the  extractors
 ```shell
 pip install .
 ```
-If you are working on the Python SDK then install the SDK as well 
+If you are working on the Python SDK then install the SDK as well
 ```shell
-(cd sdk-py && pip install .)
+(cd sdk-py && pip install -e .)
 ```
 
 ### MAC OS
