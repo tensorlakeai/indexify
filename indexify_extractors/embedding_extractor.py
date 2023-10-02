@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-import json 
+import json
 from typing import Any, Callable, List, Literal
 
 # alias to avoid name conflict with FlagEmbedding class below
@@ -41,14 +41,21 @@ class BaseEmbeddingExtractor(Extractor):
             embeddings_list = self.extract_embeddings(chunks)
             for chunk, embeddings in zip(chunks, embeddings_list):
                 extracted_embeddings.append(
-                    Embeddings(content_id=content.id, text=chunk, embeddings=embeddings, metadata=json.dumps({}))
+                    Embeddings(
+                        content_id=content.id,
+                        text=chunk,
+                        embeddings=embeddings,
+                        metadata=json.dumps({}),
+                    )
                 )
         return extracted_embeddings
 
     def _create_splitter(self, text_splitter_name: str) -> Callable[[str], List[str]]:
+        # TODO Make chunk overlap parameterized
         if text_splitter_name == "recursive":
             return text_splitter.RecursiveCharacterTextSplitter(
-                chunk_size=self._model_context_length
+                chunk_size=self._model_context_length,
+                chunk_overlap=self._model_context_length,
             ).split_text
         elif text_splitter_name == "char":
             return text_splitter.CharacterTextSplitter(
