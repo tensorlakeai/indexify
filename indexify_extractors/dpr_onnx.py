@@ -21,6 +21,7 @@ def mean_pooling(model_output, attention_mask):
     sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
     return sum_embeddings / sum_mask
 
+
 class SentenceEmbeddingPipeline(Pipeline):
     def _sanitize_parameters(self, **kwargs):
         # we don't have any hyperameters to sanitize
@@ -47,19 +48,26 @@ class SentenceEmbeddingPipeline(Pipeline):
         return sentence_embeddings.squeeze().tolist()
 
 
-
 class OnnxDPR:
     def __init__(
         self,
         ctx_model: str = "sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
         ques_model: str = "sentence-transformers/facebook-dpr-question_encoder-multiset-base",
     ):
-        self._ctx_model = ORTModelForFeatureExtraction.from_pretrained(ctx_model, export=True)
-        self._ques_model = ORTModelForFeatureExtraction.from_pretrained(ques_model, export=True)
+        self._ctx_model = ORTModelForFeatureExtraction.from_pretrained(
+            ctx_model, export=True
+        )
+        self._ques_model = ORTModelForFeatureExtraction.from_pretrained(
+            ques_model, export=True
+        )
         self._tokenizer_ctx_model = AutoTokenizer.from_pretrained(ctx_model)
         self._tokenizer_ques_model = AutoTokenizer.from_pretrained(ques_model)
-        self._ctx_pipeline = SentenceEmbeddingPipeline(self._ctx_model, self._tokenizer_ctx_model)
-        self._ques_pipeline = SentenceEmbeddingPipeline(self._ques_model, self._tokenizer_ques_model)
+        self._ctx_pipeline = SentenceEmbeddingPipeline(
+            self._ctx_model, self._tokenizer_ctx_model
+        )
+        self._ques_pipeline = SentenceEmbeddingPipeline(
+            self._ques_model, self._tokenizer_ques_model
+        )
 
     def generate_embeddings_ctx(self, inputs: List[str]):
         embeddings = self._ctx_pipeline(inputs)
@@ -68,7 +76,6 @@ class OnnxDPR:
     def generate_embeddings_query(self, query: str):
         embeddings = self._ques_pipeline(query)
         return embeddings
-    
 
 
 ## TODO Move this to proper unit tests later
@@ -76,5 +83,3 @@ if __name__ == "__main__":
     dpr = OnnxDPR()
     print(dpr.generate_embeddings_ctx(["What is the capital of England?"]))
     print(dpr.generate_embeddings_query("What is the capital of England?"))
-
-

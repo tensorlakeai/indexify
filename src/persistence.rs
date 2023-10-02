@@ -27,9 +27,14 @@ use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
 use crate::entity::{index, work};
-use crate::vectordbs::{self, CreateIndexParams};
+use crate::vectordbs::{self};
 use crate::{entity, vectordbs::IndexDistance};
 use entity::work::Entity as WorkEntity;
+
+pub struct Index {
+    pub name: String,
+    pub schema: ExtractorOutputSchema,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
@@ -87,16 +92,31 @@ pub enum ContentType {
     #[strum(serialize = "text")]
     #[default]
     Text,
+
+    #[strum(serialize = "pdf")]
+    Pdf,
+}
+
+#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
+pub enum PayloadType {
+    #[strum(serialize = "embedded_storage")]
+    #[default]
+    EmbeddedStorage,
+
+    #[strum(serialize = "blob_storage_link")]
+    BlobStorageLink,
 }
 
 #[derive(Debug, Clone)]
-pub struct Text {
+pub struct ContentPayload {
     pub id: String,
-    pub text: String,
+    pub content_type: ContentType,
+    pub payload: String,
+    pub payload_type: PayloadType,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-impl Text {
+impl ContentPayload {
     pub fn from_text(
         repository: &str,
         text: &str,
@@ -108,20 +128,38 @@ impl Text {
         let id = format!("{:x}", s.finish());
         Self {
             id,
-            text: text.into(),
+            content_type: ContentType::Text,
+            payload: text.into(),
+            payload_type: PayloadType::EmbeddedStorage,
             metadata,
+        }
+    }
+
+    pub fn from_file(repository: &str, name: &str, path: &str) -> Self {
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        name.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        // TODO remove hardcoding of pdf with some thing thats
+        // parameterized.
+        Self {
+            id,
+            content_type: ContentType::Pdf,
+            payload: path.into(),
+            payload_type: PayloadType::BlobStorageLink,
+            metadata: HashMap::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Display)]
 #[serde(rename = "extractor_type")]
-pub enum ExtractorType {
+pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
     Embedding { dim: usize, distance: IndexDistance },
 
     #[serde(rename = "attributes")]
-    Attributes { schema: String },
+    Attributes(serde_json::Value),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
@@ -142,32 +180,19 @@ pub enum ExtractorFilter {
 pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
-    pub extractor_type: ExtractorType,
     pub input_params: serde_json::Value,
-}
-
-impl Default for ExtractorConfig {
-    fn default() -> Self {
-        Self {
-            name: "default-embedder".to_string(),
-            description: "Default Text Embedding Extractor".into(),
-            extractor_type: ExtractorType::Embedding {
-                dim: 384,
-                distance: IndexDistance::Cosine,
-            },
-            input_params: serde_json::json!({}),
-        }
-    }
+    pub output_schema: ExtractorOutputSchema,
 }
 
 impl From<extractors::Model> for ExtractorConfig {
     fn from(model: extractors::Model) -> Self {
-        let extractor_type = serde_json::from_value(model.extractor_type).unwrap();
+        // TODO remove unwrap()
+        let output_schema = serde_json::from_value(model.output_schema).unwrap();
         Self {
             name: model.id,
             description: model.description,
-            extractor_type,
             input_params: model.input_params,
+            output_schema,
         }
     }
 }
@@ -260,36 +285,6 @@ impl From<entity::attributes_index::Model> for ExtractedAttributes {
             content_id: model.content_id,
             attributes: model.data,
             extractor_name: model.extractor_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Content<T> {
-    pub id: String,
-    pub content: T,
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
-impl<T> Content<T> {
-    pub fn new(id: String, content: T, metadata: HashMap<String, serde_json::Value>) -> Self {
-        Self {
-            id,
-            content,
-            metadata,
-        }
-    }
-}
-
-impl From<entity::content::Model> for Content<String> {
-    fn from(model: entity::content::Model) -> Self {
-        Self {
-            id: model.id,
-            content: model.text,
-            metadata: model
-                .metadata
-                .map(|s| serde_json::from_value(s).unwrap())
-                .unwrap_or_default(),
         }
     }
 }
@@ -470,47 +465,53 @@ impl Repository {
         Self { conn: db }
     }
 
-    pub async fn create_vector_index(
+    pub async fn create_index_metadata(
         &self,
-        repository_name: &str,
+        repository: &str,
         extractor_name: &str,
         index_name: &str,
-        index_params: CreateIndexParams,
-        vectordb: vectordbs::VectorDBTS,
+        storage_index_name: &str,
+        index_schema: serde_json::Value,
+        index_type: &str,
     ) -> Result<(), RepositoryError> {
         let index = entity::index::ActiveModel {
             name: Set(index_name.into()),
-            vector_index_name: Set(Some(index_params.clone().vectordb_index_name)),
+            vector_index_name: Set(Some(storage_index_name.into())),
             extractor_name: Set(extractor_name.into()),
-            index_type: Set("embedding".to_string()),
-            repository_id: Set(repository_name.into()),
+            index_type: Set(index_type.into()),
+            index_schema: Set(index_schema),
+            repository_id: Set(repository.into()),
         };
-
-        self.conn
-            .transaction::<_, (), RepositoryError>(|txn| {
-                Box::pin(async move {
-                    let insert_result = IndexEntity::insert(index)
-                        .on_conflict(
-                            OnConflict::column(entity::index::Column::Name)
-                                .do_nothing()
-                                .to_owned(),
-                        )
-                        .exec(txn)
-                        .await;
-                    if let Err(err) = insert_result {
-                        if err != DbErr::RecordNotInserted {
-                            return Err(RepositoryError::DatabaseError(err));
-                        }
-                    }
-                    if let Err(err) = vectordb.create_index(index_params.clone()).await {
-                        return Err(RepositoryError::VectorDb(err));
-                    }
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+        let insert_result = IndexEntity::insert(index)
+            .on_conflict(
+                OnConflict::column(entity::index::Column::Name)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&self.conn)
+            .await;
+        if let Err(err) = insert_result {
+            if err != DbErr::RecordNotInserted {
+                return Err(RepositoryError::DatabaseError(err));
+            }
+        }
         Ok(())
+    }
+
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>, RepositoryError> {
+        let index_models = IndexEntity::find()
+            .filter(index::Column::RepositoryId.eq(repository))
+            .all(&self.conn)
+            .await
+            .map_err(RepositoryError::DatabaseError)?;
+        let indexes: Vec<Index> = index_models
+            .into_iter()
+            .map(|i| Index {
+                name: i.name,
+                schema: serde_json::from_value(i.index_schema).unwrap(),
+            })
+            .collect();
+        Ok(indexes)
     }
 
     pub async fn get_index(
@@ -575,26 +576,27 @@ impl Repository {
 
     pub async fn add_content(
         &self,
-        repository_name: &str,
-        texts: Vec<Text>,
+        repository: &str,
+        content_payloads: Vec<ContentPayload>,
     ) -> Result<(), RepositoryError> {
         let mut content_list = Vec::new();
         let mut extraction_events = Vec::new();
-        for text in texts {
-            info!("adding text: {}", &text.id);
+        for content_payload in content_payloads {
+            info!("adding text: {}", &content_payload.id);
             content_list.push(entity::content::ActiveModel {
-                id: Set(text.id.clone()),
-                repository_id: Set(repository_name.into()),
-                text: Set(text.text),
-                metadata: Set(Some(json!(text.metadata))),
-                content_type: Set(ContentType::Text.to_string()),
+                id: Set(content_payload.id.clone()),
+                repository_id: Set(repository.into()),
+                payload: Set(content_payload.payload),
+                payload_type: Set(content_payload.payload_type.to_string()),
+                metadata: Set(Some(json!(content_payload.metadata))),
+                content_type: Set(content_payload.content_type.to_string()),
                 extractor_bindings_state: Set(Some(json!(ExtractorBindingsState::default()))),
             });
             let extraction_event = ExtractionEvent {
                 id: nanoid!(),
-                repository_id: repository_name.into(),
+                repository_id: repository.into(),
                 payload: ExtractionEventPayload::CreateContent {
-                    content_id: text.id.clone(),
+                    content_id: content_payload.id.clone(),
                 },
             };
             extraction_events.push(entity::extraction_event::ActiveModel {
@@ -637,14 +639,20 @@ impl Repository {
         &self,
         content_id: &str,
         repo_id: &str,
-    ) -> Result<Content<String>, RepositoryError> {
+    ) -> Result<ContentPayload, RepositoryError> {
         let model = entity::content::Entity::find()
             .filter(entity::content::Column::RepositoryId.eq(repo_id))
             .filter(entity::content::Column::Id.eq(content_id))
             .one(&self.conn)
             .await?
             .ok_or(RepositoryError::ContentNotFound(content_id.to_owned()))?;
-        Ok(model.into())
+        Ok(ContentPayload {
+            id: model.id,
+            content_type: ContentType::from_str(&model.content_type).unwrap(),
+            payload: model.payload,
+            payload_type: PayloadType::from_str(&model.payload_type).unwrap(),
+            metadata: serde_json::from_value(model.metadata.unwrap()).unwrap(),
+        })
     }
 
     pub async fn content_with_unapplied_extractor(
@@ -748,18 +756,18 @@ impl Repository {
         chunks: Vec<Chunk>,
         index_name: &str,
     ) -> Result<(), RepositoryError> {
-        let chunk_models: Vec<entity::index_chunks::ActiveModel> = chunks
+        let chunk_models: Vec<entity::chunked_content::ActiveModel> = chunks
             .iter()
-            .map(|chunk| entity::index_chunks::ActiveModel {
+            .map(|chunk| entity::chunked_content::ActiveModel {
                 chunk_id: Set(chunk.chunk_id.clone()),
                 content_id: Set(chunk.content_id.clone()),
                 text: Set(chunk.text.clone()),
                 index_name: Set(index_name.into()),
             })
             .collect();
-        let result = entity::index_chunks::Entity::insert_many(chunk_models)
+        let result = entity::chunked_content::Entity::insert_many(chunk_models)
             .on_conflict(
-                OnConflict::column(entity::index_chunks::Column::ChunkId)
+                OnConflict::column(entity::chunked_content::Column::ChunkId)
                     .do_nothing()
                     .to_owned(),
             )
@@ -774,8 +782,8 @@ impl Repository {
     }
 
     pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata, RepositoryError> {
-        let chunk = entity::index_chunks::Entity::find()
-            .filter(entity::index_chunks::Column::ChunkId.eq(id))
+        let chunk = entity::chunked_content::Entity::find()
+            .filter(entity::chunked_content::Column::ChunkId.eq(id))
             .one(&self.conn)
             .await?
             .ok_or(RepositoryError::ChunkNotFound(id.to_string()))?;
@@ -843,7 +851,7 @@ impl Repository {
                         )
                         .exec(txn)
                         .await?;
-                    if extractor_event_models.len() > 0 {
+                    if !extractor_event_models.is_empty() {
                         // TODO Figure out why this doesn't throw an exception when the query fails
                         let _ = ExtractionEventEntity::insert_many(extractor_event_models)
                             .exec(txn)
@@ -888,12 +896,7 @@ impl Repository {
         }
         let extractor_model =
             extractor_model?.ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
-        Ok(ExtractorConfig {
-            name: extractor_model.id,
-            description: extractor_model.description,
-            extractor_type: serde_json::from_value(extractor_model.extractor_type).unwrap(),
-            input_params: extractor_model.input_params,
-        })
+        Ok(extractor_model.into())
     }
 
     pub async fn add_attributes(
@@ -956,8 +959,8 @@ impl Repository {
             extractor_models.push(entity::extractors::ActiveModel {
                 id: Set(extractor.name),
                 description: Set(extractor.description),
-                extractor_type: Set(json!(extractor.extractor_type)),
                 input_params: Set(extractor.input_params),
+                output_schema: Set(json!(extractor.output_schema)),
             });
         }
         let res = entity::extractors::Entity::insert_many(extractor_models)
@@ -1100,11 +1103,12 @@ mod tests {
     async fn test_extractors_for_repository() {
         let extractor1 = ExtractorConfig {
             name: "extractor1".into(),
-            extractor_type: ExtractorType::Embedding {
-                dim: 2,
+            description: "extractor1".into(),
+            input_params: json!({}),
+            output_schema: ExtractorOutputSchema::Embedding {
+                dim: 1,
                 distance: IndexDistance::Cosine,
             },
-            ..Default::default()
         };
         let extractor_binding1 = ExtractorBinding::new(
             "repository",
@@ -1146,12 +1150,12 @@ mod tests {
             .add_content(
                 &repo.name,
                 vec![
-                    Text::from_text(
+                    ContentPayload::from_text(
                         "test",
                         "hello",
                         HashMap::from([("topic".to_string(), json!("pipe"))]),
                     ),
-                    Text::from_text(
+                    ContentPayload::from_text(
                         "test",
                         "world",
                         HashMap::from([("topic".to_string(), json!("baz"))]),

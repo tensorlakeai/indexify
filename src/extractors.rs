@@ -3,18 +3,20 @@ use anyhow::{anyhow, Ok, Result};
 use pythonize::pythonize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    persistence::{self, ExtractorConfig, ExtractorType},
+    content_reader::ContentReaderBuilder,
+    persistence::{self, ContentPayload, ExtractorConfig},
     server_config,
-    vectordbs::IndexDistance,
 };
 use pyo3::{
     prelude::*,
     types::{PyList, PyString},
 };
+
+const EXTRACT_METHOD: &str = "_extract";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
@@ -23,11 +25,46 @@ pub struct EmbeddingSchema {
 }
 
 #[pyclass]
-struct PyContent {
+#[derive(Clone)]
+pub struct Content {
     #[pyo3(get, set)]
-    id: String,
+    pub id: String,
     #[pyo3(get, set)]
-    data: String,
+    pub content_type: String,
+    #[pyo3(get, set)]
+    pub data: Vec<u8>,
+}
+
+impl Content {
+    pub async fn form_content_payload(
+        content_payload: ContentPayload,
+        content_reader_builder: &ContentReaderBuilder,
+    ) -> Result<Self> {
+        let content_reader = content_reader_builder.build(content_payload.clone());
+        let data = content_reader.read().await?;
+        Ok(Self {
+            id: content_payload.id,
+            content_type: content_payload.content_type.to_string(),
+            data: data,
+        })
+    }
+
+    pub fn new(id: String, data: String) -> Self {
+        let content = Content {
+            id,
+            content_type: "text".to_string(),
+            data: data.into_bytes().to_vec().into(),
+        };
+        content
+    }
+
+    pub fn from_bytes(id: String, data: Vec<u8>, content_type: &str) -> Self {
+        Content {
+            id,
+            content_type: content_type.to_string(),
+            data: data.into(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -40,6 +77,7 @@ pub struct ExtractedEmbeddings {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct AttributeData {
     pub content_id: String,
+    pub text: String,
     pub json: Option<serde_json::Value>,
 }
 
@@ -57,7 +95,7 @@ pub trait Extractor {
 
     fn extract_embedding(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error>;
 
@@ -65,7 +103,7 @@ pub trait Extractor {
 
     fn extract_attributes(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<AttributeData>, anyhow::Error>;
 }
@@ -124,33 +162,9 @@ impl PythonDriver {
 impl Extractor for PythonDriver {
     fn info(&self) -> Result<ExtractorConfig, anyhow::Error> {
         let info = Python::with_gil(|py| {
-            let info = self.module_object.call_method0(py, "info")?;
-            let extractor_info: ExtractorInfo = info.extract(py)?;
-            let extractor_type = match extractor_info.output_datatype.as_str() {
-                "embedding" => {
-                    let embedding_schema: EmbeddingSchema =
-                        info.getattr(py, "output_schema")?.extract(py)?;
-                    Ok(ExtractorType::Embedding {
-                        dim: embedding_schema.dim,
-                        distance: IndexDistance::from_str(
-                            embedding_schema.distance_metric.as_str(),
-                        )?,
-                    })
-                }
-                "attributes" => {
-                    let schema: String = info.getattr(py, "output_schema")?.extract(py)?;
-                    Ok(ExtractorType::Attributes { schema })
-                }
-                _ => Err(anyhow!("unsupported output datatype")),
-            }?;
-            let input_params =
-                serde_json::from_str::<serde_json::Value>(&extractor_info.input_params)?;
-            let extractor_config = ExtractorConfig {
-                name: extractor_info.name,
-                description: extractor_info.description,
-                extractor_type,
-                input_params,
-            };
+            let info = self.module_object.call_method0(py, "_info")?;
+            let extractor_info: String = info.extract(py)?;
+            let extractor_config: ExtractorConfig = serde_json::from_str(&extractor_info)?;
             Ok(extractor_config)
         })?;
         Ok(info)
@@ -158,28 +172,14 @@ impl Extractor for PythonDriver {
 
     fn extract_embedding(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
             let kwargs = pythonize(py, &input_params)?;
-            let content = content
-                .into_iter()
-                .map(|c| {
-                    Py::new(
-                        py,
-                        PyContent {
-                            id: c.id,
-                            data: c.content,
-                        },
-                    )
-                    .unwrap()
-                })
-                .collect::<Vec<Py<PyContent>>>();
-
             let extracted_data =
                 self.module_object
-                    .call_method1(py, "extract", (content, kwargs))?;
+                    .call_method1(py, EXTRACT_METHOD, (content, kwargs))?;
             let extracted_data: Vec<ExtractedEmbeddings> = extracted_data.extract(py)?;
             Ok(extracted_data)
         })?;
@@ -199,40 +199,27 @@ impl Extractor for PythonDriver {
 
     fn extract_attributes(
         &self,
-        content: Vec<persistence::Content<String>>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<AttributeData>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
-            let content = content.to_vec();
             let kwargs = pythonize(py, &input_params)?;
-            let content = content
-                .into_iter()
-                .map(|c| {
-                    Py::new(
-                        py,
-                        PyContent {
-                            id: c.id,
-                            data: c.content,
-                        },
-                    )
-                    .unwrap()
-                })
-                .collect::<Vec<Py<PyContent>>>();
-
-            let extracted_data =
-                self.module_object
-                    .call_method1(py, "extract", (content, kwargs))?;
+            let extracted_data = self
+                .module_object
+                .call_method1(py, EXTRACT_METHOD, (content, kwargs))
+                .unwrap();
 
             #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
             struct InternalAttributeData {
                 content_id: String,
-                json: Option<String>,
+                text: String,
+                attributes: Option<String>,
             }
-            let extracted_data: Vec<InternalAttributeData> = extracted_data.extract(py)?;
+            let extracted_data: Vec<InternalAttributeData> = extracted_data.extract(py).unwrap();
             let extracted_data = extracted_data
                 .into_iter()
                 .map(|attr| {
-                    let json = if let Some(d) = attr.json.as_ref() {
+                    let json = if let Some(d) = attr.attributes.as_ref() {
                         let json_value: serde_json::Value = serde_json::from_str(d).unwrap();
                         Some(json_value)
                     } else {
@@ -240,6 +227,7 @@ impl Extractor for PythonDriver {
                     };
                     AttributeData {
                         content_id: attr.content_id,
+                        text: attr.text,
                         json,
                     }
                 })
@@ -252,11 +240,7 @@ impl Extractor for PythonDriver {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use serde_json::json;
-
-    use crate::persistence::Content;
 
     use super::*;
 
@@ -271,12 +255,8 @@ mod tests {
         let json_schema = "{\"properties\":{\"overlap\":{\"default\":0,\"title\":\"Overlap\",\"type\":\"integer\"},\"text_splitter\":{\"default\":\"recursive\",\"enum\":[\"char\",\"recursive\"],\"title\":\"Text Splitter\",\"type\":\"string\"}},\"title\":\"EmbeddingInputParams\",\"type\":\"object\"}";
         assert_eq!(info.input_params.to_string(), json_schema);
 
-        let content1 = Content::new("1".into(), "hello world".to_string(), HashMap::new());
-        let content2 = Content::new(
-            "2".into(),
-            "indexify is awesome".to_string(),
-            HashMap::new(),
-        );
+        let content1 = Content::new("1".into(), "hello world".to_string());
+        let content2 = Content::new("2".into(), "indexify is awesome".to_string());
 
         let content = vec![content1, content2];
         let input_params =
@@ -310,11 +290,28 @@ mod tests {
         let content1 = Content::new(
             "1".into(),
             "My name is Donald and I live in Seattle".to_string(),
-            HashMap::new(),
         );
         let extracted_data = extractor
             .extract_attributes(vec![content1], json!({}))
             .unwrap();
         assert_eq!(extracted_data.len(), 2);
+    }
+
+    #[test]
+    fn extract_from_blob() {
+        let extractor =
+            PythonDriver::new("indexify_extractors.pdf_embedder.PDFEmbedder".into()).unwrap();
+
+        let info = extractor.info().unwrap();
+        assert_eq!(info.name, "PDFEmbedder");
+
+        let data = std::fs::read("extractors_tests/data/test.pdf").unwrap();
+        let content = Content::from_bytes("1".into(), data, "pdf");
+        let extracted_data = extractor
+            .extract_embedding(vec![content], json!({}))
+            .unwrap();
+
+        assert_eq!(extracted_data.len(), 28);
+        assert_eq!(extracted_data[0].embeddings.len(), 384);
     }
 }

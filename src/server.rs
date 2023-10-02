@@ -1,4 +1,5 @@
 use crate::attribute_index::AttributeIndexManager;
+use crate::blob_storage::BlobStorageBuilder;
 use crate::data_repository_manager::DataRepositoryManager;
 use crate::persistence::Repository;
 use crate::vector_index::VectorIndexManager;
@@ -6,7 +7,7 @@ use crate::ServerConfig;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
 
 use anyhow::Result;
-use axum::extract::{Path, Query};
+use axum::extract::{Multipart, Path, Query};
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
@@ -37,6 +38,7 @@ pub struct RepositoryEndpointState {
             list_repositories,
             get_repository,
             add_texts,
+            list_indexes,
             index_search,
             list_extractors,
             bind_extractor,
@@ -47,9 +49,9 @@ pub struct RepositoryEndpointState {
         ),
         components(
             schemas(CreateRepository, CreateRepositoryResponse, DataConnector,
-                IndexDistance, ExtractorType, ExtractorContentType,
+                IndexDistance, ExtractorContentType,
                 SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
-                DocumentFragment, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
+                DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorConfig, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,
         ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
         ),
@@ -79,11 +81,14 @@ impl Server {
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
+        let blob_storage = BlobStorageBuilder::new(self.config.clone()).build()?;
+
         let repository_manager = Arc::new(
             DataRepositoryManager::new(
                 repository.clone(),
                 vector_index_manager,
                 attribute_index_manager,
+                blob_storage.clone(),
             )
             .await?,
         );
@@ -108,8 +113,16 @@ impl Server {
                 post(bind_extractor).with_state(repository_endpoint_state.clone()),
             )
             .route(
+                "/repositories/:repository_name/indexes",
+                get(list_indexes).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
                 "/repositories/:repository_name/add_texts",
                 post(add_texts).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/repositories/:repository_name/upload_file",
+                post(upload_file).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repositories/:repository_name/run_extractors",
@@ -319,7 +332,9 @@ async fn add_texts(
     let texts = payload
         .documents
         .iter()
-        .map(|d| persistence::Text::from_text(&repository_name, &d.text, d.metadata.clone()))
+        .map(|d| {
+            persistence::ContentPayload::from_text(&repository_name, &d.text, d.metadata.clone())
+        })
         .collect();
     state
         .repository_manager
@@ -337,6 +352,34 @@ async fn add_texts(
     }
 
     Ok(Json(TextAdditionResponse::default()))
+}
+
+#[axum_macros::debug_handler]
+async fn upload_file(
+    Path(repository_name): Path<String>,
+    State(state): State<RepositoryEndpointState>,
+    mut files: Multipart,
+) -> Result<(), IndexifyAPIError> {
+    while let Some(file) = files.next_field().await.unwrap() {
+        let name = file.file_name().unwrap().to_string();
+        let data = file.bytes().await.unwrap();
+        info!(
+            "writing to blog store, file name = {:?}, data = {:?}",
+            name,
+            data.len()
+        );
+        state
+            .repository_manager
+            .upload_file(&repository_name, &name, data)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("failed to upload file: {}", e),
+                )
+            })?;
+    }
+    Ok(())
 }
 
 async fn _run_extractors(repository: &str, coordinator_addr: &str) -> Result<(), anyhow::Error> {
@@ -462,6 +505,31 @@ async fn list_extractors(
 }
 
 #[utoipa::path(
+    get,
+    path = "/repositories/{repository_name}/indexes",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of indexes in a repository", body = ListIndexesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in repository")
+    ),
+)]
+#[axum_macros::debug_handler]
+async fn list_indexes(
+    Path(repository_name): Path<String>,
+    State(state): State<RepositoryEndpointState>,
+) -> Result<Json<ListIndexesResponse>, IndexifyAPIError> {
+    let indexes = state
+        .repository_manager
+        .list_indexes(&repository_name)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_iter()
+        .map(|i| i.into())
+        .collect();
+    Ok(Json(ListIndexesResponse { indexes }))
+}
+
+#[utoipa::path(
     post,
     path = "/repository/{repository_name}/search",
     tag = "indexify",
@@ -489,8 +557,9 @@ async fn index_search(
     let document_fragments: Vec<DocumentFragment> = results
         .iter()
         .map(|text| DocumentFragment {
-            text: text.text.text.clone(),
-            metadata: text.text.metadata.clone(),
+            content_id: text.content_id.clone(),
+            text: text.text.clone(),
+            metadata: text.metadata.clone(),
             confidence_score: text.confidence_score,
         })
         .collect();

@@ -31,6 +31,15 @@ Indexify comes with Python and Typescript clients. They use the HTTP APIs expose
     npm install getindexify
     ```
 
+### Initialize the Python library
+=== "python"
+
+    ```python
+    from indexify import IndexifyClient
+
+    client = IndexifyClient()
+    ```
+
 ### Data repository
 
 Data Repositories are logical buckets that store content. Indexify starts with a default data repository. We can start adding documents to it straight away.
@@ -51,9 +60,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 === "python"
 
     ```python
-    from indexify import Repository
-
-    repo = Repository()
+    repo = client.get_repository("default")
     repo.add_documents([
         {"text": "Indexify is amazing!"},
         {"text": "Indexify is a retrieval service for LLM agents!"},
@@ -141,10 +148,10 @@ Every extractor we bind results in a corresponding index being created in Indexi
 === "python"
 
     ```python
-    repo.bind_extractor("EntityExtractor", index_name="entities")
-    repo.bind_extractor("MiniLML6", index_name="embeddings")
+    repo.bind_extractor(extractor_name="EntityExtractor", index_name="entities")
+    repo.bind_extractor(extractor_name="MiniLML6", index_name="embeddings")
 
-    print(repo.extractor_bindings)
+    print(repo.extractor_bindings())
     ```
 
     Output:

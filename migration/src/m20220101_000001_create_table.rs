@@ -20,6 +20,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Index::VectorIndexName).string())
                     .col(ColumnDef::new(Index::ExtractorName).string().not_null())
                     .col(ColumnDef::new(Index::IndexType).string().not_null())
+                    .col(ColumnDef::new(Index::IndexSchema).json_binary().not_null())
                     .col(ColumnDef::new(Index::RepositoryId).string().not_null())
                     .to_owned(),
             )
@@ -36,8 +37,9 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Content::Text).text().not_null())
+                    .col(ColumnDef::new(Content::Payload).text().not_null())
                     .col(ColumnDef::new(Content::ContentType).string().not_null())
+                    .col(ColumnDef::new(Content::PayloadType).string().not_null())
                     .col(ColumnDef::new(Content::Metadata).json_binary())
                     .col(ColumnDef::new(Content::RepositoryId).string().not_null())
                     .col(ColumnDef::new(Content::ExtractorBindingsState).json_binary())
@@ -48,17 +50,25 @@ impl MigrationTrait for Migration {
         let _ = manager
             .create_table(
                 Table::create()
-                    .table(IndexChunks::Table)
+                    .table(ChunkedContent::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(IndexChunks::ChunkId)
+                        ColumnDef::new(ChunkedContent::ChunkId)
                             .string()
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(IndexChunks::ContentId).string().not_null())
-                    .col(ColumnDef::new(IndexChunks::Text).text().not_null())
-                    .col(ColumnDef::new(IndexChunks::IndexName).string().not_null())
+                    .col(
+                        ColumnDef::new(ChunkedContent::ContentId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(ChunkedContent::Text).text().not_null())
+                    .col(
+                        ColumnDef::new(ChunkedContent::IndexName)
+                            .string()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await;
@@ -186,14 +196,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(Extractors::ExtractorType)
-                            .json_binary()
-                            .not_null(),
-                    )
                     .col(ColumnDef::new(Extractors::Description).string().not_null())
                     .col(
                         ColumnDef::new(Extractors::InputParams)
+                            .json_binary()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Extractors::OutputSchema)
                             .json_binary()
                             .not_null(),
                     )
@@ -225,7 +235,7 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(Index::Table).to_owned())
             .await;
         let _ = manager
-            .drop_table(Table::drop().table(IndexChunks::Table).to_owned())
+            .drop_table(Table::drop().table(ChunkedContent::Table).to_owned())
             .await;
         let _ = manager
             .drop_table(Table::drop().table(Content::Table).to_owned())
@@ -258,11 +268,12 @@ enum Index {
     VectorIndexName,
     ExtractorName,
     IndexType,
+    IndexSchema,
     RepositoryId,
 }
 
 #[derive(Iden)]
-enum IndexChunks {
+enum ChunkedContent {
     Table,
     ContentId,
     ChunkId,
@@ -275,7 +286,8 @@ enum Content {
     Table,
     Id,
     ContentType,
-    Text,
+    PayloadType,
+    Payload,
     Metadata,
     RepositoryId,
     ExtractorBindingsState,
@@ -339,6 +351,6 @@ enum Extractors {
     Table,
     Id,
     Description,
-    ExtractorType,
     InputParams,
+    OutputSchema,
 }

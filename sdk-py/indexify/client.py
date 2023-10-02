@@ -1,6 +1,9 @@
 import httpx
 from .repository import Repository
 from .settings import DEFAULT_SERVICE_URL
+from .extractor import Extractor
+
+from typing import List
 
 
 class IndexifyClient:
@@ -30,3 +33,14 @@ class IndexifyClient:
 
     def get_repository(self, name: str) -> Repository:
         return Repository(name, self._service_url)
+    
+    def extractors(self) -> List[Extractor]:
+        response = httpx.get(f"{self._service_url}/extractors")
+        response.raise_for_status()
+        extractors_dict = response.json()["extractors"]
+        extractors = []
+        for ed in extractors_dict:
+            extractors.append(Extractor.from_dict(ed))
+        return extractors
+    
+

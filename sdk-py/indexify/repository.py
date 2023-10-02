@@ -9,6 +9,7 @@ from .settings import DEFAULT_SERVICE_URL
 from typing import List
 from .utils import json_set_default
 from indexify.exceptions import ApiException
+from .index import Index
 
 Document = namedtuple("Document", ["text", "metadata"])
 
@@ -109,12 +110,8 @@ class Repository:
         Args:
             extractor_name (str): Name of extractor
             index_name (str): Name of corresponding index
-            include (dict | None, optional): Conditions that must be true
-                for an extractor to run on a document in the repository.
-                Defaults to None.
-            exclude (dict | None, optional): Conditions that must be false
-                for an extractor to run on a document in the repository.
-                Defaults to None.
+            filter (Filter, optional): Filter to apply to documents while choosing
+                which documents to run the extractor on. Defaults to None.
 
         Returns:
             dict: response payload
@@ -130,7 +127,7 @@ class Repository:
         req = {
             "extractor_name": extractor_name,
             "index_name": index_name,
-            "filters": filter.json() if filter else {},
+            "filters": filter.json() if filter else [],
         }
         request_body = json.dumps(req, default=json_set_default)
         response = httpx.post(
@@ -142,7 +139,10 @@ class Repository:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ApiException(exc.response.text)
-        return response.json()
+        return 
+
+    def indexes(self) -> List[Index]:
+        pass
 
     @classmethod
     def get(cls, name: str, service_url: str = DEFAULT_SERVICE_URL) -> "Repository":

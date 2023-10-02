@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bytes::Bytes;
 use sea_orm::DbConn;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -8,10 +9,11 @@ pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 
 use crate::{
     attribute_index::AttributeIndexManager,
+    blob_storage::BlobStorageTS,
     index::IndexError,
     persistence::{
-        DataRepository, Event, ExtractedAttributes, ExtractorBinding, ExtractorConfig,
-        ExtractorType, Repository, RepositoryError, Text,
+        ContentPayload, DataRepository, Event, ExtractedAttributes, ExtractorBinding,
+        ExtractorConfig, ExtractorOutputSchema, Index, Repository, RepositoryError,
     },
     vector_index::{ScoredText, VectorIndexManager},
     ServerConfig,
@@ -36,6 +38,7 @@ pub struct DataRepositoryManager {
     repository: Arc<Repository>,
     vector_index_manager: Arc<VectorIndexManager>,
     attribute_index_manager: Arc<AttributeIndexManager>,
+    blob_storage: BlobStorageTS,
 }
 
 impl DataRepositoryManager {
@@ -43,22 +46,29 @@ impl DataRepositoryManager {
         repository: Arc<Repository>,
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
+        blob_storage: BlobStorageTS,
     ) -> Result<Self, RepositoryError> {
         Ok(Self {
             repository,
             vector_index_manager,
             attribute_index_manager,
+            blob_storage,
         })
     }
 
     #[allow(dead_code)]
-    pub fn new_with_db(db: DbConn, vector_index_manager: Arc<VectorIndexManager>) -> Self {
+    pub fn new_with_db(
+        db: DbConn,
+        vector_index_manager: Arc<VectorIndexManager>,
+        blob_storage: BlobStorageTS,
+    ) -> Self {
         let repository = Arc::new(Repository::new_with_db(db));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
         Self {
             repository,
             vector_index_manager,
             attribute_index_manager,
+            blob_storage,
         }
     }
 
@@ -99,23 +109,28 @@ impl DataRepositoryManager {
             .repository
             .extractor_by_name(&extractor_binding.extractor_name)
             .await?;
-        if let ExtractorType::Embedding {
-            dim: _,
-            distance: _,
-        } = extractor.extractor_type.clone()
-        {
-            self.vector_index_manager
-                .create_index(repository, &extractor_binding.index_name, extractor)
-                .await
-                .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
-        }
+
+        match extractor.output_schema.clone() {
+            ExtractorOutputSchema::Embedding { .. } => {
+                self.vector_index_manager
+                    .create_index(repository, &extractor_binding.index_name, extractor.clone())
+                    .await
+                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            }
+            ExtractorOutputSchema::Attributes { .. } => {
+                self.attribute_index_manager
+                    .create_index(repository, &extractor_binding.index_name, extractor.clone())
+                    .await
+                    .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
+            }
+        };
+
         Ok(())
     }
 
     pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
         info!("creating data repository: {}", repository.name);
-        let _ = self
-            .repository
+        self.repository
             .upsert_repository(repository.clone())
             .await
             .map_err(DataRepositoryError::Persistence)?;
@@ -166,13 +181,25 @@ impl DataRepositoryManager {
     pub async fn add_texts(
         &self,
         repo_name: &str,
-        texts: Vec<Text>,
+        texts: Vec<ContentPayload>,
     ) -> Result<(), DataRepositoryError> {
         let _ = self.repository.repository_by_name(repo_name).await?;
         self.repository
             .add_content(repo_name, texts)
             .await
             .map_err(DataRepositoryError::Persistence)
+    }
+
+    pub async fn list_indexes(
+        &self,
+        repository_name: &str,
+    ) -> Result<Vec<Index>, DataRepositoryError> {
+        let indexes = self
+            .repository
+            .list_indexes(repository_name)
+            .await
+            .map_err(DataRepositoryError::Persistence)?;
+        Ok(indexes)
     }
 
     pub async fn search(
@@ -225,12 +252,35 @@ impl DataRepositoryManager {
             .await
             .map_err(DataRepositoryError::Persistence)
     }
+
+    pub async fn upload_file(
+        &self,
+        repository: &str,
+        name: &str,
+        file: Bytes,
+    ) -> Result<(), anyhow::Error> {
+        // TODO - wrap the write to blob storage in a lambda and pass it to the persistence layer
+        // so that we can mark the file upload as complete if the blob storage write succeeds.
+        let stored_file_path = self.blob_storage.put(name, file).await?;
+        self.repository
+            .add_content(
+                repository,
+                vec![ContentPayload::from_file(
+                    repository,
+                    name,
+                    &stored_file_path,
+                )],
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
+    use crate::blob_storage::BlobStorageBuilder;
     use crate::persistence::{DataConnector, Event, ExtractorBinding, SourceType};
     use crate::test_util;
     use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};
@@ -244,7 +294,10 @@ mod tests {
     async fn test_sync_repository() {
         let db = test_util::db_utils::create_db().await.unwrap();
         let (index_manager, _, _) = test_util::db_utils::create_index_manager(db.clone()).await;
-        let repository_manager = DataRepositoryManager::new_with_db(db.clone(), index_manager);
+        let blob_storage =
+            BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).unwrap();
+        let repository_manager =
+            DataRepositoryManager::new_with_db(db.clone(), index_manager, blob_storage);
         let mut meta = HashMap::new();
         meta.insert("foo".to_string(), json!(12));
         let repository = DataRepository {
@@ -278,9 +331,13 @@ mod tests {
         let db = test_util::db_utils::create_db().await.unwrap();
         let (index_manager, extractor_executor, coordinator) =
             test_util::db_utils::create_index_manager(db.clone()).await;
+
+        let blob_storage =
+            BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).unwrap();
         let repository_manager = Arc::new(DataRepositoryManager::new_with_db(
             db.clone(),
             index_manager.clone(),
+            blob_storage,
         ));
         info!("creating repository");
 

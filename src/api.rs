@@ -10,42 +10,23 @@ use utoipa::{IntoParams, ToSchema};
 use crate::persistence;
 use crate::vectordbs;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename = "extractor_type")]
-pub enum ExtractorType {
-    #[serde(rename = "embedding")]
-    Embedding { dim: usize, distance: IndexDistance },
-
-    #[serde(rename = "embedding")]
-    Attributes { schema: String },
-}
-
-impl From<persistence::ExtractorType> for ExtractorType {
-    fn from(value: persistence::ExtractorType) -> Self {
-        match value {
-            persistence::ExtractorType::Embedding { dim, distance } => ExtractorType::Embedding {
-                dim,
-                distance: distance.into(),
-            },
-            persistence::ExtractorType::Attributes { schema } => {
-                ExtractorType::Attributes { schema }
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize, ToSchema, SmartDefault)]
 pub enum ExtractorContentType {
     #[strum(serialize = "text")]
     #[serde(rename = "text")]
     #[default]
     Text,
+
+    #[strum(serialize = "pdf")]
+    #[serde(rename = "pdf")]
+    Pdf,
 }
 
 impl From<persistence::ContentType> for ExtractorContentType {
     fn from(value: persistence::ContentType) -> Self {
         match value {
             persistence::ContentType::Text => ExtractorContentType::Text,
+            persistence::ContentType::Pdf => ExtractorContentType::Pdf,
         }
     }
 }
@@ -54,6 +35,7 @@ impl From<ExtractorContentType> for persistence::ContentType {
     fn from(val: ExtractorContentType) -> Self {
         match val {
             ExtractorContentType::Text => persistence::ContentType::Text,
+            ExtractorContentType::Pdf => persistence::ContentType::Pdf,
         }
     }
 }
@@ -289,10 +271,35 @@ pub struct TextAddRequest {
 pub struct RunExtractorsResponse {}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum ExtractorOutputSchema {
+    #[serde(rename = "embedding")]
+    Embedding { dim: usize, distance: IndexDistance },
+    #[serde(rename = "attributes")]
+    Attributes { schema: serde_json::Value },
+}
+
+impl From<persistence::ExtractorOutputSchema> for ExtractorOutputSchema {
+    fn from(value: persistence::ExtractorOutputSchema) -> Self {
+        match value {
+            persistence::ExtractorOutputSchema::Embedding { dim, distance } => {
+                ExtractorOutputSchema::Embedding {
+                    dim,
+                    distance: distance.into(),
+                }
+            }
+            persistence::ExtractorOutputSchema::Attributes(schema) => {
+                ExtractorOutputSchema::Attributes { schema }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorConfig {
     pub name: String,
     pub description: String,
-    pub extractor_type: ExtractorType,
+    pub input_params: serde_json::Value,
+    pub output_schema: ExtractorOutputSchema,
 }
 
 impl From<persistence::ExtractorConfig> for ExtractorConfig {
@@ -300,7 +307,8 @@ impl From<persistence::ExtractorConfig> for ExtractorConfig {
         Self {
             name: value.name,
             description: value.description,
-            extractor_type: value.extractor_type.into(),
+            input_params: value.input_params,
+            output_schema: value.output_schema.into(),
         }
     }
 }
@@ -323,6 +331,26 @@ pub struct ListExtractorsResponse {
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct TextAdditionResponse {}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Index {
+    pub name: String,
+    pub schema: ExtractorOutputSchema,
+}
+
+impl From<persistence::Index> for Index {
+    fn from(value: persistence::Index) -> Self {
+        Self {
+            name: value.name,
+            schema: value.schema.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListIndexesResponse {
+    pub indexes: Vec<Index>,
+}
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct SearchRequest {
@@ -399,6 +427,7 @@ pub struct ListEventsResponse {
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct DocumentFragment {
+    pub content_id: String,
     pub text: String,
     pub confidence_score: f32,
     pub metadata: HashMap<String, serde_json::Value>,
