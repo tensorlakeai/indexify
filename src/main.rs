@@ -47,8 +47,10 @@ async fn main() -> Result<(), Error> {
     let args = Cli::parse();
     let version = format!(
         "git branch: {} - sha:{}",
-        env!("VERGEN_GIT_BRANCH"),
-        env!("VERGEN_GIT_SHA")
+        // env!("VERGEN_GIT_BRANCH"),
+        // env!("VERGEN_GIT_SHA")
+        1,
+        1
     );
     match args.command {
         Commands::StartServer {
