@@ -117,7 +117,6 @@ impl VectorDb for PgEmbedding {
         }
 
         let query = format!(r#"SET hnsw.ef_search = {};"#, self.config.efsearch);
-        // The "enable seqscan = off" should not be set for the whole server. Will need to put this out
         let exec_res: ExecResult = self
             .db_conn
             .execute(Statement::from_string(
