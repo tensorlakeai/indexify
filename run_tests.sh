@@ -19,10 +19,11 @@ docker run -d --rm \
            --network=host \
            --name qdrant_test qdrant/qdrant:${QDRANT_VERSION}
 
+docker buildx build -t indexify-postgres --file ./dockerfiles/neon-postgres.Dockerfile .
 
 docker run --rm -p 5432:5432 \
           --name=postgres_test -e POSTGRES_PASSWORD=postgres \
-          -e POSTGRES_DB=indexify_test -d postgres
+          -e POSTGRES_DB=indexify_test -d indexify-postgres
 
 trap stop_docker SIGINT
 trap stop_docker ERR
