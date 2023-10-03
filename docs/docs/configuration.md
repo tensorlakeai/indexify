@@ -47,7 +47,7 @@ index_config:
 
 * `coordinator_addr`: The address of the co-ordinator HTTP API that executors connect for getting work for extractors
 
-* `index_config` - Vector Index related configurations.
+* `index_config` - List of vector Index related configurations.
     * `index_store` - Name of the index store to use.
     * `qdrant_config` - Qdrant Vector store config.
         * `addr` - Address of the qdrant server.
