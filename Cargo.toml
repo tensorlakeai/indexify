@@ -58,7 +58,6 @@ pythonize = "0.19.0"
 unescape = "0.1.0"
 object_store = "0.7.0"
 bytes = "1.5.0"
-pgvector = { version = "0.2", features = ["postgres", "sqlx"] }
 
 [dev-dependencies]
 migration = { path = "./migration" }

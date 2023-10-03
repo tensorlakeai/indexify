@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use pgvector::Vector;
 use sea_orm::{query::JsonValue, ConnectionTrait, ExecResult, FromQueryResult};
 use serde_json::Value;
 use tracing::warn;
