@@ -32,8 +32,8 @@ until curl --output /dev/null --silent --get --fail http://$QDRANT_HOST/collecti
   sleep 5
 done
 
-
 timeout 90s bash -c "until docker exec postgres_test pg_isready ; do sleep 5 ; done"
+docker exec indexify-local-postgres psql -U postgres -c 'create database indexify;'
 
 pip install .
 
