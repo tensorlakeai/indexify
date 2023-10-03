@@ -4,6 +4,4 @@ FROM postgres:15.3
 RUN apt update && apt upgrade -y
 RUN apt install -y git build-essential postgresql-server-dev-15
 
-# Copy in files from ph_embedding dir
-RUN git clone https://github.com/neondatabase/pg_embedding.git
-RUN cd pg_embedding && make && make install
+RUN cd /tmp && git clone --branch v0.5.0 https://github.com/pgvector/pgvector.git && cd pgvector && make && make install

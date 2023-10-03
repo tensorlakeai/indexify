@@ -61,9 +61,9 @@ index_config:
   index_store: pg_embedding
   pg_embedding_config:
      addr: postgres://postgres:postgres@localhost/indexify
-     m: 3
-     efconstruction: 5
-     efsearch: 5
+     m: 16
+     efconstruction: 64
+     efsearch: 40
 
 # The pg_embedding_config parameter specifies the configuration for the Postgres pg_embedding extension
 index_config:

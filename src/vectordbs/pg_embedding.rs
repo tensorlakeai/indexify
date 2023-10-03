@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use pgvector::Vector;
 use sea_orm::{query::JsonValue, ConnectionTrait, ExecResult, FromQueryResult};
 use serde_json::Value;
 use tracing::warn;
@@ -33,6 +34,9 @@ impl PgEmbeddingDb {
 /// Acts as a salt, to make sure there are no collisions with other tables
 const INDEX_TABLE_PREFIX: &str = "index_";
 
+/// Please note that only vectors with a dimension of up to dims=2000 can be indexed!
+/// Can include much more customization if required later on
+/// See https://github.com/pgvector/pgvector#approximate-search for more options
 #[async_trait]
 impl VectorDb for PgEmbedding {
     fn name(&self) -> String {
@@ -46,12 +50,12 @@ impl VectorDb for PgEmbedding {
         let index_name = Self::escape_to_valid_indexname(index_name);
         let vector_dim = index.vector_dim;
         let distance_extension = match &index.distance {
-            crate::vectordbs::IndexDistance::Euclidean => "",
-            crate::vectordbs::IndexDistance::Cosine => "ann_cos_ops",
-            crate::vectordbs::IndexDistance::Dot => "ann_manhattan_ops",
+            crate::vectordbs::IndexDistance::Euclidean => "vector_l2_ops",
+            crate::vectordbs::IndexDistance::Cosine => "vector_cosine_ops",
+            crate::vectordbs::IndexDistance::Dot => "vector_ip_ops",
         };
 
-        let query = r#"CREATE EXTENSION IF NOT EXISTS EMBEDDING;"#;
+        let query = r#"CREATE EXTENSION IF NOT EXISTS vector;"#;
         let exec_res: ExecResult = self
             .db_conn
             .execute(Statement::from_string(
@@ -73,7 +77,7 @@ impl VectorDb for PgEmbedding {
 
         // the "id" here corresponds to the chunk-id, and is NOT SERIAL
         let query = format!(
-            r#"CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(chunk_id VARCHAR(1024) PRIMARY KEY , embedding real[]);"#
+            r#"CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(chunk_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));"#,
         );
         let exec_res: ExecResult = self
             .db_conn
@@ -90,28 +94,36 @@ impl VectorDb for PgEmbedding {
                 exec_res.rows_affected()
             )));
         };
-        let query = format!(
-            r#"
-                CREATE INDEX ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (dims={vector_dim}, m={}, efconstruction={}, efsearch={});
-            "#,
-            self.config.m, self.config.efconstruction, self.config.efsearch
-        );
-        let exec_res: ExecResult = self
-            .db_conn
-            .execute(Statement::from_string(DbBackend::Postgres, query))
-            .await
-            .map_err(|e| {
-                VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
-            })?;
-        // If more than one row is affected, something funky has occurred
-        if exec_res.rows_affected() > 1 {
-            return Err(VectorDbError::IndexCreationError(format!(
-                "More than one table affected! {:?} {:?}",
-                index_name.clone(),
-                exec_res.rows_affected()
-            )));
-        };
-        let query = r#"SET enable_seqscan = off;"#;
+
+        // Create index if dimensions is below 2000. It will be much slower for larger vectors, we should be explicit about this in the docs
+        // This is a limitation of pg_vector
+        if vector_dim <= 2000 {
+            warn!("Parameters are: {:?}", self.config);
+            let query = format!(
+                r#"
+                    CREATE INDEX ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});
+                "#,
+                self.config.m, self.config.efconstruction
+            );
+            warn!("Running query: {:?}", query);
+            let exec_res: ExecResult = self
+                .db_conn
+                .execute(Statement::from_string(DbBackend::Postgres, query))
+                .await
+                .map_err(|e| {
+                    VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
+                })?;
+            // If more than one row is affected, something funky has occurred
+            if exec_res.rows_affected() > 1 {
+                return Err(VectorDbError::IndexCreationError(format!(
+                    "More than one table affected! {:?} {:?}",
+                    index_name.clone(),
+                    exec_res.rows_affected()
+                )));
+            };
+        }
+
+        let query = format!(r#"SET hnsw.ef_search = {};"#, self.config.efsearch);
         // The "enable seqscan = off" should not be set for the whole server. Will need to put this out
         let exec_res: ExecResult = self
             .db_conn
@@ -266,11 +278,10 @@ impl VectorDb for PgEmbedding {
         k: u64,
     ) -> Result<Vec<SearchResult>, VectorDbError> {
         let index = Self::escape_to_valid_indexname(index);
-        // TODO: How to turn query_embedding into an array[...]
         // TODO: confidence_score is a distance here, let's make sure that similarity / distance is the same across vectors databases
         let query = format!(
             r#"
-            SELECT chunk_id, embedding <-> $1 AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> $1 LIMIT {k};
+            SELECT chunk_id, CAST(embedding <-> ($1)::vector AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> ($1)::vector LIMIT {k};
         "#
         );
         warn!("Query is {:?}", query);
@@ -291,7 +302,7 @@ impl VectorDb for PgEmbedding {
         .map_err(|e| VectorDbError::IndexReadError(format!("Search Error {:?}: {:?}", index, e)))
     }
 
-    // TODO: Should change index to &str
+    // TODO: Should change index to &str to keep things uniform across functions
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
         let index = Self::escape_to_valid_indexname(index);
         let query = format!("DROP TABLE IF EXISTS {INDEX_TABLE_PREFIX}{index};");
@@ -372,9 +383,9 @@ mod tests {
         let vector_db: VectorDBTS = Arc::new(PgEmbedding::new(
             crate::PgEmbeddingConfig {
                 addr: database_url.to_string(),
-                m: 3,
-                efconstruction: 5,
-                efsearch: 5,
+                m: 16,
+                efconstruction: 64,
+                efsearch: 40,
             },
             db_conn,
         ));
@@ -416,9 +427,9 @@ mod tests {
         let vector_db: VectorDBTS = Arc::new(PgEmbedding::new(
             crate::PgEmbeddingConfig {
                 addr: database_url.to_string(),
-                m: 3,
-                efconstruction: 5,
-                efsearch: 5,
+                m: 16,
+                efconstruction: 64,
+                efsearch: 40,
             },
             db_conn,
         ));

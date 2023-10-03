@@ -92,9 +92,9 @@ impl Default for PgEmbeddingConfig {
         Self {
             addr: "postgres://postgres:postgres@localhost/indexify".into(),
             // Figure out best default parameters for the following values
-            m: 3,
-            efsearch: 5,
-            efconstruction: 5,
+            m: 16,
+            efsearch: 64,
+            efconstruction: 40,
         }
     }
 }
