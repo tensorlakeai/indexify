@@ -19,13 +19,6 @@ impl PgEmbedding {
     pub fn new(config: PgEmbeddingConfig, db_conn: DbConn) -> PgEmbedding {
         Self { config, db_conn }
     }
-
-impl PgEmbeddingDb {
-    pub fn new(config: PgEmbeddingConfig, db_conn: DbConn) -> PgEmbeddingDb {
-        Self {
-            pg_embedding_config: config,
-            db_conn,
-        }
     fn escape_to_valid_indexname(x: String) -> String {
         x.replace('-', "_")
     }
