@@ -62,6 +62,7 @@ pub struct OpenAIConfig {
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
+    PgEmbedding,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +105,7 @@ impl Default for PgEmbeddingConfig {
 pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
+    pub pgembedding_config: Option<PgEmbeddingConfig>,
 }
 
 impl Default for VectorIndexConfig {
@@ -111,6 +113,7 @@ impl Default for VectorIndexConfig {
         Self {
             index_store: IndexStoreKind::Qdrant,
             qdrant_config: Some(QdrantConfig::default()),
+            pgembedding_config: Some(PgEmbeddingConfig::default()),
         }
     }
 }

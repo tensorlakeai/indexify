@@ -58,7 +58,7 @@ index_config:
 
 # The pg_embedding_config parameter specifies the configuration for the Postgres pg_embedding extension
 index_config:
-  index_store: pg_embedding
+  index_store: PgEmbedding
   pg_embedding_config:
      addr: postgres://postgres:postgres@localhost/indexify
      m: 16
