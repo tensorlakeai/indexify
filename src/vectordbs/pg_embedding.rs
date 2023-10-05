@@ -91,9 +91,10 @@ impl VectorDb for PgEmbedding {
         // This is a limitation of pg_vector
         if vector_dim <= 2000 {
             warn!("Parameters are: {:?}", self.config);
+            // IF NOT EXISTS requires an index-name in postgres. "_{INDEX_TABLE_PREFIX}{index_name}_hnsw" is automatically set as the index-name
             let query = format!(
                 r#"
-                    CREATE INDEX ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});
+                    CREATE INDEX IF NOT EXISTS _{INDEX_TABLE_PREFIX}{index_name}_hnsw ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});
                 "#,
                 self.config.m, self.config.efconstruction
             );
