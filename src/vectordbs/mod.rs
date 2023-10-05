@@ -10,12 +10,12 @@ use thiserror::Error;
 
 use crate::VectorIndexConfig;
 
-pub mod pg_embedding;
+pub mod pg_vector;
 pub mod qdrant;
 
 use qdrant::QdrantDb;
 
-use self::pg_embedding::PgEmbedding;
+use self::pg_vector::PgVector;
 
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
 pub enum IndexDistance {
@@ -125,8 +125,8 @@ pub fn create_vectordb(
 ) -> Result<VectorDBTS, VectorDbError> {
     match config.index_store {
         crate::IndexStoreKind::Qdrant => Ok(Arc::new(QdrantDb::new(config.qdrant_config.unwrap()))),
-        crate::IndexStoreKind::PgEmbedding => Ok(Arc::new(PgEmbedding::new(
-            config.pgembedding_config.unwrap(),
+        crate::IndexStoreKind::PgVector => Ok(Arc::new(PgVector::new(
+            config.pg_vector_config.unwrap(),
             postgres_db_conn,
         ))),
     }

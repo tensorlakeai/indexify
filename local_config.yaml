@@ -56,9 +56,9 @@ index_config:
   qdrant_config:
     addr: "http://127.0.0.1:6334"
 
-# # The pg_embedding_config parameter specifies the configuration for the Postgres pg_embedding extension
+# # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
 # - index_store: PgEmbedding
-#   pg_embedding_config:
+#   pg_vector_config:
 #     addr: postgres://postgres:postgres@localhost/indexify
 #     m: 16
 #     efconstruction: 64
