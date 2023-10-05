@@ -70,7 +70,10 @@ impl ExtractorExecutor {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self> {
         let repository = Arc::new(Repository::new(&config.db_url).await?);
         let executor_id = get_host_name(config.clone())?;
-        let vector_db = vectordbs::create_vectordb(config.index_config.clone())?;
+        let vector_db = vectordbs::create_vectordb(
+            config.index_config.clone(),
+            repository.get_db_conn_clone(),
+        )?;
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             config.clone(),
             repository.clone(),

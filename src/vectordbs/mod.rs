@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 
-use sea_orm::FromQueryResult;
+use sea_orm::{DatabaseConnection, FromQueryResult};
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
@@ -14,6 +14,8 @@ pub mod pg_embedding;
 pub mod qdrant;
 
 use qdrant::QdrantDb;
+
+use self::pg_embedding::PgEmbedding;
 
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
 pub enum IndexDistance {
@@ -117,8 +119,15 @@ pub trait VectorDb {
 }
 
 /// Creates a new vector database based on the specified configuration.
-pub fn create_vectordb(config: VectorIndexConfig) -> Result<VectorDBTS, VectorDbError> {
+pub fn create_vectordb(
+    config: VectorIndexConfig,
+    postgres_db_conn: DatabaseConnection,
+) -> Result<VectorDBTS, VectorDbError> {
     match config.index_store {
         crate::IndexStoreKind::Qdrant => Ok(Arc::new(QdrantDb::new(config.qdrant_config.unwrap()))),
+        crate::IndexStoreKind::PgEmbedding => Ok(Arc::new(PgEmbedding::new(
+            config.pgembedding_config.unwrap(),
+            postgres_db_conn,
+        ))),
     }
 }

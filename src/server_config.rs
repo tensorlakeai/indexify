@@ -62,6 +62,7 @@ pub struct OpenAIConfig {
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
+    PgEmbedding
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,9 +93,9 @@ impl Default for PgEmbeddingConfig {
         Self {
             addr: "postgres://postgres:postgres@localhost/indexify".into(),
             // Figure out best default parameters for the following values
-            m: 3,
-            efsearch: 5,
-            efconstruction: 5,
+            m: 16,
+            efsearch: 64,
+            efconstruction: 40,
         }
     }
 }
@@ -104,6 +105,7 @@ impl Default for PgEmbeddingConfig {
 pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
+    pub pgembedding_config: Option<PgEmbeddingConfig>,
 }
 
 impl Default for VectorIndexConfig {
@@ -111,6 +113,7 @@ impl Default for VectorIndexConfig {
         Self {
             index_store: IndexStoreKind::Qdrant,
             qdrant_config: Some(QdrantConfig::default()),
+            pgembedding_config: Some(PgEmbeddingConfig::default())
         }
     }
 }

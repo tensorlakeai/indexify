@@ -46,7 +46,8 @@ pub mod db_utils {
         let repo = Arc::new(Repository::new_with_db(db.clone()));
         let coordinator = Coordinator::new(repo.clone());
         let server_config = Arc::new(ServerConfig::from_path("local_config.yaml").unwrap());
-        let vector_db = vectordbs::create_vectordb(server_config.index_config.clone()).unwrap();
+        let vector_db =
+            vectordbs::create_vectordb(server_config.index_config.clone(), db.clone()).unwrap();
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             server_config.clone(),
             repo.clone(),

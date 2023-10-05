@@ -465,6 +465,10 @@ impl Repository {
         Self { conn: db }
     }
 
+    pub fn get_db_conn_clone(&self) -> DatabaseConnection {
+        return self.conn.clone();
+    }
+
     pub async fn create_index_metadata(
         &self,
         repository: &str,
