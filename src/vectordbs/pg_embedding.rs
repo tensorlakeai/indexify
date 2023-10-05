@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sea_orm::{query::JsonValue, ConnectionTrait, ExecResult, FromQueryResult};
 use serde_json::Value;
-use tracing::warn;
+use tracing::debug;
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb, VectorDbError};
 use crate::PgEmbeddingConfig;
@@ -48,7 +48,7 @@ impl VectorDb for PgEmbedding {
         };
 
         let query = r#"CREATE EXTENSION IF NOT EXISTS vector;"#;
-        let exec_res: ExecResult = self
+        let _ = self
             .db_conn
             .execute(Statement::from_string(
                 DbBackend::Postgres,
@@ -58,15 +58,6 @@ impl VectorDb for PgEmbedding {
             .map_err(|e| {
                 VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
-        // If more than one row is affected, something funky has occurred
-        if exec_res.rows_affected() > 0 {
-            return Err(VectorDbError::IndexCreationError(format!(
-                "More than one table affected! {:?} {:?}",
-                index_name.clone(),
-                exec_res.rows_affected()
-            )));
-        };
-
         // the "id" here corresponds to the chunk-id, and is NOT SERIAL
         let query = format!(
             r#"CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(chunk_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));"#,
@@ -90,7 +81,7 @@ impl VectorDb for PgEmbedding {
         // Create index if dimensions is below 2000. It will be much slower for larger vectors, we should be explicit about this in the docs
         // This is a limitation of pg_vector
         if vector_dim <= 2000 {
-            warn!("Parameters are: {:?}", self.config);
+            debug!("Parameters are: {:?}", self.config);
             // IF NOT EXISTS requires an index-name in postgres. "_{INDEX_TABLE_PREFIX}{index_name}_hnsw" is automatically set as the index-name
             let query = format!(
                 r#"
@@ -98,26 +89,17 @@ impl VectorDb for PgEmbedding {
                 "#,
                 self.config.m, self.config.efconstruction
             );
-            warn!("Running query: {:?}", query);
-            let exec_res: ExecResult = self
+            let _ = self
                 .db_conn
                 .execute(Statement::from_string(DbBackend::Postgres, query))
                 .await
                 .map_err(|e| {
                     VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
                 })?;
-            // If more than one row is affected, something funky has occurred
-            if exec_res.rows_affected() > 1 {
-                return Err(VectorDbError::IndexCreationError(format!(
-                    "More than one table affected! {:?} {:?}",
-                    index_name.clone(),
-                    exec_res.rows_affected()
-                )));
-            };
         }
 
         let query = format!(r#"SET hnsw.ef_search = {};"#, self.config.efsearch);
-        let exec_res: ExecResult = self
+        let _ = self
             .db_conn
             .execute(Statement::from_string(
                 DbBackend::Postgres,
@@ -127,14 +109,6 @@ impl VectorDb for PgEmbedding {
             .map_err(|e| {
                 VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
-        // If more than one row is affected, something funky has occurred
-        if exec_res.rows_affected() > 0 {
-            return Err(VectorDbError::IndexCreationError(format!(
-                "More than one table affected! {:?} {:?}",
-                index_name.clone(),
-                exec_res.rows_affected()
-            )));
-        };
         // Make a SELECT to make sure that the table exists (i.e. there was no insertion error)
         let query = r#"
                 SELECT EXISTS (
@@ -143,7 +117,6 @@ impl VectorDb for PgEmbedding {
                     WHERE table_name = $1
                 ) AS table_existence;
             "#;
-        warn!("Running query: {:?}", query);
         let response: JsonValue = JsonValue::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
             query,
@@ -162,7 +135,6 @@ impl VectorDb for PgEmbedding {
         .ok_or(VectorDbError::IndexReadError(
             "SELECT EXISTS did not run successfully".to_string(),
         ))?;
-        warn!("Return is: {:?}", response);
         match response {
             Value::Object(mut x) => {
                 let x = x
@@ -220,7 +192,6 @@ impl VectorDb for PgEmbedding {
                 DO UPDATE SET embedding = EXCLUDED.embedding;
             "#
         );
-        warn!("Insert query: {:?}", query);
         // Due to the limitations of sea-query (we cannot encode tuples, nor can we encode arrays of arrays)
         // We iteratively build out the query manually
         let parameters = chunks
@@ -253,14 +224,13 @@ impl VectorDb for PgEmbedding {
                 VectorDbError::IndexWriteError(format!("{:?} {:?}", index.to_string(), e))
             })?;
         if exec_res.rows_affected() == 0 {
-            Err(VectorDbError::IndexWriteError(format!(
+            return Err(VectorDbError::IndexWriteError(format!(
                 "{:?} {:?}",
                 index.to_string(),
                 "No rows were inserted".to_string(),
-            )))
-        } else {
-            Ok(())
+            )));
         }
+        Ok(())
     }
 
     async fn search(
@@ -276,7 +246,6 @@ impl VectorDb for PgEmbedding {
             SELECT chunk_id, CAST(embedding <-> ($1)::vector AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> ($1)::vector LIMIT {k};
         "#
         );
-        warn!("Query is {:?}", query);
         let query_embedding = query_embedding
             .into_iter()
             .map(|x| sea_orm::Value::Float(Some(x)))
@@ -298,7 +267,6 @@ impl VectorDb for PgEmbedding {
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
         let index = Self::escape_to_valid_indexname(index);
         let query = format!("DROP TABLE IF EXISTS {INDEX_TABLE_PREFIX}{index};");
-        warn!("drop query is: {:?}", query);
         let exec_res: ExecResult = self
             .db_conn
             .execute(Statement::from_string(
@@ -307,18 +275,16 @@ impl VectorDb for PgEmbedding {
             ))
             .await
             .map_err(|e| VectorDbError::IndexDeletionError(index.clone(), format!("{:?}", e)))?;
-        if exec_res.rows_affected() <= 1 {
-            // If none was deleted, then that's also ok!
-            Ok(())
-        } else {
-            Err(VectorDbError::IndexDeletionError(
+        if exec_res.rows_affected() > 1 {
+            return Err(VectorDbError::IndexDeletionError(
                 index.clone(),
                 format!(
                     "More than one table affected! {:?}",
                     exec_res.rows_affected()
                 ),
-            ))
+            ));
         }
+        Ok(())
     }
 
     async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
@@ -334,7 +300,6 @@ impl VectorDb for PgEmbedding {
                 .ok_or(VectorDbError::IndexReadError(
                     "num_vectors did not run successfully".to_string(),
                 ))?;
-        warn!("Response is: {:?}", response);
         match response {
             Value::Object(mut x) => {
                 let x = x.remove("count").ok_or(VectorDbError::IndexReadError(
