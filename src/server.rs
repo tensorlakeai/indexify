@@ -13,6 +13,8 @@ use axum::{extract::State, routing::get, routing::post, Json, Router};
 use pyo3::Python;
 use tokio::signal;
 use tracing::{error, info};
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
@@ -166,7 +168,11 @@ impl Server {
             .route(
                 "/extractors",
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
-            );
+            )
+            // include trace context as header into the response
+            .layer(OtelInResponseLayer::default())
+            //start OpenTelemetry trace on incoming request
+            .layer(OtelAxumLayer::default());
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())

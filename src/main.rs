@@ -1,8 +1,16 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
+// use opentelemetry::sdk::export::trace::SpanExporter;
+use opentelemetry::{
+    global,
+    // sdk::trace::TracerProvider,
+    // TracerProvider as _
+    trace::{Tracer},
+};
 use std::sync::Arc;
 use tracing::info;
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -37,13 +45,34 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber)?;
-    //tracing_subscriber::fmt()
-    //.with_max_level(tracing::Level::DEBUG)
-    //.with_test_writer()
-    //.init();
+    // Setup Tracing and OpenTelemetry
 
+    // Implement OpenTelemetry Tracer
+    // Make it hook up to tracing-subscriber so we have the same output
+    // let provider = TracerProvider::builder()
+    //     .with_simple_exporter(opentelemetry_stdout::SpanExporter::default())
+    //     .build();
+    // let tracer = provider.tracer("main");
+    // let tracer = opentelemetry_otlp::new_pipeline()
+    //     .install_batch(opentelemetry::runtime::AsyncStd)?;
+    let otlp_exporter = opentelemetry_otlp::new_exporter().tonic();
+    // Then pass it into pipeline builder
+    let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(otlp_exporter)
+            .install_simple()?;
+
+    let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let subscriber = tracing_subscriber::Registry::default().with(otlp_layer); // FmtSubscriber::new();
+                                                                              // let subscriber = tracing_subscriber::FmtSubscriber::new();
+                                                                              //tracing_subscriber::fmt()
+                                                                              //.with_max_level(tracing::Level::DEBUG)
+                                                                              //.with_test_writer()
+                                                                              //.init();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    // Parse CLI and start application
     let args = Cli::parse();
     let version = format!(
         "git branch: {} - sha:{}",
@@ -99,5 +128,8 @@ async fn main() -> Result<(), Error> {
             executor_server.run().await?
         }
     }
+
+    // Is shutdown here? Should probably also be configured on drop?
+    global::shutdown_tracer_provider();
     Ok(())
 }
