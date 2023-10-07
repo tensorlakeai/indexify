@@ -43,7 +43,6 @@ tracing-subscriber = { version = "^0" }
 md-5 = { version = "^0" }
 tiktoken-rs = { version = "^0" }
 dashmap = "5.4.0"
-indexmap = { version = "^2" }
 rand = { version = "^0" }
 time = { version = "0.3", features = ["macros"] }
 pyo3 = { version = "^0", features = ["auto-initialize"] }

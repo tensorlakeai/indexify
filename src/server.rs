@@ -73,14 +73,13 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
-        let vectordb = vectordbs::create_vectordb(
+        let vector_db = vectordbs::create_vectordb(
             self.config.index_config.clone(),
             repository.get_db_conn_clone(),
         )?;
         let vector_index_manager = Arc::new(VectorIndexManager::new(
-            self.config.clone(),
             repository.clone(),
-            vectordb.clone(),
+            vector_db.clone(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 

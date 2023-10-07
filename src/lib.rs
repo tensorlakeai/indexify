@@ -8,6 +8,7 @@ mod entity;
 mod executor;
 mod extractors;
 mod index;
+mod internal_api;
 mod persistence;
 mod server;
 mod server_config;
