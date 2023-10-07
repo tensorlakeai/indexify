@@ -1,39 +1,27 @@
 version: "3"
-networks:
-  dependencies:
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
-  server:
-    ipam:
-      config:
-        - subnet: 172.21.0.0/24
 services:
-  indexify:
-    image: diptanu/indexify
-    command: ["/indexify/docker_compose_start.sh"]
-    ports:
-      - "8900:8900"
-    volumes:
-      - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
-    environment:
-      - OPENAI_API_KEY
-      - DATABASE_URL=postgres://postgres:postgres@postgres/indexify
-    depends_on:
-      - qdrant
-      - postgres
-    networks:
-        server:
-            ipv4_address: 172.21.0.2
-        dependencies:
+  # indexify:
+  #   image: diptanu/indexify
+  #   command: ["/indexify/docker_compose_start.sh"]
+  #   ports:
+  #     - "8900:8900"
+  #   volumes:
+  #     - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
+  #   environment:
+  #     - OPENAI_API_KEY
+  #     - DATABASE_URL=postgres://postgres:postgres@postgres/indexify
+  #   depends_on:
+  #     - qdrant
+  #     - postgres
+  #   networks:
+  #       server:
+  #           ipv4_address: 172.21.0.2
+  #       dependencies:
   qdrant:
     image: qdrant/qdrant:v1.4.1
     restart: always
     ports:
       - 6333
-    networks:
-        dependencies:
-            ipv4_address: 172.20.0.8
   postgres:
     image: postgres
     restart: always
@@ -42,9 +30,5 @@ services:
     environment:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=indexify
-    networks:
-        dependencies:
-            ipv4_address: 172.20.0.5
-
 volumes:
   data:

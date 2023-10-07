@@ -19,10 +19,13 @@ figment = { version = "0.10.8", features = ["yaml", "env"] }
 oneshot = { version = "^0" }
 qdrant-client = "1.2.0"
 itertools = "0.11.0"
-opentelemetry = { version = "^0", features = ["async-std"] }
+opentelemetry = { version = "^0", features = ["metrics"] }
+opentelemetry_sdk = { version = "^0", features = ["metrics", "rt-tokio"] }
 opentelemetry-otlp = { version = "*", features = ["grpc-sys"] }
-opentelemetry-stdout = { version = "0.1.0", features = ["trace"] }
-opentelemetry-system-metrics = "0.1.2"
+opentelemetry-stdout = { version = "0.1.0", features = ["trace", "metrics"] }
+metrics = "0.18"
+metrics-exporter-prometheus = "0.8"
+opentelemetry-prometheus = { version = "0.13.0" }
 regex = { version = "^1" }
 sea-orm = { version = "^0", features = [
     "sqlx-postgres",
@@ -44,8 +47,8 @@ strum_macros = { version = "^0" }
 thiserror = "*"
 tokio = { version = "^1", features = ["full"] }
 tracing = { version = "^0", features = ["log"] }
-tracing-subscriber = { version = "0.3" }
 tracing-opentelemetry = { version = "0.21" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 md-5 = { version = "^0" }
 tiktoken-rs = { version = "^0" }
 dashmap = "5.4.0"

@@ -1,16 +1,24 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
+use opentelemetry::metrics::MeterProvider;
 // use opentelemetry::sdk::export::trace::SpanExporter;
 use opentelemetry::{
     global,
     // sdk::trace::TracerProvider,
     // TracerProvider as _
-    trace::{Tracer},
+    trace::Tracer,
 };
+use opentelemetry_sdk::metrics::PeriodicReader;
+use opentelemetry_sdk::runtime;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+// use opentelemetry::metrics::MeterProvider;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use opentelemetry::sdk::Resource;
+use opentelemetry::KeyValue;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -45,18 +53,59 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Setup Tracing and OpenTelemetry
+    // Spawn the tracer
+    // let subscriber = tracing_subscriber::FmtSubscriber::new();
+    // tracing::subscriber::set_global_default(subscriber)?;
+    //tracing_subscriber::fmt()
+    //.with_max_level(tracing::Level::DEBUG)
+    //.with_test_writer()
+    //.init();
+
+    // // Spawn telemetry for metrics in prometheus
+    // let registry = prometheus::Registry::new();
+    // // configure OpenTelemetry to use this registry
+    // let exporter = opentelemetry_prometheus::exporter()
+    //     .with_registry(registry.clone())
+    //     .build()?;
+
+    // let provider = MeterProvider::builder().with_reader(exporter).build();
+    // let meter = provider.meter("my-app");
+    let filter = EnvFilter::from_default_env();
 
     // Implement OpenTelemetry Tracer
     let otlp_exporter = opentelemetry_otlp::new_exporter().tonic();
     let tracer = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(otlp_exporter)
-            .install_simple()?;
+        .tracing()
+        .with_exporter(otlp_exporter)
+        .with_trace_config(
+            opentelemetry::sdk::trace::config().with_resource(Resource::new(vec![KeyValue::new(
+                "service.name",
+                "indexify-main-service",
+            )])),
+        )
+        .with_batch_config(opentelemetry::sdk::trace::BatchConfig::default())
+        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
     let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
     // Hook it up to tracing
-    let subscriber = tracing_subscriber::Registry::default().with(otlp_layer);
+    let subscriber = tracing_subscriber::registry().with(filter).with(otlp_layer);
     tracing::subscriber::set_global_default(subscriber)?;
+
+    // // Implement a meter provider
+    // let metric_exporter = opentelemetry_stdout::MetricsExporterBuilder::default()
+    //     // uncomment the below lines to pretty print output.
+    //     //  .with_encoder(|writer, data|
+    //     //    Ok(serde_json::to_writer_pretty(writer, &data).unwrap()))
+    //     .build();
+    // let reader = PeriodicReader::builder(metric_exporter, runtime::Tokio).build();
+    // MeterProvider::builder()
+    //     .with_reader(reader)
+    //     .with_resource(Resource::new(vec![KeyValue::new(
+    //         "service.name",
+    //         "indexify-main-metrics",
+    //     )]))
+    //     .build();
+
+    info!("Spinning up");
 
     // Parse CLI and start application
     let args = Cli::parse();
@@ -74,7 +123,9 @@ async fn main() -> Result<(), Error> {
             info!("version: {}", version);
 
             let config = indexify::ServerConfig::from_path(&config_path)?;
+            debug!("Server config is: {:?}", config);
             let server = indexify::Server::new(Arc::new(config.clone()))?;
+            debug!("Server struct is: {:?}", config);
             let server_handle = tokio::spawn(async move {
                 server.run().await.unwrap();
             });

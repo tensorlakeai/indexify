@@ -10,11 +10,11 @@ use anyhow::Result;
 use axum::extract::{Multipart, Path, Query};
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 use pyo3::Python;
 use tokio::signal;
 use tracing::{error, info};
-use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
@@ -182,6 +182,7 @@ impl Server {
     }
 }
 
+#[instrument]
 async fn root() -> &'static str {
     "Indexify Server"
 }
