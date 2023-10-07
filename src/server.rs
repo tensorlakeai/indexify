@@ -14,7 +14,7 @@ use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 use pyo3::Python;
 use tokio::signal;
-use tracing::{error, info};
+use tracing::{error, info, instrument};
 
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
