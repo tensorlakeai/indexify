@@ -18,4 +18,7 @@ pub enum IndexError {
 
     #[error("chunk not found: `{0}`")]
     ChunkNotFound(String),
+
+    #[error("unable to embed query: `{0}`")]
+    QueryEmbedding(String),
 }

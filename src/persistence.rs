@@ -457,16 +457,16 @@ impl Repository {
         let mut opt = ConnectOptions::new(db_url.to_owned());
         opt.sqlx_logging(false); // Disabling SQLx log;
 
-        let db = Database::connect(opt).await?;
-        Ok(Self { conn: db })
+        let conn = Database::connect(opt).await?;
+        Ok(Self { conn })
     }
 
-    pub fn new_with_db(db: DatabaseConnection) -> Self {
-        Self { conn: db }
+    pub fn new_with_db(conn: DatabaseConnection) -> Self {
+        Self { conn }
     }
 
     pub fn get_db_conn_clone(&self) -> DatabaseConnection {
-        return self.conn.clone();
+        self.conn.clone()
     }
 
     pub async fn create_index_metadata(
