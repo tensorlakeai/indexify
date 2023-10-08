@@ -12,7 +12,6 @@ use axum::extract::{Multipart, Path, Query};
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 use pyo3::Python;
 use tokio::signal;
 use tracing::{error, info};
@@ -172,7 +171,6 @@ impl Server {
                 "/extractors",
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
             )
-            .layer(OtelInResponseLayer::default())
             .layer(OtelAxumLayer::default())
             .layer(metrics);
         info!("server is listening at addr {:?}", &self.addr.to_string());

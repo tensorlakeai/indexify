@@ -15,7 +15,7 @@ These traces are automatically displayed in stdout.
 You can also use Jaeger to have a better view of the tracers, view flamegraphs to identify bottlenecks in your application.
 For this, run Jaeger inside docker as such:
 
-```
+```sh
 docker run --rm --name jaeger \
   -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
   --network="host" \
@@ -37,7 +37,7 @@ To visualize these metrics, you can use any visualization library that can colle
 
 We define the data-sources that prometheus will parse for the metrics in a `prometheus.yml` as such:
 
-```
+```yaml
 global:
   scrape_interval:     5s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
   evaluation_interval: 5s # Evaluate rules every 15 seconds. The default is every 1 minute.
@@ -57,7 +57,7 @@ scrape_configs:
 
 We can then use this config file to spin up the prometheus instance using the following docker command:
 
-```
+```sh
 docker run --rm \
     --name prometheus \
     --network="host" \
@@ -67,7 +67,7 @@ docker run --rm \
 
 as well as grafana to visualize the metrics
 
-```
+```sh
 docker run --rm \
   --name grafana \
   --network="host" \
@@ -77,3 +77,20 @@ docker run --rm \
 After setting up Prometheus as a data-source, we can then explore the data in real-time and build a dashboard.
 
 ![Grafana Explore Data](docs/docs/images/grafana/total_requests.png)
+
+
+### Troubleshooting
+
+Please make use of the docker containers wherever you can.
+OpenTelemetry makes use of OpenSSL. You may need to set some environment variables and install `g++` before you can proceed.
+
+```sh
+sudo apt-install g++
+```
+
+```sh
+export OPENSSL_LIB_DIR="/usr/lib/ssl"
+export OPENSSL_INCLUDE_DIR="/usr/include/openssl"
+export OPENSSL_LIB_DIR="/usr/lib/aarch64-linux-gnu/"
+export OTEL_TRACES_SAMPLER=always_on
+```

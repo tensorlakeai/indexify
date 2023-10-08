@@ -1,21 +1,12 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
-use opentelemetry::metrics::MeterProvider;
-// use opentelemetry::sdk::export::trace::SpanExporter;
 use opentelemetry::{
     global,
-    // sdk::trace::TracerProvider,
-    // TracerProvider as _
-    trace::Tracer,
 };
-use opentelemetry_sdk::metrics::PeriodicReader;
-use opentelemetry_sdk::runtime;
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-// use opentelemetry::metrics::MeterProvider;
-use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use tracing_subscriber::EnvFilter;
@@ -53,33 +44,16 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Parse CLI
+    // Parse CLI and any env variables
     let args = Cli::parse();
     let version = format!(
         "git branch: {} - sha:{}",
         env!("VERGEN_GIT_BRANCH"),
         env!("VERGEN_GIT_SHA")
     );
-
-    // Spawn the tracer
-    // let subscriber = tracing_subscriber::FmtSubscriber::new();
-    // tracing::subscriber::set_global_default(subscriber)?;
-    //tracing_subscriber::fmt()
-    //.with_max_level(tracing::Level::DEBUG)
-    //.with_test_writer()
-    //.init();
-
-    // // Spawn telemetry for metrics in prometheus
-    // let registry = prometheus::Registry::new();
-    // // configure OpenTelemetry to use this registry
-    // let exporter = opentelemetry_prometheus::exporter()
-    //     .with_registry(registry.clone())
-    //     .build()?;
-
-    // let provider = MeterProvider::builder().with_reader(exporter).build();
-    // let meter = provider.meter("my-app");
     let filter = EnvFilter::from_default_env();
 
+    // TODO: Traces should also be piped to stdout, not only tonic
     // Implement OpenTelemetry Tracer
     let otlp_exporter = opentelemetry_otlp::new_exporter().tonic();
     let tracer = opentelemetry_otlp::new_pipeline()
@@ -89,36 +63,22 @@ async fn main() -> Result<(), Error> {
             opentelemetry::sdk::trace::config()
                 .with_resource(Resource::new(vec![KeyValue::new(
                     "service.name",
-                    "indexify-service-main", // format!("indexify-service-main{:?}", args.command),
+                    // TODO: @diptanu, we should probably set a service-name here, could strumify the Commands enum (i.e. make each option also return a string)
+                    "indexify-service",
                 )]))
-                // In production, we can change this config
+                // TODO: In production, we can change this config
                 .with_sampler(opentelemetry::sdk::trace::Sampler::AlwaysOn),
         )
         .with_batch_config(opentelemetry::sdk::trace::BatchConfig::default())
         .install_batch(opentelemetry_sdk::runtime::Tokio)?;
     let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
     // Hook it up to tracing
     let subscriber = tracing_subscriber::registry().with(filter).with(otlp_layer);
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // set up a meter meter to create instruments
-    // let provider = MeterProvider::builder().with_reader(exporter).build();
-    // let meter = provider.meter("start-app");
-
-    // // Implement a meter provider
-    // let metric_exporter = opentelemetry_stdout::MetricsExporterBuilder::default()
-    //     // uncomment the below lines to pretty print output.
-    //     //  .with_encoder(|writer, data|
-    //     //    Ok(serde_json::to_writer_pretty(writer, &data).unwrap()))
-    //     .build();
-    // let reader = PeriodicReader::builder(metric_exporter, runtime::Tokio).build();
-    // MeterProvider::builder()
-    //     .with_reader(reader)
-    //     .with_resource(Resource::new(vec![KeyValue::new(
-    //         "service.name",
-    //         "indexify-main-metrics",
-    //     )]))
-    //     .build();
+    // TODO: We can add another global span here, before we call the individual functions
+    // This will be required to trace functions that are not explicity marked as #[instrument]
 
     // Start application
     info!("Spinning up");
