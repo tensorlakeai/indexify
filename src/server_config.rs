@@ -63,6 +63,7 @@ pub struct OpenAIConfig {
 pub enum IndexStoreKind {
     Qdrant,
     PgVector,
+    OpenSearchKnn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +76,24 @@ impl Default for QdrantConfig {
     fn default() -> Self {
         Self {
             addr: "http://127.0.0.1:6334".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct OpenSearchBasicConfig {
+    pub addr: String,
+    pub username: String,
+    pub password: String,
+}
+
+impl Default for OpenSearchBasicConfig {
+    fn default() -> Self {
+        Self {
+            addr: "https://localhost:9200".into(),
+            username: "admin".into(),
+            password: "admin".into(),
         }
     }
 }
@@ -106,6 +125,7 @@ pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
     pub pg_vector_config: Option<PgVectorConfig>,
+    pub opensearch_basic: Option<OpenSearchBasicConfig>,
 }
 
 impl Default for VectorIndexConfig {
@@ -114,6 +134,7 @@ impl Default for VectorIndexConfig {
             index_store: IndexStoreKind::Qdrant,
             qdrant_config: Some(QdrantConfig::default()),
             pg_vector_config: Some(PgVectorConfig::default()),
+            opensearch_basic: Some(OpenSearchBasicConfig::default()),
         }
     }
 }
