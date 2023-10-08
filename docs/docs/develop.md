@@ -99,8 +99,14 @@ Visual Studio Code Devcontainers have been setup as well. Opening the codebase i
 You can visualize all logs using Jaeger All-In-One which parses all logs from the OTLP
 
 ```
+docker network create jaeger-prom-network
+```
+
+```
 docker run --rm --name jaeger \
   -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
+  -e METRICS_STORAGE_TYPE=prometheus \
+  --network=jaeger-prom-network \
   -p 6831:6831/udp \
   -p 6832:6832/udp \
   -p 5778:5778 \
@@ -111,7 +117,53 @@ docker run --rm --name jaeger \
   -p 14268:14268 \
   -p 14269:14269 \
   -p 9411:9411 \
+  jaegertracing/all-in-one:1.49 \
+  --log-level=debug \
+  --prometheus.server-url=http://prometheus:9090
+```
+
+docker run --rm --name jaeger \
+  -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
+  -e METRICS_STORAGE_TYPE=prometheus \
+  --network="host" \
   jaegertracing/all-in-one:1.49
+```
+ <!-- \
+  --log-level=debug -->
+
+<!-- --prometheus.query.support-spanmetrics-connector=true \ -->
+<!-- -- -e JAEGER_DISABLED=true \ -->
+
+To monitor metrics, we need to temporarily save them in a time-series database
+
+```
+
+docker run --rm \
+    --name prometheus \
+    -p 9090:9090 \
+    --network=jaeger-prom-network \
+    -v "./prometheus.yaml:/etc/prometheus/prometheus.yml" \
+    prom/prometheus
+
+```
+
+```
+
+docker run --rm \
+  --name grafana \
+  --network=jaeger-prom-network \
+  -p 3000:3000 \
+  grafana/grafana
+
+```
+
+```
+
+docker run --rm \
+  --name grafana \
+  --network="host" \
+  grafana/grafana
+
 ```
 
 ### Docker-compose

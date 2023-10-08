@@ -33,7 +33,7 @@ pub enum IndexDistance {
 }
 
 /// A request to create a new vector index in the vector database.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CreateIndexParams {
     pub vectordb_index_name: String,
     pub vector_dim: u64,

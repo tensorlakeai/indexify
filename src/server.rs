@@ -5,6 +5,7 @@ use crate::persistence::Repository;
 use crate::vector_index::VectorIndexManager;
 use crate::ServerConfig;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 
 use anyhow::Result;
 use axum::extract::{Multipart, Path, Query};
@@ -14,7 +15,7 @@ use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 use pyo3::Python;
 use tokio::signal;
-use tracing::{error, info, instrument};
+use tracing::{error, info};
 
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
@@ -22,7 +23,6 @@ use utoipa_redoc::{Redoc, Servable};
 
 use utoipa_swagger_ui::SwaggerUi;
 
-use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -109,7 +109,9 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_addr,
         };
+        let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
+            .merge(metrics.routes())
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
@@ -170,10 +172,9 @@ impl Server {
                 "/extractors",
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
             )
-            // include trace context as header into the response
             .layer(OtelInResponseLayer::default())
-            //start OpenTelemetry trace on incoming request
-            .layer(OtelAxumLayer::default());
+            .layer(OtelAxumLayer::default())
+            .layer(metrics);
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())

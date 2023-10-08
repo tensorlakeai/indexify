@@ -81,6 +81,7 @@ impl DataRepositoryManager {
         }
     }
 
+    #[tracing::instrument]
     pub async fn create_default_repository(
         &self,
         _server_config: &ServerConfig,
@@ -102,6 +103,7 @@ impl DataRepositoryManager {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn list_repositories(&self) -> Result<Vec<DataRepository>, DataRepositoryError> {
         self.repository
             .repositories()
@@ -109,6 +111,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    #[tracing::instrument]
     async fn create_index(
         &self,
         repository: &str,
@@ -137,6 +140,7 @@ impl DataRepositoryManager {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
         info!("creating data repository: {}", repository.name);
         self.repository
@@ -152,6 +156,7 @@ impl DataRepositoryManager {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn get(&self, name: &str) -> Result<DataRepository, DataRepositoryError> {
         self.repository
             .repository_by_name(name)
@@ -159,6 +164,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    #[tracing::instrument]
     pub async fn add_extractor_binding(
         &self,
         repository: &str,
@@ -187,6 +193,7 @@ impl DataRepositoryManager {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn add_texts(
         &self,
         repo_name: &str,
@@ -199,6 +206,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    #[tracing::instrument]
     pub async fn list_indexes(
         &self,
         repository_name: &str,
@@ -211,6 +219,7 @@ impl DataRepositoryManager {
         Ok(indexes)
     }
 
+    #[tracing::instrument]
     pub async fn search(
         &self,
         repository: &str,
@@ -224,6 +233,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::RetrievalError)
     }
 
+    #[tracing::instrument]
     pub async fn attribute_lookup(
         &self,
         repository: &str,
@@ -235,6 +245,7 @@ impl DataRepositoryManager {
             .await
     }
 
+    #[tracing::instrument]
     pub async fn list_extractors(&self) -> Result<Vec<ExtractorConfig>, DataRepositoryError> {
         let extractors = self
             .repository
@@ -244,6 +255,7 @@ impl DataRepositoryManager {
         Ok(extractors)
     }
 
+    #[tracing::instrument]
     pub async fn add_events(
         &self,
         repository: &str,
@@ -255,6 +267,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    #[tracing::instrument]
     pub async fn list_events(&self, repository: &str) -> Result<Vec<Event>, DataRepositoryError> {
         self.repository
             .list_events(repository)
@@ -262,6 +275,7 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
+    #[tracing::instrument]
     pub async fn upload_file(
         &self,
         repository: &str,

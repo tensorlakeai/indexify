@@ -11,7 +11,11 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get, routing::post, Router};
+use axum_otel_metrics::HttpMetricsLayerBuilder;
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 use dashmap::DashMap;
+use std::fmt;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -22,6 +26,7 @@ use tokio::{signal, sync::mpsc};
 use tracing::error;
 use tracing::info;
 
+#[derive(Debug)]
 struct WorkStore {
     allocated_work: Arc<RwLock<HashMap<String, Work>>>,
 }
@@ -66,7 +71,24 @@ pub struct ExtractorExecutor {
     work_store: WorkStore,
 }
 
+impl fmt::Debug for ExtractorExecutor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractorExecutor")
+            .field("repository", &self.repository)
+            .field("config", &self.config)
+            .field("executor_id", &self.executor_id)
+            // .field("extractors", &self.extractors)
+            .field("extractor_info_list", &self.extractor_info_list)
+            // .field("vector_index_manager", &self.vector_index_manager)
+            .field("attribute_index_manager", &self.attribute_index_manager)
+            // .field("content_reader_builder", &self.content_reader_builder)
+            // .field("work_store", &self.work_store)
+            .finish()
+    }
+}
+
 impl ExtractorExecutor {
+    #[tracing::instrument]
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self> {
         let repository = Arc::new(Repository::new(&config.db_url).await?);
         let executor_id = get_host_name(config.clone())?;
@@ -107,6 +129,7 @@ impl ExtractorExecutor {
         Ok(extractor_executor)
     }
 
+    #[tracing::instrument]
     pub fn new_test(
         repository: Arc<Repository>,
         config: Arc<ServerConfig>,
@@ -139,6 +162,7 @@ impl ExtractorExecutor {
         })
     }
 
+    #[tracing::instrument]
     pub fn get_executor_info(&self) -> ExecutorInfo {
         ExecutorInfo {
             id: self.executor_id.clone(),
@@ -150,6 +174,7 @@ impl ExtractorExecutor {
         }
     }
 
+    #[tracing::instrument]
     pub async fn sync_repo(&self) -> Result<u64, anyhow::Error> {
         let work_status: Vec<Work> = self
             .work_store
@@ -196,6 +221,7 @@ impl ExtractorExecutor {
         Ok(0)
     }
 
+    #[tracing::instrument]
     pub async fn sync_repo_test(&self, work_list: Vec<Work>) -> Result<u64, anyhow::Error> {
         self.work_store.add_work_list(work_list);
         if let Err(err) = self.perform_work().await {
@@ -205,6 +231,7 @@ impl ExtractorExecutor {
         Ok(0)
     }
 
+    #[tracing::instrument]
     pub async fn perform_work(&self) -> Result<(), anyhow::Error> {
         let work_list: Vec<Work> = self
             .work_store
@@ -330,10 +357,18 @@ impl ExecutorServer {
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let app = Router::new().route("/", get(root)).route(
-            "/sync_executor",
-            post(sync_worker).with_state(self.executor.clone()),
-        );
+        let metrics = HttpMetricsLayerBuilder::new().build();
+        let app = Router::new()
+            .merge(metrics.routes())
+            .route("/", get(root))
+            .route(
+                "/sync_executor",
+                post(sync_worker).with_state(self.executor.clone()),
+            ) // include trace context as header into the response
+            .layer(OtelInResponseLayer::default())
+            //start OpenTelemetry trace on incoming request
+            .layer(OtelAxumLayer::default())
+            .layer(metrics);
         let addr: SocketAddr = self.config.executor_config.server_listen_addr.parse()?;
         info!("starting executor server on: {}", &addr);
         let (tx, rx) = mpsc::channel(32);
@@ -349,10 +384,12 @@ impl ExecutorServer {
     }
 }
 
+#[tracing::instrument]
 async fn root() -> &'static str {
     "Indexify Extractor Server"
 }
 
+#[tracing::instrument]
 #[axum_macros::debug_handler]
 async fn sync_worker(
     extractor_executor: State<Arc<ExtractorExecutor>>,
@@ -364,6 +401,7 @@ async fn sync_worker(
     Ok(())
 }
 
+#[tracing::instrument]
 fn get_host_name(config: Arc<ServerConfig>) -> Result<String> {
     Ok(config
         .executor_config
@@ -375,6 +413,7 @@ fn get_host_name(config: Arc<ServerConfig>) -> Result<String> {
         }))
 }
 
+#[tracing::instrument]
 async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
     let ctrl_c = async {
         signal::ctrl_c()

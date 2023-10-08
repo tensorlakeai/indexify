@@ -19,6 +19,7 @@ figment = { version = "0.10.8", features = ["yaml", "env"] }
 oneshot = { version = "^0" }
 qdrant-client = "1.2.0"
 itertools = "0.11.0"
+axum-otel-metrics = "0.3"
 opentelemetry = { version = "^0", features = ["metrics"] }
 opentelemetry_sdk = { version = "^0", features = ["metrics", "rt-tokio"] }
 opentelemetry-otlp = { version = "*", features = ["grpc-sys"] }

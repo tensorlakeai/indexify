@@ -1,5 +1,6 @@
 use anyhow::Result;
 use dashmap::DashMap;
+use std::fmt;
 
 use crate::{
     extractors::{create_extractor, ExtractedEmbeddings, ExtractorTS},
@@ -16,6 +17,16 @@ pub struct VectorIndexManager {
     vector_db: VectorDBTS,
 
     embedding_extractors: DashMap<String, ExtractorTS>,
+}
+
+impl fmt::Debug for VectorIndexManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VectorIndexManager")
+            .field("repository", &self.repository)
+            // .field("vector_db", &self.vector_db)
+            // .field("embedding_extractors", &self.embedding_extractors)
+            .finish()
+    }
 }
 
 pub struct ScoredText {

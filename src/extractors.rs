@@ -3,6 +3,7 @@ use anyhow::{anyhow, Ok, Result};
 use pythonize::pythonize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
 use tracing::info;
 
@@ -25,7 +26,7 @@ pub struct EmbeddingSchema {
 }
 
 #[pyclass]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Content {
     #[pyo3(get, set)]
     pub id: String,
@@ -108,6 +109,7 @@ pub trait Extractor {
     ) -> Result<Vec<AttributeData>, anyhow::Error>;
 }
 
+#[tracing::instrument]
 pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<ExtractorTS> {
     match extractor_config.driver {
         server_config::ExtractorDriver::Python => {
@@ -121,6 +123,14 @@ pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<Ex
 
 pub struct PythonDriver {
     module_object: PyObject,
+}
+
+impl fmt::Debug for PythonDriver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PythonDriver")
+            // .field("module_object", &self.module_object)
+            .finish()
+    }
 }
 
 impl PythonDriver {
@@ -160,6 +170,7 @@ impl PythonDriver {
 
 #[async_trait::async_trait]
 impl Extractor for PythonDriver {
+    #[tracing::instrument]
     fn info(&self) -> Result<ExtractorConfig, anyhow::Error> {
         let info = Python::with_gil(|py| {
             let info = self.module_object.call_method0(py, "_info")?;
@@ -170,6 +181,7 @@ impl Extractor for PythonDriver {
         Ok(info)
     }
 
+    #[tracing::instrument]
     fn extract_embedding(
         &self,
         content: Vec<Content>,
@@ -186,6 +198,7 @@ impl Extractor for PythonDriver {
         Ok(extracted_data)
     }
 
+    #[tracing::instrument]
     fn extract_embedding_query(&self, query: &str) -> Result<Vec<f32>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
             let extracted_data =
@@ -197,6 +210,7 @@ impl Extractor for PythonDriver {
         Ok(extracted_data)
     }
 
+    #[tracing::instrument]
     fn extract_attributes(
         &self,
         content: Vec<Content>,

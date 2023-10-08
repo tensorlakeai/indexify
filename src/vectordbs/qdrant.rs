@@ -27,6 +27,7 @@ fn u64_to_hex(number: u64) -> String {
     format!("{:x}", number)
 }
 
+#[derive(Debug)]
 pub struct QdrantDb {
     qdrant_config: QdrantConfig,
 }
@@ -67,6 +68,7 @@ impl VectorDb for QdrantDb {
         "qdrant".into()
     }
 
+    #[tracing::instrument]
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
         let result = self
             .create_client()?
@@ -94,6 +96,7 @@ impl VectorDb for QdrantDb {
             .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))
     }
 
+    #[tracing::instrument]
     async fn add_embedding(
         &self,
         index: &str,
@@ -122,6 +125,7 @@ impl VectorDb for QdrantDb {
         Ok(())
     }
 
+    #[tracing::instrument]
     async fn search(
         &self,
         index: String,
@@ -155,6 +159,7 @@ impl VectorDb for QdrantDb {
         Ok(documents)
     }
 
+    #[tracing::instrument]
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
         let result = self.create_client()?.delete_collection(index.clone()).await;
         if let Err(err) = result {
@@ -166,6 +171,7 @@ impl VectorDb for QdrantDb {
         Ok(())
     }
 
+    #[tracing::instrument]
     async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
         let result = self
             .create_client()?
