@@ -156,7 +156,7 @@ pub struct ServerConfig {
     pub db_url: String,
     pub coordinator_addr: String,
     pub executor_config: ExecutorConfig,
-    pub extractors: Vec<Extractor>,
+    pub extractor: Extractor,
     pub blob_storage: BlobStorage,
 }
 
@@ -174,7 +174,7 @@ impl Default for ServerConfig {
                 server_listen_addr: "0.0.0.0:8951".to_string(),
                 executor_id: None,
             },
-            extractors: vec![Extractor::default()],
+            extractor: Extractor::default(),
             blob_storage: BlobStorage {
                 backend: "disk".to_string(),
                 s3: None,

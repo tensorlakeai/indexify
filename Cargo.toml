@@ -12,7 +12,7 @@ anyhow = { version = "^1" }
 async-trait = "*"
 axum = { version = "^0", features = ["multipart"] }
 axum-macros = { version = "0.3.7" }
-axum-otel-metrics = "0.3"
+axum-otel-metrics = "0.6"
 axum-tracing-opentelemetry = "0.14.1"
 bytes = "1.5.0"
 clap = { version = "^4", features = ["derive"] }
@@ -54,13 +54,15 @@ smart-default = { version = "^0" }
 strum = { version = "^0", features = ["derive"] }
 strum_macros = { version = "^0" }
 thiserror = "*"
-time = { version = "0.3", features = ["macros"] }
 tokio = { version = "^1", features = ["full"] }
 tracing = { version = "^0", features = ["log"] }
 tracing-core = "0.1.31"
 tracing-opentelemetry = { version = "0.21" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "*"
+md-5 = { version = "^0" }
+tiktoken-rs = { version = "^0" }
+time = { version = "0.3", features = ["macros"] }
 utoipa = { version = "^4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "^4", features = ["axum"] }
 utoipa-rapidoc = { version = "^1", features = ["axum"] }

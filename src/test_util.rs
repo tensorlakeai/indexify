@@ -72,7 +72,7 @@ pub mod db_utils {
             },
         };
         coordinator
-            .record_extractors(vec![default_extractor])
+            .record_extractor(default_extractor)
             .await
             .unwrap();
         (vector_index_manager, extractor_executor, coordinator)
