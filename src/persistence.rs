@@ -448,6 +448,7 @@ pub enum RepositoryError {
     LogicError(String),
 }
 
+#[derive(Debug)]
 pub struct Repository {
     conn: DatabaseConnection,
 }

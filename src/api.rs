@@ -412,15 +412,15 @@ impl From<persistence::Event> for Event {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EventAddRequest {
     pub events: Vec<Event>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EventAddResponse {}
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListEventsResponse {
     pub messages: Vec<Event>,
 }

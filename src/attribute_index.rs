@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::persistence::{ExtractedAttributes, ExtractorConfig, Repository};
 
+#[derive(Debug)]
 pub struct AttributeIndexManager {
     repository: Arc<Repository>,
 }

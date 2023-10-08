@@ -26,6 +26,7 @@ RUN apt -y install python3.11-dev
 RUN export OPENSSL_LIB_DIR="/usr/lib/ssl"
 RUN export OPENSSL_INCLUDE_DIR="/usr/include/openssl"
 RUN export OPENSSL_LIB_DIR="/usr/lib/aarch64-linux-gnu/"
+RUN export OTEL_TRACES_SAMPLER=always_on
 
 # RUN python3.11 -m venv ve
 # RUN source ve/bin/activate

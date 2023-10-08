@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bytes::Bytes;
 use sea_orm::DbConn;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc};
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -39,6 +39,15 @@ pub struct DataRepositoryManager {
     vector_index_manager: Arc<VectorIndexManager>,
     attribute_index_manager: Arc<AttributeIndexManager>,
     blob_storage: BlobStorageTS,
+}
+
+impl fmt::Debug for DataRepositoryManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DataRepositoryManager")
+            .field("repository", &self.repository)
+            .field("attribute_index_manager", &self.attribute_index_manager)
+            .finish()
+    }
 }
 
 impl DataRepositoryManager {
