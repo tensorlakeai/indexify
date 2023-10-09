@@ -46,15 +46,15 @@ serde_json = { version = "^1", features = ["std"] }
 smart-default = { version = "^0" }
 strum_macros = { version = "^0" }
 thiserror = "*"
+time = { version = "0.3", features = ["macros"] }
 tokio = { version = "^1", features = ["full"] }
 tracing = { version = "^0", features = ["log"] }
 tracing-opentelemetry = { version = "0.21" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-time = { version = "0.3", features = ["macros"] }
 utoipa = { version = "^4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "^4", features = ["axum"] }
-utoipa-redoc = { version = "^1", features = ["axum"] }
 utoipa-rapidoc = { version = "^1", features = ["axum"] }
+utoipa-redoc = { version = "^1", features = ["axum"] }
 
 [dev-dependencies]
 migration = { path = "./migration" }
