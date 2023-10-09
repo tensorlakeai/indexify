@@ -40,6 +40,15 @@ docker exec postgres_test psql -U postgres -c 'create database indexify;'
 
 pip install .
 
+echo "Environment variables"
+echo $QDRANT_VERSION
+echo $QDRANT_HOST
+echo $OPENSSL_LIB_DIR
+echo $OPENSSL_INCLUDE_DIR
+echo $OPENSSL_LIB_DIR
+echo $OTEL_TRACES_SAMPLER
+echo "Starting cargo test ..."
+
 cargo test -- --test-threads 1
 
 echo "Ok, that is enough"
