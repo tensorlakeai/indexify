@@ -164,7 +164,7 @@ impl Default for ServerConfig {
                 }),
             },
             trace_id_ratio: 1.0,
-            otlp_http_collector: "http://localhost:4318".to_owned(),
+            otlp_http_collector: "http://localhost:4318/v1/traces".to_owned(),
         }
     }
 }
