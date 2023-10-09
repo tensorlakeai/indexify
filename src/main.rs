@@ -1,14 +1,12 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
-use opentelemetry::{
-    global,
-};
+use opentelemetry::global;
+use opentelemetry::sdk::Resource;
+use opentelemetry::KeyValue;
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-use opentelemetry::sdk::Resource;
-use opentelemetry::KeyValue;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -55,7 +53,7 @@ async fn main() -> Result<(), Error> {
 
     // TODO: Traces should also be piped to stdout, not only tonic
     // Implement OpenTelemetry Tracer
-    let otlp_exporter = opentelemetry_otlp::new_exporter().tonic();
+    let otlp_exporter = opentelemetry_otlp::new_exporter().http();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(otlp_exporter)
