@@ -19,7 +19,5 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: 3.9
-    - name: Install OpenSSL
-      run: sudo apt-get install -y build-essential cmake ca-certificates curl gnupg pkg-config libssl-dev
     - name: test
       run: ./run_tests.sh

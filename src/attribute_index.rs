@@ -1,12 +1,18 @@
 use anyhow::Result;
 
+use std::fmt;
 use std::sync::Arc;
 
 use crate::persistence::{ExtractedAttributes, ExtractorConfig, Repository};
 
-#[derive(Debug)]
 pub struct AttributeIndexManager {
     repository: Arc<Repository>,
+}
+
+impl fmt::Debug for AttributeIndexManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttributeIndexManager").finish()
+    }
 }
 
 impl AttributeIndexManager {

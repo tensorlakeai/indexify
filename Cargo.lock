@@ -1522,7 +1522,6 @@ dependencies = [
  "object_store",
  "opentelemetry 0.20.0",
  "opentelemetry-otlp",
- "opentelemetry_sdk 0.20.0",
  "pyo3",
  "pyo3-build-config",
  "pythonize",

@@ -43,10 +43,7 @@ pub struct DataRepositoryManager {
 
 impl fmt::Debug for DataRepositoryManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DataRepositoryManager")
-            .field("repository", &self.repository)
-            .field("attribute_index_manager", &self.attribute_index_manager)
-            .finish()
+        f.debug_struct("DataRepositoryManager").finish()
     }
 }
 

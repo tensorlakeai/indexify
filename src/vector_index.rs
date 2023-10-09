@@ -18,9 +18,7 @@ pub struct VectorIndexManager {
 
 impl fmt::Debug for VectorIndexManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("VectorIndexManager")
-            .field("repository", &self.repository)
-            .finish()
+        f.debug_struct("VectorIndexManager").finish()
     }
 }
 

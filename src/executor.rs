@@ -27,7 +27,6 @@ use tokio::{signal, sync::mpsc};
 use tracing::error;
 use tracing::info;
 
-#[derive(Debug)]
 struct WorkStore {
     allocated_work: Arc<RwLock<HashMap<String, Work>>>,
 }
@@ -75,12 +74,9 @@ pub struct ExtractorExecutor {
 impl fmt::Debug for ExtractorExecutor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExtractorExecutor")
-            .field("repository", &self.repository)
             .field("config", &self.config)
             .field("executor_id", &self.executor_id)
             .field("extractor_info_list", &self.extractor_info_list)
-            .field("attribute_index_manager", &self.attribute_index_manager)
-            .field("work_store", &self.work_store)
             .finish()
     }
 }

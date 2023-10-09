@@ -3,7 +3,6 @@ use anyhow::{anyhow, Ok, Result};
 use pythonize::pythonize;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::sync::Arc;
 use tracing::info;
 
@@ -120,14 +119,9 @@ pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<Ex
     }
 }
 
+#[derive(Debug)]
 pub struct PythonDriver {
     module_object: PyObject,
-}
-
-impl fmt::Debug for PythonDriver {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PythonDriver").finish()
-    }
 }
 
 impl PythonDriver {

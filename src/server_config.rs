@@ -137,6 +137,7 @@ pub struct ServerConfig {
     pub executor_config: ExecutorConfig,
     pub extractors: Vec<Extractor>,
     pub blob_storage: BlobStorage,
+    pub trace_id_ratio: f64,
 }
 
 impl Default for ServerConfig {
@@ -161,6 +162,7 @@ impl Default for ServerConfig {
                     path: "blobs".to_string(),
                 }),
             },
+            trace_id_ratio: 1.0,
         }
     }
 }

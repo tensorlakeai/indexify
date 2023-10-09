@@ -6,11 +6,12 @@ All logs are exported using the unified [OTLP](https://opentelemetry.io/docs/spe
 ## Logs
 
 Indexify exposes logs (traces) and metrics to manage the system better.
-
-It uses the [tracing](https://docs.rs/tracing/latest/tracing/) module which asynchronously (using tokio) produces logs.
-You can modify the log-leve using the RUST_LOG environment variable.
+The service name is `indexify-service`.
+You can modify the log-level using the RUST_LOG environment variable.
 <!-- TODO: this should be set before Docker is run -->
 These traces are automatically displayed in stdout.
+
+### Visualizing logs in Jaeger
 
 You can also use Jaeger to have a better view of the tracers, view flamegraphs to identify bottlenecks in your application.
 For this, run Jaeger inside docker as such:
@@ -29,13 +30,12 @@ As you make specific API calls to your indexify application (such as "localhost:
 ![Statistics](docs/docs/images/jaeger/stats.png)
 ![Flamegraph](docs/docs/images/jaeger/flamegraph.png)
 
-## Metrics
+### Visualizin Metrics
 
 The coordinator, executor and server individually expose metrics using [this package](https://github.com/ttys3/axum-otel-metrics).
+To visualize these metrics, you can use any visualization library that can collect and parse OLTP data.
 
-To visualize these metrics, you can use any visualization library that can collect and parse OLTP data. In this example, we will use prometheus and grafana.
-
-We define the data-sources that prometheus will parse for the metrics in a `prometheus.yml` as such:
+For example, we can use prometheus and grafana. We define the data-sources that prometheus will parse for the metrics in a `prometheus.yml` as such:
 
 ```yaml
 global:
@@ -77,20 +77,3 @@ docker run --rm \
 After setting up Prometheus as a data-source, we can then explore the data in real-time and build a dashboard.
 
 ![Grafana Explore Data](docs/docs/images/grafana/total_requests.png)
-
-
-### Troubleshooting
-
-Please make use of the docker containers wherever you can.
-OpenTelemetry makes use of OpenSSL. You may need to set some environment variables and install `g++` before you can proceed.
-
-```sh
-sudo apt-install g++
-```
-
-```sh
-export OPENSSL_LIB_DIR="/usr/lib/ssl"
-export OPENSSL_INCLUDE_DIR="/usr/include/openssl"
-export OPENSSL_LIB_DIR="/usr/lib/aarch64-linux-gnu/"
-export OTEL_TRACES_SAMPLER=always_on
-```
