@@ -20,8 +20,6 @@ impl fmt::Debug for VectorIndexManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VectorIndexManager")
             .field("repository", &self.repository)
-            // .field("vector_db", &self.vector_db)
-            // .field("embedding_extractors", &self.embedding_extractors)
             .finish()
     }
 }
@@ -234,7 +232,7 @@ mod tests {
         extractor_executor.sync_repo_test(work_list).await.unwrap();
 
         // FIX ME - This is broken because the Test Setup doesn't start the coordinator and executor server
-        // which we rely to get the embeddings of the query 
+        // which we rely to get the embeddings of the query
 
         //let result = index_manager
         //    .search(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR, "pipe", 1)

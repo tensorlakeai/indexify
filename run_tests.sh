@@ -14,6 +14,10 @@ function stop_docker()
 
 QDRANT_VERSION='v1.4.1'
 QDRANT_HOST='localhost:6333'
+OPENSSL_LIB_DIR="/usr/lib/ssl"
+OPENSSL_INCLUDE_DIR="/usr/include/openssl"
+OPENSSL_LIB_DIR="/usr/lib/aarch64-linux-gnu/"
+OTEL_TRACES_SAMPLER=always_on
 
 docker run -d --rm \
            --network=host \

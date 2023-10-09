@@ -126,9 +126,7 @@ pub struct PythonDriver {
 
 impl fmt::Debug for PythonDriver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PythonDriver")
-            // .field("module_object", &self.module_object)
-            .finish()
+        f.debug_struct("PythonDriver").finish()
     }
 }
 

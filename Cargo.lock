@@ -1315,19 +1315,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "generator"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3e123d9ae7c02966b4d892e550bdc32164f05853cd40ab570650ad600596a8a"
-dependencies = [
- "cc",
- "libc",
- "log",
- "rustversion",
- "windows",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1688,7 +1675,6 @@ dependencies = [
  "migration",
  "nanoid",
  "object_store",
- "oneshot",
  "opentelemetry 0.20.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.20.0",
@@ -1910,20 +1896,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "518ef76f2f87365916b142844c16d8fefd85039bc5699050210a7778ee1cd1de"
 dependencies = [
  "value-bag",
-]
-
-[[package]]
-name = "loom"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff50ecb28bb86013e935fb6683ab1f6d3a20016f123c76fd4c27470076ac30f5"
-dependencies = [
- "cfg-if",
- "generator",
- "pin-utils",
- "scoped-tls",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2170,15 +2142,6 @@ name = "once_cell"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
-
-[[package]]
-name = "oneshot"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc22d22931513428ea6cc089e942d38600e3d00976eef8c86de6b8a3aadec6eb"
-dependencies = [
- "loom",
-]
 
 [[package]]
 name = "openssl"
@@ -3176,12 +3139,6 @@ checksum = "713cfb06c7059f3588fb8044c0fad1d09e3c01d225e25b9220dbfdcf16dbb1b3"
 dependencies = [
  "windows-sys 0.42.0",
 ]
-
-[[package]]
-name = "scoped-tls"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"

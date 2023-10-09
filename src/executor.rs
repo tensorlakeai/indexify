@@ -11,12 +11,12 @@ use crate::{
     vectordbs, ExecutorInfo, ServerConfig, SyncExecutor, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
+use axum::{extract::State, routing::get, routing::post, Json, Router};
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use std::fmt;
-use axum::{extract::State, routing::get, routing::post, Json, Router};
 use dashmap::DashMap;
 use reqwest::StatusCode;
+use std::fmt;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -78,12 +78,9 @@ impl fmt::Debug for ExtractorExecutor {
             .field("repository", &self.repository)
             .field("config", &self.config)
             .field("executor_id", &self.executor_id)
-            // .field("extractors", &self.extractors)
             .field("extractor_info_list", &self.extractor_info_list)
-            // .field("vector_index_manager", &self.vector_index_manager)
             .field("attribute_index_manager", &self.attribute_index_manager)
-            // .field("content_reader_builder", &self.content_reader_builder)
-            // .field("work_store", &self.work_store)
+            .field("work_store", &self.work_store)
             .finish()
     }
 }
