@@ -33,10 +33,7 @@ impl ContentReader {
     pub async fn read(&self) -> Result<Vec<u8>, anyhow::Error> {
         match self.payload.payload_type {
             PayloadType::EmbeddedStorage => Ok(self.payload.payload.clone().into_bytes()),
-            PayloadType::BlobStorageLink => {
-                let blob = self.blob_storage.get(&self.payload.payload).await;
-                blob
-            }
+            PayloadType::BlobStorageLink => self.blob_storage.get(&self.payload.payload).await,
         }
     }
 }

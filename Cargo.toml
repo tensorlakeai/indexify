@@ -48,14 +48,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 md-5 = { version = "^0" }
 tiktoken-rs = { version = "^0" }
 dashmap = "5.4.0"
-indexmap = { version = "^2" }
 rand = { version = "^0" }
 time = { version = "0.3", features = ["macros"] }
 pyo3 = { version = "^0", features = ["auto-initialize"] }
-utoipa = { version = "^3", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "^3", features = ["axum"] }
-utoipa-redoc = { version = "^0", features = ["axum"] }
-utoipa-rapidoc = { version = "^0", features = ["axum"] }
+utoipa = { version = "^4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "^4", features = ["axum"] }
+utoipa-redoc = { version = "^1", features = ["axum"] }
+utoipa-rapidoc = { version = "^1", features = ["axum"] }
 nanoid = { version = "0.4.0" }
 reqwest = { version = "^0" }
 hostname = { version = "^0" }

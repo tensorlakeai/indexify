@@ -8,6 +8,7 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
+    internal_api::{EmbedQueryRequest, EmbedQueryResponse},
     persistence::{
         ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
     },
@@ -15,7 +16,6 @@ use crate::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
 use indexmap::{IndexMap, IndexSet};
 use std::{
     collections::HashMap,
@@ -24,10 +24,11 @@ use std::{
     time::SystemTime,
 };
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorInfo {
     pub id: String,
     pub last_seen: u64,
+    pub addr: String,
     pub available_extractors: Vec<ExtractorConfig>,
 }
 
@@ -35,6 +36,7 @@ pub struct ExecutorInfo {
 pub struct SyncExecutor {
     pub executor_id: String,
     pub available_extractors: Vec<ExtractorConfig>,
+    pub addr: String,
     pub work_status: Vec<Work>,
 }
 
@@ -65,10 +67,12 @@ pub struct CreateWorkResponse {}
 #[derive(Debug)]
 pub struct Coordinator {
     // Executor ID -> Last Seen Timestamp
-    executor_health_checks: Arc<RwLock<IndexMap<String, u64>>>,
+    executor_health_checks: Arc<RwLock<HashMap<String, u64>>>,
 
-    // List of known executors
-    executors: Arc<RwLock<IndexSet<String>>>,
+    executors: Arc<RwLock<HashMap<String, ExecutorInfo>>>,
+
+    // Extractor Name -> [Executor ID]
+    extractors_table: Arc<RwLock<HashMap<String, Vec<String>>>>,
 
     repository: Arc<Repository>,
 
@@ -80,8 +84,9 @@ impl Coordinator {
         let (tx, rx) = mpsc::channel(32);
 
         let coordinator = Arc::new(Self {
-            executor_health_checks: Arc::new(RwLock::new(IndexMap::new())),
-            executors: Arc::new(RwLock::new(IndexSet::new())),
+            executor_health_checks: Arc::new(RwLock::new(HashMap::new())),
+            executors: Arc::new(RwLock::new(HashMap::new())),
+            extractors_table: Arc::new(RwLock::new(HashMap::new())),
             repository,
             tx,
         });
@@ -94,13 +99,29 @@ impl Coordinator {
 
     #[tracing::instrument]
     pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
+        // First see if the executor is already in the table
+        let is_new_executor = self
+            .executor_health_checks
+            .read()
+            .unwrap()
+            .get(&worker.id)
+            .is_none();
         self.executor_health_checks
             .write()
             .unwrap()
             .insert(worker.id.clone(), worker.last_seen);
-
-        // Add the worker to our list of active workers
-        self.executors.write().unwrap().insert(worker.id);
+        if is_new_executor {
+            info!("recording new executor: {}", &worker.id);
+            self.executors
+                .write()
+                .unwrap()
+                .insert(worker.id.clone(), worker.clone());
+            for extractor in worker.available_extractors {
+                let mut extractors_table = self.extractors_table.write().unwrap();
+                let executors = extractors_table.entry(extractor.name.clone()).or_default();
+                executors.push(worker.id.clone());
+            }
+        }
         Ok(())
     }
 
@@ -156,16 +177,15 @@ impl Coordinator {
         // work_id -> executor_id
         let mut work_assignment = HashMap::new();
         for work in unallocated_work {
-            let rand_index = rand::random::<usize>() % self.executors.read().unwrap().len();
-            let executor = self
-                .executors
-                .read()
-                .unwrap()
-                .get_index(rand_index)
-                .cloned();
-            if let Some(executor) = executor {
-                info!("assigning work {} to executor {}", work.id, executor);
-                work_assignment.insert(work.id.clone(), executor.clone());
+            let extractor_table = self.extractors_table.read().unwrap();
+            let executors = extractor_table.get(&work.extractor).ok_or(anyhow::anyhow!(
+                "no executors for extractor: {}",
+                work.extractor
+            ))?;
+            let rand_index = rand::random::<usize>() % executors.len();
+            if !executors.is_empty() {
+                let executor_id = executors[rand_index].clone();
+                work_assignment.insert(work.id.clone(), executor_id);
             }
         }
         self.repository.assign_work(work_assignment).await?;
@@ -280,6 +300,21 @@ impl Coordinator {
         self.distribute_work().await?;
         Ok(())
     }
+
+    pub async fn get_executor(&self, extractor_name: &str) -> Result<ExecutorInfo, anyhow::Error> {
+        let extractors_table = self.extractors_table.read().unwrap();
+        let executors = extractors_table.get(extractor_name).ok_or(anyhow::anyhow!(
+            "no executors for extractor: {}",
+            extractor_name
+        ))?;
+        let rand_index = rand::random::<usize>() % executors.len();
+        let executor_id = executors[rand_index].clone();
+        let executors = self.executors.read().unwrap();
+        let executor = executors
+            .get(&executor_id)
+            .ok_or(anyhow::anyhow!("no executor found for id: {}", executor_id))?;
+        Ok(executor.clone())
+    }
 }
 
 pub struct CoordinatorServer {
@@ -313,8 +348,10 @@ impl CoordinatorServer {
                 "/create_work",
                 post(create_work).with_state(self.coordinator.clone()),
             )
-            // include trace context as header into the response
-            .layer(OtelInResponseLayer::default())
+            .route(
+                "/embed_query",
+                post(embed_query).with_state(self.coordinator.clone()),
+            )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
             .layer(metrics);
@@ -339,15 +376,12 @@ async fn root() -> &'static str {
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
-    // TODO FIX THIS - available extractors needs to be populated.
-    let executors = coordinator.executor_health_checks.read().unwrap().clone();
-    let executors = executors
-        .into_iter()
-        .map(|(id, last_seen)| ExecutorInfo {
-            id,
-            last_seen,
-            available_extractors: vec![],
-        })
+    let executors = coordinator
+        .executors
+        .read()
+        .unwrap()
+        .values()
+        .cloned()
         .collect();
     Ok(Json(ListExecutors { executors }))
 }
@@ -356,10 +390,10 @@ async fn list_executors(
 #[axum_macros::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(worker): Json<SyncExecutor>,
+    Json(executor): Json<SyncExecutor>,
 ) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
     // Record the health check of the worker
-    let worker_id = worker.executor_id.clone();
+    let worker_id = executor.executor_id.clone();
     let _ = coordinator
         .record_executor(ExecutorInfo {
             id: worker_id.clone(),
@@ -367,24 +401,25 @@ async fn sync_executor(
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-            available_extractors: worker.available_extractors.clone(),
+            addr: executor.addr.clone(),
+            available_extractors: executor.available_extractors.clone(),
         })
         .await;
     // Record the outcome of any work the worker has done
     coordinator
-        .update_work_state(worker.work_status, &worker_id)
+        .update_work_state(executor.work_status, &worker_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Record the extractors available on the executor
     coordinator
-        .record_extractors(worker.available_extractors)
+        .record_extractors(executor.available_extractors)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Find more work for the worker
     let queued_work = coordinator
-        .get_work_for_worker(&worker.executor_id)
+        .get_work_for_worker(&executor.executor_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -395,6 +430,29 @@ async fn sync_executor(
 }
 
 #[tracing::instrument]
+#[axum_macros::debug_handler]
+async fn embed_query(
+    State(coordinator): State<Arc<Coordinator>>,
+    Json(query): Json<EmbedQueryRequest>,
+) -> Result<Json<EmbedQueryResponse>, IndexifyAPIError> {
+    let executor = coordinator
+        .get_executor(&query.extractor_name)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let response = reqwest::Client::new()
+        .post(&format!("http://{}/embed_query", executor.addr))
+        .json(&query)
+        .send()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .json::<EmbedQueryResponse>()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(EmbedQueryResponse {
+        embedding: response.embedding,
+    }))
+}
+
 #[axum_macros::debug_handler]
 async fn create_work(
     State(coordinator): State<Arc<Coordinator>>,

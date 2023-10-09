@@ -4,18 +4,19 @@ use crate::{
     blob_storage::BlobStorageBuilder,
     content_reader,
     extractors::{self, Content, ExtractorTS},
+    internal_api::{EmbedQueryRequest, EmbedQueryResponse},
     persistence::{ExtractedAttributes, Work, WorkState},
     persistence::{ExtractorConfig, ExtractorOutputSchema, Repository},
     vector_index::VectorIndexManager,
     vectordbs, ExecutorInfo, ServerConfig, SyncExecutor, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
-use axum::{extract::State, routing::get, routing::post, Router};
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use axum_tracing_opentelemetry::middleware::OtelInResponseLayer;
-use dashmap::DashMap;
 use std::fmt;
+use axum::{extract::State, routing::get, routing::post, Json, Router};
+use dashmap::DashMap;
+use reqwest::StatusCode;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -96,11 +97,7 @@ impl ExtractorExecutor {
             config.index_config.clone(),
             repository.get_db_conn_clone(),
         )?;
-        let vector_index_manager = Arc::new(VectorIndexManager::new(
-            config.clone(),
-            repository.clone(),
-            vector_db,
-        ));
+        let vector_index_manager = Arc::new(VectorIndexManager::new(repository.clone(), vector_db));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
         let blob_storage = BlobStorageBuilder::new(config.clone()).build()?;
@@ -170,6 +167,7 @@ impl ExtractorExecutor {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            addr: self.config.executor_config.server_listen_addr.clone(),
             available_extractors: self.extractor_info_list.clone(),
         }
     }
@@ -187,6 +185,7 @@ impl ExtractorExecutor {
         let sync_executor_req = SyncExecutor {
             executor_id: self.executor_id.clone(),
             available_extractors: self.extractor_info_list.clone(),
+            addr: self.config.executor_config.server_listen_addr.clone(),
             work_status: work_status.clone(),
         };
         let json_resp = reqwest::Client::new()
@@ -229,6 +228,22 @@ impl ExtractorExecutor {
             return Err(anyhow!("unable perform work: {:?}", err));
         }
         Ok(0)
+    }
+
+    #[tracing::instrument]
+    pub async fn embed_query(
+        &self,
+        extractor: &str,
+        query: &str,
+    ) -> Result<Vec<f32>, anyhow::Error> {
+        let embedding = self
+            .extractors
+            .get(extractor)
+            .unwrap()
+            .value()
+            .clone()
+            .extract_embedding_query(query)?;
+        Ok(embedding)
     }
 
     #[tracing::instrument]
@@ -364,8 +379,11 @@ impl ExecutorServer {
             .route(
                 "/sync_executor",
                 post(sync_worker).with_state(self.executor.clone()),
-            ) // include trace context as header into the response
-            .layer(OtelInResponseLayer::default())
+            )
+            .route(
+                "/embed_query",
+                post(query).with_state(self.executor.clone()),
+            )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
             .layer(metrics);
@@ -390,6 +408,18 @@ async fn root() -> &'static str {
 }
 
 #[tracing::instrument]
+#[axum_macros::debug_handler]
+async fn query(
+    extractor_executor: State<Arc<ExtractorExecutor>>,
+    Json(query): Json<EmbedQueryRequest>,
+) -> Result<Json<EmbedQueryResponse>, IndexifyAPIError> {
+    let embedding = extractor_executor
+        .embed_query(&query.extractor_name, &query.text)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(EmbedQueryResponse { embedding }))
+}
+
 #[axum_macros::debug_handler]
 async fn sync_worker(
     extractor_executor: State<Arc<ExtractorExecutor>>,

@@ -46,24 +46,23 @@ impl Content {
         Ok(Self {
             id: content_payload.id,
             content_type: content_payload.content_type.to_string(),
-            data: data,
+            data,
         })
     }
 
     pub fn new(id: String, data: String) -> Self {
-        let content = Content {
+        Content {
             id,
             content_type: "text".to_string(),
-            data: data.into_bytes().to_vec().into(),
-        };
-        content
+            data: data.into_bytes().to_vec(),
+        }
     }
 
     pub fn from_bytes(id: String, data: Vec<u8>, content_type: &str) -> Self {
         Content {
             id,
             content_type: content_type.to_string(),
-            data: data.into(),
+            data,
         }
     }
 }
