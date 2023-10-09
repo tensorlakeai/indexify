@@ -43,9 +43,9 @@ pip install .
 echo "Environment variables"
 echo $QDRANT_VERSION
 echo $QDRANT_HOST
-echo OPENSSL_LIB_DIR
-echo OPENSSL_INCLUDE_DIR
-echo OPENSSL_LIB_DIR
+OPENSSL_LIB_DIR || true
+OPENSSL_INCLUDE_DIR || true
+OPENSSL_LIB_DIR || true
 echo $OTEL_TRACES_SAMPLER
 echo "Starting cargo test ..."
 
