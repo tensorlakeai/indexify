@@ -16,7 +16,6 @@ use crate::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use indexmap::{IndexMap, IndexSet};
 use std::{
     collections::HashMap,
     net::SocketAddr,
