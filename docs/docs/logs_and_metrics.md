@@ -19,6 +19,7 @@ For this, run Jaeger inside docker as such:
 ```sh
 docker run --rm --name jaeger \
   -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
+  -e COLLECTOR_OTLP_ENABLED=true \
   --network="host" \
   jaegertracing/all-in-one:1.49
 ```

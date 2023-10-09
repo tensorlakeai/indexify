@@ -4,6 +4,7 @@ use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
 use opentelemetry::global;
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
@@ -40,12 +41,19 @@ enum Commands {
     },
 }
 
-fn initialize_otlp_tracer(service_name: String, trace_id_ratio: f64) -> Result<(), Error> {
+fn initialize_otlp_tracer(
+    service_name: String,
+    http_endpoint: String,
+    trace_id_ratio: f64,
+) -> Result<(), Error> {
     let filter = EnvFilter::from_default_env();
 
     // TODO: Traces should also be piped to stdout, not only tonic
     // Implement OpenTelemetry Tracer
-    let otlp_exporter = opentelemetry_otlp::new_exporter().http();
+    let otlp_exporter = opentelemetry_otlp::new_exporter()
+        .http()
+        .with_endpoint(http_endpoint)
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary);
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(otlp_exporter)
@@ -92,7 +100,11 @@ async fn main() -> Result<(), Error> {
             } else {
                 "indexify.api_server".to_string()
             };
-            initialize_otlp_tracer(service_name, config.trace_id_ratio)?;
+            initialize_otlp_tracer(
+                service_name,
+                config.otlp_http_collector.clone(),
+                config.trace_id_ratio,
+            )?;
             debug!("Server config is: {:?}", config);
             let server = indexify::Server::new(Arc::new(config.clone()))?;
             let server_handle = tokio::spawn(async move {
@@ -122,7 +134,11 @@ async fn main() -> Result<(), Error> {
             info!("version: {}", version);
 
             let config = ServerConfig::from_path(&config_path)?;
-            initialize_otlp_tracer("indexify.coordinator".to_string(), config.trace_id_ratio)?;
+            initialize_otlp_tracer(
+                "indexify.coordinator".to_string(),
+                config.otlp_http_collector.clone(),
+                config.trace_id_ratio,
+            )?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }
@@ -131,7 +147,11 @@ async fn main() -> Result<(), Error> {
             info!("version: {}", version);
 
             let config = ServerConfig::from_path(&config_path)?;
-            initialize_otlp_tracer("indexify.executor".to_string(), config.trace_id_ratio)?;
+            initialize_otlp_tracer(
+                "indexify.executor".to_string(),
+                config.otlp_http_collector.clone(),
+                config.trace_id_ratio,
+            )?;
             let executor_server = ExecutorServer::new(Arc::new(config)).await?;
             executor_server.run().await?
         }
