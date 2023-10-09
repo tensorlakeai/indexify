@@ -28,7 +28,7 @@ pythonize = "0.19.0"
 qdrant-client = "1.2.0"
 rand = { version = "^0" }
 regex = { version = "^1" }
-reqwest = { version = "^0" }
+reqwest = { version = "^0", features = ["json"] }
 sea-orm = { version = "^0", features = [
     "sqlx-postgres",
     "runtime-tokio-native-tls",
@@ -44,6 +44,7 @@ serde = { version = "^1", features = ["derive"] }
 serde_yaml = { version = "^0" }
 serde_json = { version = "^1", features = ["std"] }
 smart-default = { version = "^0" }
+strum = { version = "^0", features = ["derive"] }
 strum_macros = { version = "^0" }
 thiserror = "*"
 time = { version = "0.3", features = ["macros"] }
