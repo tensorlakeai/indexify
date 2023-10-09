@@ -14,10 +14,6 @@ function stop_docker()
 
 QDRANT_VERSION='v1.4.1'
 QDRANT_HOST='localhost:6333'
-OPENSSL_LIB_DIR="/usr/lib/ssl"
-OPENSSL_INCLUDE_DIR="/usr/include/openssl"
-OPENSSL_LIB_DIR="/usr/lib/aarch64-linux-gnu/"
-OTEL_TRACES_SAMPLER=always_on
 
 docker run -d --rm \
            --network=host \
@@ -39,15 +35,6 @@ timeout 90s bash -c "until docker exec postgres_test pg_isready ; do sleep 5 ; d
 docker exec postgres_test psql -U postgres -c 'create database indexify;'
 
 pip install .
-
-echo "Environment variables"
-echo $QDRANT_VERSION
-echo $QDRANT_HOST
-OPENSSL_LIB_DIR || true
-OPENSSL_INCLUDE_DIR || true
-OPENSSL_LIB_DIR || true
-echo $OTEL_TRACES_SAMPLER
-echo "Starting cargo test ..."
 
 cargo test -- --test-threads 1
 

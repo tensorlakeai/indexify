@@ -55,7 +55,6 @@ fn initialize_otlp_tracer(service_name: String, trace_id_ratio: f64) -> Result<(
                     "service.name",
                     service_name,
                 )]))
-                // TODO: In production, we can change this config
                 .with_sampler(opentelemetry::sdk::trace::Sampler::TraceIdRatioBased(
                     trace_id_ratio,
                 )),
