@@ -9,11 +9,12 @@ use crate::{
     vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
 };
 use std::{collections::HashMap, sync::Arc};
-use tracing::error;
+use tracing::{error, info};
 
 pub struct VectorIndexManager {
     repository: Arc<Repository>,
     vector_db: VectorDBTS,
+    coordinator_addr: String,
 }
 
 impl fmt::Debug for VectorIndexManager {
@@ -30,10 +31,15 @@ pub struct ScoredText {
 }
 
 impl VectorIndexManager {
-    pub fn new(repository: Arc<Repository>, vector_db: VectorDBTS) -> Self {
+    pub fn new(
+        repository: Arc<Repository>,
+        vector_db: VectorDBTS,
+        coordinator_addr: String,
+    ) -> Self {
         Self {
             repository,
             vector_db,
+            coordinator_addr,
         }
     }
 
@@ -141,7 +147,7 @@ impl VectorIndexManager {
         };
 
         let resp = reqwest::Client::new()
-            .post(&format!("http://{}/embed_query", "localhost:8951"))
+            .post(&format!("http://{}/embed_query", self.coordinator_addr))
             .json(&request)
             .send()
             .await

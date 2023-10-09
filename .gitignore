@@ -12,5 +12,6 @@ sdk-typescript/lib
 .idea
 local_cache
 build
-indexify_extractors.egg-info/
 upload.pdf
+indexify_extractor_sdk.egg-info
+extractors/indexify_extractors.egg-info/

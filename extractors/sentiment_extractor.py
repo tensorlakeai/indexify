@@ -1,5 +1,5 @@
 import json
-from .base_extractor import ExtractorInfo, Content, ExtractedAttributes, Extractor
+from indexify_extractor_sdk.base_extractor import ExtractorInfo, Content, ExtractedAttributes, Extractor
 from transformers import pipeline
 from typing import List
 

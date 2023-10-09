@@ -1,4 +1,4 @@
-use crate::ServerConfig;
+use crate::BlobStorageConfig;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::sync::Arc;
@@ -14,18 +14,18 @@ pub trait BlobStorage {
 }
 
 pub struct BlobStorageBuilder {
-    config: Arc<ServerConfig>,
+    config: Arc<BlobStorageConfig>,
 }
 
 impl BlobStorageBuilder {
-    pub fn new(config: Arc<ServerConfig>) -> BlobStorageBuilder {
+    pub fn new(config: Arc<BlobStorageConfig>) -> BlobStorageBuilder {
         Self { config }
     }
 
     pub fn build(&self) -> Result<BlobStorageTS, anyhow::Error> {
-        match self.config.blob_storage.backend.as_str() {
+        match self.config.backend.as_str() {
             "disk" => {
-                let disk_config = self.config.blob_storage.clone().disk.unwrap();
+                let disk_config = self.config.disk.clone().unwrap();
                 let storage = disk::DiskStorage::new(disk_config.path)?;
                 Ok(Arc::new(storage))
             }

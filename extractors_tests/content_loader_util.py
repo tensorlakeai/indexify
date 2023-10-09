@@ -1,4 +1,4 @@
-from indexify_extractors import Content
+from indexify_extractor_sdk import Content
 from io import BytesIO
 
 def load_pdf_as_content(file: str) -> Content:

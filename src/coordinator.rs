@@ -191,7 +191,7 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn create_work(
         &self,
         repository_id: &str,
@@ -233,7 +233,7 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn update_work_state(
         &self,
         work_list: Vec<Work>,
@@ -260,13 +260,13 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn record_extractor(&self, extractor: ExtractorConfig) -> Result<(), anyhow::Error> {
         self.repository.record_extractors(vec![extractor]).await?;
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, anyhow::Error> {
         let work_list = self.repository.work_for_worker(worker_id).await?;
 
@@ -320,10 +320,10 @@ pub struct CoordinatorServer {
 
 impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
-        let addr: SocketAddr = config.coordinator_addr.parse()?;
+        let addr: SocketAddr = config.coordinator_addr_sock()?;
         let repository = Arc::new(Repository::new(&config.db_url).await?);
         let coordinator = Coordinator::new(repository);
-        info!("Coordinator listening on: {}", &config.coordinator_addr);
+        info!("coordinator listening on: {}", addr.to_string());
         Ok(Self { addr, coordinator })
     }
 
@@ -382,7 +382,7 @@ async fn list_executors(
     Ok(Json(ListExecutors { executors }))
 }
 
-#[tracing::instrument(level = "debug",skip(coordinator))]
+#[tracing::instrument(level = "debug", skip(coordinator))]
 #[tracing::instrument(skip(coordinator, executor))]
 #[axum_macros::debug_handler]
 async fn sync_executor(

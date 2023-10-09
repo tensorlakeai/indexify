@@ -1,36 +1,12 @@
 # Address on which the server listens
-listen_addr: 0.0.0.0:8900
-
-# List of available models via the api. The name corresponds to a model
-# that the service knows how to load, and the device is where the model
-# is executed.
-available_models:
-- model: all-minilm-l12-v2
-  device: cpu
-  default: true
-- model: text-embedding-ada-002
-  device: remote
-
-extractors:
-- name: "bert-entity-extractor"
-  path: "indexify_extractors.entity_extractor.EntityExtractor"
-  driver: "python"
-- name: "minilm-l6-v2-embeddings"
-  path: "indexify_extractors.embedding_extractor.MiniLML6Extractor"
-  driver: "python"
-
-# OpenAI key. Either set it here or set via the OPENAI_API_KEY
-# environment variable
-openai:
-  api_key: xxxxx
+listen_addr: 0.0.0.0 
+listen_port: 8900
 
 # Database URL for storing document and memory
 db_url: postgres://postgres:postgres@localhost/indexify
 
-coordinator_addr: 0.0.0.0:8950
-
-executor_config:
-  server_listen_addr: 0.0.0.0:8951
+coordinator_addr: 0.0.0.0
+coordinator_port: 8950
 
 # Blob storage configuration for the service. It is used for storing
 # raw data such as PDF, Images and Videos.

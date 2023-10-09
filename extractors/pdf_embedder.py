@@ -1,5 +1,5 @@
-from .base_extractor import ExtractorInfo, Content, Embeddings, Extractor, EmbeddingSchema
-from .sentence_transformer import SentenceTransformersEmbedding
+from indexify_extractor_sdk.base_extractor import ExtractorInfo, Content, Embeddings, Extractor, EmbeddingSchema
+from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbedding
 from pypdf import PdfReader
 from langchain import text_splitter
 import json

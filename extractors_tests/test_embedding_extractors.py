@@ -1,13 +1,11 @@
 import unittest
 from indexify_extractors.embedding_extractor import (
     MiniLML6Extractor,
-    Content,
     FlagEmbedding,
-    ExtractorInfo,
 )
 from parameterized import parameterized
 from typing import Type
-from indexify_extractors.base_extractor import Extractor
+from indexify_extractor_sdk.base_extractor import Extractor, Content, ExtractorInfo
 
 
 class TestMiniLML6Extractor(unittest.TestCase):
