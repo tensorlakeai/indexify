@@ -1,6 +1,9 @@
 # Address on which the server listens
 listen_addr: 0.0.0.0:8900
 
+# Percentage of traces to keep
+trace_id_ratio: 1.0
+
 # List of available models via the api. The name corresponds to a model
 # that the service knows how to load, and the device is where the model
 # is executed.
