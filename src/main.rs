@@ -43,37 +43,49 @@ enum Commands {
 
 fn initialize_otlp_tracer(
     service_name: String,
-    http_endpoint: String,
+    http_endpoint: Option<String>,
     trace_id_ratio: f64,
 ) -> Result<(), Error> {
     let filter = EnvFilter::from_default_env();
+    match http_endpoint {
+        Some(http_endpoint) => {
+            let stdout_layer = tracing_subscriber::fmt::layer();
 
-    // TODO: Traces should also be piped to stdout, not only tonic
-    // Implement OpenTelemetry Tracer
-    let otlp_exporter = opentelemetry_otlp::new_exporter()
-        .http()
-        .with_endpoint(http_endpoint)
-        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary);
-    let tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(otlp_exporter)
-        .with_trace_config(
-            opentelemetry::sdk::trace::config()
-                .with_resource(Resource::new(vec![KeyValue::new(
-                    "service.name",
-                    service_name,
-                )]))
-                .with_sampler(opentelemetry::sdk::trace::Sampler::TraceIdRatioBased(
-                    trace_id_ratio,
-                )),
-        )
-        .with_batch_config(opentelemetry::sdk::trace::BatchConfig::default())
-        .install_batch(opentelemetry::sdk::runtime::Tokio)?;
-    let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-    // Hook it up to tracing
-    let subscriber = tracing_subscriber::registry().with(filter).with(otlp_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
+            // Implement OpenTelemetry OTLP Tracer
+            let otlp_exporter = opentelemetry_otlp::new_exporter()
+                .http()
+                .with_endpoint(http_endpoint)
+                .with_protocol(opentelemetry_otlp::Protocol::HttpBinary);
+            let tracer = opentelemetry_otlp::new_pipeline()
+                .tracing()
+                .with_exporter(otlp_exporter)
+                .with_trace_config(
+                    opentelemetry::sdk::trace::config()
+                        .with_resource(Resource::new(vec![KeyValue::new(
+                            "service.name",
+                            service_name,
+                        )]))
+                        .with_sampler(opentelemetry::sdk::trace::Sampler::TraceIdRatioBased(
+                            trace_id_ratio,
+                        )),
+                )
+                .with_batch_config(opentelemetry::sdk::trace::BatchConfig::default())
+                .install_batch(opentelemetry::sdk::runtime::Tokio)?;
+            let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+            let subscriber = tracing_subscriber::registry()
+                .with(filter)
+                .with(otlp_layer)
+                .with(stdout_layer);
+            tracing::subscriber::set_global_default(subscriber)?;
+        }
+        None => {
+            // Stdout Exporter and Layer setup
+            let subscriber = tracing_subscriber::FmtSubscriber::builder()
+                .with_env_filter(filter)
+                .finish();
+            tracing::subscriber::set_global_default(subscriber)?;
+        }
+    };
     Ok(())
 }
 

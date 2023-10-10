@@ -1,7 +1,7 @@
 # Address on which the server listens
 listen_addr: 0.0.0.0:8900
 
-# Percentage of traces to keep
+# Percentage of traces to keep, only relevant for OpenTelemetry
 trace_id_ratio: 1.0
 
 # Endpoint where http logs are posted
