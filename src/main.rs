@@ -70,9 +70,13 @@ fn initialize_otlp_tracer(
         .with_batch_config(opentelemetry::sdk::trace::BatchConfig::default())
         .install_batch(opentelemetry::sdk::runtime::Tokio)?;
     let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+    let stdout_layer = tracing_subscriber::fmt::layer();
 
     // Hook it up to tracing
-    let subscriber = tracing_subscriber::registry().with(filter).with(otlp_layer);
+    let subscriber = tracing_subscriber::registry()
+        .with(filter)
+        .with(otlp_layer)
+        .with(stdout_layer);
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(())
 }
