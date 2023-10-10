@@ -14,6 +14,8 @@ use crate::{
     },
     ServerConfig,
 };
+use axum_otel_metrics::HttpMetricsLayerBuilder;
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -61,6 +63,7 @@ pub struct CreateWork {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct CreateWorkResponse {}
 
+#[derive(Debug)]
 pub struct Coordinator {
     // Executor ID -> Last Seen Timestamp
     executor_health_checks: Arc<RwLock<HashMap<String, u64>>>,
@@ -93,6 +96,7 @@ impl Coordinator {
         coordinator
     }
 
+    #[tracing::instrument]
     pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
         // First see if the executor is already in the table
         let is_new_executor = self
@@ -120,6 +124,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.repository.unprocessed_extraction_events().await?;
         for event in &events {
@@ -148,6 +153,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn generate_work_for_extractor_bindings(
         &self,
         repository: &str,
@@ -163,6 +169,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
         let unallocated_work = self.repository.unallocated_work().await?;
 
@@ -184,6 +191,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn create_work(
         &self,
         repository_id: &str,
@@ -225,6 +233,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn update_work_state(
         &self,
         work_list: Vec<Work>,
@@ -251,6 +260,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn record_extractors(
         &self,
         extractors: Vec<ExtractorConfig>,
@@ -259,12 +269,14 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn get_work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, anyhow::Error> {
         let work_list = self.repository.work_for_worker(worker_id).await?;
 
         Ok(work_list)
     }
 
+    #[tracing::instrument]
     async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
         info!("starting work distribution loop");
         loop {
@@ -278,6 +290,7 @@ impl Coordinator {
         }
     }
 
+    #[tracing::instrument]
     pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
         info!("received work request, processing extraction events");
         self.process_extraction_events().await?;
@@ -318,7 +331,9 @@ impl CoordinatorServer {
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
+        let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
+            .merge(metrics.routes())
             .route("/", get(root))
             .route(
                 "/sync_executor",
@@ -335,7 +350,10 @@ impl CoordinatorServer {
             .route(
                 "/embed_query",
                 post(embed_query).with_state(self.coordinator.clone()),
-            );
+            )
+            //start OpenTelemetry trace on incoming request
+            .layer(OtelAxumLayer::default())
+            .layer(metrics);
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
@@ -352,6 +370,7 @@ async fn root() -> &'static str {
     "Indexify Coordinator"
 }
 
+#[tracing::instrument]
 #[axum_macros::debug_handler]
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
@@ -366,6 +385,7 @@ async fn list_executors(
     Ok(Json(ListExecutors { executors }))
 }
 
+#[tracing::instrument]
 #[axum_macros::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,
@@ -408,6 +428,7 @@ async fn sync_executor(
     }))
 }
 
+#[tracing::instrument]
 #[axum_macros::debug_handler]
 async fn embed_query(
     State(coordinator): State<Arc<Coordinator>>,
@@ -442,6 +463,7 @@ async fn create_work(
     Ok(Json(CreateWorkResponse {}))
 }
 
+#[tracing::instrument]
 async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()

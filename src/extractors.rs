@@ -25,7 +25,7 @@ pub struct EmbeddingSchema {
 }
 
 #[pyclass]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Content {
     #[pyo3(get, set)]
     pub id: String,
@@ -107,6 +107,7 @@ pub trait Extractor {
     ) -> Result<Vec<AttributeData>, anyhow::Error>;
 }
 
+#[tracing::instrument]
 pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<ExtractorTS> {
     match extractor_config.driver {
         server_config::ExtractorDriver::Python => {
@@ -118,6 +119,7 @@ pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<Ex
     }
 }
 
+#[derive(Debug)]
 pub struct PythonDriver {
     module_object: PyObject,
 }
@@ -159,6 +161,7 @@ impl PythonDriver {
 
 #[async_trait::async_trait]
 impl Extractor for PythonDriver {
+    #[tracing::instrument]
     fn info(&self) -> Result<ExtractorConfig, anyhow::Error> {
         let info = Python::with_gil(|py| {
             let info = self.module_object.call_method0(py, "_info")?;
@@ -169,6 +172,7 @@ impl Extractor for PythonDriver {
         Ok(info)
     }
 
+    #[tracing::instrument]
     fn extract_embedding(
         &self,
         content: Vec<Content>,
@@ -185,6 +189,7 @@ impl Extractor for PythonDriver {
         Ok(extracted_data)
     }
 
+    #[tracing::instrument]
     fn extract_embedding_query(&self, query: &str) -> Result<Vec<f32>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
             let extracted_data =
@@ -196,6 +201,7 @@ impl Extractor for PythonDriver {
         Ok(extracted_data)
     }
 
+    #[tracing::instrument]
     fn extract_attributes(
         &self,
         content: Vec<Content>,

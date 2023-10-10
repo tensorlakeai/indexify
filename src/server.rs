@@ -5,11 +5,13 @@ use crate::persistence::Repository;
 use crate::vector_index::VectorIndexManager;
 use crate::ServerConfig;
 use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 
 use anyhow::Result;
 use axum::extract::{Multipart, Path, Query};
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use pyo3::Python;
 use tokio::signal;
 use tracing::{error, info};
@@ -25,7 +27,7 @@ use std::sync::Arc;
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
     coordinator_addr: SocketAddr,
@@ -105,7 +107,9 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_addr,
         };
+        let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
+            .merge(metrics.routes())
             .merge(SwaggerUi::new("/api-docs-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
@@ -165,7 +169,9 @@ impl Server {
             .route(
                 "/extractors",
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
-            );
+            )
+            .layer(OtelAxumLayer::default())
+            .layer(metrics);
         info!("server is listening at addr {:?}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
@@ -175,10 +181,12 @@ impl Server {
     }
 }
 
+#[tracing::instrument]
 async fn root() -> &'static str {
     "Indexify Server"
 }
 
+#[tracing::instrument]
 #[axum_macros::debug_handler]
 #[utoipa::path(
     post,
@@ -219,6 +227,7 @@ async fn create_repository(
     Ok(Json(CreateRepositoryResponse {}))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/repositories",
@@ -247,6 +256,7 @@ async fn list_repositories(
     }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/repositories/{repository_name}",
@@ -276,6 +286,7 @@ async fn get_repository(
     }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     post,
     path = "/repositories/{repository_name}/extractor_bindings",
@@ -315,6 +326,7 @@ async fn bind_extractor(
     Ok(Json(ExtractorBindResponse {}))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     post,
     path = "/repositories/{repository_name}/add_texts",
@@ -356,6 +368,7 @@ async fn add_texts(
     Ok(Json(TextAdditionResponse::default()))
 }
 
+#[tracing::instrument]
 #[axum_macros::debug_handler]
 async fn upload_file(
     Path(repository_name): Path<String>,
@@ -400,6 +413,7 @@ async fn _run_extractors(repository: &str, coordinator_addr: &str) -> Result<(),
     Ok(())
 }
 
+#[tracing::instrument]
 async fn run_extractors(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -410,6 +424,7 @@ async fn run_extractors(
     Ok(Json(RunExtractorsResponse {}))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     post,
     path = "/repositories/{repository_name}/events",
@@ -440,6 +455,7 @@ async fn add_events(
     Ok(Json(EventAddResponse {}))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/repositories/{repository_name}/events",
@@ -466,6 +482,7 @@ async fn list_events(
     Ok(Json(ListEventsResponse { messages }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/executors",
@@ -482,6 +499,7 @@ async fn list_executors(
     Ok(Json(ListExecutorsResponse { executors: vec![] }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/extractors",
@@ -506,6 +524,7 @@ async fn list_extractors(
     Ok(Json(ListExtractorsResponse { extractors }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/repositories/{repository_name}/indexes",
@@ -531,6 +550,7 @@ async fn list_indexes(
     Ok(Json(ListIndexesResponse { indexes }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     post,
     path = "/repository/{repository_name}/search",
@@ -570,6 +590,7 @@ async fn index_search(
     }))
 }
 
+#[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/repository/{repository_name}/attributes",
@@ -597,6 +618,7 @@ async fn attribute_lookup(
     }))
 }
 
+#[tracing::instrument]
 async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()

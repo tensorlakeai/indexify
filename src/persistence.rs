@@ -448,11 +448,13 @@ pub enum RepositoryError {
     LogicError(String),
 }
 
+#[derive(Debug)]
 pub struct Repository {
     conn: DatabaseConnection,
 }
 
 impl Repository {
+    #[tracing::instrument]
     pub async fn new(db_url: &str) -> Result<Self, RepositoryError> {
         let mut opt = ConnectOptions::new(db_url.to_owned());
         opt.sqlx_logging(false); // Disabling SQLx log;
@@ -465,10 +467,12 @@ impl Repository {
         Self { conn }
     }
 
+    #[tracing::instrument]
     pub fn get_db_conn_clone(&self) -> DatabaseConnection {
         self.conn.clone()
     }
 
+    #[tracing::instrument]
     pub async fn create_index_metadata(
         &self,
         repository: &str,
@@ -502,6 +506,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>, RepositoryError> {
         let index_models = IndexEntity::find()
             .filter(index::Column::RepositoryId.eq(repository))
@@ -518,6 +523,7 @@ impl Repository {
         Ok(indexes)
     }
 
+    #[tracing::instrument]
     pub async fn get_index(
         &self,
         index: &str,
@@ -531,6 +537,7 @@ impl Repository {
             .ok_or(RepositoryError::IndexNotFound(index.into()))
     }
 
+    #[tracing::instrument]
     pub async fn add_events(
         &self,
         repository: &str,
@@ -557,6 +564,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn list_events(&self, repository: &str) -> Result<Vec<Event>, RepositoryError> {
         let events = entity::events::Entity::find()
             .filter(entity::events::Column::RepositoryId.eq(repository))
@@ -578,6 +586,7 @@ impl Repository {
         Ok(event_list)
     }
 
+    #[tracing::instrument]
     pub async fn add_content(
         &self,
         repository: &str,
@@ -639,6 +648,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn content_from_repo(
         &self,
         content_id: &str,
@@ -659,6 +669,7 @@ impl Repository {
         })
     }
 
+    #[tracing::instrument]
     pub async fn content_with_unapplied_extractor(
         &self,
         repo_id: &str,
@@ -700,6 +711,7 @@ impl Repository {
         Ok(result)
     }
 
+    #[tracing::instrument]
     pub async fn mark_content_as_processed(
         &self,
         content_id: &str,
@@ -720,6 +732,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn unprocessed_extraction_events(
         &self,
     ) -> Result<Vec<ExtractionEvent>, anyhow::Error> {
@@ -735,6 +748,7 @@ impl Repository {
         Ok(events)
     }
 
+    #[tracing::instrument]
     pub async fn mark_extraction_event_as_processed(
         &self,
         extraction_id: &str,
@@ -755,6 +769,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn create_chunks(
         &self,
         chunks: Vec<Chunk>,
@@ -785,6 +800,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata, RepositoryError> {
         let chunk = entity::chunked_content::Entity::find()
             .filter(entity::chunked_content::Column::ChunkId.eq(id))
@@ -809,6 +825,7 @@ impl Repository {
         })
     }
 
+    #[tracing::instrument]
     pub async fn upsert_repository(
         &self,
         repository: DataRepository,
@@ -870,6 +887,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn repositories(&self) -> Result<Vec<DataRepository>, RepositoryError> {
         let repository_models: Vec<DataRepository> = DataRepositoryEntity::find()
             .all(&self.conn)
@@ -880,6 +898,7 @@ impl Repository {
         Ok(repository_models)
     }
 
+    #[tracing::instrument]
     pub async fn repository_by_name(&self, name: &str) -> Result<DataRepository, RepositoryError> {
         let repository_model = DataRepositoryEntity::find()
             .filter(entity::data_repository::Column::Name.eq(name))
@@ -889,6 +908,7 @@ impl Repository {
         Ok(repository_model.into())
     }
 
+    #[tracing::instrument]
     pub async fn extractor_by_name(&self, name: &str) -> Result<ExtractorConfig, RepositoryError> {
         let extractor_model = extractors::Entity::find()
             .filter(entity::extractors::Column::Id.eq(name))
@@ -903,6 +923,7 @@ impl Repository {
         Ok(extractor_model.into())
     }
 
+    #[tracing::instrument]
     pub async fn add_attributes(
         &self,
         repository: &str,
@@ -932,6 +953,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn get_extracted_attributes(
         &self,
         repository: &str,
@@ -954,6 +976,7 @@ impl Repository {
         Ok(extracted_attributes)
     }
 
+    #[tracing::instrument]
     pub async fn record_extractors(
         &self,
         extractors: Vec<ExtractorConfig>,
@@ -987,6 +1010,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn list_extractors(&self) -> Result<Vec<ExtractorConfig>, RepositoryError> {
         let extractor_models: Vec<ExtractorConfig> = extractors::Entity::find()
             .all(&self.conn)
@@ -997,6 +1021,7 @@ impl Repository {
         Ok(extractor_models)
     }
 
+    #[tracing::instrument]
     pub async fn get_extractor(
         &self,
         extractor_name: &str,
@@ -1011,6 +1036,7 @@ impl Repository {
         Ok(extractor_config.into())
     }
 
+    #[tracing::instrument]
     pub async fn insert_work(&self, work: &Work) -> Result<(), RepositoryError> {
         let work_model = entity::work::ActiveModel {
             id: Set(work.id.clone()),
@@ -1026,6 +1052,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn unallocated_work(&self) -> Result<Vec<work::Model>, RepositoryError> {
         let work_models = WorkEntity::find()
             .filter(entity::work::Column::WorkerId.is_null())
@@ -1035,6 +1062,7 @@ impl Repository {
         Ok(work_models)
     }
 
+    #[tracing::instrument]
     pub async fn assign_work(
         &self,
         allocation: HashMap<String, String>,
@@ -1049,6 +1077,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn update_work_state(
         &self,
         work_id: &str,
@@ -1062,6 +1091,7 @@ impl Repository {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, RepositoryError> {
         let work_models = WorkEntity::find()
             .filter(entity::work::Column::WorkerId.eq(worker_id))
@@ -1074,6 +1104,7 @@ impl Repository {
         Ok(work_models)
     }
 
+    #[tracing::instrument]
     pub async fn binding_by_id(
         &self,
         repository: &str,

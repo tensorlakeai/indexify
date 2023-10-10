@@ -25,6 +25,7 @@ impl fmt::Display for IndexName {
     }
 }
 
+#[derive(Debug)]
 pub struct PgVector {
     config: PgVectorConfig,
     db_conn: DbConn,
@@ -49,6 +50,7 @@ impl VectorDb for PgVector {
     }
 
     /// we create a new table for each index.
+    #[tracing::instrument]
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
         let index_name = IndexName::new(&index.vectordb_index_name);
         let vector_dim = index.vector_dim;
@@ -119,6 +121,7 @@ impl VectorDb for PgVector {
         Ok(())
     }
 
+    #[tracing::instrument]
     async fn add_embedding(
         &self,
         index: &str,
@@ -186,6 +189,7 @@ impl VectorDb for PgVector {
         Ok(())
     }
 
+    #[tracing::instrument]
     async fn search(
         &self,
         index: String,
@@ -217,6 +221,7 @@ impl VectorDb for PgVector {
     }
 
     // TODO: Should change index to &str to keep things uniform across functions
+    #[tracing::instrument]
     async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
         let index = IndexName::new(&index);
         let query = format!("DROP TABLE IF EXISTS {INDEX_TABLE_PREFIX}{index};");
@@ -230,6 +235,7 @@ impl VectorDb for PgVector {
         Ok(())
     }
 
+    #[tracing::instrument]
     async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
         let index = IndexName::new(index);
         let query = format!("SELECT COUNT(*) FROM {INDEX_TABLE_PREFIX}{index};");

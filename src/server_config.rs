@@ -137,6 +137,8 @@ pub struct ServerConfig {
     pub executor_config: ExecutorConfig,
     pub extractors: Vec<Extractor>,
     pub blob_storage: BlobStorage,
+    pub trace_id_ratio: f64,
+    pub otlp_http_collector: String,
 }
 
 impl Default for ServerConfig {
@@ -161,6 +163,8 @@ impl Default for ServerConfig {
                     path: "blobs".to_string(),
                 }),
             },
+            trace_id_ratio: 1.0,
+            otlp_http_collector: "http://localhost:4318/v1/traces".to_owned(),
         }
     }
 }
