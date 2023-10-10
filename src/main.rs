@@ -1,14 +1,22 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
-use opentelemetry::global;
-use opentelemetry::sdk::Resource;
-use opentelemetry::KeyValue;
-use opentelemetry_otlp::WithExportConfig;
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-use tracing_subscriber::EnvFilter;
+
+use opentelemetry::{global, runtime, KeyValue};
+use opentelemetry_sdk::{
+    trace::{BatchConfig, RandomIdGenerator, Sampler},
+    Resource,
+};
+use opentelemetry_semantic_conventions::{
+    resource::{DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, SERVICE_VERSION},
+    SCHEMA_URL,
+};
+use tracing_core::Level;
+use tracing_opentelemetry::{OpenTelemetryLayer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -41,56 +49,60 @@ enum Commands {
     },
 }
 
-fn initialize_otlp_tracer(
-    service_name: String,
-    http_endpoint: Option<String>,
-    trace_id_ratio: f64,
-) -> Result<(), Error> {
-    let filter = EnvFilter::from_default_env();
-    match http_endpoint {
-        Some(http_endpoint) => {
-            let stdout_layer = tracing_subscriber::fmt::layer();
+// Create a Resource that captures information about the entity for which telemetry is recorded.
+fn resource() -> Resource {
+    Resource::from_schema_url(
+        [
+            KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
+            KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+            KeyValue::new(DEPLOYMENT_ENVIRONMENT, "develop"),
+        ],
+        SCHEMA_URL,
+    )
+}
 
-            // Implement OpenTelemetry OTLP Tracer
-            let otlp_exporter = opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint(http_endpoint)
-                .with_protocol(opentelemetry_otlp::Protocol::HttpBinary);
-            let tracer = opentelemetry_otlp::new_pipeline()
-                .tracing()
-                .with_exporter(otlp_exporter)
-                .with_trace_config(
-                    opentelemetry::sdk::trace::config()
-                        .with_resource(Resource::new(vec![KeyValue::new(
-                            "service.name",
-                            service_name,
-                        )]))
-                        .with_sampler(opentelemetry::sdk::trace::Sampler::TraceIdRatioBased(
-                            trace_id_ratio,
-                        )),
-                )
-                .with_batch_config(opentelemetry::sdk::trace::BatchConfig::default())
-                .install_batch(opentelemetry::sdk::runtime::Tokio)?;
-            let otlp_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-            let subscriber = tracing_subscriber::registry()
-                .with(filter)
-                .with(otlp_layer)
-                .with(stdout_layer);
-            tracing::subscriber::set_global_default(subscriber)?;
-        }
-        None => {
-            // Stdout Exporter and Layer setup
-            let subscriber = tracing_subscriber::FmtSubscriber::builder()
-                .with_env_filter(filter)
-                .finish();
-            tracing::subscriber::set_global_default(subscriber)?;
-        }
-    };
-    Ok(())
+struct OtelGuard {}
+
+impl OtelGuard {
+    fn new() -> Self {
+        let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_trace_config(
+                opentelemetry::sdk::trace::Config::default()
+                    // Customize sampling strategy
+                    .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                        1.0,
+                    ))))
+                    // If export trace to AWS X-Ray, you can use XrayIdGenerator
+                    .with_id_generator(RandomIdGenerator::default())
+                    .with_resource(resource()),
+            )
+            .with_batch_config(BatchConfig::default())
+            .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+            .install_batch(runtime::Tokio)
+            .unwrap();
+
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::from_level(
+                Level::INFO,
+            ))
+            .with(tracing_subscriber::fmt::layer())
+            .with(OpenTelemetryLayer::new(tracer))
+            .init();
+
+        OtelGuard {}
+    }
+}
+
+impl Drop for OtelGuard {
+    fn drop(&mut self) {
+        opentelemetry::global::shutdown_tracer_provider();
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let _otel_guard = OtelGuard::new();
     // Parse CLI and any env variables
     let args: Cli = Cli::parse();
     let version = format!(
@@ -107,16 +119,6 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify server....");
             info!("version: {}", version);
             let config = indexify::ServerConfig::from_path(&config_path)?;
-            let service_name = if dev_mode {
-                "indexify.api_server_dev".to_string()
-            } else {
-                "indexify.api_server".to_string()
-            };
-            initialize_otlp_tracer(
-                service_name,
-                config.otlp_http_collector.clone(),
-                config.trace_id_ratio,
-            )?;
             debug!("Server config is: {:?}", config);
             let server = indexify::Server::new(Arc::new(config.clone()))?;
             let server_handle = tokio::spawn(async move {
@@ -146,11 +148,6 @@ async fn main() -> Result<(), Error> {
             info!("version: {}", version);
 
             let config = ServerConfig::from_path(&config_path)?;
-            initialize_otlp_tracer(
-                "indexify.coordinator".to_string(),
-                config.otlp_http_collector.clone(),
-                config.trace_id_ratio,
-            )?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }
@@ -159,11 +156,6 @@ async fn main() -> Result<(), Error> {
             info!("version: {}", version);
 
             let config = ServerConfig::from_path(&config_path)?;
-            initialize_otlp_tracer(
-                "indexify.executor".to_string(),
-                config.otlp_http_collector.clone(),
-                config.trace_id_ratio,
-            )?;
             let executor_server = ExecutorServer::new(Arc::new(config)).await?;
             executor_server.run().await?
         }
