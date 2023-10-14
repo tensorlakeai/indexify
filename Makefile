@@ -32,6 +32,8 @@ local-dev:
 	sea-orm-cli migrate up
 	docker stop indexify-local-qdrant || true
 	docker run --rm -p 6334:6334 -p 6333:6333 --name=indexify-local-qdrant -d -e QDRANT__SERVICE__GRPC_PORT="6334"  qdrant/qdrant:v1.4.1
+	docker stop indexify-local-opensearch || true
+	docker run --rm -p 9200:9200 -p 9600:9600 --name=indexify-local-opensearch -d -e "discovery.type=single-node" opensearchproject/opensearch:latest
 
 test:
 	run_tests.sh

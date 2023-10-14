@@ -10,11 +10,13 @@ use thiserror::Error;
 
 use crate::VectorIndexConfig;
 
+pub mod opensearch;
 pub mod pg_vector;
 pub mod qdrant;
 
 use qdrant::QdrantDb;
 
+use self::opensearch::OpenSearchKnn;
 use self::pg_vector::PgVector;
 
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
@@ -128,6 +130,9 @@ pub fn create_vectordb(
         crate::IndexStoreKind::PgVector => Ok(Arc::new(PgVector::new(
             config.pg_vector_config.unwrap(),
             postgres_db_conn,
+        ))),
+        crate::IndexStoreKind::OpenSearchKnn => Ok(Arc::new(OpenSearchKnn::new(
+            config.opensearch_basic.unwrap(),
         ))),
     }
 }

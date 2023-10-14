@@ -21,6 +21,7 @@ figment = { version = "0.10.8", features = ["yaml", "env"] }
 hostname = { version = "^0" }
 itertools = "0.11.0"
 nanoid = { version = "0.4.0" }
+opensearch = { version = "2.1.0" }
 opentelemetry = { version = "^0", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.20.0"
 opentelemetry-semantic-conventions = "0.12.0"
@@ -59,6 +60,7 @@ tracing = { version = "^0", features = ["log"] }
 tracing-core = "0.1.31"
 tracing-opentelemetry = { version = "0.21" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "*"
 utoipa = { version = "^4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "^4", features = ["axum"] }
 utoipa-rapidoc = { version = "^1", features = ["axum"] }
