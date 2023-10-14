@@ -311,12 +311,24 @@ mod tests {
         // bulk api returns a response when the document is accepted for indexing, not when it is
         // actually indexed. So we need to wait until the document is actually indexed before
         // searching.
+
+        const MAX_MILLIS_TO_WAIT: u64 = 2000;
+        let mut millis_spent_waiting: u64 = 0;
+        const WAIT_MILLIS_PER_ITER: u64 = 10;
+
         loop {
+            if millis_spent_waiting >= MAX_MILLIS_TO_WAIT {
+                panic!(
+                    "timed out waiting for document to be indexed, spent '{}' millisecs waiting",
+                    millis_spent_waiting
+                );
+            }
             let num_elements = opensearch.num_vectors(TEST_INDEX_NAME).await.unwrap();
             if num_elements == 1 {
                 break;
             }
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(WAIT_MILLIS_PER_ITER)).await;
+            millis_spent_waiting += WAIT_MILLIS_PER_ITER;
         }
 
         let results = opensearch
