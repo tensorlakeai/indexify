@@ -96,7 +96,7 @@ impl Coordinator {
         coordinator
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
         // First see if the executor is already in the table
         let is_new_executor = self
@@ -276,7 +276,7 @@ impl Coordinator {
         Ok(work_list)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self, rx))]
     async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
         info!("starting work distribution loop");
         loop {
@@ -385,7 +385,8 @@ async fn list_executors(
     Ok(Json(ListExecutors { executors }))
 }
 
-#[tracing::instrument]
+#[tracing::instrument(level = "debug",skip(coordinator))]
+#[tracing::instrument(skip(coordinator, executor))]
 #[axum_macros::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,

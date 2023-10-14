@@ -1364,6 +1364,7 @@ dependencies = [
  "opentelemetry 0.20.0",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
+ "opentelemetry-stdout",
  "opentelemetry_sdk 0.20.0",
  "pyo3",
  "pyo3-build-config",
@@ -1908,6 +1909,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73c9f9340ad135068800e7f1b24e9e09ed9e7143f5bf8518ded3d3ec69789269"
 dependencies = [
  "opentelemetry 0.20.0",
+]
+
+[[package]]
+name = "opentelemetry-stdout"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bd550321bc0f9d3f6dcbfe5c75262789de5b3e2776da2cbcfd2392aa05db0c6"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "opentelemetry_api 0.20.0",
+ "opentelemetry_sdk 0.20.0",
+ "ordered-float",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

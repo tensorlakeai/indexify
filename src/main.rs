@@ -5,9 +5,8 @@ use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
-use opentelemetry::{global, runtime, KeyValue};
+use opentelemetry::{global, KeyValue};
 use opentelemetry_sdk::{
-    trace::{BatchConfig, RandomIdGenerator, Sampler},
     Resource,
 };
 use opentelemetry_semantic_conventions::{
@@ -15,8 +14,7 @@ use opentelemetry_semantic_conventions::{
     SCHEMA_URL,
 };
 use tracing_core::Level;
-use tracing_opentelemetry::{OpenTelemetryLayer};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -65,29 +63,11 @@ struct OtelGuard {}
 
 impl OtelGuard {
     fn new() -> Self {
-        let tracer = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_trace_config(
-                opentelemetry::sdk::trace::Config::default()
-                    // Customize sampling strategy
-                    .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-                        1.0,
-                    ))))
-                    // If export trace to AWS X-Ray, you can use XrayIdGenerator
-                    .with_id_generator(RandomIdGenerator::default())
-                    .with_resource(resource()),
-            )
-            .with_batch_config(BatchConfig::default())
-            .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-            .install_batch(runtime::Tokio)
-            .unwrap();
-
         tracing_subscriber::registry()
             .with(tracing_subscriber::filter::LevelFilter::from_level(
                 Level::INFO,
             ))
             .with(tracing_subscriber::fmt::layer())
-            .with(OpenTelemetryLayer::new(tracer))
             .init();
 
         OtelGuard {}

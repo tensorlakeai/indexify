@@ -28,6 +28,7 @@ opentelemetry-otlp = { version = "*", features = [
     "http-proto",
     "reqwest-client",
 ] }
+opentelemetry-stdout = {version = "0.1.0", features = ["logs", "metrics", "trace"]}
 pyo3 = { version = "^0", features = ["auto-initialize"] }
 pythonize = "0.19.0"
 qdrant-client = "1.2.0"
