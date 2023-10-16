@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
 
-use crate::VectorIndexConfig;
+use crate::server_config::{IndexStoreKind, VectorIndexConfig};
 
 pub mod opensearch;
 pub mod pg_vector;
@@ -126,12 +126,12 @@ pub fn create_vectordb(
     postgres_db_conn: DatabaseConnection,
 ) -> Result<VectorDBTS, VectorDbError> {
     match config.index_store {
-        crate::IndexStoreKind::Qdrant => Ok(Arc::new(QdrantDb::new(config.qdrant_config.unwrap()))),
-        crate::IndexStoreKind::PgVector => Ok(Arc::new(PgVector::new(
+        IndexStoreKind::Qdrant => Ok(Arc::new(QdrantDb::new(config.qdrant_config.unwrap()))),
+        IndexStoreKind::PgVector => Ok(Arc::new(PgVector::new(
             config.pg_vector_config.unwrap(),
             postgres_db_conn,
         ))),
-        crate::IndexStoreKind::OpenSearchKnn => Ok(Arc::new(OpenSearchKnn::new(
+        IndexStoreKind::OpenSearchKnn => Ok(Arc::new(OpenSearchKnn::new(
             config.opensearch_basic.unwrap(),
         ))),
     }

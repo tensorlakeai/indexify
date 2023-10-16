@@ -1,4 +1,4 @@
-use crate::BlobStorageConfig;
+use crate::server_config::BlobStorageConfig;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::sync::Arc;

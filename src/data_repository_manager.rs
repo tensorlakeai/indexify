@@ -15,8 +15,8 @@ use crate::{
         ContentPayload, DataRepository, Event, ExtractedAttributes, ExtractorBinding,
         ExtractorConfig, ExtractorOutputSchema, Index, Repository, RepositoryError,
     },
+    server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
-    ServerConfig,
 };
 
 #[derive(Error, Debug)]

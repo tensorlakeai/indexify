@@ -2,9 +2,13 @@ use crate::attribute_index::AttributeIndexManager;
 use crate::blob_storage::BlobStorageBuilder;
 use crate::data_repository_manager::DataRepositoryManager;
 use crate::persistence::Repository;
+use crate::server_config::ServerConfig;
 use crate::vector_index::VectorIndexManager;
-use crate::ServerConfig;
-use crate::{api::*, persistence, vectordbs, CreateWork, CreateWorkResponse};
+use crate::{
+    api::*,
+    coordinator::{CreateWork, CreateWorkResponse},
+    persistence, vectordbs,
+};
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 
 use anyhow::Result;

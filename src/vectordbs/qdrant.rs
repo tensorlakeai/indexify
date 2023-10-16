@@ -14,8 +14,8 @@ use qdrant_client::{
 
 use super::{CreateIndexParams, VectorDb, VectorDbError};
 use crate::{
+    server_config::QdrantConfig,
     vectordbs::{IndexDistance, SearchResult, VectorChunk},
-    QdrantConfig,
 };
 
 fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
@@ -189,14 +189,17 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::sync::Arc;
 
-    use crate::vectordbs::{IndexDistance, VectorChunk, VectorDBTS};
+    use crate::{
+        server_config::QdrantConfig,
+        vectordbs::{IndexDistance, VectorChunk, VectorDBTS},
+    };
 
     use super::{CreateIndexParams, QdrantDb};
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_search_basic() {
-        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
         qdrant.drop_index("hello-index".into()).await.unwrap();
@@ -230,7 +233,7 @@ mod tests {
     async fn test_insertion_idempotent() {
         let index_name = "idempotent-index";
         let hash_on = vec!["user_id".to_string(), "url".to_string()];
-        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
         qdrant.drop_index(index_name.into()).await.unwrap();

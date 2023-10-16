@@ -8,13 +8,13 @@ pub mod db_utils {
     use sea_orm::{Database, DatabaseConnection, DbErr};
 
     use crate::attribute_index::AttributeIndexManager;
+    use crate::coordinator::Coordinator;
     use crate::executor::ExtractorExecutor;
     use crate::persistence::{DataRepository, ExtractorOutputSchema};
     use crate::persistence::{ExtractorBinding, ExtractorConfig, Repository};
     use crate::vector_index::VectorIndexManager;
     use crate::vectordbs::{self, IndexDistance};
-    use crate::Coordinator;
-    use crate::{vectordbs::qdrant::QdrantDb, vectordbs::VectorDBTS, ServerConfig};
+    use crate::{server_config::ServerConfig, vectordbs::qdrant::QdrantDb, vectordbs::VectorDBTS};
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
 
@@ -39,15 +39,16 @@ pub mod db_utils {
         db: DatabaseConnection,
     ) -> (Arc<VectorIndexManager>, ExtractorExecutor, Arc<Coordinator>) {
         let index_name = format!("{}/{}", DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR);
-        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::QdrantConfig {
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::server_config::QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
         let _ = qdrant.drop_index(index_name).await;
         let repository = Arc::new(Repository::new_with_db(db.clone()));
         let coordinator = Coordinator::new(repository.clone());
         let server_config = Arc::new(ServerConfig::from_path("local_server_config.yaml").unwrap());
-        let executor_config =
-            Arc::new(crate::ExecutorConfig::from_path("local_executor_config.yaml").unwrap());
+        let executor_config = Arc::new(
+            crate::server_config::ExecutorConfig::from_path("local_executor_config.yaml").unwrap(),
+        );
         let vector_db =
             vectordbs::create_vectordb(server_config.index_config.clone(), db.clone()).unwrap();
         let vector_index_manager = Arc::new(VectorIndexManager::new(

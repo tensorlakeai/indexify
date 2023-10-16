@@ -1069,10 +1069,7 @@ impl Repository {
     ) -> Result<(), RepositoryError> {
         for (work_id, executor_id) in allocation.iter() {
             WorkEntity::update_many()
-                .col_expr(
-                    entity::work::Column::WorkerId,
-                    Expr::value(executor_id),
-                )
+                .col_expr(entity::work::Column::WorkerId, Expr::value(executor_id))
                 .filter(entity::work::Column::Id.eq(work_id))
                 .exec(&self.conn)
                 .await?;

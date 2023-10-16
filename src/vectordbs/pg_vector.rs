@@ -4,7 +4,7 @@ use serde_json::Value;
 use tracing::{debug, warn};
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb, VectorDbError};
-use crate::PgVectorConfig;
+use crate::server_config::PgVectorConfig;
 use itertools::Itertools;
 use sea_orm::{self, DbBackend, DbConn, Statement};
 use std::fmt;
@@ -276,7 +276,10 @@ mod tests {
 
     use sea_orm::Database;
 
-    use crate::vectordbs::{pg_vector::PgVector, IndexDistance, VectorChunk, VectorDBTS};
+    use crate::{
+        server_config::PgVectorConfig,
+        vectordbs::{pg_vector::PgVector, IndexDistance, VectorChunk, VectorDBTS},
+    };
 
     use super::CreateIndexParams;
 
@@ -287,7 +290,7 @@ mod tests {
         let database_url = "postgres://postgres:postgres@localhost/indexify";
         let db_conn = Database::connect(database_url).await.unwrap();
         let vector_db: VectorDBTS = Arc::new(PgVector::new(
-            crate::PgVectorConfig {
+            PgVectorConfig {
                 addr: database_url.to_string(),
                 m: 16,
                 efconstruction: 64,
@@ -331,7 +334,7 @@ mod tests {
         let database_url = "postgres://postgres:postgres@localhost/indexify";
         let db_conn = Database::connect(database_url).await.unwrap();
         let vector_db: VectorDBTS = Arc::new(PgVector::new(
-            crate::PgVectorConfig {
+            PgVectorConfig {
                 addr: database_url.to_string(),
                 m: 16,
                 efconstruction: 64,

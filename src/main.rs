@@ -1,6 +1,9 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
-use indexify::{CoordinatorServer, ExecutorConfig, ExecutorServer, ServerConfig};
+use indexify::{
+    coordinator::CoordinatorServer, executor::ExecutorServer, server,
+    server_config::ExecutorConfig, server_config::ServerConfig,
+};
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
@@ -96,9 +99,9 @@ async fn main() -> Result<(), Error> {
         } => {
             info!("starting indexify server....");
             info!("version: {}", version);
-            let config = indexify::ServerConfig::from_path(&config_path)?;
+            let config = ServerConfig::from_path(&config_path)?;
             debug!("Server config is: {:?}", config);
-            let server = indexify::Server::new(Arc::new(config.clone()))?;
+            let server = server::Server::new(Arc::new(config.clone()))?;
             let server_handle = tokio::spawn(async move {
                 server.run().await.unwrap();
             });
@@ -114,7 +117,7 @@ async fn main() -> Result<(), Error> {
         }
         Commands::InitConfig { config_path } => {
             println!("Initializing config file at: {}", &config_path);
-            indexify::ServerConfig::generate(config_path).unwrap();
+            ServerConfig::generate(config_path).unwrap();
         }
         Commands::Coordinator { config_path } => {
             info!("starting indexify coordinator....");

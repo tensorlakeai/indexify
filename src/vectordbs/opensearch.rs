@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use url::Url;
 
 use crate::{
+    server_config::OpenSearchBasicConfig,
     vectordbs::{IndexDistance, SearchResult, VectorChunk},
-    OpenSearchBasicConfig,
 };
 
 use serde::Deserialize;
@@ -272,13 +272,16 @@ impl VectorDb for OpenSearchKnn {
 mod tests {
     use std::sync::Arc;
 
-    use crate::vectordbs::{IndexDistance, VectorChunk, VectorDBTS};
+    use crate::{
+        server_config::OpenSearchBasicConfig,
+        vectordbs::{IndexDistance, VectorChunk, VectorDBTS},
+    };
     const TEST_INDEX_NAME: &str = "test_index_name";
 
     use super::{CreateIndexParams, OpenSearchKnn};
 
     fn initialize_opensearch() -> OpenSearchKnn {
-        OpenSearchKnn::new(crate::OpenSearchBasicConfig {
+        OpenSearchKnn::new(OpenSearchBasicConfig {
             addr: "https://localhost:9200".into(),
             username: "admin".into(),
             password: "admin".into(),

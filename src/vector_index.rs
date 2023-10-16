@@ -9,7 +9,7 @@ use crate::{
     vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
 };
 use std::{collections::HashMap, sync::Arc};
-use tracing::{error};
+use tracing::error;
 
 pub struct VectorIndexManager {
     repository: Arc<Repository>,

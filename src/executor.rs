@@ -3,12 +3,14 @@ use crate::{
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageBuilder,
     content_reader,
+    coordinator::{ExecutorInfo, SyncExecutor, SyncWorkerResponse},
     extractors::{self, Content, ExtractorTS},
     internal_api::{EmbedQueryRequest, EmbedQueryResponse},
     persistence::{ExtractedAttributes, Work, WorkState},
     persistence::{ExtractorConfig, ExtractorOutputSchema, Repository},
+    server_config::ExecutorConfig,
     vector_index::VectorIndexManager,
-    vectordbs, ExecutorConfig, ExecutorInfo, SyncExecutor, SyncWorkerResponse,
+    vectordbs,
 };
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get, routing::post, Json, Router};

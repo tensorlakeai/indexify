@@ -12,7 +12,7 @@ use crate::{
     persistence::{
         ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
     },
-    ServerConfig,
+    server_config::ServerConfig,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
