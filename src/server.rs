@@ -6,7 +6,7 @@ use crate::server_config::ServerConfig;
 use crate::vector_index::VectorIndexManager;
 use crate::{
     api::*,
-    coordinator::{CreateWork, CreateWorkResponse},
+    internal_api::{CreateWork, CreateWorkResponse},
     persistence, vectordbs,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;

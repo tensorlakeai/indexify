@@ -10,13 +10,13 @@ use thiserror::Error;
 
 use crate::server_config::{IndexStoreKind, VectorIndexConfig};
 
-pub mod opensearch;
+pub mod open_search;
 pub mod pg_vector;
 pub mod qdrant;
 
 use qdrant::QdrantDb;
 
-use self::opensearch::OpenSearchKnn;
+use self::open_search::OpenSearchKnn;
 use self::pg_vector::PgVector;
 
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]

@@ -1,5 +1,4 @@
 use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
-use serde::{Deserialize, Serialize};
 use tokio::{
     signal,
     sync::mpsc::{self, Receiver, Sender},
@@ -8,7 +7,10 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
-    internal_api::{EmbedQueryRequest, EmbedQueryResponse},
+    internal_api::{
+        CreateWork, CreateWorkResponse, EmbedQueryRequest, EmbedQueryResponse, ExecutorInfo,
+        ListExecutors, SyncExecutor, SyncWorkerResponse,
+    },
     persistence::{
         ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
     },
@@ -22,46 +24,6 @@ use std::{
     sync::{Arc, RwLock},
     time::SystemTime,
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutorInfo {
-    pub id: String,
-    pub last_seen: u64,
-    pub addr: String,
-    pub extractor: ExtractorConfig,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SyncExecutor {
-    pub executor_id: String,
-    pub extractor: ExtractorConfig,
-    pub addr: String,
-    pub work_status: Vec<Work>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct ListExecutors {
-    pub executors: Vec<ExecutorInfo>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct ListExtractors {
-    pub extractors: Vec<ExtractorConfig>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SyncWorkerResponse {
-    pub content_to_process: Vec<Work>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct CreateWork {
-    pub repository_name: String,
-    pub content: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct CreateWorkResponse {}
 
 #[derive(Debug)]
 pub struct Coordinator {

@@ -29,7 +29,7 @@ impl OpenSearchKnn {
 
     fn create_client(&self) -> Result<OpenSearch, VectorDbError> {
         let url = Url::parse(&self.config.addr).map_err(|e| {
-            VectorDbError::InternalError(format!("unable to parse opensearch url: {}", e))
+            VectorDbError::InternalError(format!("unable to parse open search url: {}", e))
         })?;
         let credentials =
             Credentials::Basic(self.config.username.clone(), self.config.password.clone());
@@ -39,7 +39,7 @@ impl OpenSearchKnn {
             .build()
             .map_err(|e| {
                 VectorDbError::InternalError(format!(
-                    "unable to create opensearch transport: {}",
+                    "unable to create open search transport: {}",
                     e
                 ))
             })?;
@@ -50,7 +50,7 @@ impl OpenSearchKnn {
 #[async_trait]
 impl VectorDb for OpenSearchKnn {
     fn name(&self) -> String {
-        "opensearch".into()
+        "open search".into()
     }
 
     async fn create_index(&self, index_params: CreateIndexParams) -> Result<(), VectorDbError> {
