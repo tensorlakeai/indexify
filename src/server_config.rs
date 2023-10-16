@@ -3,7 +3,7 @@ use figment::{
     providers::{Env, Format, Yaml},
     Figment,
 };
-use local_ip_address;
+
 use serde::{Deserialize, Serialize};
 use std::{
     fmt, fs,

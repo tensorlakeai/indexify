@@ -1071,7 +1071,7 @@ impl Repository {
             WorkEntity::update_many()
                 .col_expr(
                     entity::work::Column::WorkerId,
-                    Expr::value(executor_id).into(),
+                    Expr::value(executor_id),
                 )
                 .filter(entity::work::Column::Id.eq(work_id))
                 .exec(&self.conn)
