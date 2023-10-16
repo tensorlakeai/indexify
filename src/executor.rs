@@ -154,7 +154,7 @@ impl ExtractorExecutor {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-            addr: self.config.listen_addr.clone().into(),
+            addr: self.config.listen_if.clone().into(),
             extractor: ExtractorConfig {
                 name: extractor_info.name,
                 description: extractor_info.description,
@@ -351,8 +351,10 @@ impl ExecutorServer {
         let addr: SocketAddr = self.config.listen_addr_sock()?;
         let listener = TcpListener::bind(addr)?;
         let listen_addr = listener.local_addr()?.to_string();
+        let listen_port = listener.local_addr()?.port();
+        let advertise_addr = format!("{}:{}", self.config.advertise_if, listen_port);
         let executor =
-            Arc::new(ExtractorExecutor::new(self.config.clone(), listen_addr.clone()).await?);
+            Arc::new(ExtractorExecutor::new(self.config.clone(), advertise_addr.clone()).await?);
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())
@@ -366,7 +368,11 @@ impl ExecutorServer {
             .layer(OtelAxumLayer::default())
             .layer(metrics);
 
-        info!("starting executor server on: {}", listen_addr);
+        info!(
+            "starting executor server on: {}, advertising: {}",
+            listen_addr,
+            advertise_addr.clone()
+        );
         let (tx, rx) = mpsc::channel(32);
         if let Err(err) = tx.send(TickerMessage::Heartbeat).await {
             error!("unable to send heartbeat: {:?}", err.to_string());

@@ -1,12 +1,11 @@
 # Address on which the server listens
-listen_addr: 0.0.0.0 
-listen_port: 8900
+listen_if: 0.0.0.0 
+#listen_port: 8900
 
 # Database URL for storing document and memory
 db_url: postgres://postgres:postgres@localhost/indexify
 
-coordinator_addr: 0.0.0.0
-coordinator_port: 8950
+coordinator_addr: localhost:8950
 
 # Blob storage configuration for the service. It is used for storing
 # raw data such as PDF, Images and Videos.

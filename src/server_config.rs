@@ -133,7 +133,7 @@ pub struct VectorIndexConfig {
     pub index_store: IndexStoreKind,
     pub qdrant_config: Option<QdrantConfig>,
     pub pg_vector_config: Option<PgVectorConfig>,
-    pub opensearch_basic: Option<OpenSearchBasicConfig>,
+    pub open_search_basic: Option<OpenSearchBasicConfig>,
 }
 
 impl Default for VectorIndexConfig {
@@ -142,7 +142,7 @@ impl Default for VectorIndexConfig {
             index_store: IndexStoreKind::Qdrant,
             qdrant_config: Some(QdrantConfig::default()),
             pg_vector_config: Some(PgVectorConfig::default()),
-            opensearch_basic: Some(OpenSearchBasicConfig::default()),
+            open_search_basic: Some(OpenSearchBasicConfig::default()),
         }
     }
 }
@@ -200,9 +200,9 @@ impl From<&str> for NetworkAddress {
 #[serde(rename_all = "snake_case")]
 pub struct ExecutorConfig {
     #[serde(default)]
-    pub listen_addr: NetworkAddress,
+    pub listen_if: NetworkAddress,
     #[serde(default)]
-    pub advertise_addr: NetworkAddress,
+    pub advertise_if: NetworkAddress,
     #[serde(default = "default_executor_port")]
     pub listen_port: u64,
     pub executor_id: Option<String>,
@@ -210,13 +210,57 @@ pub struct ExecutorConfig {
     pub blob_storage: BlobStorageConfig,
     pub index_config: VectorIndexConfig,
     pub db_url: String,
-    pub coordinator_addr: NetworkAddress,
+    pub coordinator_addr: String,
 }
 
 impl ExecutorConfig {
     pub fn from_path(path: &str) -> Result<ExecutorConfig, anyhow::Error> {
         let config_str: String = fs::read_to_string(path)?;
-        let config: ExecutorConfig = Figment::new()
+        let mut config: ExecutorConfig = Figment::new()
+            .merge(Yaml::string(&config_str))
+            .merge(Env::prefixed("INDEXIFY_"))
+            .extract()?;
+
+        // Unless the listen addr is on all interfaces, we should advertise the same address
+        if (config.listen_if.0 != "0.0.0.0") && (config.listen_if.0 != "::/0") {
+            config.advertise_if = config.listen_if.clone();
+        }
+
+        Ok(config)
+    }
+
+    pub fn listen_addr_sock(&self) -> Result<SocketAddr> {
+        let addr = format!("{}:{}", self.listen_if, self.listen_port);
+        addr.parse().map_err(|e: AddrParseError| {
+            anyhow!("Failed to parse listen address {} :{}", addr, e.to_string())
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CoordinatorConfig {
+    #[serde(default)]
+    pub listen_if: NetworkAddress,
+    #[serde(default = "default_coordinator_port")]
+    pub listen_port: u64,
+    pub db_url: String,
+}
+
+impl Default for CoordinatorConfig {
+    fn default() -> Self {
+        Self {
+            listen_if: "0.0.0.0".into(),
+            listen_port: default_coordinator_port(),
+            db_url: "postgres://postgres:postgres@localhost/indexify".into(),
+        }
+    }
+}
+
+impl CoordinatorConfig {
+    pub fn from_path(path: &str) -> Result<Self> {
+        let config_str: String = fs::read_to_string(path)?;
+        let config: CoordinatorConfig = Figment::new()
             .merge(Yaml::string(&config_str))
             .merge(Env::prefixed("INDEXIFY_"))
             .extract()?;
@@ -225,7 +269,7 @@ impl ExecutorConfig {
     }
 
     pub fn listen_addr_sock(&self) -> Result<SocketAddr> {
-        let addr = format!("{}:{}", self.listen_addr, self.listen_port);
+        let addr = format!("{}:{}", self.listen_if, self.listen_port);
         addr.parse().map_err(|e: AddrParseError| {
             anyhow!("Failed to parse listen address {} :{}", addr, e.to_string())
         })
@@ -236,27 +280,24 @@ impl ExecutorConfig {
 #[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
     #[serde(default)]
-    pub listen_addr: NetworkAddress,
+    pub listen_if: NetworkAddress,
     #[serde(default = "default_server_port")]
     pub listen_port: u64,
     pub index_config: VectorIndexConfig,
     pub db_url: String,
     #[serde(default)]
-    pub coordinator_addr: NetworkAddress,
-    #[serde(default = "default_coordinator_port")]
-    pub coordinator_port: u64,
+    pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen_addr: "0.0.0.0".into(),
+            listen_if: "0.0.0.0".into(),
             listen_port: default_server_port(),
             index_config: VectorIndexConfig::default(),
-            db_url: "sqlite://indexify.db".into(),
-            coordinator_addr: "0.0.0.0".into(),
-            coordinator_port: default_coordinator_port(),
+            db_url: "postgres://postgres:postgres@localhost/indexify".into(),
+            coordinator_addr: format!("localhost:{}", default_coordinator_port()),
             blob_storage: BlobStorageConfig {
                 backend: "disk".to_string(),
                 s3: None,
@@ -287,20 +328,9 @@ impl ServerConfig {
     }
 
     pub fn listen_addr_sock(&self) -> Result<SocketAddr> {
-        let addr = format!("{}:{}", self.listen_addr, self.listen_port);
+        let addr = format!("{}:{}", self.listen_if, self.listen_port);
         addr.parse().map_err(|e: AddrParseError| {
             anyhow!("Failed to parse listen address {} :{}", addr, e.to_string())
-        })
-    }
-
-    pub fn coordinator_addr_sock(&self) -> Result<SocketAddr> {
-        let addr = format!("{}:{}", self.coordinator_addr, self.coordinator_port);
-        addr.parse().map_err(|e: AddrParseError| {
-            anyhow!(
-                "Failed to parse coordinator address{}: {}",
-                addr,
-                e.to_string()
-            )
         })
     }
 }

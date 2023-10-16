@@ -1,5 +1,5 @@
 # Address on which the server listens
-#listen_addr: 0.0.0.0:8951
+listen_if: 0.0.0.0
 #advertise_addr: 127.0.0.0:8951
 
 extractor:

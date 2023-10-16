@@ -14,7 +14,7 @@ use crate::{
     persistence::{
         ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
     },
-    server_config::ServerConfig,
+    server_config::CoordinatorConfig,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
@@ -281,8 +281,8 @@ pub struct CoordinatorServer {
 }
 
 impl CoordinatorServer {
-    pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
-        let addr: SocketAddr = config.coordinator_addr_sock()?;
+    pub async fn new(config: Arc<CoordinatorConfig>) -> Result<Self, anyhow::Error> {
+        let addr: SocketAddr = config.listen_addr_sock()?;
         let repository = Arc::new(Repository::new(&config.db_url).await?);
         let coordinator = Coordinator::new(repository);
         info!("coordinator listening on: {}", addr.to_string());

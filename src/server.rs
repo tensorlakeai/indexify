@@ -34,7 +34,7 @@ const DEFAULT_SEARCH_LIMIT: u64 = 5;
 #[derive(Clone, Debug)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
-    coordinator_addr: SocketAddr,
+    coordinator_addr: String,
 }
 
 #[derive(OpenApi)]
@@ -86,7 +86,7 @@ impl Server {
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             repository.clone(),
             vector_db.clone(),
-            self.config.coordinator_addr_sock()?.to_string(),
+            self.config.coordinator_addr.clone(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
@@ -108,10 +108,9 @@ impl Server {
         {
             panic!("failed to create default repository: {}", err)
         }
-        let coordinator_addr: SocketAddr = self.config.coordinator_addr_sock()?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            coordinator_addr,
+            coordinator_addr: self.config.coordinator_addr.clone(),
         };
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()

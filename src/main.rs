@@ -1,8 +1,11 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{
-    coordinator::CoordinatorServer, executor::ExecutorServer, server,
-    server_config::ExecutorConfig, server_config::ServerConfig,
+    coordinator::CoordinatorServer,
+    executor::ExecutorServer,
+    server,
+    server_config::ExecutorConfig,
+    server_config::{CoordinatorConfig, ServerConfig},
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -29,8 +32,11 @@ struct Cli {
 enum Commands {
     #[command(about = "Start the server")]
     StartServer {
-        #[arg(short, long)]
+        #[arg(long)]
         config_path: String,
+
+        #[arg(long)]
+        coordinator_config_path: Option<String>,
 
         #[arg(short, long)]
         dev_mode: bool,
@@ -95,6 +101,7 @@ async fn main() -> Result<(), Error> {
     match args.command {
         Commands::StartServer {
             config_path,
+            coordinator_config_path,
             dev_mode,
         } => {
             info!("starting indexify server....");
@@ -106,7 +113,9 @@ async fn main() -> Result<(), Error> {
                 server.run().await.unwrap();
             });
             if dev_mode {
-                let coordinator = CoordinatorServer::new(Arc::new(config.clone())).await?;
+                let coordinator_config =
+                    CoordinatorConfig::from_path(&coordinator_config_path.unwrap().clone())?;
+                let coordinator = CoordinatorServer::new(Arc::new(coordinator_config)).await?;
                 let coordinator_handle = tokio::spawn(async move {
                     coordinator.run().await.unwrap();
                 });
@@ -123,7 +132,7 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify coordinator....");
             info!("version: {}", version);
 
-            let config = ServerConfig::from_path(&config_path)?;
+            let config = CoordinatorConfig::from_path(&config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }

@@ -132,7 +132,7 @@ pub fn create_vectordb(
             postgres_db_conn,
         ))),
         IndexStoreKind::OpenSearchKnn => Ok(Arc::new(OpenSearchKnn::new(
-            config.opensearch_basic.unwrap(),
+            config.open_search_basic.unwrap(),
         ))),
     }
 }

@@ -219,13 +219,10 @@ impl VectorDb for OpenSearchKnn {
         match response.error_for_status_code() {
             Ok(_) => Ok(()),
             Err(e) => {
-                match e.status_code() {
-                    Some(status) => {
-                        if status.as_u16() == 404 {
-                            return Ok(());
-                        }
+                if let Some(status) = e.status_code() {
+                    if status.as_u16() == 404 {
+                        return Ok(());
                     }
-                    None => {}
                 }
                 return Err(VectorDbError::InternalError(format!(
                     "unable to delete opensearch index: '{}'",
