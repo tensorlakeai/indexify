@@ -155,8 +155,8 @@ impl VectorDb for PgVector {
             .flat_map(|chunk| {
                 vec![
                     sea_orm::Value::String(Some(Box::new(chunk.chunk_id))),
-                    sea_orm::Value::Array(
-                        sea_query::ArrayType::Float,
+                    sea_orm::sea_query::Value::Array(
+                        sea_orm::sea_query::ArrayType::Float,
                         Some(Box::new(
                             chunk
                                 .embeddings
@@ -210,8 +210,8 @@ impl VectorDb for PgVector {
         SearchResult::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
             query.as_str(),
-            [sea_orm::Value::Array(
-                sea_query::ArrayType::Float,
+            [sea_orm::sea_query::Value::Array(
+                sea_orm::sea_query::ArrayType::Float,
                 Some(Box::new(query_embedding)),
             )],
         ))

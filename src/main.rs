@@ -1,14 +1,12 @@
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
-use indexify::{CoordinatorServer, ExecutorServer, ServerConfig};
+use indexify::{CoordinatorServer, ExecutorConfig, ExecutorServer, ServerConfig};
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
 use opentelemetry::{global, KeyValue};
-use opentelemetry_sdk::{
-    Resource,
-};
+use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::{
     resource::{DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
@@ -109,12 +107,7 @@ async fn main() -> Result<(), Error> {
                 let coordinator_handle = tokio::spawn(async move {
                     coordinator.run().await.unwrap();
                 });
-
-                let executor_server = ExecutorServer::new(Arc::new(config.clone())).await?;
-                let executor_handle = tokio::spawn(async move {
-                    executor_server.run().await.unwrap();
-                });
-                tokio::try_join!(server_handle, coordinator_handle, executor_handle)?;
+                tokio::try_join!(server_handle, coordinator_handle)?;
                 return Ok(());
             }
             tokio::try_join!(server_handle)?;
@@ -135,7 +128,7 @@ async fn main() -> Result<(), Error> {
             info!("starting indexify executor....");
             info!("version: {}", version);
 
-            let config = ServerConfig::from_path(&config_path)?;
+            let config = ExecutorConfig::from_path(&config_path)?;
             let executor_server = ExecutorServer::new(Arc::new(config)).await?;
             executor_server.run().await?
         }

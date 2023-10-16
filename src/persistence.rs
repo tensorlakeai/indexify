@@ -1,4 +1,5 @@
 use nanoid::nanoid;
+use sea_orm::sea_query::Expr;
 use sea_orm::{ConnectionTrait, QueryTrait};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -19,7 +20,6 @@ use sea_orm::{
     ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
 };
 use sea_orm::{ConnectOptions, QueryFilter};
-use sea_query::expr::Expr;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smart_default::SmartDefault;
@@ -1069,7 +1069,10 @@ impl Repository {
     ) -> Result<(), RepositoryError> {
         for (work_id, executor_id) in allocation.iter() {
             WorkEntity::update_many()
-                .col_expr(entity::work::Column::WorkerId, Expr::value(executor_id))
+                .col_expr(
+                    entity::work::Column::WorkerId,
+                    Expr::value(executor_id).into(),
+                )
                 .filter(entity::work::Column::Id.eq(work_id))
                 .exec(&self.conn)
                 .await?;

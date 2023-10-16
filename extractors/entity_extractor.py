@@ -3,7 +3,7 @@ from span_marker import SpanMarkerModel
 from decimal import Decimal
 from enum import Enum
 import json
-from .base_extractor import ExtractorInfo, Content, Attributes, Extractor
+from indexify_extractor_sdk.base_extractor import ExtractorInfo, Content, Attributes, Extractor
 from pydantic import BaseModel
 
 

@@ -12,7 +12,7 @@ anyhow = { version = "^1" }
 async-trait = "*"
 axum = { version = "^0", features = ["multipart"] }
 axum-macros = { version = "0.3.7" }
-axum-otel-metrics = "0.3"
+axum-otel-metrics = "0.6"
 axum-tracing-opentelemetry = "0.14.1"
 bytes = "1.5.0"
 clap = { version = "^4", features = ["derive"] }
@@ -31,7 +31,7 @@ opentelemetry-otlp = { version = "*", features = [
 ] }
 opentelemetry-stdout = {version = "0.1.0", features = ["logs", "metrics", "trace"]}
 pyo3 = { version = "^0", features = ["auto-initialize"] }
-pythonize = "0.19.0"
+pythonize = "0.20.0"
 qdrant-client = "1.2.0"
 rand = { version = "^0" }
 regex = { version = "^1" }
@@ -54,17 +54,22 @@ smart-default = { version = "^0" }
 strum = { version = "^0", features = ["derive"] }
 strum_macros = { version = "^0" }
 thiserror = "*"
-time = { version = "0.3", features = ["macros"] }
 tokio = { version = "^1", features = ["full"] }
 tracing = { version = "^0", features = ["log"] }
 tracing-core = "0.1.31"
 tracing-opentelemetry = { version = "0.21" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "*"
+md-5 = { version = "^0" }
+tiktoken-rs = { version = "^0" }
+time = { version = "0.3", features = ["macros"] }
 utoipa = { version = "^4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "^4", features = ["axum"] }
 utoipa-rapidoc = { version = "^1", features = ["axum"] }
 utoipa-redoc = { version = "^1", features = ["axum"] }
+unescape = "0.1.0"
+object_store = "0.7.0"
+local-ip-address = {version = "0.5.6"}
 
 [dev-dependencies]
 migration = { path = "./migration" }
@@ -80,4 +85,4 @@ vergen = { version = "8.0.0", features = [
     "rustc",
     "si",
 ] }
-pyo3-build-config = "0.19.2"
+pyo3-build-config = "0.20.0"

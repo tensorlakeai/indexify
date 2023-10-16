@@ -45,14 +45,20 @@ pub mod db_utils {
         let _ = qdrant.drop_index(index_name).await;
         let repository = Arc::new(Repository::new_with_db(db.clone()));
         let coordinator = Coordinator::new(repository.clone());
-        let server_config = Arc::new(ServerConfig::from_path("local_config.yaml").unwrap());
+        let server_config = Arc::new(ServerConfig::from_path("local_server_config.yaml").unwrap());
+        let executor_config =
+            Arc::new(crate::ExecutorConfig::from_path("local_executor_config.yaml").unwrap());
         let vector_db =
             vectordbs::create_vectordb(server_config.index_config.clone(), db.clone()).unwrap();
-        let vector_index_manager = Arc::new(VectorIndexManager::new(repository.clone(), vector_db));
+        let vector_index_manager = Arc::new(VectorIndexManager::new(
+            repository.clone(),
+            vector_db,
+            "localhost:9000".to_string(),
+        ));
         let attribute_index_manage = Arc::new(AttributeIndexManager::new(repository.clone()));
         let extractor_executor = ExtractorExecutor::new_test(
             repository.clone(),
-            server_config.clone(),
+            executor_config,
             vector_index_manager.clone(),
             attribute_index_manage.clone(),
         )
@@ -72,7 +78,7 @@ pub mod db_utils {
             },
         };
         coordinator
-            .record_extractors(vec![default_extractor])
+            .record_extractor(default_extractor)
             .await
             .unwrap();
         (vector_index_manager, extractor_executor, coordinator)

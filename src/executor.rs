@@ -8,15 +8,15 @@ use crate::{
     persistence::{ExtractedAttributes, Work, WorkState},
     persistence::{ExtractorConfig, ExtractorOutputSchema, Repository},
     vector_index::VectorIndexManager,
-    vectordbs, ExecutorInfo, ServerConfig, SyncExecutor, SyncWorkerResponse,
+    vectordbs, ExecutorConfig, ExecutorInfo, SyncExecutor, SyncWorkerResponse,
 };
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use dashmap::DashMap;
 use reqwest::StatusCode;
 use std::fmt;
+use std::net::TcpListener;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -60,13 +60,13 @@ impl WorkStore {
 
 pub struct ExtractorExecutor {
     repository: Arc<Repository>,
-    config: Arc<ServerConfig>,
+    config: Arc<ExecutorConfig>,
     executor_id: String,
-    extractors: DashMap<String, ExtractorTS>,
-    extractor_info_list: Vec<ExtractorConfig>,
+    extractor: ExtractorTS,
     vector_index_manager: Arc<VectorIndexManager>,
     attribute_index_manager: Arc<AttributeIndexManager>,
     content_reader_builder: content_reader::ContentReaderBuilder,
+    listen_addr: String,
 
     work_store: WorkStore,
 }
@@ -76,44 +76,41 @@ impl fmt::Debug for ExtractorExecutor {
         f.debug_struct("ExtractorExecutor")
             .field("config", &self.config)
             .field("executor_id", &self.executor_id)
-            .field("extractor_info_list", &self.extractor_info_list)
             .finish()
     }
 }
 
 impl ExtractorExecutor {
     #[tracing::instrument]
-    pub async fn new(config: Arc<ServerConfig>) -> Result<Self> {
+    pub async fn new(config: Arc<ExecutorConfig>, listen_addr: String) -> Result<Self> {
         let repository = Arc::new(Repository::new(&config.db_url).await?);
         let executor_id = get_host_name(config.clone())?;
         let vector_db = vectordbs::create_vectordb(
             config.index_config.clone(),
             repository.get_db_conn_clone(),
         )?;
-        let vector_index_manager = Arc::new(VectorIndexManager::new(repository.clone(), vector_db));
+        let vector_index_manager = Arc::new(VectorIndexManager::new(
+            repository.clone(),
+            vector_db,
+            config.coordinator_addr.clone().to_string(),
+        ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
-        let blob_storage = BlobStorageBuilder::new(config.clone()).build()?;
+        let blob_storage =
+            BlobStorageBuilder::new(Arc::new(config.blob_storage.clone())).build()?;
         let content_reader_builder =
             content_reader::ContentReaderBuilder::new(blob_storage.clone());
 
-        let available_extractors: DashMap<String, ExtractorTS> = DashMap::new();
-        let mut extractor_info_list: Vec<ExtractorConfig> = vec![];
-        for extractor_config in &config.extractors {
-            let extractor = extractors::create_extractor(extractor_config.clone())?;
-            let extractor_name = extractor.info()?.name.clone();
-            extractor_info_list.push(extractor.info()?);
-            available_extractors.insert(extractor_name, extractor);
-        }
+        let extractor = extractors::create_extractor(config.extractor.clone())?;
         let extractor_executor = Self {
             repository,
             config,
             executor_id,
-            extractors: available_extractors,
-            extractor_info_list,
+            extractor,
             vector_index_manager,
             attribute_index_manager,
             content_reader_builder,
+            listen_addr,
             work_store: WorkStore::new(),
         };
         Ok(extractor_executor)
@@ -122,19 +119,13 @@ impl ExtractorExecutor {
     #[tracing::instrument]
     pub fn new_test(
         repository: Arc<Repository>,
-        config: Arc<ServerConfig>,
+        config: Arc<ExecutorConfig>,
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self> {
-        let available_extractors: DashMap<String, ExtractorTS> = DashMap::new();
-        let mut extractor_info_list: Vec<ExtractorConfig> = vec![];
-        for extractor_config in &config.extractors {
-            let extractor = extractors::create_extractor(extractor_config.clone())?;
-            let extractor_name = extractor.info()?.name.clone();
-            extractor_info_list.push(extractor.info()?);
-            available_extractors.insert(extractor_name, extractor);
-        }
-        let blob_storage = BlobStorageBuilder::new(config.clone()).build()?;
+        let extractor = extractors::create_extractor(config.extractor.clone())?;
+        let blob_storage =
+            BlobStorageBuilder::new(Arc::new(config.blob_storage.clone())).build()?;
         let content_reader_builder =
             content_reader::ContentReaderBuilder::new(blob_storage.clone());
 
@@ -143,25 +134,31 @@ impl ExtractorExecutor {
             repository,
             config,
             executor_id,
-            extractors: available_extractors,
-            extractor_info_list,
+            extractor,
             vector_index_manager,
             attribute_index_manager,
             content_reader_builder,
+            listen_addr: "127.0.0.0:9000".to_string(),
             work_store: WorkStore::new(),
         })
     }
 
     #[tracing::instrument]
     pub fn get_executor_info(&self) -> ExecutorInfo {
+        let extractor_info = self.extractor.info().unwrap();
         ExecutorInfo {
             id: self.executor_id.clone(),
             last_seen: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-            addr: self.config.executor_config.server_listen_addr.clone(),
-            available_extractors: self.extractor_info_list.clone(),
+            addr: self.config.listen_addr.clone().into(),
+            extractor: ExtractorConfig {
+                name: extractor_info.name,
+                description: extractor_info.description,
+                input_params: extractor_info.input_params,
+                output_schema: extractor_info.output_schema,
+            },
         }
     }
 
@@ -177,8 +174,8 @@ impl ExtractorExecutor {
             .collect();
         let sync_executor_req = SyncExecutor {
             executor_id: self.executor_id.clone(),
-            available_extractors: self.extractor_info_list.clone(),
-            addr: self.config.executor_config.server_listen_addr.clone(),
+            extractor: self.extractor.info().unwrap(),
+            addr: self.listen_addr.clone(),
             work_status: work_status.clone(),
         };
         let json_resp = reqwest::Client::new()
@@ -224,18 +221,8 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument]
-    pub async fn embed_query(
-        &self,
-        extractor: &str,
-        query: &str,
-    ) -> Result<Vec<f32>, anyhow::Error> {
-        let embedding = self
-            .extractors
-            .get(extractor)
-            .unwrap()
-            .value()
-            .clone()
-            .extract_embedding_query(query)?;
+    pub async fn embed_query(&self, query: &str) -> Result<Vec<f32>, anyhow::Error> {
+        let embedding = self.extractor.extract_embedding_query(query)?;
         Ok(embedding)
     }
 
@@ -254,12 +241,6 @@ impl ExtractorExecutor {
                 "performing work: {}, extractor: {}",
                 &work.id, &work.extractor
             );
-            let extractor = self
-                .extractors
-                .get(&work.extractor)
-                .unwrap()
-                .value()
-                .clone();
             let content = self
                 .repository
                 .content_from_repo(&work.content_id, &work.repository_id)
@@ -269,12 +250,13 @@ impl ExtractorExecutor {
             let content =
                 Content::form_content_payload(content.clone(), &self.content_reader_builder)
                     .await?;
-            if let ExtractorOutputSchema::Embedding { .. } = extractor.info()?.output_schema {
+            if let ExtractorOutputSchema::Embedding { .. } = self.extractor.info()?.output_schema {
                 info!(
                     "extracting embedding - repository: {}, extractor: {}, index: {}, content id: {}",
                     &work.repository_id, &work.extractor, &work.index_name, &content.id
                 );
-                let extracted_embeddings = extractor
+                let extracted_embeddings = self
+                    .extractor
                     .extract_embedding(vec![content.clone()], work.extractor_params.clone())?;
                 self.vector_index_manager
                     .add_embedding(&work.repository_id, &work.index_name, extracted_embeddings)
@@ -283,12 +265,13 @@ impl ExtractorExecutor {
                     .update_work_state(&work.id, WorkState::Completed);
             }
 
-            if let ExtractorOutputSchema::Attributes { .. } = extractor.info()?.output_schema {
+            if let ExtractorOutputSchema::Attributes { .. } = self.extractor.info()?.output_schema {
                 info!(
                     "extracting attributes - repository: {}, extractor: {}, index: {}, content id: {}",
                     &work.repository_id, &work.extractor, &work.index_name, &content.id
                 );
-                let extracted_attributes = extractor
+                let extracted_attributes = self
+                    .extractor
                     .extract_attributes(vec![content], work.extractor_params.clone())?
                     .into_iter()
                     .map(|d| {
@@ -354,40 +337,40 @@ async fn heartbeat(
 }
 
 pub struct ExecutorServer {
-    config: Arc<ServerConfig>,
-    executor: Arc<ExtractorExecutor>,
+    config: Arc<ExecutorConfig>,
 }
 
 impl ExecutorServer {
-    pub async fn new(config: Arc<ServerConfig>) -> Result<Self> {
-        let executor = Arc::new(ExtractorExecutor::new(config.clone()).await?);
-        Ok(Self { config, executor })
+    pub async fn new(config: Arc<ExecutorConfig>) -> Result<Self> {
+        Ok(Self { config })
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
+        let addr: SocketAddr = self.config.listen_addr_sock()?;
+        let listener = TcpListener::bind(addr)?;
+        let listen_addr = listener.local_addr()?.to_string();
+        let executor =
+            Arc::new(ExtractorExecutor::new(self.config.clone(), listen_addr.clone()).await?);
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())
             .route("/", get(root))
             .route(
                 "/sync_executor",
-                post(sync_worker).with_state(self.executor.clone()),
+                post(sync_worker).with_state(executor.clone()),
             )
-            .route(
-                "/embed_query",
-                post(query).with_state(self.executor.clone()),
-            )
+            .route("/embed_query", post(query).with_state(executor.clone()))
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
             .layer(metrics);
-        let addr: SocketAddr = self.config.executor_config.server_listen_addr.parse()?;
-        info!("starting executor server on: {}", &addr);
+
+        info!("starting executor server on: {}", listen_addr);
         let (tx, rx) = mpsc::channel(32);
         if let Err(err) = tx.send(TickerMessage::Heartbeat).await {
             error!("unable to send heartbeat: {:?}", err.to_string());
         }
-        tokio::spawn(heartbeat(tx.clone(), rx, self.executor.clone()));
-        axum::Server::bind(&addr)
+        tokio::spawn(heartbeat(tx.clone(), rx, executor.clone()));
+        axum::Server::from_tcp(listener)?
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal(tx.clone()))
             .await?;
@@ -407,7 +390,7 @@ async fn query(
     Json(query): Json<EmbedQueryRequest>,
 ) -> Result<Json<EmbedQueryResponse>, IndexifyAPIError> {
     let embedding = extractor_executor
-        .embed_query(&query.extractor_name, &query.text)
+        .embed_query(&query.text)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(EmbedQueryResponse { embedding }))
@@ -425,15 +408,11 @@ async fn sync_worker(
 }
 
 #[tracing::instrument]
-fn get_host_name(config: Arc<ServerConfig>) -> Result<String> {
-    Ok(config
-        .executor_config
-        .executor_id
-        .clone()
-        .unwrap_or_else(|| {
-            let hostname = hostname::get().unwrap();
-            hostname.to_string_lossy().to_string()
-        }))
+fn get_host_name(config: Arc<ExecutorConfig>) -> Result<String> {
+    Ok(config.executor_id.clone().unwrap_or_else(|| {
+        let hostname = hostname::get().unwrap();
+        hostname.to_string_lossy().to_string()
+    }))
 }
 
 #[tracing::instrument]

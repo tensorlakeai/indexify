@@ -69,7 +69,7 @@ pub struct Server {
 }
 impl Server {
     pub fn new(config: Arc<super::server_config::ServerConfig>) -> Result<Self> {
-        let addr: SocketAddr = config.listen_addr.parse()?;
+        let addr: SocketAddr = config.listen_addr_sock()?;
         Ok(Self { addr, config })
     }
 
@@ -82,10 +82,12 @@ impl Server {
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             repository.clone(),
             vector_db.clone(),
+            self.config.coordinator_addr_sock()?.to_string(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
-        let blob_storage = BlobStorageBuilder::new(self.config.clone()).build()?;
+        let blob_storage =
+            BlobStorageBuilder::new(Arc::new(self.config.blob_storage.clone())).build()?;
 
         let repository_manager = Arc::new(
             DataRepositoryManager::new(
@@ -102,7 +104,7 @@ impl Server {
         {
             panic!("failed to create default repository: {}", err)
         }
-        let coordinator_addr: SocketAddr = self.config.coordinator_addr.parse()?;
+        let coordinator_addr: SocketAddr = self.config.coordinator_addr_sock()?;
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
             coordinator_addr,
@@ -172,7 +174,7 @@ impl Server {
             )
             .layer(OtelAxumLayer::default())
             .layer(metrics);
-        info!("server is listening at addr {:?}", &self.addr.to_string());
+        info!("server is listening at addr {}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())

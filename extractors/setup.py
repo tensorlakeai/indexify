@@ -11,20 +11,14 @@ from distutils.util import convert_path
 
 from setuptools import Command, find_packages, setup
 
-main_ns = {}
-ver_path = convert_path("indexify_extractor_sdk/version.py")
-with open(ver_path) as ver_file:
-    exec(ver_file.read(), main_ns)
-
-
 # Package meta-data.
-NAME = "indexify-extractor-sdk"
-DESCRIPTION = "Content Extractor SDK for Indexify"
+NAME = "indexify-extractors"
+DESCRIPTION = "Extractors SDK for Indexify"
 URL = "https://github.com/diptanu/indexify"
 EMAIL = "diptanuc@gmail.com"
 AUTHOR = "Diptanu Choudhury"
 REQUIRES_PYTHON = ">=3.7.0"
-VERSION = main_ns["__version__"]
+VERSION = "0.0.1"
 
 # What packages are required for this module to be executed?
 REQUIRED = [
