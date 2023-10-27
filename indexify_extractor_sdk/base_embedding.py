@@ -7,8 +7,6 @@ from langchain import text_splitter
 from .base_extractor import (
     Content,
     Extractor,
-    ExtractorInfo,
-    EmbeddingSchema,
     Embeddings,
 )
 class EmbeddingInputParams(BaseModel):

@@ -16,9 +16,6 @@ pub enum IndexError {
     #[error("unable to serialize unique params `{0}`")]
     UniqueParamsSerializationError(#[from] serde_json::Error),
 
-    #[error("chunk not found: `{0}`")]
-    ChunkNotFound(String),
-
     #[error("unable to embed query: `{0}`")]
     QueryEmbedding(String),
 }

@@ -13,7 +13,7 @@ clean:
 	cargo clean
 
 build-container:
-	docker build --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
+	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune --force --filter label=stage=builder
 
 push-container:

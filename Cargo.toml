@@ -10,10 +10,12 @@ members = [".", "migration"]
 [dependencies]
 anyhow = { version = "^1" }
 async-trait = "*"
+askama = {version = "^0"}
 axum = { version = "^0", features = ["multipart"] }
 axum-macros = { version = "0.3.7" }
-axum-otel-metrics = "0.6"
+axum-otel-metrics = "0.7"
 axum-tracing-opentelemetry = "0.14.1"
+bollard = {version = "^0", features= ["buildkit"]}
 bytes = "1.5.0"
 clap = { version = "^4", features = ["derive"] }
 figment = { version = "0.10.8", features = ["yaml", "env"] }
@@ -35,11 +37,10 @@ qdrant-client = "1.2.0"
 rand = { version = "^0" }
 regex = { version = "^1" }
 reqwest = { version = "^0", features = ["json"] }
-sea-orm = { version = "^0", features = [
+sea-orm = { version = "0.12.4", features = [
     "sqlx-postgres",
     "runtime-tokio-native-tls",
     "macros",
-    "sqlx-dep",
     "debug-print",
     "with-json",
     "with-time",
@@ -54,6 +55,7 @@ strum = { version = "^0", features = ["derive"] }
 strum_macros = { version = "^0" }
 thiserror = "*"
 tokio = { version = "^1", features = ["full"] }
+tokio-stream = "0.1.14"
 tracing = { version = "^0", features = ["log"] }
 tracing-core = "0.1.31"
 tracing-opentelemetry = { version = "0.21" }
@@ -65,6 +67,10 @@ utoipa-rapidoc = { version = "^1", features = ["axum"] }
 utoipa-redoc = { version = "^1", features = ["axum"] }
 object_store = "0.7.0"
 local-ip-address = {version = "0.5.6"}
+flate2 = "1.0"
+tar = "0.4"
+walkdir = { version="^2" }
+
 
 [dev-dependencies]
 migration = { path = "./migration" }

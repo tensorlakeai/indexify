@@ -1,4 +1,5 @@
 use crate::server_config::BlobStorageConfig;
+use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::sync::Arc;
@@ -6,11 +7,18 @@ use std::sync::Arc;
 pub mod disk;
 
 pub type BlobStorageTS = Arc<dyn BlobStorage + Sync + Send>;
+
+pub type BlobStorageReaderTS = Arc<dyn BlobStorageReader + Sync + Send>;
+
 #[async_trait]
 pub trait BlobStorage {
-    async fn get(&self, key: &str) -> Result<Vec<u8>, anyhow::Error>;
     async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error>;
     fn delete(&self, key: &str) -> Result<(), anyhow::Error>;
+}
+
+#[async_trait]
+pub trait BlobStorageReader {
+    async fn get(&self, key: &str) -> Result<Vec<u8>, anyhow::Error>;
 }
 
 pub struct BlobStorageBuilder {
@@ -20,6 +28,13 @@ pub struct BlobStorageBuilder {
 impl BlobStorageBuilder {
     pub fn new(config: Arc<BlobStorageConfig>) -> BlobStorageBuilder {
         Self { config }
+    }
+
+    pub fn reader_from_link(link: &str) -> Result<BlobStorageReaderTS, anyhow::Error> {
+        if link.starts_with("file://") {
+            return Ok(Arc::new(disk::DiskStorageReader {}));
+        }
+        Err(anyhow!("Unknown blob storage backend {}", link))
     }
 
     pub fn build(&self) -> Result<BlobStorageTS, anyhow::Error> {

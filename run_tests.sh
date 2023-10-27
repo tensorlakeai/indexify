@@ -22,7 +22,9 @@ until curl --output /dev/null --silent --get --fail http://$QDRANT_HOST/collecti
   sleep 5
 done
 
-pip install .
+pip install .[test]
+
+export PYTHONPATH=$PYTHONPATH:$(pwd)/extractors
 
 cargo test -- --test-threads 1
 

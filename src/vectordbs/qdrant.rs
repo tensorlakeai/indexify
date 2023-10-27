@@ -48,7 +48,7 @@ impl QdrantDb {
     fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
         let client_config = QdrantClientConfig::from_url(&self.qdrant_config.addr);
         let client = QdrantClient::new(Some(client_config)).map_err(|e| {
-            VectorDbError::InternalError(format!("unable to create a new quadrant index: {}", e))
+            VectorDbError::Internal(format!("unable to create a new quadrant index: {}", e))
         })?;
         Ok(client)
     }
@@ -93,7 +93,7 @@ impl VectorDb for QdrantDb {
         }
         result
             .map(|_| ())
-            .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))
+            .map_err(|e| VectorDbError::IndexNotCreated(e.to_string()))
     }
 
     #[tracing::instrument]
@@ -121,7 +121,7 @@ impl VectorDb for QdrantDb {
             .create_client()?
             .upsert_points(&index, points, None)
             .await
-            .map_err(|e| VectorDbError::IndexCreationError(e.to_string()))?;
+            .map_err(|e| VectorDbError::IndexNotCreated(e.to_string()))?;
         Ok(())
     }
 
@@ -144,13 +144,13 @@ impl VectorDb for QdrantDb {
                 ..Default::default()
             })
             .await
-            .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+            .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
         let mut documents: Vec<SearchResult> = Vec::new();
         for point in result.result {
             let json_value = serde_json::to_value(point.payload)
-                .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+                .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
             let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
-                .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+                .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
             documents.push(SearchResult {
                 confidence_score: point.score,
                 chunk_id: qdrant_payload.chunk_id,
@@ -166,7 +166,7 @@ impl VectorDb for QdrantDb {
             if err.to_string().contains("doesn't exist") {
                 return Ok(());
             }
-            return Err(VectorDbError::IndexDeletionError(index, err.to_string()));
+            return Err(VectorDbError::IndexNotDeleted(index, err.to_string()));
         }
         Ok(())
     }
@@ -177,10 +177,10 @@ impl VectorDb for QdrantDb {
             .create_client()?
             .collection_info(index)
             .await
-            .map_err(|e| VectorDbError::IndexReadError(e.to_string()))?;
+            .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
         let collection_info = result
             .result
-            .ok_or(VectorDbError::IndexReadError("index not found".into()))?;
+            .ok_or(VectorDbError::IndexNotRead("index not found".into()))?;
         Ok(collection_info.points_count)
     }
 }

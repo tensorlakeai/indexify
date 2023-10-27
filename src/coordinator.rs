@@ -1,28 +1,21 @@
-use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
-use tokio::{
-    signal,
-    sync::mpsc::{self, Receiver, Sender},
-};
+use anyhow::Result;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
 
 use crate::{
-    api::IndexifyAPIError,
-    internal_api::{
-        CreateWork, CreateWorkResponse, EmbedQueryRequest, EmbedQueryResponse, ExecutorInfo,
-        ListExecutors, SyncExecutor, SyncWorkerResponse,
-    },
+    attribute_index::AttributeIndexManager,
+    extractors::ExtractedEmbeddings,
+    internal_api::{self, CreateWork, ExecutorInfo},
     persistence::{
-        ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository, Work, WorkState,
+        ExtractedAttributes, ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository,
+        Work,
     },
-    server_config::CoordinatorConfig,
+    vector_index::VectorIndexManager,
 };
-use axum_otel_metrics::HttpMetricsLayerBuilder;
-use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+
 use std::{
     collections::HashMap,
-    net::SocketAddr,
     sync::{Arc, RwLock},
-    time::SystemTime,
 };
 
 #[derive(Debug)]
@@ -37,11 +30,19 @@ pub struct Coordinator {
 
     repository: Arc<Repository>,
 
+    vector_index_manager: Arc<VectorIndexManager>,
+
+    attribute_index_manager: Arc<AttributeIndexManager>,
+
     tx: Sender<CreateWork>,
 }
 
 impl Coordinator {
-    pub fn new(repository: Arc<Repository>) -> Arc<Self> {
+    pub fn new(
+        repository: Arc<Repository>,
+        vector_index_manager: Arc<VectorIndexManager>,
+        attribute_index_manager: Arc<AttributeIndexManager>,
+    ) -> Arc<Self> {
         let (tx, rx) = mpsc::channel(32);
 
         let coordinator = Arc::new(Self {
@@ -49,6 +50,8 @@ impl Coordinator {
             executors: Arc::new(RwLock::new(HashMap::new())),
             extractors_table: Arc::new(RwLock::new(HashMap::new())),
             repository,
+            vector_index_manager,
+            attribute_index_manager,
             tx,
         });
         let coordinator_clone = coordinator.clone();
@@ -56,6 +59,11 @@ impl Coordinator {
             coordinator_clone.loop_for_work(rx).await.unwrap();
         });
         coordinator
+    }
+
+    pub async fn get_executors(&self) -> Result<Vec<ExecutorInfo>> {
+        let executors = self.executors.read().unwrap();
+        Ok(executors.values().cloned().collect())
     }
 
     #[tracing::instrument(skip(self))]
@@ -86,7 +94,7 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.repository.unprocessed_extraction_events().await?;
         for event in &events {
@@ -131,7 +139,7 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
         let unallocated_work = self.repository.unallocated_work().await?;
 
@@ -149,6 +157,7 @@ impl Coordinator {
                 work_assignment.insert(work.id.clone(), executor_id);
             }
         }
+        info!("finishing work assignment: {:}", work_assignment.len());
         self.repository.assign_work(work_assignment).await?;
         Ok(())
     }
@@ -196,43 +205,28 @@ impl Coordinator {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn update_work_state(
-        &self,
-        work_list: Vec<Work>,
-        worker_id: &str,
-    ) -> Result<(), anyhow::Error> {
-        for work in work_list.iter() {
-            info!(
-                "updating work status by worker: {}, work id: {}, status: {}",
-                worker_id, &work.id, &work.work_state
-            );
-            match work.work_state {
-                WorkState::Completed | WorkState::Failed => {
-                    if let Err(err) = self
-                        .repository
-                        .update_work_state(&work.id, work.work_state.clone())
-                        .await
-                    {
-                        error!("unable to update work state: {}", err.to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
     pub async fn record_extractor(&self, extractor: ExtractorConfig) -> Result<(), anyhow::Error> {
         self.repository.record_extractors(vec![extractor]).await?;
         Ok(())
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, anyhow::Error> {
+    pub async fn get_work_for_worker(
+        &self,
+        worker_id: &str,
+    ) -> Result<Vec<internal_api::Work>, anyhow::Error> {
         let work_list = self.repository.work_for_worker(worker_id).await?;
+        let mut result = Vec::new();
+        for work in work_list {
+            let content_payload = self
+                .repository
+                .content_from_repo(&work.content_id, &work.repository_id)
+                .await?;
+            let internal_api_work = internal_api::create_work(work, content_payload)?;
+            result.push(internal_api_work);
+        }
 
-        Ok(work_list)
+        Ok(result)
     }
 
     #[tracing::instrument(skip(self, rx))]
@@ -249,7 +243,7 @@ impl Coordinator {
         }
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
         info!("received work request, processing extraction events");
         self.process_extraction_events().await?;
@@ -273,182 +267,49 @@ impl Coordinator {
             .ok_or(anyhow::anyhow!("no executor found for id: {}", executor_id))?;
         Ok(executor.clone())
     }
-}
 
-pub struct CoordinatorServer {
-    addr: SocketAddr,
-    coordinator: Arc<Coordinator>,
-}
-
-impl CoordinatorServer {
-    pub async fn new(config: Arc<CoordinatorConfig>) -> Result<Self, anyhow::Error> {
-        let addr: SocketAddr = config.listen_addr_sock()?;
-        let repository = Arc::new(Repository::new(&config.db_url).await?);
-        let coordinator = Coordinator::new(repository);
-        info!("coordinator listening on: {}", addr.to_string());
-        Ok(Self { addr, coordinator })
-    }
-
-    pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let metrics = HttpMetricsLayerBuilder::new().build();
-        let app = Router::new()
-            .merge(metrics.routes())
-            .route("/", get(root))
-            .route(
-                "/sync_executor",
-                post(sync_executor).with_state(self.coordinator.clone()),
-            )
-            .route(
-                "/executors",
-                get(list_executors).with_state(self.coordinator.clone()),
-            )
-            .route(
-                "/create_work",
-                post(create_work).with_state(self.coordinator.clone()),
-            )
-            .route(
-                "/embed_query",
-                post(embed_query).with_state(self.coordinator.clone()),
-            )
-            //start OpenTelemetry trace on incoming request
-            .layer(OtelAxumLayer::default())
-            .layer(metrics);
-        axum::Server::bind(&self.addr)
-            .serve(app.into_make_service())
-            .with_graceful_shutdown(shutdown_signal())
-            .await?;
+    pub async fn publish_work(&self, work: CreateWork) -> Result<(), anyhow::Error> {
+        self.tx.send(work).await?;
         Ok(())
     }
 
-    pub async fn run_extractors(&self) -> Result<(), anyhow::Error> {
+    pub async fn write_extracted_data(
+        &self,
+        work_status_list: Vec<internal_api::WorkStatus>,
+    ) -> Result<()> {
+        for work_status in work_status_list {
+            let work = self
+                .repository
+                .update_work_state(&work_status.work_id, &work_status.status.into())
+                .await?;
+            if let Some(data) = work_status.data {
+                match data.extracted_data {
+                    internal_api::ExtractedData::Embeddings { embedding } => {
+                        let embeddings = ExtractedEmbeddings {
+                            content_id: work.content_id.clone(),
+                            text: data.source.clone(),
+                            embeddings: embedding.clone(),
+                        };
+                        self.vector_index_manager
+                            .add_embedding(&work.repository_id, &work.index_name, vec![embeddings])
+                            .await?;
+                    }
+                    internal_api::ExtractedData::Attributes { attributes } => {
+                        let extracted_attributes = ExtractedAttributes::new(
+                            &data.content_id,
+                            attributes.clone(),
+                            &work.extractor,
+                        );
+                        self.attribute_index_manager
+                            .add_index(&work.repository_id, &work.index_name, extracted_attributes)
+                            .await?;
+                    }
+                };
+            }
+        }
+
         Ok(())
     }
-}
-
-async fn root() -> &'static str {
-    "Indexify Coordinator"
-}
-
-#[tracing::instrument]
-#[axum_macros::debug_handler]
-async fn list_executors(
-    State(coordinator): State<Arc<Coordinator>>,
-) -> Result<Json<ListExecutors>, IndexifyAPIError> {
-    let executors = coordinator
-        .executors
-        .read()
-        .unwrap()
-        .values()
-        .cloned()
-        .collect();
-    Ok(Json(ListExecutors { executors }))
-}
-
-#[tracing::instrument(level = "debug", skip(coordinator))]
-#[tracing::instrument(skip(coordinator, executor))]
-#[axum_macros::debug_handler]
-async fn sync_executor(
-    State(coordinator): State<Arc<Coordinator>>,
-    Json(executor): Json<SyncExecutor>,
-) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
-    // Record the health check of the worker
-    let worker_id = executor.executor_id.clone();
-    let _ = coordinator
-        .record_executor(ExecutorInfo {
-            id: worker_id.clone(),
-            last_seen: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            addr: executor.addr.clone(),
-            extractor: executor.extractor.clone(),
-        })
-        .await;
-    // Record the outcome of any work the worker has done
-    coordinator
-        .update_work_state(executor.work_status, &worker_id)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Record the extractors available on the executor
-    coordinator
-        .record_extractor(executor.extractor)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Find more work for the worker
-    let queued_work = coordinator
-        .get_work_for_worker(&executor.executor_id)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Respond
-    Ok(Json(SyncWorkerResponse {
-        content_to_process: queued_work,
-    }))
-}
-
-#[tracing::instrument]
-#[axum_macros::debug_handler]
-async fn embed_query(
-    State(coordinator): State<Arc<Coordinator>>,
-    Json(query): Json<EmbedQueryRequest>,
-) -> Result<Json<EmbedQueryResponse>, IndexifyAPIError> {
-    let executor = coordinator
-        .get_executor(&query.extractor_name)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let response = reqwest::Client::new()
-        .post(&format!("http://{}/embed_query", executor.addr))
-        .json(&query)
-        .send()
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .json::<EmbedQueryResponse>()
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(EmbedQueryResponse {
-        embedding: response.embedding,
-    }))
-}
-
-#[axum_macros::debug_handler]
-async fn create_work(
-    State(coordinator): State<Arc<Coordinator>>,
-    Json(create_work): Json<CreateWork>,
-) -> Result<Json<CreateWorkResponse>, IndexifyAPIError> {
-    if let Err(err) = coordinator.tx.try_send(create_work) {
-        error!("unable to send create work request: {}", err.to_string());
-    }
-    Ok(Json(CreateWorkResponse {}))
-}
-
-#[tracing::instrument]
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {
-        },
-        _ = terminate => {
-        },
-    }
-    info!("signal received, shutting down server gracefully");
 }
 
 #[cfg(test)]

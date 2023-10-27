@@ -7,8 +7,9 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::{
-    content_reader::ContentReaderBuilder,
-    persistence::{self, ContentPayload, ExtractorConfig},
+    content_reader::ContentReader,
+    internal_api::ContentPayload,
+    persistence::{self, ExtractorConfig},
     server_config,
 };
 use pyo3::{
@@ -37,14 +38,15 @@ pub struct Content {
 
 impl Content {
     pub async fn form_content_payload(
+        content_id: String,
         content_payload: ContentPayload,
-        content_reader_builder: &ContentReaderBuilder,
     ) -> Result<Self> {
-        let content_reader = content_reader_builder.build(content_payload.clone());
+        let content_type = content_payload.content_type.to_string();
+        let content_reader = ContentReader::new(content_payload);
         let data = content_reader.read().await?;
         Ok(Self {
-            id: content_payload.id,
-            content_type: content_payload.content_type.to_string(),
+            id: content_id,
+            content_type,
             data,
         })
     }
@@ -109,14 +111,9 @@ pub trait Extractor {
 
 #[tracing::instrument]
 pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<ExtractorTS> {
-    match extractor_config.driver {
-        server_config::ExtractorDriver::Python => {
-            let extractor = PythonDriver::new(extractor_config.path)?;
-            info!("extractor created: {:?}", extractor.info()?.name);
-            Ok(Arc::new(extractor))
-        }
-        _ => Err(anyhow!("unsupported extractor driver")),
-    }
+    let extractor = PythonDriver::new(extractor_config.path)?;
+    info!("extractor created: {:?}", extractor.info()?.name);
+    Ok(Arc::new(extractor))
 }
 
 #[derive(Debug)]
@@ -252,7 +249,7 @@ mod tests {
     #[test]
     fn extract_embeddings() {
         let extractor =
-            PythonDriver::new("indexify_extractors.embedding_extractor.MiniLML6Extractor".into())
+            PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into())
                 .unwrap();
 
         let info = extractor.info().unwrap();
@@ -273,7 +270,7 @@ mod tests {
     #[test]
     fn extract_embeddings_query() {
         let extractor =
-            PythonDriver::new("indexify_extractors.embedding_extractor.MiniLML6Extractor".into())
+            PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into())
                 .unwrap();
 
         let info = extractor.info().unwrap();
@@ -286,7 +283,7 @@ mod tests {
     #[test]
     fn extract_attributes() {
         let extractor =
-            PythonDriver::new("indexify_extractors.entity_extractor.EntityExtractor".into())
+            PythonDriver::new("entity_extractor.EntityExtractor".into())
                 .unwrap();
 
         let info = extractor.info().unwrap();
@@ -305,7 +302,7 @@ mod tests {
     #[test]
     fn extract_from_blob() {
         let extractor =
-            PythonDriver::new("indexify_extractors.pdf_embedder.PDFEmbedder".into()).unwrap();
+            PythonDriver::new("pdf_embedder.PDFEmbedder".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "PDFEmbedder");

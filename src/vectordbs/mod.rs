@@ -54,22 +54,19 @@ pub struct SearchResult {
 #[derive(Error, Debug)]
 pub enum VectorDbError {
     #[error("collection `{0}` has not been deleted: `{1}`")]
-    IndexDeletionError(String, String),
-
-    #[error("config not present")]
-    ConfigNotPresent,
+    IndexNotDeleted(String, String),
 
     #[error("error creating index: `{0}`")]
-    IndexCreationError(String),
+    IndexNotCreated(String),
 
     #[error("internal error: `{0}")]
-    InternalError(String),
+    Internal(String),
 
     #[error("error writing to index: `{0}`")]
-    IndexWriteError(String),
+    IndexNotWritten(String),
 
     #[error("error reading from index: `{0}`")]
-    IndexReadError(String),
+    IndexNotRead(String),
 }
 
 pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;

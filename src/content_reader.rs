@@ -1,39 +1,19 @@
-use crate::{
-    blob_storage::BlobStorageTS,
-    persistence::{ContentPayload, PayloadType},
-};
-
-pub struct ContentReaderBuilder {
-    blob_storage: BlobStorageTS,
-}
-
-impl ContentReaderBuilder {
-    pub fn new(blob_storage: BlobStorageTS) -> Self {
-        Self { blob_storage }
-    }
-
-    pub fn build(&self, payload: ContentPayload) -> ContentReader {
-        ContentReader::new(self.blob_storage.clone(), payload)
-    }
-}
+use crate::{blob_storage::BlobStorageBuilder, internal_api::ContentPayload};
 
 pub struct ContentReader {
-    blob_storage: BlobStorageTS,
     payload: ContentPayload,
 }
 
 impl ContentReader {
-    pub fn new(blob_storage: BlobStorageTS, payload: ContentPayload) -> Self {
-        Self {
-            blob_storage,
-            payload,
-        }
+    pub fn new(payload: ContentPayload) -> Self {
+        Self { payload }
     }
 
     pub async fn read(&self) -> Result<Vec<u8>, anyhow::Error> {
-        match self.payload.payload_type {
-            PayloadType::EmbeddedStorage => Ok(self.payload.payload.clone().into_bytes()),
-            PayloadType::BlobStorageLink => self.blob_storage.get(&self.payload.payload).await,
+        if let Some(external_url) = &self.payload.external_url {
+            let blob_storage_reader = BlobStorageBuilder::reader_from_link(external_url)?;
+            return blob_storage_reader.get(external_url).await;
         }
+        Ok(self.payload.content.clone().into_bytes())
     }
 }

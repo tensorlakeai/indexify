@@ -44,7 +44,6 @@ pub mod db_utils {
         }));
         let _ = qdrant.drop_index(index_name).await;
         let repository = Arc::new(Repository::new_with_db(db.clone()));
-        let coordinator = Coordinator::new(repository.clone());
         let server_config = Arc::new(ServerConfig::from_path("local_server_config.yaml").unwrap());
         let executor_config = Arc::new(
             crate::server_config::ExecutorConfig::from_path("local_executor_config.yaml").unwrap(),
@@ -56,14 +55,19 @@ pub mod db_utils {
             vector_db,
             "localhost:9000".to_string(),
         ));
-        let attribute_index_manage = Arc::new(AttributeIndexManager::new(repository.clone()));
+        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
         let extractor_executor = ExtractorExecutor::new_test(
             repository.clone(),
             executor_config,
             vector_index_manager.clone(),
-            attribute_index_manage.clone(),
+            attribute_index_manager.clone(),
         )
         .unwrap();
+        let coordinator = Coordinator::new(
+            repository.clone(),
+            vector_index_manager.clone(),
+            attribute_index_manager.clone(),
+        );
         coordinator
             .record_executor(extractor_executor.get_executor_info())
             .await
