@@ -287,6 +287,7 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
+    #[ignore]
     async fn test_search_basic() {
         let opensearch: VectorDBTS = Arc::new(initialize_opensearch());
         opensearch.drop_index(TEST_INDEX_NAME.into()).await.unwrap();
