@@ -29,7 +29,7 @@ impl OpenSearchKnn {
 
     fn create_client(&self) -> Result<OpenSearch, VectorDbError> {
         let url = Url::parse(&self.config.addr).map_err(|e| {
-            VectorDbError::InternalError(format!("unable to parse open search url: {}", e))
+            VectorDbError::Internal(format!("unable to parse open search url: {}", e))
         })?;
         let credentials =
             Credentials::Basic(self.config.username.clone(), self.config.password.clone());
@@ -38,7 +38,7 @@ impl OpenSearchKnn {
             .auth(credentials)
             .build()
             .map_err(|e| {
-                VectorDbError::InternalError(format!(
+                VectorDbError::Internal(format!(
                     "unable to create open search transport: {}",
                     e
                 ))
@@ -85,12 +85,12 @@ impl VectorDb for OpenSearchKnn {
             .send()
             .await
             .map_err(|e| {
-                VectorDbError::InternalError(format!("unable to create opensearch index: {}", e))
+                VectorDbError::Internal(format!("unable to create opensearch index: {}", e))
             })?;
         match response.error_for_status_code() {
             Ok(_) => Ok(()),
             Err(e) => {
-                return Err(VectorDbError::InternalError(format!(
+                return Err(VectorDbError::Internal(format!(
                     "unable to create opensearch index: '{}'",
                     e
                 )))
@@ -119,13 +119,13 @@ impl VectorDb for OpenSearchKnn {
             .send()
             .await
             .map_err(|e| {
-                VectorDbError::InternalError(format!("unable to add opensearch embeddings: {}", e))
+                VectorDbError::Internal(format!("unable to add opensearch embeddings: {}", e))
             })?;
 
         match response.error_for_status_code() {
             Ok(_) => Ok(()),
             Err(e) => {
-                return Err(VectorDbError::InternalError(format!(
+                return Err(VectorDbError::Internal(format!(
                     "unable to add opensearch embeddings: '{}'",
                     e
                 )))
@@ -155,14 +155,14 @@ impl VectorDb for OpenSearchKnn {
             .send()
             .await
             .map_err(|e| {
-                VectorDbError::InternalError(format!(
+                VectorDbError::Internal(format!(
                     "unable to search opensearch embeddings: {}",
                     e
                 ))
             })?;
 
         let response_body = response.json::<Value>().await.map_err(|e| {
-            VectorDbError::InternalError(format!(
+            VectorDbError::Internal(format!(
                 "unable to parse opensearch search response: {}",
                 e
             ))
@@ -171,7 +171,7 @@ impl VectorDb for OpenSearchKnn {
         let returned_hits = response_body["hits"]["hits"].as_array();
         match returned_hits {
             None => {
-                return Err(VectorDbError::InternalError(
+                return Err(VectorDbError::Internal(
                     "unable to parse opensearch search response".to_string(),
                 ))
             }
@@ -187,7 +187,7 @@ impl VectorDb for OpenSearchKnn {
                     let hit = serde_json::from_value::<OpenSearchHit>(hit.clone());
                     match hit {
                         Err(e) => {
-                            return Err(VectorDbError::InternalError(format!(
+                            return Err(VectorDbError::Internal(format!(
                                 "unable to parse opensearch search response: {}",
                                 e
                             )))
@@ -213,7 +213,7 @@ impl VectorDb for OpenSearchKnn {
             .send()
             .await
             .map_err(|e| {
-                VectorDbError::InternalError(format!("unable to delete opensearch index: {}", e))
+                VectorDbError::Internal(format!("unable to delete opensearch index: {}", e))
             })?;
 
         match response.error_for_status_code() {
@@ -224,7 +224,7 @@ impl VectorDb for OpenSearchKnn {
                         return Ok(());
                     }
                 }
-                return Err(VectorDbError::InternalError(format!(
+                return Err(VectorDbError::Internal(format!(
                     "unable to delete opensearch index: '{}'",
                     e
                 )));
@@ -239,11 +239,11 @@ impl VectorDb for OpenSearchKnn {
             .send()
             .await
             .map_err(|e| {
-                VectorDbError::InternalError(format!("unable to count opensearch index: {}", e))
+                VectorDbError::Internal(format!("unable to count opensearch index: {}", e))
             })?;
 
         let response_body = response.json::<Value>().await.map_err(|e| {
-            VectorDbError::InternalError(format!(
+            VectorDbError::Internal(format!(
                 "unable to parse opensearch count response: {}",
                 e
             ))
@@ -255,7 +255,7 @@ impl VectorDb for OpenSearchKnn {
         }
 
         let result = serde_json::from_value::<OpenSearchCount>(response_body).map_err(|e| {
-            VectorDbError::InternalError(format!(
+            VectorDbError::Internal(format!(
                 "unable to parse opensearch count response: {}",
                 e
             ))

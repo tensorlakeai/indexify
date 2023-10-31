@@ -30,12 +30,8 @@ VERSION = main_ns["__version__"]
 REQUIRED = [
     "torch",
     "langchain",
-    "fastembed",
-    "openai",
     "pydantic",
     "transformers",
-    "span_marker",
-    "pypdf",
 ]
 
 # What packages are optional?
@@ -54,6 +50,7 @@ EXTRAS = {
         "pytest-asyncio",
         "parameterized",
     ],
+    "test": ["pypdf", "span_marker"],
     "manifest": "manifest-ml",
     "profanity": ["alt-profanity-check"],
     "critique": ["inspiredco"],

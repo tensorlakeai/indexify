@@ -1,6 +1,0 @@
-# Address on which the server listens
-listen_if: 0.0.0.0 
-#listen_port: 8950
-
-# Database URL for storing document and memory
-db_url: postgres://postgres:postgres@localhost/indexify

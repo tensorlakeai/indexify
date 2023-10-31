@@ -69,7 +69,7 @@ impl VectorDb for PgVector {
             ))
             .await
             .map_err(|e| {
-                VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
+                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
         // the "id" here corresponds to the chunk-id, and is NOT SERIAL
         let query = format!(
@@ -79,7 +79,7 @@ impl VectorDb for PgVector {
             .execute(Statement::from_string(DbBackend::Postgres, query))
             .await
             .map_err(|e| {
-                VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
+                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
 
         // Create index if dimensions is below 2000. It will be much slower for larger vectors, we should be explicit about this in the docs
@@ -103,7 +103,7 @@ impl VectorDb for PgVector {
             .execute(Statement::from_string(DbBackend::Postgres, query))
             .await
             .map_err(|e| {
-                VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
+                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
 
         let query = format!(r#"SET hnsw.ef_search = {};"#, self.config.efsearch);
@@ -115,7 +115,7 @@ impl VectorDb for PgVector {
             ))
             .await
             .map_err(|e| {
-                VectorDbError::IndexCreationError(format!("{:?}: {:?}", index_name.clone(), e))
+                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
 
         Ok(())
@@ -177,10 +177,10 @@ impl VectorDb for PgVector {
             ))
             .await
             .map_err(|e| {
-                VectorDbError::IndexWriteError(format!("{:?} {:?}", index.to_string(), e))
+                VectorDbError::IndexNotWritten(format!("{:?} {:?}", index.to_string(), e))
             })?;
         if exec_res.rows_affected() == 0 {
-            return Err(VectorDbError::IndexWriteError(format!(
+            return Err(VectorDbError::IndexNotWritten(format!(
                 "{:?} {:?}",
                 index.to_string(),
                 "No rows were inserted".to_string(),
@@ -217,7 +217,7 @@ impl VectorDb for PgVector {
         ))
         .all(&self.db_conn)
         .await
-        .map_err(|e| VectorDbError::IndexReadError(format!("Search Error {:?}: {:?}", index, e)))
+        .map_err(|e| VectorDbError::IndexNotRead(format!("Search Error {:?}: {:?}", index, e)))
     }
 
     // TODO: Should change index to &str to keep things uniform across functions
@@ -231,7 +231,7 @@ impl VectorDb for PgVector {
                 query.to_string(),
             ))
             .await
-            .map_err(|e| VectorDbError::IndexDeletionError(index.0, format!("{:?}", e)))?;
+            .map_err(|e| VectorDbError::IndexNotDeleted(index.0, format!("{:?}", e)))?;
         Ok(())
     }
 
@@ -244,26 +244,26 @@ impl VectorDb for PgVector {
                 .one(&self.db_conn)
                 .await
                 .map_err(|e| {
-                    VectorDbError::IndexReadError(format!("Num Vectors{:?}: {:?}", index, e))
+                    VectorDbError::IndexNotRead(format!("Num Vectors{:?}: {:?}", index, e))
                 })?
-                .ok_or(VectorDbError::IndexReadError(
+                .ok_or(VectorDbError::IndexNotRead(
                     "num_vectors did not run successfully".to_string(),
                 ))?;
         match response {
             Value::Object(mut x) => {
-                let x = x.remove("count").ok_or(VectorDbError::IndexReadError(
+                let x = x.remove("count").ok_or(VectorDbError::IndexNotRead(
                     "SELECT COUNT(*) did not return a dictionary with key 'count'".to_string(),
                 ))?;
                 match x {
-                    Value::Number(n) => n.as_u64().ok_or(VectorDbError::IndexReadError(
+                    Value::Number(n) => n.as_u64().ok_or(VectorDbError::IndexNotRead(
                         "COUNT(*) did not return a positive integer".to_string(),
                     )),
-                    _ => Err(VectorDbError::IndexReadError(
+                    _ => Err(VectorDbError::IndexNotRead(
                         "COUNT(*) did not return Number".to_string(),
                     )),
                 }
             }
-            _ => Err(VectorDbError::IndexReadError(
+            _ => Err(VectorDbError::IndexNotRead(
                 "SELECT COUNT(*) did not an object".to_string(),
             )),
         }

@@ -1,49 +1,17 @@
 # Address on which the server listens
 listen_if: 0.0.0.0
+listen_port: 8951
 #advertise_addr: 127.0.0.0:8951
 
 extractor:
   name: "minilm-l6-v2-embeddings"
-  path: "indexify_extractors.embedding_extractor.MiniLML6Extractor"
+  path: "minilm_l6_embedding.MiniLML6Extractor"
   driver: "python"
 
   # name: "bert-entity-extractor"
-  # path: "indexify_extractors.entity_extractor.EntityExtractor"
+  # path: "entity_extractor.EntityExtractor"
   # driver: "python"
 
 # Database URL for storing document and memory
-db_url: postgres://postgres:postgres@localhost/indexify
-
 coordinator_addr: 192.168.1.14:8950
 
-# Blob storage configuration for the service. It is used for storing
-# raw data such as PDF, Images and Videos.
-blob_storage:
-  # The backend of the blob storage. Currently, only local file system
-  # and S3 are supported.
-  # Possible values - disk and s3
-  backend: disk
-  # Path to the directory where the blob storage will store the data.
-  disk:
-    path: /tmp/indexify-blob-storage
-
-# Vector index configuration for the service. The index_store parameter
-# specifies the type of index to use. Currently, only Qdrant is supported.
-#
-# The db_url parameter specifies the database url used for persistence of
-# metadata related to the indexed vectors and documents.
-#
-# The qdrant_config parameter specifies the configuration for the Qdrant
-# service.
-index_config:
-  index_store: Qdrant
-  qdrant_config:
-    addr: "http://127.0.0.1:6334"
-
-# # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
-# - index_store: PgEmbedding
-#   pg_vector_config:
-#     addr: postgres://postgres:postgres@localhost/indexify
-#     m: 16
-#     efconstruction: 64
-#     efsearch: 40

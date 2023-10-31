@@ -1,0 +1,9 @@
+name: diptanu/minilm-l6-extractor
+version: 1
+module: minilm_l6_embedding.py/MiniLM_L6Embedding
+gpu: false
+python_dependencies:
+  - torch
+  - transformers
+system_dependencies:
+  - curl

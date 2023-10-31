@@ -1,43 +1,18 @@
-# Address on which the server listens
-listen_addr: 0.0.0.0:8900
+# Network interface on which the server listens
+listen_if: 0.0.0.0
 
-# Percentage of traces to keep
-trace_id_ratio: 1.0
+# Port on which the server listens
+#listen_port: 8900
 
-# Endpoint where http logs are posted
-otlp_http_collector: "http://localhost:4318/v1/traces"
-
-# List of available models via the api. The name corresponds to a model
-# that the service knows how to load, and the device is where the model
-# is executed.
-available_models:
-- model: all-minilm-l12-v2
-  device: cpu
-  default: true
-- model: text-embedding-ada-002
-  device: remote
-
-# List of available extractors
-extractors:
-- name: "bert-entity-extractor"
-  path: "indexify_extractors.entity_extractor.EntityExtractor"
-  driver: "python"
-- name: "minilm-l6-v2-embeddings"
-  path: "indexify_extractors.embedding_extractor.MiniLML6Extractor"
-  driver: "python"
-
-# OpenAI key. Either set it here or set via the OPENAI_API_KEY
-# environment variable
-openai:
-  api_key: xxxxx
+# Port on which the coordinator listens
+#coordinator_port: 8950
 
 # Database URL for storing document and memory
 db_url: postgres://postgres:postgres@postgres/indexify
 
+# Address on which the coordinator is available for the API server
+# to query for executors
 coordinator_addr: 0.0.0.0:8950
-
-executor_config:
-  server_listen_addr: 0.0.0.0:8951
 
 # Blob storage configuration for the service. It is used for storing
 # raw data such as PDF, Images and Videos.
@@ -63,3 +38,11 @@ index_config:
   index_store: Qdrant
   qdrant_config:
     addr: "http://qdrant:6334"
+
+# # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
+# - index_store: PgEmbedding
+#   pg_vector_config:
+#     addr: postgres://postgres:postgres@localhost/indexify
+#     m: 16
+#     efconstruction: 64
+#     efsearch: 40

@@ -361,7 +361,7 @@ pub struct Work {
     pub extractor: String,
     pub extractor_params: serde_json::Value,
     pub work_state: WorkState,
-    pub worker_id: Option<String>,
+    pub executor_id: Option<String>,
 }
 
 impl Work {
@@ -388,12 +388,8 @@ impl Work {
             extractor: extractor.into(),
             extractor_params: extractor_params.clone(),
             work_state: WorkState::Pending,
-            worker_id: worker_id.map(|w| w.into()),
+            executor_id: worker_id.map(|w| w.into()),
         }
-    }
-
-    pub fn terminal_state(&self) -> bool {
-        self.work_state == WorkState::Completed || self.work_state == WorkState::Failed
     }
 }
 
@@ -407,7 +403,7 @@ impl From<work::Model> for Work {
             extractor: model.extractor,
             extractor_params: model.extractor_params,
             work_state: WorkState::from_str(&model.state).unwrap(),
-            worker_id: model.worker_id,
+            executor_id: model.worker_id,
         }
     }
 }
@@ -435,14 +431,8 @@ pub enum RepositoryError {
     #[error("chunk `{0}` not found")]
     ChunkNotFound(String),
 
-    #[error("index `{0}` already exists")]
-    IndexAlreadyExists(String),
-
     #[error("unable to serialize unique params `{0}`")]
     UniqueParamsSerializationError(#[from] serde_json::Error),
-
-    #[error("session `{0}` not found")]
-    SessionNotFound(String),
 
     #[error("internal application error `{0}`")]
     LogicError(String),
@@ -454,11 +444,10 @@ pub struct Repository {
 }
 
 impl Repository {
-    #[tracing::instrument]
     pub async fn new(db_url: &str) -> Result<Self, RepositoryError> {
         let mut opt = ConnectOptions::new(db_url.to_owned());
         opt.sqlx_logging(false); // Disabling SQLx log;
-
+        info!("connecting to db: {}", db_url);
         let conn = Database::connect(opt).await?;
         Ok(Self { conn })
     }
@@ -1021,7 +1010,7 @@ impl Repository {
         Ok(extractor_models)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_extractor(
         &self,
         extractor_name: &str,
@@ -1036,12 +1025,12 @@ impl Repository {
         Ok(extractor_config.into())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn insert_work(&self, work: &Work) -> Result<(), RepositoryError> {
         let work_model = entity::work::ActiveModel {
             id: Set(work.id.clone()),
             state: Set(work.work_state.to_string()),
-            worker_id: Set(work.worker_id.as_ref().map(|id| id.to_owned())),
+            worker_id: Set(work.executor_id.as_ref().map(|id| id.to_owned())),
             content_id: Set(work.content_id.clone()),
             index_name: Set(work.index_name.clone()),
             extractor: Set(work.extractor.clone()),
@@ -1052,7 +1041,17 @@ impl Repository {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
+    pub async fn work_by_id(&self, id: &str) -> Result<Work, RepositoryError> {
+        let work_model = WorkEntity::find()
+            .filter(entity::work::Column::Id.eq(id))
+            .one(&self.conn)
+            .await?
+            .ok_or(RepositoryError::RepositoryNotFound(id.into()))?;
+        Ok(work_model.into())
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn unallocated_work(&self) -> Result<Vec<work::Model>, RepositoryError> {
         let work_models = WorkEntity::find()
             .filter(entity::work::Column::WorkerId.is_null())
@@ -1062,7 +1061,7 @@ impl Repository {
         Ok(work_models)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn assign_work(
         &self,
         allocation: HashMap<String, String>,
@@ -1077,21 +1076,31 @@ impl Repository {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn update_work_state(
         &self,
         work_id: &str,
-        state: WorkState,
-    ) -> Result<(), RepositoryError> {
-        entity::work::Entity::update_many()
+        state: &WorkState,
+    ) -> Result<Work, RepositoryError> {
+        let result = entity::work::Entity::update_many()
             .col_expr(entity::work::Column::State, Expr::value(state.to_string()))
             .filter(entity::work::Column::Id.eq(work_id))
-            .exec(&self.conn)
+            .exec_with_returning(&self.conn)
             .await?;
-        Ok(())
+        if result.is_empty() {
+            return Err(RepositoryError::LogicError(
+                "unable to find work".to_string(),
+            ));
+        }
+        result
+            .get(0)
+            .map(|r| r.to_owned().into())
+            .ok_or(RepositoryError::LogicError(
+                "unable to find work".to_string(),
+            ))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn work_for_worker(&self, worker_id: &str) -> Result<Vec<Work>, RepositoryError> {
         let work_models = WorkEntity::find()
             .filter(entity::work::Column::WorkerId.eq(worker_id))
@@ -1104,7 +1113,7 @@ impl Repository {
         Ok(work_models)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn binding_by_id(
         &self,
         repository: &str,

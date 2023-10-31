@@ -1,22 +1,16 @@
 use anyhow::{Error, Result};
+
 use clap::{Parser, Subcommand};
 use indexify::{
-    coordinator::CoordinatorServer,
-    executor::ExecutorServer,
-    server,
-    server_config::ExecutorConfig,
-    server_config::{CoordinatorConfig, ServerConfig},
+    coordinator_service::CoordinatorServer, executor_server::ExecutorServer, server,
+    server_config::ExecutorConfig, server_config::ServerConfig,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
-use opentelemetry::{global, KeyValue};
-use opentelemetry_sdk::Resource;
-use opentelemetry_semantic_conventions::{
-    resource::{DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, SERVICE_VERSION},
-    SCHEMA_URL,
-};
+use opentelemetry::global;
+
 use tracing_core::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -31,12 +25,9 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     #[command(about = "Start the server")]
-    StartServer {
+    Server {
         #[arg(long)]
         config_path: String,
-
-        #[arg(long)]
-        coordinator_config_path: Option<String>,
 
         #[arg(short, long)]
         dev_mode: bool,
@@ -48,22 +39,26 @@ enum Commands {
     Executor {
         #[arg(short, long)]
         config_path: String,
+
+        #[arg(long)]
+        advertise_ip: Option<String>,
+
+        #[arg(long)]
+        advertise_port: Option<u64>,
+
+        #[arg(long)]
+        coordinator_addr: Option<String>,
     },
     InitConfig {
         config_path: String,
     },
-}
+    Package {
+        #[arg(short, long)]
+        config_path: String,
 
-// Create a Resource that captures information about the entity for which telemetry is recorded.
-fn resource() -> Resource {
-    Resource::from_schema_url(
-        [
-            KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
-            KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-            KeyValue::new(DEPLOYMENT_ENVIRONMENT, "develop"),
-        ],
-        SCHEMA_URL,
-    )
+        #[arg(short, long)]
+        dev: bool,
+    },
 }
 
 struct OtelGuard {}
@@ -97,15 +92,14 @@ async fn main() -> Result<(), Error> {
         env!("VERGEN_GIT_BRANCH"),
         env!("VERGEN_GIT_SHA")
     );
+    info!("indexify version: {}", version);
 
     match args.command {
-        Commands::StartServer {
+        Commands::Server {
             config_path,
-            coordinator_config_path,
             dev_mode,
         } => {
             info!("starting indexify server....");
-            info!("version: {}", version);
             let config = ServerConfig::from_path(&config_path)?;
             debug!("Server config is: {:?}", config);
             let server = server::Server::new(Arc::new(config.clone()))?;
@@ -113,9 +107,7 @@ async fn main() -> Result<(), Error> {
                 server.run().await.unwrap();
             });
             if dev_mode {
-                let coordinator_config =
-                    CoordinatorConfig::from_path(&coordinator_config_path.unwrap().clone())?;
-                let coordinator = CoordinatorServer::new(Arc::new(coordinator_config)).await?;
+                let coordinator = CoordinatorServer::new(Arc::new(config.clone())).await?;
                 let coordinator_handle = tokio::spawn(async move {
                     coordinator.run().await.unwrap();
                 });
@@ -130,19 +122,31 @@ async fn main() -> Result<(), Error> {
         }
         Commands::Coordinator { config_path } => {
             info!("starting indexify coordinator....");
-            info!("version: {}", version);
 
-            let config = CoordinatorConfig::from_path(&config_path)?;
+            let config = ServerConfig::from_path(&config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }
-        Commands::Executor { config_path } => {
+        Commands::Executor {
+            config_path,
+            advertise_ip,
+            advertise_port,
+            coordinator_addr,
+        } => {
             info!("starting indexify executor....");
-            info!("version: {}", version);
 
-            let config = ExecutorConfig::from_path(&config_path)?;
+            let config = ExecutorConfig::from_path(&config_path)?
+                .with_advertise_ip(advertise_ip)
+                .with_advertise_port(advertise_port)
+                .with_coordinator_addr(coordinator_addr);
             let executor_server = ExecutorServer::new(Arc::new(config)).await?;
             executor_server.run().await?
+        }
+        Commands::Package { config_path, dev } => {
+            info!("starting indexify packager....");
+
+            let packager = indexify::package::Packager::new(config_path, dev)?;
+            packager.package().await?;
         }
     }
     global::shutdown_tracer_provider();
