@@ -17,7 +17,7 @@ build-container:
 	docker image prune --force --filter label=stage=builder
 
 push-container:
-	docker buildx build --platform linux/amd64,linux/arm64 -t diptanu/indexify . --push
+	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 -t ${DOCKER_USERNAME}/${APPLICATION_NAME} . --push
 
 entity:
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
