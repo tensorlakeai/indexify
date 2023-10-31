@@ -11,14 +11,14 @@ networks:
 services:
   indexify:
     image: diptanu/indexify
-    command: [ "/indexify/docker_compose_start.sh" ]
+    entrypoint: [ "/indexify/docker_compose_start.sh" ]
     ports:
       - "8900:8900"
-    volumes:
-      - ./sample_config.yaml:/indexify/config/indexify.yaml:ro
     environment:
-      - OPENAI_API_KEY
       - DATABASE_URL=postgres://postgres:postgres@postgres/indexify
+      - INDEXIFY_DB_URL=postgres://postgres:postgres@postgres/indexify
+      - INDEXIFY_COORDINATOR_ADDR=http://localhost:8950
+      - INDEXIFY_INDEX_CONFIG.QDRANT_CONFIG.ADDR=http://qdrant:6334
     depends_on:
       - qdrant
       - postgres
@@ -35,7 +35,7 @@ services:
       dependencies:
         ipv4_address: 172.20.0.8
   postgres:
-    image: postgres
+    image: ankane/pgvector
     restart: always
     ports:
       - 5432

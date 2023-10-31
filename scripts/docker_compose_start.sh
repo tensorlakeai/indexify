@@ -9,4 +9,4 @@ do
 done
 
 # Start server
-/indexify/indexify start-server -d -c ./config/indexify.yaml
+/indexify/indexify server -d --config-path ./config/indexify.yaml
