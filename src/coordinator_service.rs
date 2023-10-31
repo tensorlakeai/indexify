@@ -35,7 +35,7 @@ impl CoordinatorServer {
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             repository.clone(),
             vector_db,
-            config.coordinator_addr.clone().to_string(),
+            config.coordinator_lis_addr_sock().unwrap().to_string(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 

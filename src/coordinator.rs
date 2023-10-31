@@ -123,7 +123,7 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn generate_work_for_extractor_bindings(
         &self,
         repository: &str,
@@ -273,6 +273,7 @@ impl Coordinator {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn write_extracted_data(
         &self,
         work_status_list: Vec<internal_api::WorkStatus>,

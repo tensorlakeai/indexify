@@ -86,7 +86,7 @@ impl Server {
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             repository.clone(),
             vector_db.clone(),
-            self.config.coordinator_addr.clone(),
+            self.config.coordinator_lis_addr_sock().unwrap().to_string(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 

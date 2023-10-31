@@ -25,15 +25,11 @@ RUN cargo build --release
 
 RUN cargo build --package migration --release
 
-RUN python3 -m "venv" /venv
-
-RUN /venv/bin/pip install .
-
 FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y libssl-dev gcc python3-dev
+RUN apt install -y libssl-dev python3-dev
 
 WORKDIR /indexify
 
@@ -44,9 +40,5 @@ COPY --from=builder /indexify-build/target/release/migration ./
 COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
 COPY ./scripts/docker_compose_start.sh .
-
-COPY --from=builder /venv /venv
-
-ENV PATH=/venv/bin:$PATH
 
 ENTRYPOINT [ "/indexify/indexify" ]
