@@ -1,4 +1,4 @@
-FROM diptanu/extractor-base
+FROM diptanu/indexify-extractor-base
 
 RUN apt update
 
@@ -13,3 +13,5 @@ COPY extractors /indexify/extractors
 {{ additional_dev_setup }}
 
 ENV PYTHONPATH=$PTYTHONPATH:/indexify/extractors
+
+ENTRYPOINT [ "/indexify/indexify" ]

@@ -110,7 +110,7 @@ impl Server {
         }
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            coordinator_addr: self.config.coordinator_addr.clone(),
+            coordinator_addr: self.config.coordinator_lis_addr_sock().unwrap().to_string(),
         };
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
@@ -366,7 +366,7 @@ async fn add_texts(
             )
         })?;
 
-    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
+    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.clone()).await {
         error!("unable to run extractors: {}", err.to_string());
     }
 

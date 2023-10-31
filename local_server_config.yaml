@@ -7,7 +7,7 @@ db_url: postgres://postgres:postgres@localhost/indexify
 
 # Address on which the coordinator is available for the API server
 # to query for executors
-coordinator_addr: localhost:8950
+coordinator_addr: 0.0.0.0:8950
 
 # Blob storage configuration for the service. It is used for storing
 # raw data such as PDF, Images and Videos.

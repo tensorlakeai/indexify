@@ -13,11 +13,18 @@ clean:
 	cargo clean
 
 build-container:
-	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
+	docker buildx build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune --force --filter label=stage=builder
 
+
+build-base-extractor:
+	docker buildx build -f dockerfiles/Dockerfile.extractor_base --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
+
+build-base-extractor-push:
+	$(build-base-extractor) --platform linux/amd64,linux/arm64  --push
+
 push-container:
-	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 -t ${DOCKER_USERNAME}/${APPLICATION_NAME} . --push
+	$(build-container) --platform linux/amd64,linux/arm64 -t ${DOCKER_USERNAME}/${APPLICATION_NAME} --push
 
 entity:
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time

@@ -131,7 +131,7 @@ async fn sync_worker(
     Ok(())
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(tx))]
 async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
     let ctrl_c = async {
         signal::ctrl_c()
