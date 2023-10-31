@@ -15,3 +15,4 @@ pub mod server_config;
 mod test_util;
 mod vector_index;
 mod vectordbs;
+pub mod raft;

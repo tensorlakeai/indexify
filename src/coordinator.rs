@@ -1,4 +1,5 @@
 use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
+use serde::{Serialize, Deserialize};
 use tokio::{
     signal,
     sync::mpsc::{self, Receiver, Sender},
@@ -27,6 +28,15 @@ use std::{
 
 #[derive(Debug)]
 pub struct Coordinator {
+    data: CoordinatorData,
+
+    repository: Arc<Repository>,
+
+    tx: Sender<CreateWork>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct CoordinatorData {
     // Executor ID -> Last Seen Timestamp
     executor_health_checks: Arc<RwLock<HashMap<String, u64>>>,
 
@@ -34,10 +44,6 @@ pub struct Coordinator {
 
     // Extractor Name -> [Executor ID]
     extractors_table: Arc<RwLock<HashMap<String, Vec<String>>>>,
-
-    repository: Arc<Repository>,
-
-    tx: Sender<CreateWork>,
 }
 
 impl Coordinator {
@@ -45,9 +51,11 @@ impl Coordinator {
         let (tx, rx) = mpsc::channel(32);
 
         let coordinator = Arc::new(Self {
-            executor_health_checks: Arc::new(RwLock::new(HashMap::new())),
-            executors: Arc::new(RwLock::new(HashMap::new())),
-            extractors_table: Arc::new(RwLock::new(HashMap::new())),
+            data: CoordinatorData {
+                executor_health_checks: Arc::new(RwLock::new(HashMap::new())),
+                executors: Arc::new(RwLock::new(HashMap::new())),
+                extractors_table: Arc::new(RwLock::new(HashMap::new())),
+            },
             repository,
             tx,
         });
@@ -62,22 +70,24 @@ impl Coordinator {
     pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
         // First see if the executor is already in the table
         let is_new_executor = self
+            .data
             .executor_health_checks
             .read()
             .unwrap()
             .get(&worker.id)
             .is_none();
-        self.executor_health_checks
+        self.data
+            .executor_health_checks
             .write()
             .unwrap()
             .insert(worker.id.clone(), worker.last_seen);
         if is_new_executor {
             info!("recording new executor: {}", &worker.id);
-            self.executors
+            self.data.executors
                 .write()
                 .unwrap()
                 .insert(worker.id.clone(), worker.clone());
-            let mut extractors_table = self.extractors_table.write().unwrap();
+            let mut extractors_table = self.data.extractors_table.write().unwrap();
             let executors = extractors_table
                 .entry(worker.extractor.name.clone())
                 .or_default();
@@ -138,7 +148,7 @@ impl Coordinator {
         // work_id -> executor_id
         let mut work_assignment = HashMap::new();
         for work in unallocated_work {
-            let extractor_table = self.extractors_table.read().unwrap();
+            let extractor_table = self.data.extractors_table.read().unwrap();
             let executors = extractor_table.get(&work.extractor).ok_or(anyhow::anyhow!(
                 "no executors for extractor: {}",
                 work.extractor
@@ -260,14 +270,14 @@ impl Coordinator {
     }
 
     pub async fn get_executor(&self, extractor_name: &str) -> Result<ExecutorInfo, anyhow::Error> {
-        let extractors_table = self.extractors_table.read().unwrap();
+        let extractors_table = self.data.extractors_table.read().unwrap();
         let executors = extractors_table.get(extractor_name).ok_or(anyhow::anyhow!(
             "no executors for extractor: {}",
             extractor_name
         ))?;
         let rand_index = rand::random::<usize>() % executors.len();
         let executor_id = executors[rand_index].clone();
-        let executors = self.executors.read().unwrap();
+        let executors = self.data.executors.read().unwrap();
         let executor = executors
             .get(&executor_id)
             .ok_or(anyhow::anyhow!("no executor found for id: {}", executor_id))?;
@@ -335,6 +345,7 @@ async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
     let executors = coordinator
+        .data
         .executors
         .read()
         .unwrap()

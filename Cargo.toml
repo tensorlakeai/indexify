@@ -9,17 +9,19 @@ members = [".", "migration"]
 
 [dependencies]
 anyhow = { version = "^1" }
-async-trait = "*"
+async-trait = "0.1.74"
 axum = { version = "^0", features = ["multipart"] }
 axum-macros = { version = "0.3.7" }
 axum-otel-metrics = "0.6"
 axum-tracing-opentelemetry = "0.14.1"
+byteorder = "1.5.0"
 bytes = "1.5.0"
 clap = { version = "^4", features = ["derive"] }
 figment = { version = "0.10.8", features = ["yaml", "env"] }
 hostname = { version = "^0" }
 itertools = "0.11.0"
 nanoid = { version = "0.4.0" }
+openraft = { version = "0.8.3", features = ["serde", "anyhow"] }
 opensearch = { version = "2.1.0" }
 opentelemetry = { version = "^0", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.20.0"
@@ -29,6 +31,7 @@ opentelemetry-otlp = { version = "*", features = [
     "reqwest-client",
 ] }
 opentelemetry-stdout = {version = "0.1.0", features = ["logs", "metrics", "trace"]}
+names = {version = "0.14.0", default-features = false }
 pyo3 = { version = "^0", features = ["auto-initialize"] }
 pythonize = "0.20.0"
 qdrant-client = "1.2.0"
@@ -52,6 +55,7 @@ serde_json = { version = "^1", features = ["std"] }
 smart-default = { version = "^0" }
 strum = { version = "^0", features = ["derive"] }
 strum_macros = { version = "^0" }
+tempfile = "3.8.0"
 thiserror = "*"
 tokio = { version = "^1", features = ["full"] }
 tracing = { version = "^0", features = ["log"] }
