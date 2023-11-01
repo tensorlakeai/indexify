@@ -7,9 +7,6 @@ Indexify is very easy to get started with Docker Compose.
 git clone https://github.com/diptanu/indexify.git
 ```
 
-### Mac OS/Windows Instructions
-Please allocate at least 6 GB of RAM to Docker Desktop on Mac or Windows to try it out. This all inclusive version of Indexify runs the extraction executors which loads a embedding and a NER model in memory.
-
 ### Start the Service using Docker Compose
 ```shell
 docker compose up indexify
