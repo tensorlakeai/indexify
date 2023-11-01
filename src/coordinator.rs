@@ -7,8 +7,8 @@ use crate::{
     extractors::ExtractedEmbeddings,
     internal_api::{self, CreateWork, ExecutorInfo},
     persistence::{
-        ExtractedAttributes, ExtractionEventPayload, ExtractorBinding, ExtractorConfig, Repository,
-        Work,
+        ExtractedAttributes, ExtractionEventPayload, ExtractorBinding, ExtractorDescription,
+        Repository, Work,
     },
     vector_index::VectorIndexManager,
 };
@@ -205,7 +205,10 @@ impl Coordinator {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn record_extractor(&self, extractor: ExtractorConfig) -> Result<(), anyhow::Error> {
+    pub async fn record_extractor(
+        &self,
+        extractor: ExtractorDescription,
+    ) -> Result<(), anyhow::Error> {
         self.repository.record_extractors(vec![extractor]).await?;
         Ok(())
     }

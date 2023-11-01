@@ -14,7 +14,7 @@ use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::server_config::ExtractorPackageConfig;
+use crate::server_config::ExtractorConfig;
 
 #[derive(Template)]
 #[template(path = "Dockerfile.extractor", escape = "none")]
@@ -25,7 +25,8 @@ struct DockerfileTemplate<'a> {
 }
 
 pub struct Packager {
-    config: ExtractorPackageConfig,
+    config_path: String,
+    config: ExtractorConfig,
     code_dir: PathBuf,
     dev: bool,
 }
@@ -41,8 +42,9 @@ impl Packager {
             .unwrap()
             .parent()
             .unwrap();
-        let config = ExtractorPackageConfig::from_path(path)?;
+        let config = ExtractorConfig::from_path(path.clone())?;
         Ok(Packager {
+            config_path: path,
             config,
             code_dir: code_dir_relative_path.into(),
             dev,
@@ -58,7 +60,10 @@ impl Packager {
         header.set_cksum();
         let mut tar = tar::Builder::new(Vec::new());
         tar.append(&header, docker_file.as_bytes()).unwrap();
+
         self.add_directory_to_tar(&mut tar, &self.code_dir)?;
+
+        tar.append_path_with_name(self.config_path.clone(), "indexify_extractor.yaml")?;
 
         if self.dev {
             self.add_dev_dependencies(&mut tar)?;
@@ -153,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_create_docker_file() {
-        let config = ExtractorPackageConfig {
+        let config = ExtractorConfig {
             name: "test".to_string(),
             module: "foo.py/ModuleName".to_string(),
             version: "0.1.0".to_string(),
@@ -162,13 +167,14 @@ mod tests {
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
         };
         let packager = Packager {
+            config_path: "test".to_string(),
             config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r"FROM diptanu/extractor-base
+        let expected_dockerfile = r#"FROM diptanu/indexify-extractor-base
 
 RUN apt update
 
@@ -182,7 +188,9 @@ COPY extractors /indexify/extractors
 
 
 
-ENV PYTHONPATH=$PTYTHONPATH:/indexify/extractors";
+ENV PYTHONPATH=$PTYTHONPATH:/indexify/extractors
+
+ENTRYPOINT [ "/indexify/indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
     }
 }

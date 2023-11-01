@@ -3,7 +3,7 @@ use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use indexify::{
     coordinator_service::CoordinatorServer, executor_server::ExecutorServer, server,
-    server_config::ExecutorConfig, server_config::ServerConfig,
+    server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -38,7 +38,7 @@ enum Commands {
     },
     Executor {
         #[arg(short, long)]
-        config_path: String,
+        extractor_config: Option<String>,
 
         #[arg(long)]
         advertise_ip: Option<String>,
@@ -47,7 +47,7 @@ enum Commands {
         advertise_port: Option<u64>,
 
         #[arg(long)]
-        coordinator_addr: Option<String>,
+        coordinator_addr: String,
     },
     InitConfig {
         config_path: String,
@@ -128,18 +128,23 @@ async fn main() -> Result<(), Error> {
             coordinator.run().await?
         }
         Commands::Executor {
-            config_path,
+            extractor_config,
             advertise_ip,
             advertise_port,
             coordinator_addr,
         } => {
             info!("starting indexify executor....");
 
-            let config = ExecutorConfig::from_path(&config_path)?
+            let extractor_config_path =
+                extractor_config.unwrap_or("indexify_extractor.yaml".to_string());
+            let extractor_config = Arc::new(ExtractorConfig::from_path(extractor_config_path)?);
+
+            let executor_config = ExecutorConfig::default()
                 .with_advertise_ip(advertise_ip)
                 .with_advertise_port(advertise_port)
                 .with_coordinator_addr(coordinator_addr);
-            let executor_server = ExecutorServer::new(Arc::new(config)).await?;
+            let executor_server =
+                ExecutorServer::new(Arc::new(executor_config), extractor_config).await?;
             executor_server.run().await?
         }
         Commands::Package { config_path, dev } => {

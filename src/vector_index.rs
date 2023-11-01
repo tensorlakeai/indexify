@@ -5,7 +5,7 @@ use crate::{
     extractors::ExtractedEmbeddings,
     index::IndexError,
     internal_api::{EmbedQueryRequest, EmbedQueryResponse},
-    persistence::{Chunk, ExtractorConfig, ExtractorOutputSchema, Repository},
+    persistence::{Chunk, ExtractorDescription, ExtractorOutputSchema, Repository},
     vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -47,7 +47,7 @@ impl VectorIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extractor_config: ExtractorConfig,
+        extractor_config: ExtractorDescription,
     ) -> Result<()> {
         let mut index_params: Option<CreateIndexParams> = None;
         let vector_index_name = format!("{}-{}", repository, index_name);

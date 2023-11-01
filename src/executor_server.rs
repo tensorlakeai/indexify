@@ -14,7 +14,7 @@ use crate::{
     api::IndexifyAPIError,
     executor::ExtractorExecutor,
     internal_api::{EmbedQueryRequest, EmbedQueryResponse},
-    server_config::ExecutorConfig,
+    server_config::{ExecutorConfig, ExtractorConfig},
 };
 
 enum TickerMessage {
@@ -55,22 +55,35 @@ async fn heartbeat(
 }
 
 pub struct ExecutorServer {
-    config: Arc<ExecutorConfig>,
+    executor_config: Arc<ExecutorConfig>,
+    extractor_config: Arc<ExtractorConfig>,
 }
 
 impl ExecutorServer {
-    pub async fn new(config: Arc<ExecutorConfig>) -> Result<Self> {
-        Ok(Self { config })
+    pub async fn new(
+        executor_config: Arc<ExecutorConfig>,
+        extractor_config: Arc<ExtractorConfig>,
+    ) -> Result<Self> {
+        Ok(Self {
+            executor_config,
+            extractor_config,
+        })
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let addr: SocketAddr = self.config.listen_addr_sock()?;
+        let addr: SocketAddr = self.executor_config.listen_addr_sock()?;
         let listener = TcpListener::bind(addr)?;
         let listen_addr = listener.local_addr()?.to_string();
         let listen_port = listener.local_addr()?.port();
-        let advertise_addr = format!("{}:{}", self.config.advertise_if, listen_port);
-        let executor =
-            Arc::new(ExtractorExecutor::new(self.config.clone(), advertise_addr.clone()).await?);
+        let advertise_addr = format!("{}:{}", self.executor_config.advertise_if, listen_port);
+        let executor = Arc::new(
+            ExtractorExecutor::new(
+                self.executor_config.clone(),
+                self.extractor_config.clone(),
+                advertise_addr.clone(),
+            )
+            .await?,
+        );
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())

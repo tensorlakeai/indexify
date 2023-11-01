@@ -9,7 +9,7 @@ use tracing::info;
 use crate::{
     content_reader::ContentReader,
     internal_api::ContentPayload,
-    persistence::{self, ExtractorConfig},
+    persistence::{self, ExtractorDescription},
     server_config,
 };
 use pyo3::{
@@ -92,7 +92,7 @@ pub struct ExtractorInfo {
 
 pub type ExtractorTS = Arc<dyn Extractor + Sync + Send>;
 pub trait Extractor {
-    fn info(&self) -> Result<persistence::ExtractorConfig, anyhow::Error>;
+    fn info(&self) -> Result<persistence::ExtractorDescription, anyhow::Error>;
 
     fn extract_embedding(
         &self,
@@ -110,8 +110,10 @@ pub trait Extractor {
 }
 
 #[tracing::instrument]
-pub fn create_extractor(extractor_config: server_config::Extractor) -> Result<ExtractorTS> {
-    let extractor = PythonDriver::new(extractor_config.path)?;
+pub fn create_extractor(
+    extractor_config: Arc<server_config::ExtractorConfig>,
+) -> Result<ExtractorTS> {
+    let extractor = PythonDriver::new(extractor_config.module.clone())?;
     info!("extractor created: {:?}", extractor.info()?.name);
     Ok(Arc::new(extractor))
 }
@@ -159,11 +161,11 @@ impl PythonDriver {
 #[async_trait::async_trait]
 impl Extractor for PythonDriver {
     #[tracing::instrument]
-    fn info(&self) -> Result<ExtractorConfig, anyhow::Error> {
+    fn info(&self) -> Result<ExtractorDescription, anyhow::Error> {
         let info = Python::with_gil(|py| {
             let info = self.module_object.call_method0(py, "_info")?;
             let extractor_info: String = info.extract(py)?;
-            let extractor_config: ExtractorConfig = serde_json::from_str(&extractor_info)?;
+            let extractor_config: ExtractorDescription = serde_json::from_str(&extractor_info)?;
             Ok(extractor_config)
         })?;
         Ok(info)
@@ -248,9 +250,7 @@ mod tests {
 
     #[test]
     fn extract_embeddings() {
-        let extractor =
-            PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into())
-                .unwrap();
+        let extractor = PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "MiniLML6");
@@ -269,9 +269,7 @@ mod tests {
 
     #[test]
     fn extract_embeddings_query() {
-        let extractor =
-            PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into())
-                .unwrap();
+        let extractor = PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "MiniLML6");
@@ -282,9 +280,7 @@ mod tests {
 
     #[test]
     fn extract_attributes() {
-        let extractor =
-            PythonDriver::new("entity_extractor.EntityExtractor".into())
-                .unwrap();
+        let extractor = PythonDriver::new("entity_extractor.EntityExtractor".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "EntityExtractor");
@@ -301,8 +297,7 @@ mod tests {
 
     #[test]
     fn extract_from_blob() {
-        let extractor =
-            PythonDriver::new("pdf_embedder.PDFEmbedder".into()).unwrap();
+        let extractor = PythonDriver::new("pdf_embedder.PDFEmbedder".into()).unwrap();
 
         let info = extractor.info().unwrap();
         assert_eq!(info.name, "PDFEmbedder");

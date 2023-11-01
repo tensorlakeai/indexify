@@ -295,15 +295,15 @@ impl From<persistence::ExtractorOutputSchema> for ExtractorOutputSchema {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ExtractorConfig {
+pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
     pub input_params: serde_json::Value,
     pub output_schema: ExtractorOutputSchema,
 }
 
-impl From<persistence::ExtractorConfig> for ExtractorConfig {
-    fn from(value: persistence::ExtractorConfig) -> Self {
+impl From<persistence::ExtractorDescription> for ExtractorDescription {
+    fn from(value: persistence::ExtractorDescription) -> Self {
         Self {
             name: value.name,
             description: value.description,
@@ -316,7 +316,7 @@ impl From<persistence::ExtractorConfig> for ExtractorConfig {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Executor {
     pub id: String,
-    pub extractors: Vec<ExtractorConfig>,
+    pub extractors: Vec<ExtractorDescription>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -326,7 +326,7 @@ pub struct ListExecutorsResponse {
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct ListExtractorsResponse {
-    pub extractors: Vec<ExtractorConfig>,
+    pub extractors: Vec<ExtractorDescription>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]

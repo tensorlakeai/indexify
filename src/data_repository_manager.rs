@@ -13,7 +13,7 @@ use crate::{
     index::IndexError,
     persistence::{
         ContentPayload, DataRepository, Event, ExtractedAttributes, ExtractorBinding,
-        ExtractorConfig, ExtractorOutputSchema, Index, Repository, RepositoryError,
+        ExtractorDescription, ExtractorOutputSchema, Index, Repository, RepositoryError,
     },
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
@@ -243,7 +243,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_extractors(&self) -> Result<Vec<ExtractorConfig>, DataRepositoryError> {
+    pub async fn list_extractors(&self) -> Result<Vec<ExtractorDescription>, DataRepositoryError> {
         let extractors = self
             .repository
             .list_extractors()

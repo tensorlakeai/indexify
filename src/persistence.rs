@@ -177,14 +177,14 @@ pub enum ExtractorFilter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "extractor")]
-pub struct ExtractorConfig {
+pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
     pub input_params: serde_json::Value,
     pub output_schema: ExtractorOutputSchema,
 }
 
-impl From<extractors::Model> for ExtractorConfig {
+impl From<extractors::Model> for ExtractorDescription {
     fn from(model: extractors::Model) -> Self {
         // TODO remove unwrap()
         let output_schema = serde_json::from_value(model.output_schema).unwrap();
@@ -898,7 +898,10 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn extractor_by_name(&self, name: &str) -> Result<ExtractorConfig, RepositoryError> {
+    pub async fn extractor_by_name(
+        &self,
+        name: &str,
+    ) -> Result<ExtractorDescription, RepositoryError> {
         let extractor_model = extractors::Entity::find()
             .filter(entity::extractors::Column::Id.eq(name))
             .one(&self.conn)
@@ -968,7 +971,7 @@ impl Repository {
     #[tracing::instrument]
     pub async fn record_extractors(
         &self,
-        extractors: Vec<ExtractorConfig>,
+        extractors: Vec<ExtractorDescription>,
     ) -> Result<(), RepositoryError> {
         let mut extractor_models: Vec<entity::extractors::ActiveModel> = vec![];
         for extractor in extractors {
@@ -1000,8 +1003,8 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn list_extractors(&self) -> Result<Vec<ExtractorConfig>, RepositoryError> {
-        let extractor_models: Vec<ExtractorConfig> = extractors::Entity::find()
+    pub async fn list_extractors(&self) -> Result<Vec<ExtractorDescription>, RepositoryError> {
+        let extractor_models: Vec<ExtractorDescription> = extractors::Entity::find()
             .all(&self.conn)
             .await?
             .into_iter()
@@ -1014,7 +1017,7 @@ impl Repository {
     pub async fn get_extractor(
         &self,
         extractor_name: &str,
-    ) -> Result<ExtractorConfig, RepositoryError> {
+    ) -> Result<ExtractorDescription, RepositoryError> {
         let extractor_config = extractors::Entity::find()
             .filter(entity::extractors::Column::Id.eq(extractor_name))
             .one(&self.conn)
@@ -1145,7 +1148,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_extractors_for_repository() {
-        let extractor1 = ExtractorConfig {
+        let extractor1 = ExtractorDescription {
             name: "extractor1".into(),
             description: "extractor1".into(),
             input_params: json!({}),

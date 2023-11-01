@@ -1,25 +1,28 @@
 use crate::internal_api::{ExtractedContent, ExtractedData, WorkState, WorkStatus};
+use crate::server_config::ExtractorConfig;
 use crate::work_store::WorkStore;
 use crate::{
     attribute_index::AttributeIndexManager,
     extractors::{self, Content, ExtractorTS},
     internal_api::{ExecutorInfo, SyncExecutor, SyncWorkerResponse, Work},
-    persistence::{ExtractorConfig, ExtractorOutputSchema, Repository},
+    persistence::{ExtractorDescription, ExtractorOutputSchema, Repository},
     server_config::ExecutorConfig,
     vector_index::VectorIndexManager,
 };
 use anyhow::{anyhow, Result};
+use nanoid::nanoid;
 use std::fmt;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::error;
 use tracing::info;
 
-fn get_host_name(config: Arc<ExecutorConfig>) -> Result<String> {
-    Ok(config.executor_id.clone().unwrap_or_else(|| {
-        let hostname = hostname::get().unwrap();
-        hostname.to_string_lossy().to_string()
-    }))
+fn create_executor_id() -> String {
+    let host_name = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    format!("{}_{}", nanoid!(), host_name)
 }
 
 pub struct ExtractorExecutor {
@@ -42,12 +45,16 @@ impl fmt::Debug for ExtractorExecutor {
 
 impl ExtractorExecutor {
     #[tracing::instrument]
-    pub async fn new(config: Arc<ExecutorConfig>, listen_addr: String) -> Result<Self> {
-        let executor_id = get_host_name(config.clone())?;
+    pub async fn new(
+        executor_config: Arc<ExecutorConfig>,
+        extractor_config: Arc<ExtractorConfig>,
+        listen_addr: String,
+    ) -> Result<Self> {
+        let executor_id = create_executor_id();
 
-        let extractor = extractors::create_extractor(config.extractor.clone())?;
+        let extractor = extractors::create_extractor(extractor_config)?;
         let extractor_executor = Self {
-            config,
+            config: executor_config,
             executor_id,
             extractor,
             listen_addr,
@@ -59,14 +66,15 @@ impl ExtractorExecutor {
     #[tracing::instrument]
     pub fn new_test(
         repository: Arc<Repository>,
-        config: Arc<ExecutorConfig>,
+        executor_config: Arc<ExecutorConfig>,
+        extractor_config: Arc<ExtractorConfig>,
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self> {
-        let extractor = extractors::create_extractor(config.extractor.clone())?;
-        let executor_id = get_host_name(config.clone()).unwrap();
+        let extractor = extractors::create_extractor(extractor_config)?;
+        let executor_id = create_executor_id();
         Ok(Self {
-            config,
+            config: executor_config,
             executor_id,
             extractor,
             listen_addr: "127.0.0.0:9000".to_string(),
@@ -84,7 +92,7 @@ impl ExtractorExecutor {
                 .unwrap()
                 .as_secs(),
             addr: self.config.listen_if.clone().into(),
-            extractor: ExtractorConfig {
+            extractor: ExtractorDescription {
                 name: extractor_info.name,
                 description: extractor_info.description,
                 input_params: extractor_info.input_params,

@@ -40,21 +40,6 @@ pub struct BlobStorageConfig {
     pub disk: Option<DiskStorageConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Extractor {
-    pub name: String,
-    pub path: String,
-}
-
-impl Default for Extractor {
-    fn default() -> Self {
-        Self {
-            name: "default_embedder".to_string(),
-            path: "MiniLML6Extractor".to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum_macros::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
@@ -136,8 +121,8 @@ impl Default for VectorIndexConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ExtractorPackageConfig {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExtractorConfig {
     pub name: String,
     pub version: String,
     pub module: String,
@@ -146,10 +131,23 @@ pub struct ExtractorPackageConfig {
     pub python_dependencies: Vec<String>,
 }
 
-impl ExtractorPackageConfig {
-    pub fn from_path(path: String) -> Result<ExtractorPackageConfig> {
+impl Default for ExtractorConfig {
+    fn default() -> Self {
+        Self {
+            name: "indexify_extractor".to_string(),
+            version: "0.1.0".to_string(),
+            module: "minilm_l6_embedding.MiniLML6Extractor".to_string(),
+            gpu: false,
+            system_dependencies: vec![],
+            python_dependencies: vec![],
+        }
+    }
+}
+
+impl ExtractorConfig {
+    pub fn from_path(path: String) -> Result<ExtractorConfig> {
         let config = std::fs::read_to_string(path)?;
-        let config: ExtractorPackageConfig = serde_yaml::from_str(&config)?;
+        let config: ExtractorConfig = serde_yaml::from_str(&config)?;
         Ok(config)
     }
 }
@@ -203,28 +201,22 @@ pub struct ExecutorConfig {
     pub advertise_if: NetworkAddress,
     #[serde(default = "default_executor_port")]
     pub listen_port: u64,
-    pub executor_id: Option<String>,
-    pub extractor: Extractor,
     #[serde(default)]
     pub coordinator_addr: String,
 }
 
-impl ExecutorConfig {
-    pub fn from_path(path: &str) -> Result<ExecutorConfig, anyhow::Error> {
-        let config_str: String = fs::read_to_string(path)?;
-        let mut config: ExecutorConfig = Figment::new()
-            .merge(Yaml::string(&config_str))
-            .merge(Env::prefixed("INDEXIFY_"))
-            .extract()?;
-
-        // Unless the listen addr is on all interfaces, we should advertise the same address
-        if (config.listen_if.0 != "0.0.0.0") && (config.listen_if.0 != "::/0") {
-            config.advertise_if = config.listen_if.clone();
+impl Default for ExecutorConfig {
+    fn default() -> Self {
+        Self {
+            listen_if: NetworkAddress::default(),
+            advertise_if: NetworkAddress::default(),
+            listen_port: default_executor_port(),
+            coordinator_addr: format!("localhost:{}", default_coordinator_port()),
         }
-
-        Ok(config)
     }
+}
 
+impl ExecutorConfig {
     pub fn listen_addr_sock(&self) -> Result<SocketAddr> {
         let addr = format!("{}:{}", self.listen_if, self.listen_port);
         addr.parse().map_err(|e: AddrParseError| {
@@ -246,10 +238,8 @@ impl ExecutorConfig {
         self
     }
 
-    pub fn with_coordinator_addr(mut self, addr: Option<String>) -> Self {
-        if let Some(addr) = addr {
-            self.coordinator_addr = addr;
-        }
+    pub fn with_coordinator_addr(mut self, addr: String) -> Self {
+        self.coordinator_addr = addr;
         self
     }
 }

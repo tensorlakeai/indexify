@@ -38,10 +38,7 @@ impl OpenSearchKnn {
             .auth(credentials)
             .build()
             .map_err(|e| {
-                VectorDbError::Internal(format!(
-                    "unable to create open search transport: {}",
-                    e
-                ))
+                VectorDbError::Internal(format!("unable to create open search transport: {}", e))
             })?;
         Ok(OpenSearch::new(transport))
     }
@@ -155,17 +152,11 @@ impl VectorDb for OpenSearchKnn {
             .send()
             .await
             .map_err(|e| {
-                VectorDbError::Internal(format!(
-                    "unable to search opensearch embeddings: {}",
-                    e
-                ))
+                VectorDbError::Internal(format!("unable to search opensearch embeddings: {}", e))
             })?;
 
         let response_body = response.json::<Value>().await.map_err(|e| {
-            VectorDbError::Internal(format!(
-                "unable to parse opensearch search response: {}",
-                e
-            ))
+            VectorDbError::Internal(format!("unable to parse opensearch search response: {}", e))
         })?;
 
         let returned_hits = response_body["hits"]["hits"].as_array();
@@ -243,10 +234,7 @@ impl VectorDb for OpenSearchKnn {
             })?;
 
         let response_body = response.json::<Value>().await.map_err(|e| {
-            VectorDbError::Internal(format!(
-                "unable to parse opensearch count response: {}",
-                e
-            ))
+            VectorDbError::Internal(format!("unable to parse opensearch count response: {}", e))
         })?;
 
         #[derive(Deserialize)]
@@ -255,10 +243,7 @@ impl VectorDb for OpenSearchKnn {
         }
 
         let result = serde_json::from_value::<OpenSearchCount>(response_body).map_err(|e| {
-            VectorDbError::Internal(format!(
-                "unable to parse opensearch count response: {}",
-                e
-            ))
+            VectorDbError::Internal(format!("unable to parse opensearch count response: {}", e))
         })?;
 
         Ok(result.count)

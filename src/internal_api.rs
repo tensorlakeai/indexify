@@ -4,14 +4,14 @@ use smart_default::SmartDefault;
 use std::str::FromStr;
 use strum_macros::{Display, EnumString};
 
-use crate::persistence::{self, ExtractorConfig};
+use crate::persistence::{self, ExtractorDescription};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorInfo {
     pub id: String,
     pub last_seen: u64,
     pub addr: String,
-    pub extractor: ExtractorConfig,
+    pub extractor: ExtractorDescription,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EmbedQueryRequest {
@@ -58,7 +58,7 @@ pub struct WorkStatus {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncExecutor {
     pub executor_id: String,
-    pub extractor: ExtractorConfig,
+    pub extractor: ExtractorDescription,
     pub addr: String,
     pub work_status: Vec<WorkStatus>,
 }
@@ -70,7 +70,7 @@ pub struct ListExecutors {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ListExtractors {
-    pub extractors: Vec<ExtractorConfig>,
+    pub extractors: Vec<ExtractorDescription>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

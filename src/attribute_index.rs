@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::persistence::{ExtractedAttributes, ExtractorConfig, Repository};
+use crate::persistence::{ExtractedAttributes, ExtractorDescription, Repository};
 
 pub struct AttributeIndexManager {
     repository: Arc<Repository>,
@@ -24,7 +24,7 @@ impl AttributeIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extractor_config: ExtractorConfig,
+        extractor_config: ExtractorDescription,
     ) -> Result<()> {
         // TODO: create a new table for the index from a postgres schema
         self.repository

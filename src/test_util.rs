@@ -11,7 +11,8 @@ pub mod db_utils {
     use crate::coordinator::Coordinator;
     use crate::executor::ExtractorExecutor;
     use crate::persistence::{DataRepository, ExtractorOutputSchema};
-    use crate::persistence::{ExtractorBinding, ExtractorConfig, Repository};
+    use crate::persistence::{ExtractorBinding, ExtractorDescription, Repository};
+    use crate::server_config::ExtractorConfig;
     use crate::vector_index::VectorIndexManager;
     use crate::vectordbs::{self, IndexDistance};
     use crate::{server_config::ServerConfig, vectordbs::qdrant::QdrantDb, vectordbs::VectorDBTS};
@@ -45,9 +46,7 @@ pub mod db_utils {
         let _ = qdrant.drop_index(index_name).await;
         let repository = Arc::new(Repository::new_with_db(db.clone()));
         let server_config = Arc::new(ServerConfig::from_path("local_server_config.yaml").unwrap());
-        let executor_config = Arc::new(
-            crate::server_config::ExecutorConfig::from_path("local_executor_config.yaml").unwrap(),
-        );
+        let executor_config = Arc::new(crate::server_config::ExecutorConfig::default());
         let vector_db =
             vectordbs::create_vectordb(server_config.index_config.clone(), db.clone()).unwrap();
         let vector_index_manager = Arc::new(VectorIndexManager::new(
@@ -56,9 +55,11 @@ pub mod db_utils {
             "localhost:9000".to_string(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
+        let extractor_config = Arc::new(ExtractorConfig::default());
         let extractor_executor = ExtractorExecutor::new_test(
             repository.clone(),
             executor_config,
+            extractor_config,
             vector_index_manager.clone(),
             attribute_index_manager.clone(),
         )
@@ -73,7 +74,7 @@ pub mod db_utils {
             .await
             .unwrap();
 
-        let default_extractor = ExtractorConfig {
+        let default_extractor = ExtractorDescription {
             name: DEFAULT_TEST_EXTRACTOR.into(),
             description: "test extractor".into(),
             input_params: json!({}),
