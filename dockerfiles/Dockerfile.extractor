@@ -10,6 +10,8 @@ RUN pip3 install --no-input {{ python_dependencies }}
 
 COPY extractors /indexify/extractors
 
+COPY indexify_extractor.yaml indexify_extractor.yaml
+
 {{ additional_dev_setup }}
 
 ENV PYTHONPATH=$PTYTHONPATH:/indexify/extractors

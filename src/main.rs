@@ -58,6 +58,9 @@ enum Commands {
 
         #[arg(short, long)]
         dev: bool,
+
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
@@ -147,11 +150,15 @@ async fn main() -> Result<(), Error> {
                 ExecutorServer::new(Arc::new(executor_config), extractor_config).await?;
             executor_server.run().await?
         }
-        Commands::Package { config_path, dev } => {
+        Commands::Package {
+            config_path,
+            dev,
+            verbose,
+        } => {
             info!("starting indexify packager....");
 
             let packager = indexify::package::Packager::new(config_path, dev)?;
-            packager.package().await?;
+            packager.package(verbose).await?;
         }
     }
     global::shutdown_tracer_provider();

@@ -51,7 +51,7 @@ impl Packager {
         })
     }
 
-    pub async fn package(&self) -> Result<()> {
+    pub async fn package(&self, verbose: bool) -> Result<()> {
         let docker_file = self.create_docker_file()?;
         let mut header = tar::Header::new_gnu();
         header.set_path("Dockerfile").unwrap();
@@ -96,7 +96,16 @@ impl Packager {
                 info!("build message: {}", status);
             }
             if let Some(BuildInfoAux::BuildKit(status)) = &build_info.aux {
-                info!("buildkit message: {}", status);
+                let messages: Vec<String> = status
+                    .logs
+                    .clone()
+                    .into_iter()
+                    .map(|l| String::from_utf8(l.msg).unwrap())
+                    .filter(|message| message.trim() != "")
+                    .collect();
+                if verbose && messages.len() > 0 {
+                    print!("{}", messages.join("\n"));
+                }
             }
         }
         Ok(())
