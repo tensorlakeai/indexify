@@ -43,7 +43,7 @@ local-dev:
 	docker run --rm -p 9200:9200 -p 9600:9600 --name=indexify-local-opensearch -d -e "discovery.type=single-node" opensearchproject/opensearch:latest
 
 test:
-	run_tests.sh
+	./run_tests.sh
 
 .PHONY: do_script
 install-py:

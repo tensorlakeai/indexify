@@ -1,11 +1,12 @@
 import unittest
-from indexify_extractors.embedding_extractor import (
+import json
+from minilm_l6_embedding import (
     MiniLML6Extractor,
-    FlagEmbedding,
 )
 from parameterized import parameterized
 from typing import Type
-from indexify_extractor_sdk.base_extractor import Extractor, Content, ExtractorInfo
+from indexify_extractor_sdk.base_extractor import Extractor, Content, ExtractorSchema
+from indexify_extractor_sdk.base_embedding import EmbeddingInputParams
 
 
 class TestMiniLML6Extractor(unittest.TestCase):
@@ -13,26 +14,28 @@ class TestMiniLML6Extractor(unittest.TestCase):
         super(TestMiniLML6Extractor, self).__init__(*args, **kwargs)
 
     @parameterized.expand(
-        [("minilm6", MiniLML6Extractor()), ("flag-embedding", FlagEmbedding())]
+        [("minilm6", MiniLML6Extractor())]
     )
     def test_ctx_embeddings(self, extractor_name: str, extractor: Type[Extractor]):
-        embeddings = extractor.extract([Content(id="1", content_type="text", data="hello world")], {})
+        embeddings = extractor.extract([Content(id="1", content_type="text", data="hello world")], EmbeddingInputParams())
+        embeddings_values = json.loads(embeddings[0].feature.value)
         self.assertEqual(len(embeddings), 1)
-        self.assertEqual(len(embeddings[0].embeddings), 384)
+        self.assertEqual(embeddings[0].feature.feature_type, "embedding")
+        self.assertEqual(len(embeddings_values), 384)
 
     @parameterized.expand(
-        [("minilm6", MiniLML6Extractor()), ("flag-embedding", FlagEmbedding())]
+        [("minilm6", MiniLML6Extractor())]
     )
     def test_query_embeddings(self, extractor_name: str, extractor: Type[Extractor]):
         embeddings = extractor.extract_query_embeddings("hello world")
         self.assertEqual(len(embeddings), 384)
 
     @parameterized.expand(
-        [("minilm6", MiniLML6Extractor()), ("flag-embedding", FlagEmbedding())]
+        [("minilm6", MiniLML6Extractor())]
     )
     def test_extractor_info(self, extractor_name: str, extractor: Type[Extractor]):
-        extractor_info: ExtractorInfo = extractor.info()
-        self.assertIsNotNone(extractor_info.model_dump()["output_schema"]["embedding"])
+        schema: ExtractorSchema = extractor.schemas()
+        self.assertIsNotNone(schema.model_dump()["embedding_schemas"]["embedding"])
 
 
 if __name__ == "__main__":

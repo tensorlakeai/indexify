@@ -24,15 +24,14 @@ itertools = "0.11.0"
 nanoid = { version = "0.4.0" }
 opensearch = { version = "2.1.0" }
 opentelemetry = { version = "^0", features = ["rt-async-std"] }
-opentelemetry_sdk = "0.20.0"
-opentelemetry-semantic-conventions = "0.12.0"
+opentelemetry_sdk = "0.21.0"
+opentelemetry-semantic-conventions = "0.13.0"
 opentelemetry-otlp = { version = "*", features = [
     "http-proto",
     "reqwest-client",
 ] }
-opentelemetry-stdout = {version = "0.1.0", features = ["logs", "metrics", "trace"]}
+opentelemetry-stdout = {version = "0.2.0", features = ["logs", "metrics", "trace"]}
 pyo3 = { version = "^0", features = ["auto-initialize"] }
-pythonize = "0.20.0"
 qdrant-client = "1.2.0"
 rand = { version = "^0" }
 regex = { version = "^1" }
@@ -58,14 +57,14 @@ tokio = { version = "^1", features = ["full"] }
 tokio-stream = "0.1.14"
 tracing = { version = "^0", features = ["log"] }
 tracing-core = "0.1.31"
-tracing-opentelemetry = { version = "0.21" }
+tracing-opentelemetry = { version = "0.22" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "*"
 utoipa = { version = "^4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "^4", features = ["axum"] }
 utoipa-rapidoc = { version = "^1", features = ["axum"] }
 utoipa-redoc = { version = "^1", features = ["axum"] }
-object_store = "0.7.0"
+object_store = "0.8.0"
 local-ip-address = {version = "0.5.6"}
 flate2 = "1.0"
 tar = "0.4"

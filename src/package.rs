@@ -103,7 +103,7 @@ impl Packager {
                     .map(|l| String::from_utf8(l.msg).unwrap())
                     .filter(|message| message.trim() != "")
                     .collect();
-                if verbose && messages.len() > 0 {
+                if verbose && !messages.is_empty() {
                     print!("{}", messages.join("\n"));
                 }
             }
@@ -170,6 +170,7 @@ mod tests {
         let config = ExtractorConfig {
             name: "test".to_string(),
             module: "foo.py/ModuleName".to_string(),
+            description: "test_description".into(),
             version: "0.1.0".to_string(),
             gpu: false,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
@@ -194,6 +195,8 @@ RUN apt-get install -y  libpq-dev libssl-dev
 RUN pip3 install --no-input numpy pandas
 
 COPY extractors /indexify/extractors
+
+COPY indexify_extractor.yaml indexify_extractor.yaml
 
 
 

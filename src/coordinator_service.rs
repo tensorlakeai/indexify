@@ -9,7 +9,7 @@ use tracing::{error, info};
 use crate::api::IndexifyAPIError;
 use crate::attribute_index::AttributeIndexManager;
 use crate::internal_api::{
-    CreateWork, CreateWorkResponse, EmbedQueryRequest, EmbedQueryResponse, ExecutorInfo,
+    CreateWork, CreateWorkResponse, ExtractRequest, ExtractResponse, ExecutorInfo,
     SyncExecutor, SyncWorkerResponse,
 };
 use crate::persistence::Repository;
@@ -63,8 +63,8 @@ impl CoordinatorServer {
                 post(create_work).with_state(self.coordinator.clone()),
             )
             .route(
-                "/embed_query",
-                post(embed_query).with_state(self.coordinator.clone()),
+                "/extract",
+                post(extract).with_state(self.coordinator.clone()),
             )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
@@ -143,26 +143,24 @@ async fn sync_executor(
 
 #[tracing::instrument]
 #[axum_macros::debug_handler]
-async fn embed_query(
+async fn extract(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(query): Json<EmbedQueryRequest>,
-) -> Result<Json<EmbedQueryResponse>, IndexifyAPIError> {
+    Json(query): Json<ExtractRequest>,
+) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
     let executor = coordinator
         .get_executor(&query.extractor_name)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let response = reqwest::Client::new()
-        .post(&format!("http://{}/embed_query", executor.addr))
+        .post(&format!("http://{}/extract", executor.addr))
         .json(&query)
         .send()
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .json::<EmbedQueryResponse>()
+        .json::<ExtractResponse>()
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(EmbedQueryResponse {
-        embedding: response.embedding,
-    }))
+    Ok(Json(response))
 }
 
 #[axum_macros::debug_handler]
