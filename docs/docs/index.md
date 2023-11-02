@@ -1,4 +1,6 @@
-# Welcome to Indexify
+# Indexify
+
+## Multi-Modal Structured Extraction and Real Time Indexing for Large Language Models Applications
 
 Indexify is a reactive content extraction and retrieval engine for Generative AI Applications.
 
@@ -8,7 +10,7 @@ Indexes are constantly updated by applying extractors on data ingested into the 
 
 Extractors are modules that apply AI models to data and produce embeddings or structured information, such as named entities in a document or objects of interest and their location in images. Developers can build new extractors for their use cases, such as creating indexes from healthcare records or indexes from a code repository for searching code and documentation.
 
-Storage is pluggable so that we can quickly support any Vector Storage service or a document/NoSQL store for structured data.
+Storage is pluggable, we support few different vector stores for embeddings and document stores for structured data.
 
 ## Why use Indexify
 

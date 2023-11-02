@@ -9,7 +9,7 @@ git clone https://github.com/diptanu/indexify.git
 
 ### Start the Service using Docker Compose
 ```shell
-docker compose up indexify
+docker compose up
 ```
 This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and Qdrant for storing embeddings.
 
