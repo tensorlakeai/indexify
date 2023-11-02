@@ -2,18 +2,20 @@
 
 ![Tests](https://github.com/diptanu/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 
-Indexify is a knowledge and memory retrieval service for Large Language Models. It facilitates in-context learning of LLMs by providing relevant context in a prompt or exposing relevant memory to AI agents.
+Indexify is a reactive content extraction and retrieval engine for Generative AI Applications.
 
-Indexify has a built in data parallel content extraction engine which enables scalable extraciton of content using AI models to keep indexes updated in real time(or re-index with a new model) as data is ingested.
+Applications that use LLMs on real-world data to plan actions autonomously or to answer queries require the indexes to be updated as the data is updated.
+
+Indexes are constantly updated by applying extractors on data ingested into the service. Indexify has a data-parallel and hardware accelerator-aware extraction engine that allows indexing large amounts of data in real-time.
+
+Extractors are modules that apply AI models to data and produce embeddings or structured information, such as named entities in a document or objects of interest and their location in images. Developers can build new extractors for their use cases, such as creating indexes from healthcare records or indexes from a code repository for searching code and documentation.
 
 ## Why use Indexify
-**Knowledge Base for LLMs:** Real time retrieval of knowledge and context from private documents and structured data to improve accuracy of LLM models.
 
-**Memory Engine for Co-Pilot agents:** Store and retrieve long-term memory of agents in real-time, providing enhanced personalization and improved user experiences for co-pilot and chat based applications.
-
-**Distributed Extraction Engine For Scale:** Distributed extraction to scale indexing large amount of data without sacrificing retrieval performance.
-
-**Custom Extractors:** You can extend Indexify by writing a custom extractor for your use cases to extract specific information from data.
+* **Knowledge Base for LLMs:** Real-time retrieval of knowledge and context from private documents and structured data to improve the accuracy of LLM models.
+* **Distributed Extraction Engine For Scale:** Distributed extraction to scale indexing large amounts of data without sacrificing retrieval performance.
+* **Custom Extractors:** You can extend Indexify by writing a custom extractor for your use cases to extract specific information from data.
+* **Pluggable Storage:** Easily add support for new storage backends.
 
 ## Getting Started
 
