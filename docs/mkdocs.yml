@@ -30,7 +30,6 @@ nav:
     - Extractors: 'apis/extractors.md'
     - Retrieval: 'apis/retrieval.md'
     - Custom Extractors: 'apis/custom_extractors.md'
-    - Memory: 'apis/memory.md'
   - Configuration: 'configuration.md'
   - Deployment: 'deployment.md'
   - Develop Indexify: 'develop.md'
