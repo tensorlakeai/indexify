@@ -19,7 +19,7 @@ pub mod db_utils {
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
 
-    pub const DEFAULT_TEST_EXTRACTOR: &str = "MiniLML6";
+    pub const DEFAULT_TEST_EXTRACTOR: &str = "IdentityHashEmbedding";
 
     pub fn default_test_data_repository() -> DataRepository {
         DataRepository {

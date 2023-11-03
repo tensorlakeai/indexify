@@ -250,10 +250,11 @@ mod tests {
 
     #[test]
     fn extract_embeddings() {
-        let extractor = PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into()).unwrap();
+        let extractor =
+            PythonDriver::new("identity_hash_embedding.IdentityHashEmbedding".into()).unwrap();
 
         let info = extractor.info().unwrap();
-        assert_eq!(info.name, "MiniLML6");
+        assert_eq!(info.name, "IdentityHashEmbedding");
         let json_schema = "{\"properties\":{\"overlap\":{\"default\":0,\"title\":\"Overlap\",\"type\":\"integer\"},\"text_splitter\":{\"default\":\"recursive\",\"enum\":[\"char\",\"recursive\"],\"title\":\"Text Splitter\",\"type\":\"string\"}},\"title\":\"EmbeddingInputParams\",\"type\":\"object\"}";
         assert_eq!(info.input_params.to_string(), json_schema);
 
@@ -269,21 +270,22 @@ mod tests {
 
     #[test]
     fn extract_embeddings_query() {
-        let extractor = PythonDriver::new("minilm_l6_embedding.MiniLML6Extractor".into()).unwrap();
+        let extractor =
+            PythonDriver::new("identity_hash_embedding.IdentityHashEmbedding".into()).unwrap();
 
         let info = extractor.info().unwrap();
-        assert_eq!(info.name, "MiniLML6");
+        assert_eq!(info.name, "IdentityHashEmbedding");
 
         let extracted_data = extractor.extract_embedding_query("hello world").unwrap();
-        assert_eq!(extracted_data.len(), 384);
+        assert_eq!(extracted_data.len(), 32);
     }
 
     #[test]
     fn extract_attributes() {
-        let extractor = PythonDriver::new("entity_extractor.EntityExtractor".into()).unwrap();
+        let extractor = PythonDriver::new("language_extractor.LanguageExtractor".into()).unwrap();
 
         let info = extractor.info().unwrap();
-        assert_eq!(info.name, "EntityExtractor");
+        assert_eq!(info.name, "LanguageExtractor");
 
         let content1 = Content::new(
             "1".into(),
@@ -292,7 +294,7 @@ mod tests {
         let extracted_data = extractor
             .extract_attributes(vec![content1], json!({}))
             .unwrap();
-        assert_eq!(extracted_data.len(), 2);
+        assert_eq!(extracted_data.len(), 1);
     }
 
     #[test]

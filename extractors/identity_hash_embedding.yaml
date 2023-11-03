@@ -1,0 +1,7 @@
+name: diptanu/identity-hash-extractor
+version: 1
+module: identity_hash_embedding.IdentityHashEmbedding
+gpu: false
+python_dependencies:
+  - numpy
+system_dependencies:

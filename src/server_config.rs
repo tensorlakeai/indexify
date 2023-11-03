@@ -136,7 +136,7 @@ impl Default for ExtractorConfig {
         Self {
             name: "indexify_extractor".to_string(),
             version: "0.1.0".to_string(),
-            module: "minilm_l6_embedding.MiniLML6Extractor".to_string(),
+            module: "identity_hash_embedding.IdentityHashEmbedding".to_string(),
             gpu: false,
             system_dependencies: vec![],
             python_dependencies: vec![],
