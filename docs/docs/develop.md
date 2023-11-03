@@ -2,6 +2,8 @@
 
 ## Install Dependencies
 
+Before you start, this doc may be outdated. Please follow the procedur in `run_tests.sh`, this is the source of truth.
+
 ### Rust Compiler
 
 Install various rust related tools -
@@ -24,19 +26,21 @@ Install the  extractors
 pip install .
 ```
 
+<!-- Because sometimes it will not work  pip install --upgrade --force-reinstall . -->
+
 If you are working on the Python SDK then install the SDK as well
 
 ```shell
 (cd sdk-py && pip install -e .)
 ```
 
-### MAC OS
-
 The following workaround is needed until PyO3 can detect virtualenvs in OSX and some Ubuntu versions
 
 ```shell
- export PYTHONPATH=${PYTHONPATH}:${PWD}/ve/lib/python3.11/site-packages
+ export PYTHONPATH=${PYTHONPATH}:${pwd}/ve/lib/python3.11/site-packages
 ```
+
+### MAC OS
 
 Install coreutils
 
