@@ -4,4 +4,4 @@ module: identity_hash_embedding.IdentityHashEmbedding
 gpu: false
 python_dependencies:
   - numpy
-system_dependencies:
+system_dependencies: []

@@ -4,4 +4,4 @@ module: language_extractor.LanguageExtractor
 gpu: false
 python_dependencies:
   - lingua-language-detector
-system_dependencies:
+system_dependencies: []
