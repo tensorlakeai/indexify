@@ -3,8 +3,6 @@ from typing import Any, List, Union, Dict, Literal, Type
 
 from enum import Enum
 
-from pydantic._internal._model_construction import ModelMetaclass
-
 from pydantic import BaseModel, Json, validator, model_serializer
 
 

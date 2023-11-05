@@ -1,5 +1,7 @@
 FROM ubuntu
 ENV DEBIAN_FRONTEND=noninteractive
+RUN echo 'export PYTHONPATH=${PYTHONPATH}:/workspace/indexify/extractors' >> ~/.bashrc
+
 
 RUN apt-get update
 RUN apt -y install software-properties-common
@@ -14,7 +16,6 @@ RUN apt -y install g++
 RUN apt -y install sqlite3
 RUN apt -y install python3.11
 RUN alias python=python3.11
-RUN apt -y install pip
 RUN apt -y install python3.11-venv
 RUN apt -y install protobuf-compiler protobuf-compiler-grpc
 RUN apt -y install ca-certificates curl gnupg pkg-config libssl-dev vim

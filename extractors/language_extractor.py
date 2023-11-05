@@ -1,10 +1,8 @@
 from typing import List, Literal
-from span_marker import SpanMarkerModel
 from decimal import Decimal
-from enum import Enum
 import json
 from indexify_extractor_sdk.base_extractor import ExtractorInfo, Content, Attributes, Extractor
-from lingua import Language, LanguageDetectorBuilder
+from lingua import LanguageDetectorBuilder
 from pydantic import BaseModel
 
 class LanguageExtractionInputParams(BaseModel):

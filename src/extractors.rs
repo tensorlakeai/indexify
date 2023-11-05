@@ -178,13 +178,18 @@ impl Extractor for PythonDriver {
         input_params: serde_json::Value,
     ) -> Result<Vec<ExtractedEmbeddings>, anyhow::Error> {
         let extracted_data = Python::with_gil(|py| {
+            println!("Hello 1");
             let kwargs = pythonize(py, &input_params)?;
+            println!("Hello 2");
             let extracted_data =
                 self.module_object
                     .call_method1(py, EXTRACT_METHOD, (content, kwargs))?;
+            println!("Hello 3");
             let extracted_data: Vec<ExtractedEmbeddings> = extracted_data.extract(py)?;
+            println!("Hello 4");
             Ok(extracted_data)
         })?;
+        println!("Hello 5");
         Ok(extracted_data)
     }
 
@@ -305,10 +310,14 @@ mod tests {
         assert_eq!(info.name, "PDFEmbedder");
 
         let data = std::fs::read("extractors_tests/data/test.pdf").unwrap();
+        // println!("Data is: {:?}", data);
+        // TODO: Issue occurs here!
         let content = Content::from_bytes("1".into(), data, "pdf");
+        println!("Finished creating Content");
         let extracted_data = extractor
             .extract_embedding(vec![content], json!({}))
             .unwrap();
+        println!("Hello");
 
         assert_eq!(extracted_data.len(), 28);
         assert_eq!(extracted_data[0].embeddings.len(), 384);

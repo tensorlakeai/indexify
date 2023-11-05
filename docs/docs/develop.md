@@ -23,7 +23,7 @@ source ve/bin/activate
 Install the  extractors
 
 ```shell
-pip install .
+pip install --upgrade --force-reinstall .
 ```
 
 <!-- Because sometimes it will not work  pip install --upgrade --force-reinstall . -->
