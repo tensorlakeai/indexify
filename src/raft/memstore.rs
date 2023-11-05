@@ -1,13 +1,13 @@
-// Initially copied from https://github.com/datafuselabs/openraft/blob/main/memstore/src/lib.rs
-// so we can make our own adjustments as needed.
-
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::error::Error;
 use std::fmt::Debug;
 use std::io::Cursor;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 use openraft::BasicNode;
 use openraft::async_trait::async_trait;
@@ -28,52 +28,63 @@ use openraft::StorageError;
 use openraft::StorageIOError;
 use openraft::StoredMembership;
 use openraft::Vote;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::RwLock;
+use tracing::error;
+use crate::api::IndexifyAPIError;
+use crate::coordinator::Coordinator;
+use crate::internal_api::CreateWork;
+use crate::internal_api::ExecutorInfo;
+use crate::persistence::Repository;
+use crate::persistence::{ExtractorConfig, Work};
 
 use crate::coordinator::CoordinatorData;
+use crate::server_config::CoordinatorConfig;
 
 /// The application data request type which the `MemStore` works with.
 /// TODO: update to handle the coordinator data
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ClientRequest {
-    /// The ID of the client which has sent the request.
-    pub client: String,
-
-    /// The serial number of this request.
-    pub serial: u64,
-
-    /// A string describing the status of the client. For a real application, this should probably
-    /// be an enum representing all of the various types of requests / operations which a client
-    /// can perform.
-    pub status: String,
-}
-
-/// Helper trait to build `ClientRequest` for `MemStore` in generic test code.
-pub trait IntoMemClientRequest<T> {
-    fn make_request(client_id: &str, serial: u64) -> T;
-}
-
-impl IntoMemClientRequest<ClientRequest> for ClientRequest {
-    fn make_request(client_id: &str, serial: u64) -> Self {
-        Self {
-            client: client_id.into(),
-            serial,
-            status: format!("request-{}", serial),
-        }
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub enum Request {
+    SyncExecutor {
+        executor_id: String,
+        extractor: ExtractorConfig,
+        addr: String,
+        work_status: Vec<Work>,
+    },
+    EmbedQueryRequest {
+        extractor_name: String,
+        text: String,
+    },
+    CreateWork {
+        repository_name: String,
+        content: Option<String>,
     }
 }
 
 /// The application data response type which the `MemStore` works with.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ClientResponse(Option<String>);
+pub enum Response {
+    // used by raft
+    Blank,
+    Membership,
+
+    // used by app
+    EmbedQueryResponse {
+        embedding: Vec<f32>,
+    },
+    SyncWorkerResponse {
+        content_to_process: Vec<Work>,
+    },
+    CreateWorkResponse {}
+}
 
 pub type MemNodeId = u64;
 
 openraft::declare_raft_types!(
     /// Declare the type configuration for `MemStore`.
-    pub Config: D = ClientRequest, R = ClientResponse, NodeId = MemNodeId, Node = BasicNode
+    pub Config: D = Request, R = Response, NodeId = MemNodeId, Node = BasicNode
 );
 
 /// The application snapshot type which the `MemStore` works with.
@@ -92,12 +103,7 @@ pub struct MemStoreStateMachine {
 
     pub last_membership: StoredMembership<MemNodeId, BasicNode>,
 
-    /// A mapping of client IDs to their state info.
-    pub client_serial_responses: HashMap<String, (u64, Option<String>)>,
-    /// The current status of a client by ID.
-    pub client_status: HashMap<String, String>,
-
-	pub data: CoordinatorData,
+	pub coordinator_data: Arc<CoordinatorData>,
 }
 
 /// An in-memory storage system implementing the `RaftStorage` trait.
@@ -117,33 +123,30 @@ pub struct MemStore {
 
     /// The current snapshot.
     current_snapshot: RwLock<Option<MemStoreSnapshot>>,
+
+    coordinator: Arc<Coordinator>,
 }
 
 impl MemStore {
     /// Create a new `MemStore` instance.
-    pub fn new() -> Self {
+    pub async fn new(config: Arc<CoordinatorConfig>) -> Result<Self, String> {
         let log = RwLock::new(BTreeMap::new());
         let sm = RwLock::new(MemStoreStateMachine::default());
         let current_snapshot = RwLock::new(None);
 
-        Self {
+        let repository = Arc::new(Repository::new(&config.db_url).await?);
+        let coordinator = Coordinator::new(repository);
+
+        Ok(Self {
             last_purged_log_id: RwLock::new(None),
             log,
             sm,
             vote: RwLock::new(None),
             snapshot_idx: Arc::new(Mutex::new(0)),
             current_snapshot,
-        }
-    }
 
-    pub async fn new_async() -> Arc<Self> {
-        Arc::new(Self::new())
-    }
-}
-
-impl Default for MemStore {
-    fn default() -> Self {
-        Self::new()
+            coordinator: Arc::new(coordinator),
+        })
     }
 }
 
@@ -319,7 +322,7 @@ impl RaftStorage<Config> for Arc<MemStore> {
     async fn apply_to_state_machine(
         &mut self,
         entries: &[&Entry<Config>],
-    ) -> Result<Vec<ClientResponse>, StorageError<MemNodeId>> {
+    ) -> Result<Vec<Response>, StorageError<MemNodeId>> {
         let mut res = Vec::with_capacity(entries.len());
 
         let mut sm = self.sm.write().await;
@@ -330,21 +333,84 @@ impl RaftStorage<Config> for Arc<MemStore> {
             sm.last_applied_log = Some(entry.log_id);
 
             match entry.payload {
-                EntryPayload::Blank => res.push(ClientResponse(None)),
-                EntryPayload::Normal(ref data) => {
-                    if let Some((serial, r)) = sm.client_serial_responses.get(&data.client) {
-                        if serial == &data.serial {
-                            res.push(ClientResponse(r.clone()));
-                            continue;
+                EntryPayload::Blank => res.push(Response::Blank),
+                EntryPayload::Normal(ref request) => {
+                    match request {
+                        Request::CreateWork { repository_name, content } => {
+                            if let Err(err) = self.coordinator_tx.try_send(request) {
+                                error!("unable to send create work request: {}", err.to_string());
+                            }
+
+                            res.push(Response::CreateWorkResponse {});
+                        },
+                        Request::EmbedQueryRequest { extractor_name, text } => {
+                            let query = request;
+                            let executor = self.coordinator
+                                .get_executor(extractor_name)
+                                .await
+                                .map_err(|e| IndexifyStateMachineError::new(e.to_string()))?;
+                            let response = reqwest::Client::new()
+                                .post(&format!("http://{}/embed_query", executor.addr))
+                                .json(&query)
+                                .send()
+                                .await
+                                .map_err(|e| IndexifyStateMachineError::new(e.to_string()))?
+                                .json::<Response>()
+                                .await
+                                .map_err(|e| IndexifyStateMachineError::new(e.to_string()))?;
+                            match response {
+                                Response::EmbedQueryResponse { embedding } => {
+                                    res.push(Response::EmbedQueryResponse {
+                                        embedding: embedding,
+                                    });
+                                },
+                                _ => {
+                                    error!("unexpected response from executor");
+                                }
+                            }
+                        },
+                        Request::SyncExecutor { executor_id, extractor, addr, work_status } => {
+                            let executor = request;
+                            // Record the health check of the worker
+                            let worker_id = executor.executor_id.clone();
+                            let _ = self.coordinator
+                                .record_executor(ExecutorInfo {
+                                    id: worker_id.clone(),
+                                    last_seen: SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs(),
+                                    addr: executor.addr.clone(),
+                                    extractor: executor.extractor.clone(),
+                                })
+                                .await;
+                            // Record the outcome of any work the worker has done
+                            self.coordinator
+                                .update_work_state(executor.work_status, &worker_id)
+                                .await
+                                .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+                            // Record the extractors available on the executor
+                            self.coordinator
+                                .record_extractor(executor.extractor)
+                                .await
+                                .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+                            // Find more work for the worker
+                            let queued_work = self.coordinator
+                                .get_work_for_worker(&executor.executor_id)
+                                .await
+                                .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+                            res.push(Response::SyncWorkerResponse {
+                                content_to_process: queued_work,
+                            });
                         }
                     }
-                    let previous = sm.client_status.insert(data.client.clone(), data.status.clone());
-                    sm.client_serial_responses.insert(data.client.clone(), (data.serial, previous.clone()));
-                    res.push(ClientResponse(previous));
                 }
                 EntryPayload::Membership(ref mem) => {
                     sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
-                    res.push(ClientResponse(None))
+                    res.push(Response::Membership)
                 }
             };
         }
@@ -423,5 +489,24 @@ impl RaftStorage<Config> for Arc<MemStore> {
 
     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
         self.clone()
+    }
+}
+
+#[derive(Debug)]
+pub struct IndexifyStateMachineError {
+    pub error: String,
+}
+
+impl std::fmt::Display for IndexifyStateMachineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "IndexifyStateMachineError: {}", self.error)
+    }
+}
+
+impl std::error::Error for IndexifyStateMachineError {}
+
+impl IndexifyStateMachineError {
+    pub fn new(error: String) -> Self {
+        Self { error }
     }
 }

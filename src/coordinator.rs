@@ -32,7 +32,7 @@ pub struct Coordinator {
 
     repository: Arc<Repository>,
 
-    tx: Sender<CreateWork>,
+    pub(crate) tx: Sender<CreateWork>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -435,7 +435,7 @@ async fn create_work(
 }
 
 #[tracing::instrument]
-async fn shutdown_signal() {
+pub async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await

@@ -5,7 +5,7 @@ use indexify::{
     executor::ExecutorServer,
     server,
     server_config::ExecutorConfig,
-    server_config::{CoordinatorConfig, ServerConfig},
+    server_config::{CoordinatorConfig, ServerConfig}, raft::coordinator_node::RaftCoordinatorNode,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -19,6 +19,11 @@ use opentelemetry_semantic_conventions::{
 };
 use tracing_core::Level;
 use tracing_subscriber::util::SubscriberInitExt;
+
+// Raft
+use axum::{Extension, Router};
+use indexify::raft::{raft_api, management, memstore::{MemNodeId, MemStore}, network::IndexifyRaftNetwork, coordinator_config::CoordinatorRaftApp};
+use openraft::{Raft, Config};
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -42,6 +47,13 @@ enum Commands {
         dev_mode: bool,
     },
     Coordinator {
+        #[arg(short, long)]
+        config_path: String,
+    },
+    CoordinatorRaft {
+        #[arg(short, long)]
+        node_id: u64,
+
         #[arg(short, long)]
         config_path: String,
     },
@@ -135,6 +147,32 @@ async fn main() -> Result<(), Error> {
             let config = CoordinatorConfig::from_path(&config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
+        }
+        Commands::CoordinatorRaft { node_id, config_path } => {
+            info!("starting indexify coordinator node using Raft protocol....");
+            info!("version: {}", version);
+
+            // load the config
+            let coordinator_config = CoordinatorConfig::from_path(&config_path)?;
+
+            // port is coordinator_config "listen_port" plus node_id
+            let socket_addr = format!(
+                "{}:{}",
+                coordinator_config.listen_if,
+                coordinator_config.listen_port + node_id
+            );
+
+            println!("socket_addr: {}", socket_addr);
+            
+            let config = Config {
+                heartbeat_interval: 500,
+                election_timeout_min: 1500,
+                election_timeout_max: 3000,
+                ..Default::default()
+            };
+
+            let coordinator_node = RaftCoordinatorNode::new(node_id, socket_addr.clone(), config, coordinator_config).await?;
+            coordinator_node.run().await?;
         }
         Commands::Executor { config_path } => {
             info!("starting indexify executor....");

@@ -1127,6 +1127,12 @@ impl Repository {
     }
 }
 
+impl From<RepositoryError> for String {
+    fn from(e: RepositoryError) -> Self {
+        e.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_util::db_utils::create_db;
