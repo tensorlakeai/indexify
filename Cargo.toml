@@ -89,4 +89,4 @@ vergen = { version = "8.0.0", features = [
     "rustc",
     "si",
 ] }
-pyo3-build-config = "0.20.0"
+pyo3-build-config = { version = "0.20.0", features = ["resolve-config"] }
