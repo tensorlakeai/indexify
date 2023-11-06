@@ -101,3 +101,6 @@ Visual Studio Code Devcontainers have been setup as well. Opening the codebase i
 ### Docker-compose
 
 If you're within the dev container, you can call the docker-compose-v1 from within /usr/bin/
+
+If docker produces a EONET error, please try to build your devcontainer prior to launching it in vscode:
+```devcontainer up --workspace-folder```
