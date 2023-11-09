@@ -18,8 +18,9 @@ impl StoreBuilder<Config, Arc<MemStore>> for MemBuilder {
         Res: Future<Output = Result<Ret, StorageError<MemNodeId>>> + Send,
         Fun: Fn(Arc<MemStore>) -> Res + Sync + Send,
     {
-        let store = MemStore::new_async().await;
-        t(store).await
+        let coordinator_config = crate::server_config::CoordinatorConfig::default();
+        let store = MemStore::new(Arc::new(coordinator_config)).await?;
+        t(Arc::new(store)).await
     }
 }
 

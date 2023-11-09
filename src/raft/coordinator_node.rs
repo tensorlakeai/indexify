@@ -3,10 +3,10 @@ use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use tracing::info;
 
-use super::{memstore::{MemNodeId, Request, Response}, coordinator_config::CoordinatorRaftApp};
+use super::{memstore::MemNodeId, coordinator_config::CoordinatorRaftApp};
 use std::sync::Arc;
-use axum::{Extension, Router, extract::State, Json};
-use crate::{raft::{raft_api, management}, coordinator::shutdown_signal, api::IndexifyAPIError, server_config::CoordinatorConfig};
+use axum::{Extension, Router};
+use crate::{raft::{raft_api, management}, coordinator::shutdown_signal, server_config::CoordinatorConfig};
 
 
 pub struct RaftCoordinatorNode {
@@ -69,14 +69,4 @@ impl RaftCoordinatorNode {
 
 async fn root() -> &'static str {
     "Indexify Coordinator Raft Node"
-}
-
-#[tracing::instrument(level = "debug", skip(coordinator))]
-#[tracing::instrument(skip(coordinator, executor))]
-#[axum_macros::debug_handler]
-async fn sync_executor(
-    State(coordinator): State<Arc<CoordinatorRaftApp>>,
-    Json(executor): Json<Request>,
-) -> Result<Json<Response>, IndexifyAPIError> {
-    let response = coordinator.raft.write(executor.0).await?;
 }

@@ -1558,6 +1558,7 @@ dependencies = [
 name = "indexify"
 version = "0.1.0"
 dependencies = [
+ "anyerror",
  "anyhow",
  "async-trait",
  "axum",

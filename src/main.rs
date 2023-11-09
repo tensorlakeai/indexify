@@ -21,9 +21,7 @@ use tracing_core::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 // Raft
-use axum::{Extension, Router};
-use indexify::raft::{raft_api, management, memstore::{MemNodeId, MemStore}, network::IndexifyRaftNetwork, coordinator_config::CoordinatorRaftApp};
-use openraft::{Raft, Config};
+use openraft::Config;
 
 #[derive(Debug, Parser)]
 #[command(name = "indexify")]
@@ -67,6 +65,7 @@ enum Commands {
 }
 
 // Create a Resource that captures information about the entity for which telemetry is recorded.
+// TODO: is this dead code?
 fn resource() -> Resource {
     Resource::from_schema_url(
         [

@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::error::Error;
 use std::fmt::Debug;
 use std::io::Cursor;
 use std::ops::RangeBounds;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::SystemTime;
+use thiserror::Error;
 
 use openraft::BasicNode;
 use openraft::async_trait::async_trait;
@@ -28,12 +26,10 @@ use openraft::StorageError;
 use openraft::StorageIOError;
 use openraft::StoredMembership;
 use openraft::Vote;
-use reqwest::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::RwLock;
 use tracing::error;
-use crate::api::IndexifyAPIError;
 use crate::coordinator::Coordinator;
 use crate::internal_api::CreateWork;
 use crate::internal_api::ExecutorInfo;
@@ -44,8 +40,7 @@ use crate::coordinator::CoordinatorData;
 use crate::server_config::CoordinatorConfig;
 
 /// The application data request type which the `MemStore` works with.
-/// TODO: update to handle the coordinator data
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
     SyncExecutor {
         executor_id: String,
@@ -129,7 +124,7 @@ pub struct MemStore {
 
 impl MemStore {
     /// Create a new `MemStore` instance.
-    pub async fn new(config: Arc<CoordinatorConfig>) -> Result<Self, String> {
+    pub async fn new(config: Arc<CoordinatorConfig>) -> Result<Self, RaftStorageError> {
         let log = RwLock::new(BTreeMap::new());
         let sm = RwLock::new(MemStoreStateMachine::default());
         let current_snapshot = RwLock::new(None);
@@ -145,7 +140,7 @@ impl MemStore {
             snapshot_idx: Arc::new(Mutex::new(0)),
             current_snapshot,
 
-            coordinator: Arc::new(coordinator),
+            coordinator,
         })
     }
 }
@@ -335,29 +330,35 @@ impl RaftStorage<Config> for Arc<MemStore> {
             match entry.payload {
                 EntryPayload::Blank => res.push(Response::Blank),
                 EntryPayload::Normal(ref request) => {
+                    // TODO: DRY - this is duplicated in the coordinator.rs server code
                     match request {
                         Request::CreateWork { repository_name, content } => {
-                            if let Err(err) = self.coordinator_tx.try_send(request) {
+                            let create_work: CreateWork = CreateWork {
+                                repository_name: repository_name.clone(),
+                                content: content.clone(),
+                            };
+
+                            if let Err(err) = self.coordinator.tx.try_send(create_work) {
                                 error!("unable to send create work request: {}", err.to_string());
                             }
 
                             res.push(Response::CreateWorkResponse {});
                         },
-                        Request::EmbedQueryRequest { extractor_name, text } => {
+                        Request::EmbedQueryRequest { extractor_name, text: _ } => {
                             let query = request;
-                            let executor = self.coordinator
+                            let executor: ExecutorInfo = self.coordinator
                                 .get_executor(extractor_name)
                                 .await
-                                .map_err(|e| IndexifyStateMachineError::new(e.to_string()))?;
-                            let response = reqwest::Client::new()
+                                .map_err(|e| RaftStorageError::from(e))?;
+                            let response: Response = reqwest::Client::new()
                                 .post(&format!("http://{}/embed_query", executor.addr))
                                 .json(&query)
                                 .send()
                                 .await
-                                .map_err(|e| IndexifyStateMachineError::new(e.to_string()))?
+                                .map_err(|e| RaftStorageError::from(e))?
                                 .json::<Response>()
                                 .await
-                                .map_err(|e| IndexifyStateMachineError::new(e.to_string()))?;
+                                .map_err(|e| RaftStorageError::from(e))?;
                             match response {
                                 Response::EmbedQueryResponse { embedding } => {
                                     res.push(Response::EmbedQueryResponse {
@@ -370,9 +371,8 @@ impl RaftStorage<Config> for Arc<MemStore> {
                             }
                         },
                         Request::SyncExecutor { executor_id, extractor, addr, work_status } => {
-                            let executor = request;
                             // Record the health check of the worker
-                            let worker_id = executor.executor_id.clone();
+                            let worker_id = executor_id.clone();
                             let _ = self.coordinator
                                 .record_executor(ExecutorInfo {
                                     id: worker_id.clone(),
@@ -380,27 +380,27 @@ impl RaftStorage<Config> for Arc<MemStore> {
                                         .duration_since(SystemTime::UNIX_EPOCH)
                                         .unwrap()
                                         .as_secs(),
-                                    addr: executor.addr.clone(),
-                                    extractor: executor.extractor.clone(),
+                                    addr: addr.clone(),
+                                    extractor: extractor.clone(),
                                 })
                                 .await;
                             // Record the outcome of any work the worker has done
                             self.coordinator
-                                .update_work_state(executor.work_status, &worker_id)
+                                .update_work_state(work_status.clone(), &worker_id) // TODO: remove clone
                                 .await
-                                .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                                .map_err(|e| RaftStorageError::from(e))?;
 
                             // Record the extractors available on the executor
                             self.coordinator
-                                .record_extractor(executor.extractor)
+                                .record_extractor(extractor.clone()) // TODO: remove clone
                                 .await
-                                .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                                .map_err(|e| RaftStorageError::from(e))?;
 
                             // Find more work for the worker
                             let queued_work = self.coordinator
-                                .get_work_for_worker(&executor.executor_id)
+                                .get_work_for_worker(&executor_id)
                                 .await
-                                .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                                .map_err(|e| RaftStorageError::from(e))?;
 
                             res.push(Response::SyncWorkerResponse {
                                 content_to_process: queued_work,
@@ -492,21 +492,72 @@ impl RaftStorage<Config> for Arc<MemStore> {
     }
 }
 
-#[derive(Debug)]
-pub struct IndexifyStateMachineError {
-    pub error: String,
+// TODO: this is a quick and dirty implementation. Should be double checked.
+#[derive(Debug, Error)]
+pub enum RaftStorageError {
+    #[error("storage io error with raft state machine: {0}")]
+    RaftStateMachineError(String),
+    #[error("storage io error: {0}")]
+    MemStoreError(String),
+    #[error("storage io error: {0}")]
+    MemStoreRepositoryError(#[from] crate::persistence::RepositoryError),
+
+    #[error("storage io error: {0}")]
+    EmbedQueryRequestError(#[from] anyhow::Error),
 }
 
-impl std::fmt::Display for IndexifyStateMachineError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "IndexifyStateMachineError: {}", self.error)
+// TODO: this is a quick and dirty implementation. Should be double checked.
+impl From<reqwest::Error> for RaftStorageError {
+    fn from(error: reqwest::Error) -> Self {
+        // match the path of the error to determine the error type. Right now just for embed query.
+        match error.url() {
+            Some(url) => {
+                if url.path() == "/embed_query" {
+                    RaftStorageError::EmbedQueryRequestError(anyhow::Error::new(error))
+                } else {
+                    RaftStorageError::MemStoreError(format!("reqwest error: {}", error.to_string()))
+                }
+            },
+            None => {
+                RaftStorageError::MemStoreError(format!("reqwest error: {}", error.to_string()))
+            }
+        }
     }
 }
 
-impl std::error::Error for IndexifyStateMachineError {}
-
-impl IndexifyStateMachineError {
-    pub fn new(error: String) -> Self {
-        Self { error }
+// TODO: this is a quick and dirty implementation. Should be double checked.
+impl From<RaftStorageError> for StorageError<u64> {
+    fn from(error: RaftStorageError) -> Self {
+        // Wrap the StorageIOError in the IO variant of StorageError
+        match error {
+            RaftStorageError::RaftStateMachineError(msg) => {
+                StorageIOError::new(
+                    ErrorSubject::StateMachine,
+                    ErrorVerb::Write,
+                    AnyError::error(msg),
+                )
+            },
+            RaftStorageError::MemStoreError(msg) => {
+                StorageIOError::new(
+                    ErrorSubject::Store, // Adjust this as appropriate
+                    ErrorVerb::Read, // Or any other verb that describes the error context
+                    AnyError::error(msg),
+                )
+            },
+            RaftStorageError::MemStoreRepositoryError(repo_error) => {
+                StorageIOError::new(
+                    ErrorSubject::Store, // Again, adjust as needed
+                    ErrorVerb::Read, // Adjust this verb too
+                    AnyError::new(&repo_error),
+                )
+            },
+            RaftStorageError::EmbedQueryRequestError(anyhow_error) => {
+                StorageIOError::new(
+                    ErrorSubject::StateMachine, // Adjust as necessary
+                    ErrorVerb::Read, // Choose the verb that fits the operation that caused the error
+                    AnyError::error(anyhow_error),
+                )
+            },
+        }.into()
     }
 }
