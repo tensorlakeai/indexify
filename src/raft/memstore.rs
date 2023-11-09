@@ -32,13 +32,20 @@ use tokio::sync::RwLock;
 use tracing::error;
 use crate::coordinator::Coordinator;
 use crate::internal_api::CreateWork;
+use crate::internal_api::CreateWorkResponse;
+use crate::internal_api::EmbedQueryRequest;
+use crate::internal_api::EmbedQueryResponse;
 use crate::internal_api::ExecutorInfo;
+use crate::internal_api::ListExecutors;
+use crate::internal_api::SyncExecutor;
+use crate::internal_api::SyncWorkerResponse;
 use crate::persistence::Repository;
 use crate::persistence::{ExtractorConfig, Work};
 
 use crate::coordinator::CoordinatorData;
 use crate::server_config::CoordinatorConfig;
 
+// TODO: these could probably just wrap the underlying work types rather than duplicating the fields
 /// The application data request type which the `MemStore` works with.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
@@ -55,6 +62,36 @@ pub enum Request {
     CreateWork {
         repository_name: String,
         content: Option<String>,
+    },
+    ListExecutors,
+}
+
+impl From<SyncExecutor> for Request {
+    fn from(executor: SyncExecutor) -> Self {
+        Request::SyncExecutor {
+            executor_id: executor.executor_id,
+            extractor: executor.extractor,
+            addr: executor.addr,
+            work_status: executor.work_status,
+        }
+    }
+}
+
+impl From<CreateWork> for Request {
+    fn from(create_work: CreateWork) -> Self {
+        Request::CreateWork {
+            repository_name: create_work.repository_name,
+            content: create_work.content,
+        }
+    }
+}
+
+impl From<EmbedQueryRequest> for Request {
+    fn from(embed_query: EmbedQueryRequest) -> Self {
+        Request::EmbedQueryRequest {
+            extractor_name: embed_query.extractor_name,
+            text: embed_query.text,
+        }
     }
 }
 
@@ -72,7 +109,68 @@ pub enum Response {
     SyncWorkerResponse {
         content_to_process: Vec<Work>,
     },
-    CreateWorkResponse {}
+    CreateWorkResponse {},
+    ListExecutorsResponse {
+        executors: Vec<ExecutorInfo>,
+    },
+}
+
+impl From<Response> for SyncWorkerResponse {
+    fn from(response: Response) -> Self {
+        match response {
+            Response::SyncWorkerResponse { content_to_process } => {
+                SyncWorkerResponse {
+                    content_to_process,
+                }
+            },
+            _ => {
+                panic!("unexpected response type");
+            }
+        }
+    }
+}
+
+impl From<Response> for CreateWorkResponse {
+    fn from(response: Response) -> Self {
+        match response {
+            Response::CreateWorkResponse {} => {
+                CreateWorkResponse {}
+            },
+            _ => {
+                panic!("unexpected response type");
+            }
+        }
+    }
+}
+
+impl From<Response> for EmbedQueryResponse {
+    fn from(response: Response) -> Self {
+        match response {
+            Response::EmbedQueryResponse { embedding } => {
+                EmbedQueryResponse {
+                    embedding,
+                }
+            },
+            _ => {
+                panic!("unexpected response type");
+            }
+        }
+    }
+}
+
+impl From<Response> for ListExecutors {
+    fn from(response: Response) -> Self {
+        match response {
+            Response::ListExecutorsResponse { executors } => {
+                ListExecutors {
+                    executors,
+                }
+            },
+            _ => {
+                panic!("unexpected response type");
+            }
+        }
+    }
 }
 
 pub type MemNodeId = u64;
@@ -405,7 +503,13 @@ impl RaftStorage<Config> for Arc<MemStore> {
                             res.push(Response::SyncWorkerResponse {
                                 content_to_process: queued_work,
                             });
-                        }
+                        },
+                        Request::ListExecutors => {
+                            let executors = self.coordinator.list_executors();
+                            res.push(Response::ListExecutorsResponse {
+                                executors,
+                            });
+                        },
                     }
                 }
                 EntryPayload::Membership(ref mem) => {
@@ -512,6 +616,7 @@ impl From<reqwest::Error> for RaftStorageError {
         // match the path of the error to determine the error type. Right now just for embed query.
         match error.url() {
             Some(url) => {
+                // TODO: add handling for other paths
                 if url.path() == "/embed_query" {
                     RaftStorageError::EmbedQueryRequestError(anyhow::Error::new(error))
                 } else {

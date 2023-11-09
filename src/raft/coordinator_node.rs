@@ -40,15 +40,11 @@ impl RaftCoordinatorNode {
 			.route("/management/metrics", axum::routing::get(management::metrics))
 
 			// application API
-			// TODO: ADD THE COORDINATOR API HANDLERS HERE
-			// /sync_executor
-			// /executors
-			// /create_work
-			// /embed_query
+			.route("/sync_executor", axum::routing::post(super::api::sync_executor))
+			.route("/executors", axum::routing::get(super::api::list_executors))
+            .route("/create_work", axum::routing::post(super::api::create_work))
+			.route("/embed_query", axum::routing::post(super::api::embed_query))
 
-			// TODO: when the server starts, the openraft node should add itself to the cluster
-			// and start the OpenRaft service
-			// .layer(AddMyselfToClusterLayer::default())
 			.layer(Extension(self.coordinator.clone()))
 			//start OpenTelemetry trace on incoming request
 			.layer(OtelAxumLayer::default())

@@ -35,6 +35,12 @@ pub struct Coordinator {
     pub(crate) tx: Sender<CreateWork>,
 }
 
+impl Coordinator {
+    pub(crate) fn list_executors(&self) -> Vec<ExecutorInfo> {
+        self.data.list_executors()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct CoordinatorData {
     // Executor ID -> Last Seen Timestamp
@@ -44,6 +50,12 @@ pub struct CoordinatorData {
 
     // Extractor Name -> [Executor ID]
     extractors_table: Arc<RwLock<HashMap<String, Vec<String>>>>,
+}
+
+impl CoordinatorData {
+    fn list_executors(&self) -> Vec<ExecutorInfo> {
+        self.executors.read().unwrap().values().cloned().collect()
+    }
 }
 
 impl Coordinator {
