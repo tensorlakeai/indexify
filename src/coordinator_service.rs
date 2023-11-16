@@ -9,8 +9,8 @@ use tracing::{error, info};
 use crate::api::IndexifyAPIError;
 use crate::attribute_index::AttributeIndexManager;
 use crate::internal_api::{
-    CreateWork, CreateWorkResponse, ExtractRequest, ExtractResponse, ExecutorInfo,
-    SyncExecutor, SyncWorkerResponse,
+    CreateWork, CreateWorkResponse, ExecutorInfo,
+    SyncExecutor, SyncWorkerResponse, CoordinateRequest, CoordinateResponse,
 };
 use crate::persistence::Repository;
 use crate::server_config::ServerConfig;
@@ -63,8 +63,8 @@ impl CoordinatorServer {
                 post(create_work).with_state(self.coordinator.clone()),
             )
             .route(
-                "/extract",
-                post(extract).with_state(self.coordinator.clone()),
+                "/coordinates",
+                post(get_coordinate).with_state(self.coordinator.clone()),
             )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
@@ -143,24 +143,15 @@ async fn sync_executor(
 
 #[tracing::instrument]
 #[axum_macros::debug_handler]
-async fn extract(
+async fn get_coordinate(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(query): Json<ExtractRequest>,
-) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
+    Json(query): Json<CoordinateRequest>,
+) -> Result<Json<CoordinateResponse>, IndexifyAPIError> {
     let executor = coordinator
         .get_executor(&query.extractor_name)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let response = reqwest::Client::new()
-        .post(&format!("http://{}/extract", executor.addr))
-        .json(&query)
-        .send()
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .json::<ExtractResponse>()
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(response))
+    Ok(Json(CoordinateResponse { content: vec![executor.addr] } ))
 }
 
 #[axum_macros::debug_handler]

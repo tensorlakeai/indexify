@@ -4,7 +4,7 @@ use std::fmt;
 use crate::{
     extractors::ExtractedEmbeddings,
     index::IndexError,
-    internal_api::{self, ExtractRequest, ExtractResponse},
+    internal_api::{self, ExtractRequest, ExtractResponse, CoordinateRequest, CoordinateResponse},
     persistence::{Chunk, ExtractorDescription, Repository},
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
@@ -141,7 +141,6 @@ impl VectorIndexManager {
         extractor_name: &str,
     ) -> Result<Vec<f32>, anyhow::Error> {
         let request = ExtractRequest {
-            extractor_name: extractor_name.to_string(),
             content: internal_api::ExtractedContent {
                 content_type: internal_api::ContentType::Text,
                 source: query.as_bytes().into(),
@@ -149,8 +148,21 @@ impl VectorIndexManager {
             },
         };
 
+        let coordinate_request = CoordinateRequest{
+            extractor_name: extractor_name.to_string(),
+        };
+
+        let coordinate_response = reqwest::Client::new()
+            .post(&format!("http://{}/coordinates", self.coordinator_addr))
+            .json(&coordinate_request)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("unable to embed query: {}", e))?
+            .json::<CoordinateResponse>()
+            .await?;
+        let extractor_addr = coordinate_response.content.get(0).ok_or(anyhow!("no extractor found"))?;
         let resp = reqwest::Client::new()
-            .post(&format!("http://{}/extract", self.coordinator_addr))
+            .post(&format!("http://{}/extract", extractor_addr))
             .json(&request)
             .send()
             .await
