@@ -106,13 +106,22 @@ pub struct ExecutorInfo {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
-    pub extractor_name: String,
     pub content: ExtractedContent,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractResponse {
     pub content: Vec<ExtractedContent>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoordinateRequest {
+    pub extractor_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoordinateResponse {
+    pub content: Vec<String>,
 }
 
 #[derive(
