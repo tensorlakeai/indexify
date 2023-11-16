@@ -1,12 +1,11 @@
-from .base_extractor import Content, Extractor, ExtractorInfo, Embeddings, Attributes, EmbeddingSchema
+from .base_extractor import Content, Extractor, Feature, EmbeddingSchema, ExtractorSchema
 from .sentence_transformer import SentenceTransformersEmbedding
 
 __all__ = [
     "Content",
-    "Extractor",
-    "ExtractorInfo",
-    "Embeddings",
-    "Attributes",
     "EmbeddingSchema",
+    "Extractor",
+    "ExtractorSchema",
+    "Feature",
     "SentenceTransformersEmbedding"
 ]

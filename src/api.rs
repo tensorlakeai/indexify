@@ -7,7 +7,7 @@ use smart_default::SmartDefault;
 use strum_macros::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::persistence;
+use crate::persistence::{self, IndexBindings};
 use crate::vectordbs;
 
 #[derive(Debug, Clone, EnumString, Serialize, Deserialize, ToSchema, SmartDefault)]
@@ -58,7 +58,7 @@ pub enum ExtractorFilter {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
     pub extractor_name: String,
-    pub index_name: Option<String>,
+    pub index_names: HashMap<String, String>,
     pub filters: Option<Vec<ExtractorFilter>>,
     pub input_params: Option<serde_json::Value>,
 }
@@ -90,7 +90,7 @@ impl From<persistence::ExtractorBinding> for ExtractorBinding {
         }
         Self {
             extractor_name: value.extractor_name,
-            index_name: Some(value.index_name),
+            index_names: value.indexes.bindings(),
             filters: Some(filters),
             input_params: Some(value.input_params),
         }
@@ -119,9 +119,7 @@ pub fn into_persistence_extractor_binding(
     persistence::ExtractorBinding::new(
         repository,
         extractor_binding.extractor_name.clone(),
-        extractor_binding
-            .index_name
-            .unwrap_or(extractor_binding.extractor_name.clone()),
+        IndexBindings::from_feature_to_index_names(extractor_binding.index_names),
         extraction_filters,
         extractor_binding
             .input_params
@@ -270,7 +268,8 @@ pub struct TextAddRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
 pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
     Embedding { dim: usize, distance: IndexDistance },
@@ -281,15 +280,33 @@ pub enum ExtractorOutputSchema {
 impl From<persistence::ExtractorOutputSchema> for ExtractorOutputSchema {
     fn from(value: persistence::ExtractorOutputSchema) -> Self {
         match value {
-            persistence::ExtractorOutputSchema::Embedding { dim, distance } => {
-                ExtractorOutputSchema::Embedding {
-                    dim,
-                    distance: distance.into(),
-                }
-            }
+            persistence::ExtractorOutputSchema::Embedding {
+                dim,
+                distance_metric: distance,
+            } => ExtractorOutputSchema::Embedding {
+                dim,
+                distance: distance.into(),
+            },
             persistence::ExtractorOutputSchema::Attributes(schema) => {
                 ExtractorOutputSchema::Attributes { schema }
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorSchema {
+    pub outputs: HashMap<String, ExtractorOutputSchema>,
+}
+
+impl From<persistence::ExtractorSchema> for ExtractorSchema {
+    fn from(value: persistence::ExtractorSchema) -> Self {
+        Self {
+            outputs: value
+                .outputs
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
         }
     }
 }
@@ -299,7 +316,7 @@ pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
     pub input_params: serde_json::Value,
-    pub output_schema: ExtractorOutputSchema,
+    pub schemas: ExtractorSchema,
 }
 
 impl From<persistence::ExtractorDescription> for ExtractorDescription {
@@ -308,7 +325,7 @@ impl From<persistence::ExtractorDescription> for ExtractorDescription {
             name: value.name,
             description: value.description,
             input_params: value.input_params,
-            output_schema: value.output_schema.into(),
+            schemas: value.schemas.into(),
         }
     }
 }

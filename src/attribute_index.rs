@@ -33,7 +33,7 @@ impl AttributeIndexManager {
                 &extractor_config.name,
                 index_name,
                 "structured_store",
-                serde_json::json!(extractor_config.output_schema),
+                serde_json::json!(extractor_config.schemas),
                 "structured_index",
             )
             .await?;

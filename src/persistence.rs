@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::extraction_event::Entity as ExtractionEventEntity;
 use entity::extractors;
@@ -37,10 +37,58 @@ pub struct Index {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexBindings {
+    // feature_name -> index_name
+    bindings: HashMap<String, String>,
+}
+
+impl IndexBindings {
+    pub fn from_feature_to_index_names(bindings: HashMap<String, String>) -> Self {
+        Self { bindings }
+    }
+
+    pub fn index_names(&self) -> Vec<String> {
+        self.bindings.values().cloned().collect()
+    }
+
+    pub fn get_index_name(&self, feature_name: &str) -> Option<&String> {
+        self.bindings.get(feature_name)
+    }
+
+    pub fn bindings(&self) -> HashMap<String, String> {
+        self.bindings.clone()
+    }
+
+    pub fn hash(&self, mut hasher: &mut DefaultHasher) {
+        for (feature_name, index_name) in &self.bindings {
+            feature_name.hash(&mut hasher);
+            index_name.hash(&mut hasher);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn from_feature(feature: &str) -> Self {
+        Self {
+            bindings: HashMap::from([(feature.into(), feature.into())]),
+        }
+    }
+}
+
+impl std::fmt::Display for IndexBindings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut bindings = Vec::new();
+        for (feature_name, index_name) in &self.bindings {
+            bindings.push(format!("{}:{}", feature_name, index_name));
+        }
+        write!(f, "{}", bindings.join(","))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorBinding {
     pub id: String,
     pub extractor_name: String,
-    pub index_name: String,
+    pub indexes: IndexBindings,
     pub filters: Vec<ExtractorFilter>,
     pub input_params: serde_json::Value,
 }
@@ -49,19 +97,19 @@ impl ExtractorBinding {
     pub fn new(
         repository: &str,
         extractor_name: String,
-        index_name: String,
+        indexes: IndexBindings,
         filters: Vec<ExtractorFilter>,
         input_params: serde_json::Value,
     ) -> ExtractorBinding {
         let mut s = DefaultHasher::new();
         repository.hash(&mut s);
         extractor_name.hash(&mut s);
-        index_name.hash(&mut s);
+        indexes.hash(&mut s);
         let id = format!("{:x}", s.finish());
         ExtractorBinding {
             id,
             extractor_name,
-            index_name,
+            indexes,
             filters,
             input_params,
         }
@@ -156,10 +204,38 @@ impl ContentPayload {
 #[serde(rename = "extractor_type")]
 pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
-    Embedding { dim: usize, distance: IndexDistance },
+    Embedding {
+        dim: usize,
+        distance_metric: IndexDistance,
+    },
 
     #[serde(rename = "attributes")]
     Attributes(serde_json::Value),
+}
+
+impl ExtractorOutputSchema {
+    #[cfg(test)]
+    pub fn embedding(dim: usize, distance_metric: IndexDistance) -> Self {
+        Self::Embedding {
+            dim,
+            distance_metric,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorSchema {
+    pub outputs: HashMap<String, ExtractorOutputSchema>,
+}
+
+impl ExtractorSchema {
+    #[cfg(test)]
+    pub fn from_output_schema(name: &str, schema: ExtractorOutputSchema) -> Self {
+        let output_schemas = HashMap::from([(name.into(), schema)]);
+        Self {
+            outputs: output_schemas,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
@@ -175,13 +251,12 @@ pub enum ExtractorFilter {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename = "extractor")]
+#[derive(Debug, Clone)]
 pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
     pub input_params: serde_json::Value,
-    pub output_schema: ExtractorOutputSchema,
+    pub schemas: ExtractorSchema,
 }
 
 impl From<extractors::Model> for ExtractorDescription {
@@ -192,7 +267,7 @@ impl From<extractors::Model> for ExtractorDescription {
             name: model.id,
             description: model.description,
             input_params: model.input_params,
-            output_schema,
+            schemas: output_schema,
         }
     }
 }
@@ -357,7 +432,7 @@ pub struct Work {
     pub id: String,
     pub content_id: String,
     pub repository_id: String,
-    pub index_name: String,
+    pub indexes: IndexBindings,
     pub extractor: String,
     pub extractor_params: serde_json::Value,
     pub work_state: WorkState,
@@ -368,7 +443,7 @@ impl Work {
     pub fn new(
         content_id: &str,
         repository: &str,
-        index_name: &str,
+        indexes: IndexBindings,
         extractor: &str,
         extractor_params: &serde_json::Value,
         worker_id: Option<&str>,
@@ -376,7 +451,7 @@ impl Work {
         let mut s = DefaultHasher::new();
         content_id.hash(&mut s);
         repository.hash(&mut s);
-        index_name.hash(&mut s);
+        indexes.hash(&mut s);
         extractor.hash(&mut s);
         let id = format!("{:x}", s.finish());
 
@@ -384,7 +459,7 @@ impl Work {
             id,
             content_id: content_id.into(),
             repository_id: repository.into(),
-            index_name: index_name.into(),
+            indexes,
             extractor: extractor.into(),
             extractor_params: extractor_params.clone(),
             work_state: WorkState::Pending,
@@ -393,18 +468,22 @@ impl Work {
     }
 }
 
-impl From<work::Model> for Work {
-    fn from(model: work::Model) -> Self {
-        Self {
+impl TryFrom<work::Model> for Work {
+    type Error = anyhow::Error;
+
+    fn try_from(model: work::Model) -> Result<Self, anyhow::Error> {
+        let indexes: IndexBindings =
+            serde_json::from_value(model.index_names).map_err(|e| anyhow!(e.to_string()))?;
+        Ok(Self {
             id: model.id,
             content_id: model.content_id,
             repository_id: model.repository_id,
-            index_name: model.index_name,
+            indexes,
             extractor: model.extractor,
             extractor_params: model.extractor_params,
             work_state: WorkState::from_str(&model.state).unwrap(),
             executor_id: model.worker_id,
-        }
+        })
     }
 }
 
@@ -979,7 +1058,7 @@ impl Repository {
                 id: Set(extractor.name),
                 description: Set(extractor.description),
                 input_params: Set(extractor.input_params),
-                output_schema: Set(json!(extractor.output_schema)),
+                output_schema: Set(json!(extractor.schemas)),
             });
         }
         let res = entity::extractors::Entity::insert_many(extractor_models)
@@ -1035,7 +1114,7 @@ impl Repository {
             state: Set(work.work_state.to_string()),
             worker_id: Set(work.executor_id.as_ref().map(|id| id.to_owned())),
             content_id: Set(work.content_id.clone()),
-            index_name: Set(work.index_name.clone()),
+            index_names: Set(serde_json::to_value(work.indexes.clone()).unwrap()),
             extractor: Set(work.extractor.clone()),
             extractor_params: Set(work.extractor_params.clone()),
             repository_id: Set(work.repository_id.clone()),
@@ -1051,7 +1130,7 @@ impl Repository {
             .one(&self.conn)
             .await?
             .ok_or(RepositoryError::RepositoryNotFound(id.into()))?;
-        Ok(work_model.into())
+        Ok(work_model.try_into().unwrap())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1097,7 +1176,7 @@ impl Repository {
         }
         result
             .get(0)
-            .map(|r| r.to_owned().into())
+            .map(|r| r.to_owned().try_into().unwrap())
             .ok_or(RepositoryError::LogicError(
                 "unable to find work".to_string(),
             ))
@@ -1111,7 +1190,7 @@ impl Repository {
             .all(&self.conn)
             .await?
             .into_iter()
-            .map(|m| m.into())
+            .map(|m| m.try_into().unwrap())
             .collect();
         Ok(work_models)
     }
@@ -1152,15 +1231,15 @@ mod tests {
             name: "extractor1".into(),
             description: "extractor1".into(),
             input_params: json!({}),
-            output_schema: ExtractorOutputSchema::Embedding {
-                dim: 1,
-                distance: IndexDistance::Cosine,
-            },
+            schemas: ExtractorSchema::from_output_schema(
+                "embedding",
+                ExtractorOutputSchema::embedding(10, IndexDistance::Cosine),
+            ),
         };
         let extractor_binding1 = ExtractorBinding::new(
             "repository",
             "extractor1".into(),
-            "extractor1".into(),
+            IndexBindings::from_feature("extractor1"),
             vec![ExtractorFilter::Eq {
                 field: "topic".to_string(),
                 value: json!("pipe"),
@@ -1171,7 +1250,7 @@ mod tests {
         let extractor_binding2 = ExtractorBinding::new(
             "repository1",
             "extractor1".into(),
-            "extractor2".into(),
+            IndexBindings::from_feature("extractor1_output"),
             vec![ExtractorFilter::Neq {
                 field: "topic".to_string(),
                 value: json!("pipe"),
