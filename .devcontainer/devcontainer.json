@@ -14,29 +14,12 @@
 		"ghcr.io/devcontainers/features/docker-in-docker": {
 			"dockerDashComposeVersion": "v2"
 		}
-		// "features": {
-		// 	"ghcr.io/devcontainers/features/rust": {
-		// 		"version": "latest"
-		// 	},
-		// 	"ghcr.io/devcontainers/features/docker-in-docker:2.7.1": {}
-		// }
 	},
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [
 		8900
 	],
-	"mounts": [
-		// {
-		// 	"source": "devcontainer-cargo-cache-${devcontainerId}",
-		// 	"target": "/usr/local/cargo",
-		// 	"type": "volume"
-		// }
-		// {
-		// 	"source": "/var/run/docker.sock",
-		// 	"target": "/var/run/docker.sock",
-		// 	"type": "volume"
-		// }
-	],
+	"mounts": [],
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -55,10 +38,4 @@
 			]
 		}
 	}
-	// Uncomment the next line to run commands after the container is created.
-	// "postCreateCommand": "cat /etc/os-release",
-	// Configure tool-specific properties.
-	// "customizations": {},
-	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
-	// "remoteUser": "devcontainer"
 }

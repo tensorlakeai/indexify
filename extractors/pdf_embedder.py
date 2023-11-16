@@ -32,7 +32,7 @@ class PDFEmbedder(Extractor):
                 for (i, (chunk, embeddings)) in enumerate(zip(chunks, embeddings)):
                     embeddings_list.append(Embeddings(content_id=c.id, text=chunk, embeddings=embeddings, metadata=json.dumps({"page": i})))
         return embeddings_list
-
+    
     def extract_query_embeddings(self, query: str) -> List[float]:
         return self._model.embed_query(query)
 

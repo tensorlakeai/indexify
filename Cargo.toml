@@ -10,12 +10,12 @@ members = [".", "migration"]
 [dependencies]
 anyhow = { version = "^1" }
 async-trait = "*"
-askama = { version = "^0" }
+askama = {version = "^0"}
 axum = { version = "^0", features = ["multipart"] }
 axum-macros = { version = "0.3.7" }
 axum-otel-metrics = "0.7"
 axum-tracing-opentelemetry = "0.14.1"
-bollard = { version = "^0", features = ["buildkit"] }
+bollard = {version = "^0", features = ["buildkit"]}
 bytes = "1.5.0"
 clap = { version = "^4", features = ["derive"] }
 figment = { version = "0.10.8", features = ["yaml", "env"] }
@@ -30,11 +30,8 @@ opentelemetry-otlp = { version = "*", features = [
     "http-proto",
     "reqwest-client",
 ] }
-opentelemetry-stdout = { version = "0.1.0", features = [
-    "logs",
-    "metrics",
-    "trace",
-] }
+opentelemetry-stdout = {version = "0.1.0", features = ["logs", "metrics", "trace"]}
+pyo3 = { version = "^0", features = ["auto-initialize"] }
 pythonize = "0.20.0"
 qdrant-client = "1.2.0"
 rand = { version = "^0" }
@@ -69,11 +66,10 @@ utoipa-swagger-ui = { version = "^4", features = ["axum"] }
 utoipa-rapidoc = { version = "^1", features = ["axum"] }
 utoipa-redoc = { version = "^1", features = ["axum"] }
 object_store = "0.7.0"
-local-ip-address = { version = "0.5.6" }
+local-ip-address = {version = "0.5.6"}
 flate2 = "1.0"
 tar = "0.4"
-walkdir = { version = "^2" }
-pyo3 = { version = "^0", features = ["auto-initialize"] }
+walkdir = { version="^2" }
 
 [dev-dependencies]
 migration = { path = "./migration" }
@@ -89,4 +85,4 @@ vergen = { version = "8.0.0", features = [
     "rustc",
     "si",
 ] }
-pyo3-build-config = { version = "0.20.0", features = ["resolve-config"] }
+pyo3-build-config = "0.20.0"
