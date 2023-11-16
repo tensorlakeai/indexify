@@ -1,10 +1,101 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 use strum_macros::{Display, EnumString};
 
-use crate::persistence::{self, ExtractorDescription};
+use crate::{persistence, vectordbs::IndexDistance};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OutputSchema {
+    Embedding { dim: usize, distance_metric: String },
+    Feature(serde_json::Value),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorSchema {
+    pub output: HashMap<String, OutputSchema>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorDescription {
+    pub name: String,
+    pub description: String,
+    pub input_params: serde_json::Value,
+    pub schema: ExtractorSchema,
+}
+
+impl TryFrom<ExtractorDescription> for persistence::ExtractorDescription {
+    type Error = anyhow::Error;
+    fn try_from(extractor: ExtractorDescription) -> Result<persistence::ExtractorDescription> {
+        let mut output_schema = HashMap::new();
+        for (output_name, embedding_schema) in extractor.schema.output {
+            match embedding_schema {
+                OutputSchema::Embedding {
+                    dim,
+                    distance_metric,
+                } => {
+                    let distance_metric = IndexDistance::from_str(&distance_metric)?;
+                    output_schema.insert(
+                        output_name,
+                        persistence::ExtractorOutputSchema::Embedding {
+                            dim,
+                            distance_metric,
+                        },
+                    );
+                }
+                OutputSchema::Feature(feature_schema) => {
+                    output_schema.insert(
+                        output_name,
+                        persistence::ExtractorOutputSchema::Attributes(feature_schema),
+                    );
+                }
+            }
+        }
+        Ok(Self {
+            name: extractor.name,
+            description: extractor.description,
+            input_params: extractor.input_params,
+            schemas: persistence::ExtractorSchema {
+                outputs: output_schema,
+            },
+        })
+    }
+}
+
+impl From<persistence::ExtractorDescription> for ExtractorDescription {
+    fn from(extractor: persistence::ExtractorDescription) -> Self {
+        let mut output_schema = HashMap::new();
+        for (output_name, embedding_schema) in extractor.schemas.outputs {
+            match embedding_schema {
+                persistence::ExtractorOutputSchema::Embedding {
+                    dim,
+                    distance_metric,
+                } => {
+                    let distance_metric = distance_metric.to_string();
+                    output_schema.insert(
+                        output_name,
+                        OutputSchema::Embedding {
+                            dim,
+                            distance_metric,
+                        },
+                    );
+                }
+                persistence::ExtractorOutputSchema::Attributes(feature_schema) => {
+                    output_schema.insert(output_name, OutputSchema::Feature(feature_schema));
+                }
+            }
+        }
+        Self {
+            name: extractor.name,
+            description: extractor.description,
+            input_params: extractor.input_params,
+            schema: ExtractorSchema {
+                output: output_schema,
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorInfo {
@@ -14,14 +105,23 @@ pub struct ExecutorInfo {
     pub extractor: ExtractorDescription,
 }
 #[derive(Debug, Serialize, Deserialize)]
-pub struct EmbedQueryRequest {
-    pub extractor_name: String,
-    pub text: String,
+pub struct ExtractRequest {
+    pub content: ExtractedContent,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct EmbedQueryResponse {
-    pub embedding: Vec<f32>,
+pub struct ExtractResponse {
+    pub content: Vec<ExtractedContent>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoordinateRequest {
+    pub extractor_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoordinateResponse {
+    pub content: Vec<String>,
 }
 
 #[derive(
@@ -52,7 +152,7 @@ impl From<WorkState> for persistence::WorkState {
 pub struct WorkStatus {
     pub work_id: String,
     pub status: WorkState,
-    pub data: Option<ExtractedContent>,
+    pub extracted_content: Vec<ExtractedContent>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,26 +187,70 @@ pub struct CreateWork {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct CreateWorkResponse {}
 
+#[derive(Debug, Serialize, Deserialize, Clone, EnumString)]
+pub enum FeatureType {
+    #[strum(serialize = "embedding")]
+    Embedding,
+    #[strum(serialize = "ner")]
+    NamedEntity,
+    #[strum(serialize = "metadata")]
+    Metadata,
+    #[strum(serialize = "unknown")]
+    Unknown,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ExtractedData {
-    Embeddings { embedding: Vec<f32> },
-    Attributes { attributes: serde_json::Value },
+pub struct Feature {
+    pub feature_type: FeatureType,
+    pub name: String,
+    pub data: serde_json::Value,
+}
+
+impl Feature {
+    pub fn embedding(&self) -> Option<Vec<f32>> {
+        match self.feature_type {
+            FeatureType::Embedding => serde_json::from_value(self.data.clone()).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn metadata(&self) -> Option<serde_json::Value> {
+        match self.feature_type {
+            FeatureType::Metadata | FeatureType::NamedEntity => Some(self.data.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractedContent {
-    pub content_id: String,
-    pub source: String,
-    pub extracted_data: ExtractedData,
+    pub content_type: ContentType,
+    pub source: Vec<u8>,
+    pub feature: Option<Feature>,
 }
 
-#[derive(Clone, Debug, Display, EnumString, Serialize, Deserialize)]
+impl ExtractedContent {
+    pub fn source_as_text(&self) -> Option<String> {
+        match self.content_type {
+            ContentType::Text => Some(String::from_utf8(self.source.clone()).unwrap()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum ContentType {
     #[strum(serialize = "text")]
     Text,
 
     #[strum(serialize = "pdf")]
     Pdf,
+
+    #[strum(serialize = "audio")]
+    Audio,
+
+    #[strum(serialize = "image")]
+    Image,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -135,7 +279,6 @@ impl TryFrom<persistence::ContentPayload> for ContentPayload {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Work {
     pub id: String,
-    pub content_id: String,
     pub content_payload: ContentPayload,
     pub params: serde_json::Value,
 }
@@ -147,7 +290,6 @@ pub fn create_work(
     let content_payload = ContentPayload::try_from(content_payload)?;
     Ok(Work {
         id: work.id,
-        content_id: work.content_id,
         content_payload,
         params: work.extractor_params,
     })

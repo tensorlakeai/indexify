@@ -1,12 +1,12 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::fmt;
 
 use crate::{
     extractors::ExtractedEmbeddings,
     index::IndexError,
-    internal_api::{EmbedQueryRequest, EmbedQueryResponse},
-    persistence::{Chunk, ExtractorDescription, ExtractorOutputSchema, Repository},
-    vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
+    internal_api::{self, ExtractRequest, ExtractResponse, CoordinateRequest, CoordinateResponse},
+    persistence::{Chunk, ExtractorDescription, Repository},
+    vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::error;
@@ -48,26 +48,25 @@ impl VectorIndexManager {
         repository: &str,
         index_name: &str,
         extractor_config: ExtractorDescription,
+        distance: IndexDistance,
+        dim: usize,
     ) -> Result<()> {
         let mut index_params: Option<CreateIndexParams> = None;
         let vector_index_name = format!("{}-{}", repository, index_name);
-        if let ExtractorOutputSchema::Embedding { dim, distance } = &extractor_config.output_schema
-        {
-            let create_index_params = CreateIndexParams {
-                vectordb_index_name: vector_index_name.clone(),
-                vector_dim: *dim as u64,
-                distance: distance.clone(),
-                unique_params: None,
-            };
-            index_params.replace(create_index_params);
-        }
+        let create_index_params = CreateIndexParams {
+            vectordb_index_name: vector_index_name.clone(),
+            vector_dim: dim as u64,
+            distance,
+            unique_params: None,
+        };
+        index_params.replace(create_index_params);
         self.repository
             .create_index_metadata(
                 repository,
                 &extractor_config.name,
                 index_name,
                 &vector_index_name,
-                serde_json::json!(extractor_config.output_schema),
+                serde_json::json!(extractor_config.schemas),
                 "embedding",
             )
             .await?;
@@ -141,20 +140,47 @@ impl VectorIndexManager {
         query: &str,
         extractor_name: &str,
     ) -> Result<Vec<f32>, anyhow::Error> {
-        let request = EmbedQueryRequest {
-            extractor_name: extractor_name.to_string(),
-            text: query.to_string(),
+        let request = ExtractRequest {
+            content: internal_api::ExtractedContent {
+                content_type: internal_api::ContentType::Text,
+                source: query.as_bytes().into(),
+                feature: None,
+            },
         };
 
+        let coordinate_request = CoordinateRequest{
+            extractor_name: extractor_name.to_string(),
+        };
+
+        let coordinate_response = reqwest::Client::new()
+            .post(&format!("http://{}/coordinates", self.coordinator_addr))
+            .json(&coordinate_request)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("unable to embed query: {}", e))?
+            .json::<CoordinateResponse>()
+            .await?;
+        let extractor_addr = coordinate_response.content.get(0).ok_or(anyhow!("no extractor found"))?;
         let resp = reqwest::Client::new()
-            .post(&format!("http://{}/embed_query", self.coordinator_addr))
+            .post(&format!("http://{}/extract", extractor_addr))
             .json(&request)
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("unable to embed query: {}", e))?
-            .json::<EmbedQueryResponse>()
+            .json::<ExtractResponse>()
             .await?;
-        Ok(resp.embedding)
+        let content = resp
+            .content
+            .get(0)
+            .ok_or(anyhow!("no content was extracted"))?
+            .to_owned();
+        let features = content
+            .feature
+            .ok_or(anyhow!("no features were extracted"))?;
+        let embedding = features
+            .embedding()
+            .ok_or(anyhow!("no embedding was found"))?;
+        Ok(embedding)
     }
 }
 
@@ -166,7 +192,7 @@ mod tests {
 
     use crate::blob_storage::BlobStorageBuilder;
     use crate::data_repository_manager::DataRepositoryManager;
-    use crate::persistence::{ContentPayload, DataRepository, ExtractorBinding};
+    use crate::persistence::{ContentPayload, DataRepository, ExtractorBinding, IndexBindings};
     use crate::test_util;
     use crate::test_util::db_utils::{
         create_index_manager, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
@@ -191,9 +217,9 @@ mod tests {
                 extractor_bindings: vec![ExtractorBinding::new(
                     DEFAULT_TEST_REPOSITORY,
                     DEFAULT_TEST_EXTRACTOR.into(),
-                    DEFAULT_TEST_EXTRACTOR.into(),
+                    IndexBindings::from_feature(DEFAULT_TEST_EXTRACTOR),
                     vec![],
-                    serde_json::json!({}),
+                    serde_json::json!({"a": 1, "b": "hello"}),
                 )],
             })
             .await;

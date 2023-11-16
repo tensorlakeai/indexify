@@ -1,105 +1,88 @@
 from abc import ABC, abstractmethod
-from typing import Any, List, Union, Dict, Literal, Type
+from typing import Any, List, Type, Optional
+import json
 
 from enum import Enum
 
-from pydantic import BaseModel, Json, validator, model_serializer
-
-
-class Embeddings(BaseModel):
-    content_id: str
-    text: str
-    embeddings: List[float]
-    metadata: Json
-
-class Attributes(BaseModel):
-    content_id: str
-    text: str
-    attributes: str
-
+from pydantic import BaseModel, Json
 
 class EmbeddingSchema(BaseModel):
-    distance: str
+    distance_metric: str
     dim: int
 
+class ExtractorSchema(BaseModel):
+    embedding_schemas: dict[str, EmbeddingSchema]
+    input_params: Optional[str]
+
+class Feature(BaseModel):
+    feature_type: str
+    name: str
+    value: str
+
+    @classmethod
+    def embedding(cls, value: List[float], name: str="embedding"):
+        return cls(feature_type="embedding", name=name, value=json.dumps(value))
+    
+    @classmethod
+    def ner(cls, entity: str, value: str, score: float, name: str="ner"):
+        return cls(feature_type="ner", name=name, value=json.dumps({"entity": entity, "value": value, "score": score}))
+    
+    @classmethod
+    def metadata(cls, value: Json, name: str="metadata"):
+        return cls(feature_type="metadata", name=name, value=json.dumps(value))
 
 class Content(BaseModel):
-    id: str
-    content_type: str
-    data: Any
+    content_type: Optional[str]
+    data: bytes 
+    feature:Optional[Feature] = None
 
-
-class ExtractorInfo(BaseModel):
-    name: str
-    description: str
-    input_params: Any
-    output_schema: Any
-
-    @model_serializer
-    def ser_model(self) -> Dict[str, Any]:
-        output_schema_type = "attributes"
-        output_schema = self.output_schema.model_json_schema()
-        if type(self.output_schema) == EmbeddingSchema:
-            output_schema_type = "embedding"
-            output_schema = self.output_schema.model_dump()
-
-        return {
-            "name": self.name,
-            "description": self.description,
-            "input_params": self.input_params.model_json_schema() if self.input_params else {},
-            "output_schema": {output_schema_type: output_schema},
-        }
-
-    @validator("input_params")
-    def validate_input_params(cls, val):
-        if issubclass(type(val), BaseModel):
-            return val
-
-        raise TypeError("Wrong type for 'input_params', must be subclass of BaseModel")
-
-    @validator("output_schema")
-    def validate_output_schema(cls, val):
-        if issubclass(type(val), EmbeddingSchema):
-            return val
-
-        if issubclass(val, BaseModel):
-            return val
-
-        raise TypeError(
-            f"Wrong type for 'output_schema', must be subclass of BaseModel or EmbeddingSchema {type(val)}"
-        )
-
-
+    @classmethod
+    def from_text(cls, text: str, feature: Feature=None):
+        return cls(content_type="text", data=bytes(text, "utf-8"), feature=feature)
+    
 class Extractor(ABC):
-    def _extract(self, content, params: dict[str, Any]):
-        content_list = []
-        for c in content:
-            data = bytearray(c.data)
-            if c.content_type == "text":
-                data = data.decode("ascii")
-
-            content_list.append(
-                Content(
-                    id=c.id,
-                    content_type=c.content_type,
-                    data=data,
-                )
-            )
-        return self.extract(content_list, params)
 
     @abstractmethod
     def extract(
-        self, content: List[Content], params: dict[str, Any]
-    ) -> List[Union[Embeddings, Attributes, Type[BaseModel]]]:
+        self, content: List[Content], params: Type[BaseModel]=None) -> List[List[Content]]:
         """
         Extracts information from the content.
         """
         pass
 
-    @abstractmethod
-    def info(self) -> ExtractorInfo:
-        pass
 
-    def _info(self) -> str:
-        info = self.info()
-        return info.model_dump_json()
+    def extract_query_embeddings(self, query: str) -> List[float]:
+        """
+        Extracts embeddings from the query. Only embedding extractor needs to implement this method.
+        """
+        raise NotImplementedError("extract_query_embeddings is not implemented")
+
+    @classmethod
+    def schemas(cls) -> ExtractorSchema:
+        """
+        Returns a list of options for indexing.
+        """
+        return NotImplemented
+
+from importlib import import_module
+from typing import get_type_hints
+
+class ExtractorWrapper:
+
+    def __init__(self, entry_point: str):
+        module_name, class_name = entry_point.split(":")
+        self._module = import_module(module_name)
+        self._cls = getattr(self._module, class_name)
+        self._param_cls = get_type_hints(self._cls.extract).get("params", None)
+        self._instance = self._cls()
+
+    def extract(self, content: List[Content], params: Json) -> List[List[Content]]:
+        params_dict = json.loads(params)
+        param_instance = self._param_cls.model_validate(params_dict) if self._param_cls else None
+        content_list = []
+        for c in content:
+            content_list.append(Content(content_type=c.content_type, data=bytes(c.data)))
+        return self._instance.extract(content_list, param_instance)
+
+    def schemas(self) -> ExtractorSchema:
+        return self._instance.schemas()

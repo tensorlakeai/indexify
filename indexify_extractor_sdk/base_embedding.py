@@ -7,7 +7,7 @@ from langchain import text_splitter
 from .base_extractor import (
     Content,
     Extractor,
-    Embeddings,
+    Feature,
 )
 class EmbeddingInputParams(BaseModel):
     overlap: int = 0
@@ -19,26 +19,27 @@ class BaseEmbeddingExtractor(Extractor):
         self._model_context_length: int = max_context_length
 
     def extract(
-        self, content_list: List[Content], params: dict[str, Any]
-    ) -> List[Embeddings]:
-        input_params: EmbeddingInputParams = EmbeddingInputParams.model_validate(params)
+        self, content_list: List[Content], params: EmbeddingInputParams
+    ) -> List[List[Content]]:
         splitter: Callable[[str], List[str]] = self._create_splitter(
-            input_params.text_splitter
+            params.text_splitter
         )
-        extracted_embeddings = []
+        extracted_content = []
         for content in content_list:
-            chunks: List[str] = splitter(content.data)
+            extracted_embeddings = []
+            if content.content_type != "text":
+                continue
+            text = content.data.decode("utf-8")
+            chunks: List[str] = splitter(text)
             embeddings_list = self.extract_embeddings(chunks)
             for chunk, embeddings in zip(chunks, embeddings_list):
-                extracted_embeddings.append(
-                    Embeddings(
-                        content_id=content.id,
-                        text=chunk,
-                        embeddings=embeddings,
-                        metadata=json.dumps({}),
-                    )
+                content = Content.from_text(
+                    text=chunk,
+                    feature=Feature.embedding(value=embeddings),
                 )
-        return extracted_embeddings
+                extracted_embeddings.append(content)
+            extracted_content.append(extracted_embeddings)
+        return extracted_content
 
     def _create_splitter(self, text_splitter_name: str) -> Callable[[str], List[str]]:
         # TODO Make chunk overlap parameterized

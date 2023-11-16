@@ -125,23 +125,11 @@ impl Default for VectorIndexConfig {
 pub struct ExtractorConfig {
     pub name: String,
     pub version: String,
+    pub description: String,
     pub module: String,
     pub gpu: bool,
     pub system_dependencies: Vec<String>,
     pub python_dependencies: Vec<String>,
-}
-
-impl Default for ExtractorConfig {
-    fn default() -> Self {
-        Self {
-            name: "indexify_extractor".to_string(),
-            version: "0.1.0".to_string(),
-            module: "identity_hash_embedding.IdentityHashEmbedding".to_string(),
-            gpu: false,
-            system_dependencies: vec![],
-            python_dependencies: vec![],
-        }
-    }
 }
 
 impl ExtractorConfig {

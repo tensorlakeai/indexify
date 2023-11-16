@@ -13,7 +13,7 @@ use tracing::{error, info};
 use crate::{
     api::IndexifyAPIError,
     executor::ExtractorExecutor,
-    internal_api::{EmbedQueryRequest, EmbedQueryResponse},
+    internal_api::{ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
 };
 
@@ -92,7 +92,7 @@ impl ExecutorServer {
                 "/sync_executor",
                 post(sync_worker).with_state(executor.clone()),
             )
-            .route("/embed_query", post(query).with_state(executor.clone()))
+            .route("/extract", post(extract).with_state(executor.clone()))
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
             .layer(metrics);
@@ -122,15 +122,15 @@ async fn root() -> &'static str {
 
 #[tracing::instrument]
 #[axum_macros::debug_handler]
-async fn query(
+async fn extract(
     extractor_executor: State<Arc<ExtractorExecutor>>,
-    Json(query): Json<EmbedQueryRequest>,
-) -> Result<Json<EmbedQueryResponse>, IndexifyAPIError> {
-    let embedding = extractor_executor
-        .embed_query(&query.text)
+    Json(query): Json<ExtractRequest>,
+) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
+    let content = extractor_executor
+        .extract(query.content)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(EmbedQueryResponse { embedding }))
+    Ok(Json(ExtractResponse { content }))
 }
 
 #[axum_macros::debug_handler]

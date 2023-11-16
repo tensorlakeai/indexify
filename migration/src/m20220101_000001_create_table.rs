@@ -128,7 +128,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Work::State).string().not_null())
                     .col(ColumnDef::new(Work::WorkerId).string())
                     .col(ColumnDef::new(Work::ContentId).string().not_null())
-                    .col(ColumnDef::new(Work::IndexName).string().not_null())
+                    .col(ColumnDef::new(Work::IndexNames).json_binary().not_null())
                     .col(ColumnDef::new(Work::Extractor).string().not_null())
                     .col(
                         ColumnDef::new(Work::ExtractorParams)
@@ -328,7 +328,7 @@ enum Work {
     State,
     WorkerId,
     ContentId,
-    IndexName,
+    IndexNames,
     Extractor,
     ExtractorParams,
     RepositoryId,

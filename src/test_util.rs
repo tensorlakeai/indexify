@@ -12,6 +12,7 @@ pub mod db_utils {
     use crate::executor::ExtractorExecutor;
     use crate::persistence::{DataRepository, ExtractorOutputSchema};
     use crate::persistence::{ExtractorBinding, ExtractorDescription, Repository};
+    use crate::persistence::{ExtractorSchema, IndexBindings};
     use crate::server_config::ExtractorConfig;
     use crate::vector_index::VectorIndexManager;
     use crate::vectordbs::{self, IndexDistance};
@@ -19,7 +20,7 @@ pub mod db_utils {
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
 
-    pub const DEFAULT_TEST_EXTRACTOR: &str = "IdentityHashEmbedding";
+    pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
 
     pub fn default_test_data_repository() -> DataRepository {
         DataRepository {
@@ -29,10 +30,22 @@ pub mod db_utils {
             extractor_bindings: vec![ExtractorBinding::new(
                 DEFAULT_TEST_REPOSITORY,
                 DEFAULT_TEST_EXTRACTOR.into(),
-                DEFAULT_TEST_EXTRACTOR.into(),
+                IndexBindings::from_feature(DEFAULT_TEST_EXTRACTOR),
                 vec![],
                 serde_json::json!({}),
             )],
+        }
+    }
+
+    fn mock_extractor_config() -> ExtractorConfig {
+        ExtractorConfig {
+            name: DEFAULT_TEST_EXTRACTOR.into(),
+            version: "0.1.0".into(),
+            description: "test extractor".into(),
+            module: "indexify_extractor_sdk.mock_extractor:MockExtractor".into(),
+            gpu: false,
+            system_dependencies: vec![],
+            python_dependencies: vec![],
         }
     }
 
@@ -55,7 +68,7 @@ pub mod db_utils {
             "localhost:9000".to_string(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
-        let extractor_config = Arc::new(ExtractorConfig::default());
+        let extractor_config = Arc::new(mock_extractor_config());
         let extractor_executor = ExtractorExecutor::new_test(
             repository.clone(),
             executor_config,
@@ -78,13 +91,13 @@ pub mod db_utils {
             name: DEFAULT_TEST_EXTRACTOR.into(),
             description: "test extractor".into(),
             input_params: json!({}),
-            output_schema: ExtractorOutputSchema::Embedding {
-                dim: 384,
-                distance: IndexDistance::Cosine,
-            },
+            schemas: ExtractorSchema::from_output_schema(
+                "embedding",
+                ExtractorOutputSchema::embedding(10, IndexDistance::Cosine),
+            ),
         };
         coordinator
-            .record_extractor(default_extractor)
+            .record_extractor(default_extractor.into())
             .await
             .unwrap();
         (vector_index_manager, extractor_executor, coordinator)

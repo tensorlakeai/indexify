@@ -1,10 +1,15 @@
 from typing import List
 from indexify_extractor_sdk import (
-    ExtractorInfo,
+    ExtractorSchema,
     EmbeddingSchema,
+    Content,
 )
-from indexify_extractor_sdk.base_embedding import BaseEmbeddingExtractor, EmbeddingInputParams
+from indexify_extractor_sdk.base_embedding import (
+    BaseEmbeddingExtractor,
+    EmbeddingInputParams,
+)
 from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbedding
+
 
 class MiniLML6Extractor(BaseEmbeddingExtractor):
     def __init__(self):
@@ -17,12 +22,18 @@ class MiniLML6Extractor(BaseEmbeddingExtractor):
     def extract_query_embeddings(self, query: str) -> List[float]:
         return self._model.embed_query(query)
 
-    def info(self) -> ExtractorInfo:
+    def schemas(self) -> ExtractorSchema:
         input_params = EmbeddingInputParams()
-        return ExtractorInfo(
-            name="MiniLML6",
-            description="MiniLML6 Embeddings",
-            input_params=input_params,
-            output_schema=EmbeddingSchema(distance="cosine", dim=384),
+        return ExtractorSchema(
+            input_params=input_params.model_dump_json(),
+            embedding_schemas={
+                "embedding": EmbeddingSchema(distance_metric="cosine", dim=384)
+            },
         )
 
+
+if __name__ == "__main__":
+    extractor = MiniLML6Extractor()
+    print(extractor.schemas())
+    print(extractor.extract_query_embeddings("Hello World"))
+    print(extractor.extract([Content.from_text(text="Hello World")], {}))
