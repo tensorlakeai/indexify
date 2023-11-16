@@ -19,7 +19,9 @@
 	"forwardPorts": [
 		8900
 	],
-	"mounts": [],
+	"mounts": [
+		"source=${localEnv:HOME}/.cache/huggingface,target=/root/.cache/huggingface,type=bind,consistency=cached"
+	],
 	"customizations": {
 		"vscode": {
 			"extensions": [
