@@ -63,7 +63,7 @@ impl Packager {
 
         self.add_directory_to_tar(&mut tar, &self.code_dir)?;
 
-        tar.append_path_with_name(self.config_path.clone(), "indexify_extractor.yaml")?;
+        tar.append_path_with_name(self.config_path.clone(), "indexify.yaml")?;
 
         if self.dev {
             self.add_dev_dependencies(&mut tar)?;
