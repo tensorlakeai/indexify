@@ -176,7 +176,11 @@ pub fn create_extractor(
     Ok(Arc::new(extractor))
 }
 
-pub fn run_extractor(extractor_config: Arc<server_config::ExtractorConfig>, text: Option<String>, file_path: Option<String>) -> Result<Vec<ExtractedContent>, anyhow::Error> {
+pub fn run_extractor(
+    extractor_config: Arc<server_config::ExtractorConfig>,
+    text: Option<String>,
+    file_path: Option<String>,
+) -> Result<Vec<ExtractedContent>, anyhow::Error> {
     let extractor = create_extractor(extractor_config)?;
     let extracted_content = match (text, file_path) {
         (Some(text), None) => {
@@ -190,7 +194,8 @@ pub fn run_extractor(extractor_config: Arc<server_config::ExtractorConfig>, text
         }
         (None, Some(file_path)) => {
             let data = std::fs::read(file_path)?;
-            let content = PyContent::from_bytes(data, internal_api::ContentType::Text).try_into()?;
+            let content =
+                PyContent::from_bytes(data, internal_api::ContentType::Text).try_into()?;
             let extracted_content = extractor.extract(vec![content], json!({}))?;
             let content = extracted_content
                 .get(0)

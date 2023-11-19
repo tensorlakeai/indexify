@@ -1,12 +1,16 @@
-import hashlib
-import numpy as np
 from typing import List
 from indexify_extractor_sdk import (
-    ExtractorInfo,
+    ExtractorSchema,
     EmbeddingSchema,
+    Content,
 )
-from indexify_extractor_sdk.base_embedding import BaseEmbeddingExtractor, EmbeddingInputParams
-from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbedding
+from indexify_extractor_sdk.base_embedding import (
+    BaseEmbeddingExtractor,
+    EmbeddingInputParams,
+)
+
+import hashlib
+import numpy as np
 
 """
     Implements a Hash Extractor, which can be used to find duplicates within the dataset.
@@ -19,6 +23,7 @@ from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbe
 class IdentityHashEmbedding(BaseEmbeddingExtractor):
 
     def __init__(self):
+        print("Hello")
         super(IdentityHashEmbedding, self).__init__(max_context_length=128)
         self._model = hashlib.sha256()
 
@@ -28,16 +33,16 @@ class IdentityHashEmbedding(BaseEmbeddingExtractor):
     def extract_query_embeddings(self, query: str) -> List[float]:
         return self._embed(query)
 
-    def info(self) -> ExtractorInfo:
+    def schemas(self) -> ExtractorSchema:
         input_params = EmbeddingInputParams()
-        return ExtractorInfo(
-            name="IdentityHashEmbedding",
-            description="IdentityHashEmbedding",
-            input_params=input_params,
-            output_schema=EmbeddingSchema(distance="cosine", dim=32),
+        return ExtractorSchema(
+            input_params=input_params.model_dump_json(),
+            embedding_schemas={
+                "embedding": EmbeddingSchema(distance_metric="cosine", dim=32)
+            },
         )
 
     def _embed(self, text) -> List[float]:
         self._model.update(bytes(text, 'utf-8'))
-        bytearray = self._model.digest()
-        return np.frombuffer(bytearray, dtype=np.int8).tolist()
+        out = self._model.digest()
+        return np.frombuffer(out, dtype=np.int8).tolist()
