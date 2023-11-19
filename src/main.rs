@@ -1,9 +1,9 @@
 use anyhow::{Error, Result};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use indexify::{
     coordinator_service::CoordinatorServer, executor_server::ExecutorServer, server,
-    server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig,
+    server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig, extractors,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -23,10 +23,54 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+enum ExtractorCmd {
+    #[command(about = "join the extractor to indexify")]
+    Start {
+        #[arg(
+            long,
+            help = "address of the extractor to advertise to indexify control plane"
+        )]
+        advertise_addr: Option<String>,
+
+        #[arg(long, help = "address of the indexify server")]
+        coordinator_addr: String,
+    },
+    Package {
+        #[arg(short, long)]
+        dev: bool,
+
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    Extract {
+        #[arg(short, long)]
+        text: Option<String>,
+
+        #[arg(short, long)]
+        file: Option<String>,
+    },
+}
+
+#[derive(Debug, Args)]
+struct ExtractorCmdArgs {
+    #[arg(
+        global = true,
+        short='c',
+        long,
+        help = "path to the extractor config file",
+        default_value = "indexify.yaml"
+    )]
+    config_path: Option<String>,
+
+    #[command(subcommand)]
+    commands: ExtractorCmd,
+}
+
+#[derive(Debug, Subcommand)]
 enum Commands {
     #[command(about = "Start the server")]
     Server {
-        #[arg(long)]
+        #[arg(long, short='c', help = "path to the server config file")]
         config_path: String,
 
         #[arg(short, long)]
@@ -36,32 +80,10 @@ enum Commands {
         #[arg(short, long)]
         config_path: String,
     },
-    Executor {
-        #[arg(short, long)]
-        extractor_config: Option<String>,
-
-        #[arg(long)]
-        advertise_ip: Option<String>,
-
-        #[arg(long)]
-        advertise_port: Option<u64>,
-
-        #[arg(long)]
-        coordinator_addr: String,
-    },
     InitConfig {
         config_path: String,
     },
-    Package {
-        #[arg(short, long)]
-        config_path: String,
-
-        #[arg(short, long)]
-        dev: bool,
-
-        #[arg(short, long)]
-        verbose: bool,
-    },
+    Extractor(ExtractorCmdArgs),
 }
 
 struct OtelGuard {}
@@ -130,35 +152,36 @@ async fn main() -> Result<(), Error> {
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
             coordinator.run().await?
         }
-        Commands::Executor {
-            extractor_config,
-            advertise_ip,
-            advertise_port,
-            coordinator_addr,
-        } => {
-            info!("starting indexify executor....");
-
-            let extractor_config_path =
-                extractor_config.unwrap_or("indexify_extractor.yaml".to_string());
-            let extractor_config = Arc::new(ExtractorConfig::from_path(extractor_config_path)?);
-
-            let executor_config = ExecutorConfig::default()
-                .with_advertise_ip(advertise_ip)
-                .with_advertise_port(advertise_port)
-                .with_coordinator_addr(coordinator_addr);
-            let executor_server =
-                ExecutorServer::new(Arc::new(executor_config), extractor_config).await?;
-            executor_server.run().await?
-        }
-        Commands::Package {
-            config_path,
-            dev,
-            verbose,
-        } => {
-            info!("starting indexify packager....");
-
-            let packager = indexify::package::Packager::new(config_path, dev)?;
-            packager.package(verbose).await?;
+        Commands::Extractor(args) => {
+            let config_path = args
+                .config_path
+                .unwrap_or_else(|| "indexify.yaml".to_string());
+            info!("using config file: {}", &config_path);
+            let extractor_config =
+                Arc::new(ExtractorConfig::from_path(config_path.clone())?);
+            match args.commands {
+                ExtractorCmd::Extract { text, file } => {
+                    let extracted_content = extractors::run_extractor(extractor_config, text, file)?;
+                    println!("{}", serde_json::to_string_pretty(&extracted_content)?);
+                }
+                ExtractorCmd::Package { dev, verbose } => {
+                    info!("starting indexify packager....");
+                    let packager = indexify::package::Packager::new(config_path, dev)?;
+                    packager.package(verbose).await?;
+                }
+                ExtractorCmd::Start {
+                    advertise_addr,
+                    coordinator_addr,
+                } => {
+                    info!("starting indexify executor....");
+                    let executor_config = ExecutorConfig::default()
+                        .with_advertise_addr(advertise_addr)?
+                        .with_coordinator_addr(coordinator_addr);
+                    let executor_server =
+                        ExecutorServer::new(Arc::new(executor_config), extractor_config).await?;
+                    executor_server.run().await?
+                }
+            }
         }
     }
     global::shutdown_tracer_provider();

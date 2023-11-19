@@ -8,7 +8,7 @@ mod data_repository_manager;
 mod entity;
 mod executor;
 pub mod executor_server;
-mod extractors;
+pub mod extractors;
 mod index;
 mod internal_api;
 pub mod package;

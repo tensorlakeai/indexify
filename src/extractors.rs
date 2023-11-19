@@ -2,6 +2,7 @@ use anyhow::{anyhow, Ok};
 use pyo3::prelude::*;
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::str::FromStr;
 use std::{collections::HashMap, sync::Arc};
 use tracing::info;
@@ -164,8 +165,6 @@ pub trait Extractor {
         content: Vec<ExtractedContent>,
         input_params: serde_json::Value,
     ) -> Result<Vec<Vec<ExtractedContent>>, anyhow::Error>;
-
-    fn extract_embedding_query(&self, query: &str) -> Result<Vec<f32>, anyhow::Error>;
 }
 
 #[tracing::instrument]
@@ -175,6 +174,33 @@ pub fn create_extractor(
     let extractor = PythonExtractor::new(extractor_config.module.clone())?;
     info!("extractor created: {}", extractor_config.name.clone());
     Ok(Arc::new(extractor))
+}
+
+pub fn run_extractor(extractor_config: Arc<server_config::ExtractorConfig>, text: Option<String>, file_path: Option<String>) -> Result<Vec<ExtractedContent>, anyhow::Error> {
+    let extractor = create_extractor(extractor_config)?;
+    let extracted_content = match (text, file_path) {
+        (Some(text), None) => {
+            let content = PyContent::new(text).try_into()?;
+            let extracted_content = extractor.extract(vec![content], json!({}))?;
+            let content = extracted_content
+                .get(0)
+                .ok_or(anyhow!("no content was extracted"))?
+                .to_owned();
+            Ok(content)
+        }
+        (None, Some(file_path)) => {
+            let data = std::fs::read(file_path)?;
+            let content = PyContent::from_bytes(data, internal_api::ContentType::Text).try_into()?;
+            let extracted_content = extractor.extract(vec![content], json!({}))?;
+            let content = extracted_content
+                .get(0)
+                .ok_or(anyhow!("no content was extracted"))?
+                .to_owned();
+            Ok(content)
+        }
+        _ => Err(anyhow!("either text or file path must be provided")),
+    };
+    extracted_content
 }
 
 #[derive(Debug)]
@@ -286,21 +312,6 @@ impl Extractor for PythonExtractor {
         })?;
 
         Ok(extracted_content)
-    }
-
-    fn extract_embedding_query(&self, query: &str) -> Result<Vec<f32>, anyhow::Error> {
-        let extracted_data: Vec<f32> = Python::with_gil(|py| {
-            let extracted_data = self
-                .extractor_wrapper
-                .call_method1(py, "extract_query_embeddings", (query,))
-                .map_err(|e| anyhow!(e.to_string()))?;
-            let embeddings: Vec<f32> = extracted_data
-                .extract(py)
-                .map_err(|e| anyhow!(e.to_string()))?;
-            Ok(embeddings)
-        })
-        .map_err(|e| anyhow!(e.to_string()))?;
-        Ok(extracted_data)
     }
 }
 

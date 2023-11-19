@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, Error};
 use figment::{
     providers::{Env, Format, Yaml},
     Figment,
@@ -224,6 +224,15 @@ impl ExecutorConfig {
             self.listen_port = port;
         }
         self
+    }
+
+    pub fn with_advertise_addr(mut self, addr: Option<String>) -> Result<Self, Error> {
+        if let Some(addr) = addr {
+            let sock_addr: SocketAddr = addr.parse()?;
+            self.advertise_if = NetworkAddress(sock_addr.ip().to_string());
+            self.listen_port = sock_addr.port() as u64;
+        }
+        Ok(self)
     }
 
     pub fn with_coordinator_addr(mut self, addr: String) -> Self {

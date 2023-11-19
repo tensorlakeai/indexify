@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Any, List, Type, Optional
+from typing import List, Type, Optional
 import json
-
-from enum import Enum
+from importlib import import_module
+from typing import get_type_hints
 
 from pydantic import BaseModel, Json
 
@@ -63,9 +63,6 @@ class Extractor(ABC):
         Returns a list of options for indexing.
         """
         return NotImplemented
-
-from importlib import import_module
-from typing import get_type_hints
 
 class ExtractorWrapper:
 
