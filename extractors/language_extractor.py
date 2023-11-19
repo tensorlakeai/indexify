@@ -19,8 +19,8 @@ class LanguageExtractor(Extractor):
         self._model = LanguageDetectorBuilder.from_all_languages().with_low_accuracy_mode().build()
 
     def extract(
-        self, content: List[Content], params: dict[str, str]
-    ) -> List[Attributes]:
+        self, content: List[Content], params: InputParams
+    ) -> List[List[Content]]:
         content_texts = [c.data for c in content]
         content_texts = [c.data for c in content]
         attributes = []
@@ -34,6 +34,12 @@ class LanguageExtractor(Extractor):
                     )
                 )
         return attributes
+
+    def extract_query_embeddings(self, query: str) -> List[float]:
+        raise NotImplementedError
+
+    def schemas(self) -> ExtractorSchema:
+        raise NotImplementedError
 
     def info(self) -> ExtractorInfo:
         input_params = LanguageExtractionInputParams()

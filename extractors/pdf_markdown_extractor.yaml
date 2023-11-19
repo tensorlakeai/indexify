@@ -1,0 +1,14 @@
+name: diptanu/full-pdf-extractor
+version: 1
+description: "Extracts the text from a PDF using Nougat"
+module: pdf_raw_text_extractor.PdfRawTextExtractor
+gpu: true
+python_dependencies:
+  - pymupdf
+  - python-Levenshtein
+  - nltk
+  - git+https://github.com/huggingface/transformers.git  # This is a bit dangerous because this will change quickly. We should add better versioning around these executables
+  - accelerate
+  - ctransformers[cuda]
+  - huggingface-hub
+system_dependencies:  # There may be system dependencies

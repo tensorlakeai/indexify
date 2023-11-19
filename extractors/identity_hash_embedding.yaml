@@ -1,6 +1,6 @@
 name: yenicelik/identity-hash-extractor
-version: 1
 description: "Embedding that extracts the Sha256 hash of whatever was inputted. This is useful to check for duplicates."
+version: 1
 module: identity_hash_embedding:IdentityHashEmbedding
 gpu: false
 python_dependencies:
