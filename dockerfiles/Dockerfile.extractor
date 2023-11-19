@@ -10,7 +10,7 @@ RUN pip3 install --no-input {{ python_dependencies }}
 
 COPY extractors /indexify/extractors
 
-COPY indexify_extractor.yaml indexify_extractor.yaml
+COPY indexify.yaml indexify.yaml
 
 {{ additional_dev_setup }}
 
