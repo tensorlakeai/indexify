@@ -81,7 +81,7 @@ class SimpleInvoiceParserExtractor(Extractor):
 
     def extract_query_embeddings(self, query: str) -> List[float]:
         # TODO: This will not be implemented for this extractor
-        raise NotImplementedError 
+        raise NotImplementedError
 
     def schemas(self) -> ExtractorSchema:
         """

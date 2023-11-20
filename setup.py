@@ -50,7 +50,7 @@ EXTRAS = {
         "pytest-asyncio",
         "parameterized",
     ],
-    "test": ["pypdf", "span_marker", "parameterized"],
+    "test": ["pypdf", "span_marker", "lingua-language-detector", "parameterized"],
     "manifest": "manifest-ml",
     "profanity": ["alt-profanity-check"],
     "critique": ["inspiredco"],
