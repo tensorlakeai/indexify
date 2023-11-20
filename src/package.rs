@@ -103,6 +103,15 @@ impl Packager {
                     .map(|l| String::from_utf8(l.msg).unwrap())
                     .filter(|message| message.trim() != "")
                     .collect();
+                for vertex in &status.vertexes {
+                    if verbose && !vertex.name.is_empty() {
+                        println!("{}", vertex.name);
+                    }
+                    if !vertex.error.is_empty() {
+                        println!("{}", vertex.error);
+                        return Err(anyhow!(vertex.error.clone()));
+                    }
+                }
                 if verbose && !messages.is_empty() {
                     print!("{}", messages.join("\n"));
                 }

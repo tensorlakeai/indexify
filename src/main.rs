@@ -110,21 +110,18 @@ impl Drop for OtelGuard {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let _otel_guard = OtelGuard::new();
-    // Parse CLI and any env variables
     let args: Cli = Cli::parse();
     let version = format!(
         "git branch: {} - sha:{}",
         env!("VERGEN_GIT_BRANCH"),
         env!("VERGEN_GIT_SHA")
     );
-    info!("indexify version: {}", version);
-
     match args.command {
         Commands::Server {
             config_path,
             dev_mode,
         } => {
-            info!("starting indexify server....");
+            info!("starting indexify server, version: {}", version);
             let config = ServerConfig::from_path(&config_path)?;
             debug!("Server config is: {:?}", config);
             let server = server::Server::new(Arc::new(config.clone()))?;
@@ -146,7 +143,7 @@ async fn main() -> Result<(), Error> {
             ServerConfig::generate(config_path).unwrap();
         }
         Commands::Coordinator { config_path } => {
-            info!("starting indexify coordinator....");
+            info!("starting indexify coordinator, version: {}", version);
 
             let config = ServerConfig::from_path(&config_path)?;
             let coordinator = CoordinatorServer::new(Arc::new(config)).await?;
@@ -165,7 +162,7 @@ async fn main() -> Result<(), Error> {
                     println!("{}", serde_json::to_string_pretty(&extracted_content)?);
                 }
                 ExtractorCmd::Package { dev, verbose } => {
-                    info!("starting indexify packager....");
+                    info!("starting indexify packager, version: {}", version);
                     let packager = indexify::package::Packager::new(config_path, dev)?;
                     packager.package(verbose).await?;
                 }
@@ -173,7 +170,7 @@ async fn main() -> Result<(), Error> {
                     advertise_addr,
                     coordinator_addr,
                 } => {
-                    info!("starting indexify executor....");
+                    info!("starting indexify executor, version: {}", version);
                     let executor_config = ExecutorConfig::default()
                         .with_advertise_addr(advertise_addr)?
                         .with_coordinator_addr(coordinator_addr);
