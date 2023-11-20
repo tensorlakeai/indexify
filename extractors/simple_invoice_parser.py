@@ -1,3 +1,5 @@
+import sentence_transformer
+import 
 from transformers import pipeline
 from pdf2image import convert_from_bytes
 from transformers import DonutProcessor, VisionEncoderDecoderModel
