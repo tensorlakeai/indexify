@@ -21,7 +21,7 @@ from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbe
 
     This is equivalent to an identity mapping (with the sample-size n large enough, there will be collisions, but this is highly unlikely )
 """
-class PdfRawTextExtractor(BaseEmbeddingExtractor):
+class PdfToMarkdownExtractor(BaseEmbeddingExtractor):
 
     def __init__(self, max_context_length: int = 512, language = 'en'):
         super(PdfRawTextExtractor, self).__init__(max_context_length=512)

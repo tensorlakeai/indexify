@@ -1,7 +1,7 @@
 name: diptanu/full-pdf-extractor
 version: 1
 description: "Extracts the text from a PDF using Nougat"
-module: pdf_raw_text_extractor.PdfRawTextExtractor
+module: pdf_markdown_extractor:PdfToMarkdownExtractor
 gpu: true
 python_dependencies:
   - pymupdf
