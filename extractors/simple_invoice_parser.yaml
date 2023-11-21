@@ -1,6 +1,6 @@
 name: yenicelik/simple-invoice-parser
-description: "Parses an invoice using the to-be/donut-base-finetuned-invoices huggingface model"
 version: 1
+description: "Parses an invoice using the to-be/donut-base-finetuned-invoices huggingface model"
 module: simple_invoice_parser:SimpleInvoiceParserExtractor
 gpu: true
 python_dependencies:
