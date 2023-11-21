@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 use std::env;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread::current;
 
 use crate::server_config::ExtractorConfig;
 
@@ -35,13 +36,14 @@ impl Packager {
     pub fn new(path: String, dev: bool) -> Result<Packager> {
         let path_buf = PathBuf::from(path.clone())
             .canonicalize()
-            .map_err(|e| anyhow!(e.to_string()))?;
-        let current_dir = env::current_dir().ok().unwrap();
+            .map_err(|e| anyhow!(format!("unable to use path {}", e.to_string())))?;
+        let current_dir = env::current_dir().ok().ok_or(anyhow!("unable to get current dir from env"))?;
         let code_dir_relative_path = path_buf
-            .strip_prefix(current_dir)
-            .unwrap()
+            .strip_prefix(&current_dir)
+            .map_err(|e| anyhow!(format!("unable to strip prefix of path: {:?} error: {}", &current_dir.to_str(), e.to_string())))?
             .parent()
-            .unwrap();
+            .ok_or(anyhow!("unable to get parent of path"))?;
+
         let config = ExtractorConfig::from_path(path.clone())?;
         Ok(Packager {
             config_path: path,
@@ -205,7 +207,7 @@ RUN pip3 install --no-input numpy pandas
 
 COPY extractors /indexify/extractors
 
-COPY indexify_extractor.yaml indexify_extractor.yaml
+COPY indexify.yaml indexify.yaml
 
 
 
