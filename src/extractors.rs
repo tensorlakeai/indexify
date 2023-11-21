@@ -190,7 +190,7 @@ pub fn run_extractor(extractor_path: Option<String>, text: Option<String>, file_
         None => {
             info!("no module name provided, looking up indexify.yaml");
             let extractor_config = ExtractorConfig::from_path("indexify.yaml".into())?;
-            Ok(extractor_config.name)
+            Ok(extractor_config.module)
         }
     }?;
     info!("looking up extractor at path: {}", &extractor_path);
