@@ -19,3 +19,4 @@ mod test_util;
 mod vector_index;
 mod vectordbs;
 mod work_store;
+mod python_path;
