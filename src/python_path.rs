@@ -12,28 +12,27 @@ pub fn set_python_path(path: &str) -> Result<(), anyhow::Error> {
         .ok_or(anyhow!("error setting PYTHONPATH: invalid path"))?;
     let python_path = std::env::var("PYTHONPATH").unwrap_or("".to_string());
     let mut site_packages: String = "".into();
-    if cfg!(target_os = "macos") {
-        if env::var("VIRTUAL_ENV").is_ok() {
-            // Use Python itself to get the site-packages path
-            let output = Command::new("python")
-                .arg("-c")
-                .arg("import site; print(site.getsitepackages()[0])")
-                .output()
-                .expect("Failed to execute Python");
+    // THIS IS NEEEDED FOR MAC OS.
+    if env::var("VIRTUAL_ENV").is_ok() {
+        // Use Python itself to get the site-packages path
+        let output = Command::new("python")
+            .arg("-c")
+            .arg("import site; print(site.getsitepackages()[0])")
+            .output()
+            .expect("Failed to execute Python");
 
-            let site_packages_path = if output.status.success() {
-                let path_str = String::from_utf8_lossy(&output.stdout);
-                let path_trimmed = path_str.trim();
-                Some(PathBuf::from(path_trimmed))
-            } else {
-                None
-            };
-            if let Some(site_packages_path) = site_packages_path {
-                site_packages = site_packages_path
-                    .to_str()
-                    .ok_or(anyhow!("error setting PYTHONPATH: invalid path"))?
-                    .into();
-            }
+        let site_packages_path = if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let path_trimmed = path_str.trim();
+            Some(PathBuf::from(path_trimmed))
+        } else {
+            None
+        };
+        if let Some(site_packages_path) = site_packages_path {
+            site_packages = site_packages_path
+                .to_str()
+                .ok_or(anyhow!("error setting PYTHONPATH: invalid path"))?
+                .into();
         }
     }
     let new_python_path = format!("{}:{}:{}", python_path, path_str, site_packages);
