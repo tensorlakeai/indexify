@@ -51,12 +51,6 @@ class Extractor(ABC):
         pass
 
 
-    def extract_query_embeddings(self, query: str) -> List[float]:
-        """
-        Extracts embeddings from the query. Only embedding extractor needs to implement this method.
-        """
-        raise NotImplementedError("extract_query_embeddings is not implemented")
-
     @classmethod
     def schemas(cls) -> ExtractorSchema:
         """
@@ -66,8 +60,7 @@ class Extractor(ABC):
 
 class ExtractorWrapper:
 
-    def __init__(self, entry_point: str):
-        module_name, class_name = entry_point.split(":")
+    def __init__(self, module_name: str, class_name: str):
         self._module = import_module(module_name)
         self._cls = getattr(self._module, class_name)
         self._param_cls = get_type_hints(self._cls.extract).get("params", None)

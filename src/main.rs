@@ -2,8 +2,8 @@ use anyhow::{Error, Result};
 
 use clap::{Args, Parser, Subcommand};
 use indexify::{
-    coordinator_service::CoordinatorServer, executor_server::ExecutorServer, server,
-    server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig, extractors,
+    coordinator_service::CoordinatorServer, executor_server::ExecutorServer, extractors, server,
+    server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -43,6 +43,9 @@ enum ExtractorCmd {
         verbose: bool,
     },
     Extract {
+        #[arg(short = 'e', long)]
+        extractor_path: Option<String>,
+
         #[arg(short, long)]
         text: Option<String>,
 
@@ -55,7 +58,7 @@ enum ExtractorCmd {
 struct ExtractorCmdArgs {
     #[arg(
         global = true,
-        short='c',
+        short = 'c',
         long,
         help = "path to the extractor config file",
         default_value = "indexify.yaml"
@@ -70,7 +73,7 @@ struct ExtractorCmdArgs {
 enum Commands {
     #[command(about = "Start the server")]
     Server {
-        #[arg(long, short='c', help = "path to the server config file")]
+        #[arg(long, short = 'c', help = "path to the server config file")]
         config_path: String,
 
         #[arg(short, long)]
@@ -154,11 +157,13 @@ async fn main() -> Result<(), Error> {
                 .config_path
                 .unwrap_or_else(|| "indexify.yaml".to_string());
             info!("using config file: {}", &config_path);
-            let extractor_config =
-                Arc::new(ExtractorConfig::from_path(config_path.clone())?);
             match args.commands {
-                ExtractorCmd::Extract { text, file } => {
-                    let extracted_content = extractors::run_extractor(extractor_config, text, file)?;
+                ExtractorCmd::Extract {
+                    extractor_path,
+                    text,
+                    file,
+                } => {
+                    let extracted_content = extractors::run_extractor(extractor_path, text, file)?;
                     println!("{}", serde_json::to_string_pretty(&extracted_content)?);
                 }
                 ExtractorCmd::Package { dev, verbose } => {
@@ -171,6 +176,8 @@ async fn main() -> Result<(), Error> {
                     coordinator_addr,
                 } => {
                     info!("starting indexify executor, version: {}", version);
+                    let extractor_config =
+                        Arc::new(ExtractorConfig::from_path(config_path.clone())?);
                     let executor_config = ExecutorConfig::default()
                         .with_advertise_addr(advertise_addr)?
                         .with_coordinator_addr(coordinator_addr);

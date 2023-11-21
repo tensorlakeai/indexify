@@ -56,7 +56,8 @@ impl ExtractorExecutor {
     ) -> Result<Self> {
         let executor_id = create_executor_id();
 
-        let extractor = extractors::create_extractor(extractor_config.clone())?;
+        let extractor =
+            extractors::create_extractor(&extractor_config.module, &extractor_config.name)?;
         let extractor_executor = Self {
             executor_config,
             extractor_config,
@@ -76,7 +77,8 @@ impl ExtractorExecutor {
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self> {
-        let extractor = extractors::create_extractor(extractor_config.clone())?;
+        let extractor =
+            extractors::create_extractor(&extractor_config.module, &extractor_config.name)?;
         let executor_id = create_executor_id();
         Ok(Self {
             executor_config,
