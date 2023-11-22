@@ -1,3 +1,4 @@
+use mime::Mime;
 use nanoid::nanoid;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ConnectionTrait, QueryTrait};
@@ -136,16 +137,6 @@ struct ExtractorBindingsState {
 }
 
 #[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
-pub enum ContentType {
-    #[strum(serialize = "text")]
-    #[default]
-    Text,
-
-    #[strum(serialize = "pdf")]
-    Pdf,
-}
-
-#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
 pub enum PayloadType {
     #[strum(serialize = "embedded_storage")]
     #[default]
@@ -158,7 +149,7 @@ pub enum PayloadType {
 #[derive(Debug, Clone)]
 pub struct ContentPayload {
     pub id: String,
-    pub content_type: ContentType,
+    pub content_type: mime::Mime,
     pub payload: String,
     pub payload_type: PayloadType,
     pub metadata: HashMap<String, serde_json::Value>,
@@ -176,7 +167,7 @@ impl ContentPayload {
         let id = format!("{:x}", s.finish());
         Self {
             id,
-            content_type: ContentType::Text,
+            content_type: mime::TEXT_PLAIN,
             payload: text.into(),
             payload_type: PayloadType::EmbeddedStorage,
             metadata,
@@ -188,11 +179,10 @@ impl ContentPayload {
         repository.hash(&mut s);
         name.hash(&mut s);
         let id = format!("{:x}", s.finish());
-        // TODO remove hardcoding of pdf with some thing thats
-        // parameterized.
+        let mime_type = mime_guess::from_path(name).first_or_octet_stream();
         Self {
             id,
-            content_type: ContentType::Pdf,
+            content_type: mime_type,
             payload: path.into(),
             payload_type: PayloadType::BlobStorageLink,
             metadata: HashMap::new(),
@@ -730,7 +720,7 @@ impl Repository {
             .ok_or(RepositoryError::ContentNotFound(content_id.to_owned()))?;
         Ok(ContentPayload {
             id: model.id,
-            content_type: ContentType::from_str(&model.content_type).unwrap(),
+            content_type: Mime::from_str(&model.content_type).unwrap(),
             payload: model.payload,
             payload_type: PayloadType::from_str(&model.payload_type).unwrap(),
             metadata: serde_json::from_value(model.metadata.unwrap()).unwrap(),

@@ -1,11 +1,8 @@
 use anyhow::{anyhow, Ok};
 use pyo3::prelude::*;
 
-
-
+use std::collections::HashMap;
 use std::str::FromStr;
-use std::{collections::HashMap};
-
 
 use super::ExtractorSchema;
 use super::{EmbeddingSchema, Extractor};
@@ -44,15 +41,7 @@ impl TryFrom<PyContent> for internal_api::ExtractedContent {
     type Error = anyhow::Error;
 
     fn try_from(py_content: PyContent) -> Result<Self, Self::Error> {
-        let content_type = match py_content.content_type.as_str() {
-            "text" => Ok(internal_api::ContentType::Text),
-            "audio" => Ok(internal_api::ContentType::Audio),
-            "image" => Ok(internal_api::ContentType::Image),
-            _ => Err(anyhow!(format!(
-                "unknown content type: {}",
-                py_content.content_type
-            ))),
-        }?;
+        let mime_type = mime::Mime::from_str(&py_content.content_type)?;
         let feature = match py_content.feature {
             Some(py_feature) => {
                 let feature_type = match py_feature.feature_type.as_str() {
@@ -72,7 +61,7 @@ impl TryFrom<PyContent> for internal_api::ExtractedContent {
             None => None,
         };
         let extracted_content = internal_api::ExtractedContent {
-            content_type,
+            content_type: mime_type.to_string(),
             source: py_content.data,
             feature,
         };
@@ -98,7 +87,7 @@ impl PyContent {
     pub async fn form_content_payload(
         content_payload: ContentPayload,
     ) -> Result<Self, anyhow::Error> {
-        let content_type = content_payload.content_type.to_string();
+        let content_type = content_payload.content_type.clone();
         let content_reader = ContentReader::new(content_payload);
         let data = content_reader.read().await?;
         Ok(Self {
@@ -109,15 +98,14 @@ impl PyContent {
     }
 
     pub fn new(data: String) -> Self {
-        let content_type = internal_api::ContentType::Text.to_string();
         Self {
-            content_type,
+            content_type: mime::TEXT_PLAIN.to_string(),
             data: data.into_bytes().to_vec(),
             feature: None,
         }
     }
 
-    pub fn from_bytes(data: Vec<u8>, content_type: internal_api::ContentType) -> Self {
+    pub fn from_bytes(data: Vec<u8>, content_type: mime::Mime) -> Self {
         Self {
             content_type: content_type.to_string(),
             data,
@@ -227,7 +215,7 @@ impl Extractor for PythonExtractor {
                         None => None,
                     };
                     temp.push(ExtractedContent {
-                        content_type: content_type.parse::<internal_api::ContentType>()?,
+                        content_type,
                         source: data,
                         feature,
                     });
@@ -256,11 +244,8 @@ mod tests {
             .unwrap();
         let content = vec![content1, content2];
 
-        let extractor = PythonExtractor::new(
-            "indexify_extractor_sdk.mock_extractor",
-            "MockExtractor",
-        )
-        .unwrap();
+        let extractor =
+            PythonExtractor::new("indexify_extractor_sdk.mock_extractor", "MockExtractor").unwrap();
 
         let input_params = serde_json::from_str("{\"a\":5,\"b\":\"recursive\"}").unwrap();
 
@@ -269,7 +254,7 @@ mod tests {
         assert_eq!(extracted_data.get(0).unwrap().len(), 3);
         assert_eq!(
             extracted_data.get(0).unwrap().get(0).unwrap().content_type,
-            internal_api::ContentType::Text
+            mime::TEXT_PLAIN.to_string()
         );
 
         // Pass in empty input params
@@ -280,8 +265,7 @@ mod tests {
 
     #[test]
     fn extract_embedding() {
-        let extractor =
-            PythonExtractor::new("minilm_l6_embedding", "MiniLML6Extractor").unwrap();
+        let extractor = PythonExtractor::new("minilm_l6_embedding", "MiniLML6Extractor").unwrap();
 
         let content1 = PyContent::new("My name is Donald and I live in Seattle".to_string())
             .try_into()
@@ -303,7 +287,7 @@ mod tests {
         .unwrap();
 
         let data = std::fs::read("extractors_tests/data/test.pdf").unwrap();
-        let content = PyContent::from_bytes(data, internal_api::ContentType::Text)
+        let content = PyContent::from_bytes(data, mime::APPLICATION_PDF)
             .try_into()
             .unwrap();
         let extracted_data = extractor.extract(vec![content], json!({})).unwrap();
@@ -314,11 +298,8 @@ mod tests {
 
     #[test]
     fn extract_index_schema() {
-        let extractor = PythonExtractor::new(
-            "indexify_extractor_sdk.mock_extractor",
-            "MockExtractor",
-        )
-        .unwrap();
+        let extractor =
+            PythonExtractor::new("indexify_extractor_sdk.mock_extractor", "MockExtractor").unwrap();
 
         let extractor_schema = extractor.schemas().unwrap();
 

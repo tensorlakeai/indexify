@@ -142,7 +142,7 @@ impl VectorIndexManager {
     ) -> Result<Vec<f32>, anyhow::Error> {
         let request = ExtractRequest {
             content: internal_api::ExtractedContent {
-                content_type: internal_api::ContentType::Text,
+                content_type: mime::TEXT_PLAIN.to_string(),
                 source: query.as_bytes().into(),
                 feature: None,
             },

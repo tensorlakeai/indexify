@@ -7,13 +7,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::info;
 
-use crate::{
-    extractor::extractors::{PyContent, PythonExtractor},
-    internal_api::{self, ExtractedContent},
-    server_config::ExtractorConfig,
-};
+mod py_extractors;
 
-pub mod extractors;
+use py_extractors::{PyContent, PythonExtractor};
+
+use crate::{internal_api::ExtractedContent, server_config::ExtractorConfig};
+
 mod python_path;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -85,7 +84,7 @@ pub fn run_extractor(
     info!("looking up extractor at path: {}", &extractor_path);
     python_path::set_python_path(&extractor_path)?;
     let extractor = create_extractor(&extractor_path, &extractor_path)?;
-    
+
     match (text, file_path) {
         (Some(text), None) => {
             let content = PyContent::new(text).try_into()?;
@@ -97,9 +96,11 @@ pub fn run_extractor(
             Ok(content)
         }
         (None, Some(file_path)) => {
-            let data = std::fs::read(file_path)?;
-            let content =
-                PyContent::from_bytes(data, internal_api::ContentType::Text).try_into()?;
+            let data = std::fs::read(&file_path).map_err(|e| {
+                anyhow!(format!("unable to read file: {}, error: {}", &file_path, e))
+            })?;
+            let mime_type = mime_guess::from_path(&file_path).first_or_octet_stream();
+            let content = PyContent::from_bytes(data, mime_type).try_into()?;
             let extracted_content = extractor.extract(vec![content], json!({}))?;
             let content = extracted_content
                 .get(0)
