@@ -2,13 +2,9 @@
 
 ## Multi-Modal Structured Extraction and Real Time Indexing for Large Language Models Applications
 
-Indexify is a reactive content extraction and retrieval engine for Generative AI Applications.
+Indexify is a reactive structured extraction engine for un-structured data.
 
-Applications that use LLMs on real-world data to plan actions autonomously or to answer queries require the indexes to be updated as the data is updated.
-
-Indexes are constantly updated by applying extractors on data ingested into the service. Indexify has a data-parallel and hardware accelerator-aware extraction engine that allows indexing large amounts of data in real-time.
-
-Extractors are modules that apply AI models to data and produce embeddings or structured information, such as named entities in a document or objects of interest and their location in images. Developers can build new extractors for their use cases, such as creating indexes from healthcare records or indexes from a code repository for searching code and documentation.
+Applications leveraging LLMs for autonomous planning or queries necessitate timely index updates aligned with data changes or new extraction methods. Indexify enables both, by applying feature extractors on data in real-time and updating one or many indexes.
 
 Storage is pluggable, we support few different vector stores for embeddings and document stores for structured data.
 
