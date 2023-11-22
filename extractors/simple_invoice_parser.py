@@ -1,36 +1,23 @@
-import pytesseract
-import sentencepiece
-from transformers import pipeline
+from io import BytesIO
+import json
+import re
+import requests
+import timeit
+from typing import List, Literal
+
+from PIL import Image
 from pdf2image import convert_from_bytes
+from pydantic import BaseModel
+import pytesseract
+import torch
 from transformers import DonutProcessor, VisionEncoderDecoderModel
 
-import re
-from PIL import Image
-
-import torch
-
-import requests
-from io import BytesIO
-
-import locale
-from pdf2image import convert_from_path
-
-import timeit
-import json
-
-from typing import List, Literal
-from pydantic import BaseModel
 from indexify_extractor_sdk import (
     Extractor,
     Feature,
     ExtractorSchema,
-    EmbeddingSchema,
     Content,
 )
-from indexify_extractor_sdk.base_embedding import (
-    EmbeddingInputParams,
-)
-from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbedding
 
 
 class SimpleInvoiceParserInputParams(BaseModel):
@@ -72,7 +59,6 @@ class SimpleInvoiceParserExtractor(Extractor):
         sequence = self.processor.batch_decode(outputs.sequences)[0]
         sequence = sequence.replace(self.processor.tokenizer.eos_token, "").replace(self.processor.tokenizer.pad_token, "")
         sequence = re.sub(r"<.*?>", "", sequence, count=1).strip()  # remove first task start token
-        # img2.update(visible=False)
         return self.processor.token2json(sequence), image
 
     def extract(
