@@ -19,9 +19,13 @@
 	"forwardPorts": [
 		8900
 	],
-	"mounts": [
-		"source=${localEnv:HOME}/.cache/huggingface,target=/root/.cache/huggingface,type=bind,consistency=cached"
-	],
+	// "mounts": [
+	// 	{
+	// 		"source": "devcontainer-cargo-cache-${devcontainerId}",
+	// 		"target": "/usr/local/cargo",
+	// 		"type": "volume"
+	// 	}
+	// ],
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -35,9 +39,14 @@
 				"bierner.emojisense", // Emoji sense for markdown
 				"stkb.rewrap", // rewrap comments after n characters on one line
 				"vscode-icons-team.vscode-icons", // Better file extension icons
-				"IBM.output-colorizer", // Colorize your output/test logs,
-				"ms-azuretools.vscode-docker"
+				"IBM.output-colorizer" // Colorize your output/test logs
 			]
 		}
 	}
+	// Uncomment the next line to run commands after the container is created.
+	// "postCreateCommand": "cat /etc/os-release",
+	// Configure tool-specific properties.
+	// "customizations": {},
+	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "devcontainer"
 }

@@ -2,8 +2,6 @@
 
 ## Install Dependencies
 
-Before you start, this doc may be outdated. Please follow the procedur in `run_tests.sh`, this is the source of truth.
-
 ### Rust Compiler
 
 Install various rust related tools -
@@ -23,10 +21,8 @@ source ve/bin/activate
 Install the  extractors
 
 ```shell
-pip install --upgrade --force-reinstall .
+pip install .
 ```
-
-<!-- Because sometimes it will not work  pip install --upgrade --force-reinstall . -->
 
 If you are working on the Python SDK then install the SDK as well
 
@@ -34,13 +30,13 @@ If you are working on the Python SDK then install the SDK as well
 (cd sdk-py && pip install -e .)
 ```
 
+### MAC OS
+
 The following workaround is needed until PyO3 can detect virtualenvs in OSX and some Ubuntu versions
 
 ```shell
- export PYTHONPATH=${PYTHONPATH}:${pwd}/ve/lib/python3.11/site-packages
+ export PYTHONPATH=${PYTHONPATH}:${PWD}/ve/lib/python3.11/site-packages
 ```
-
-### MAC OS
 
 Install coreutils
 
@@ -101,6 +97,3 @@ Visual Studio Code Devcontainers have been setup as well. Opening the codebase i
 ### Docker-compose
 
 If you're within the dev container, you can call the docker-compose-v1 from within /usr/bin/
-
-If docker produces a EONET error, please try to build your devcontainer prior to launching it in vscode:
-```devcontainer up --workspace-folder```
