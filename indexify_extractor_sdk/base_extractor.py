@@ -38,7 +38,7 @@ class Content(BaseModel):
 
     @classmethod
     def from_text(cls, text: str, feature: Feature=None):
-        return cls(content_type="text", data=bytes(text, "utf-8"), feature=feature)
+        return cls(content_type="text/plain", data=bytes(text, "utf-8"), feature=feature)
     
 class Extractor(ABC):
 

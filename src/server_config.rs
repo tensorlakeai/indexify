@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result, Error};
+use anyhow::{anyhow, Error, Result};
 use figment::{
     providers::{Env, Format, Yaml},
     Figment,

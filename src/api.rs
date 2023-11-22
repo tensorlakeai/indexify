@@ -10,36 +10,6 @@ use utoipa::{IntoParams, ToSchema};
 use crate::persistence::{self, IndexBindings};
 use crate::vectordbs;
 
-#[derive(Debug, Clone, EnumString, Serialize, Deserialize, ToSchema, SmartDefault)]
-pub enum ExtractorContentType {
-    #[strum(serialize = "text")]
-    #[serde(rename = "text")]
-    #[default]
-    Text,
-
-    #[strum(serialize = "pdf")]
-    #[serde(rename = "pdf")]
-    Pdf,
-}
-
-impl From<persistence::ContentType> for ExtractorContentType {
-    fn from(value: persistence::ContentType) -> Self {
-        match value {
-            persistence::ContentType::Text => ExtractorContentType::Text,
-            persistence::ContentType::Pdf => ExtractorContentType::Pdf,
-        }
-    }
-}
-
-impl From<ExtractorContentType> for persistence::ContentType {
-    fn from(val: ExtractorContentType) -> Self {
-        match val {
-            ExtractorContentType::Text => persistence::ContentType::Text,
-            ExtractorContentType::Pdf => persistence::ContentType::Pdf,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, EnumString, Display)]
 #[serde(rename = "extractor_filter")]
 pub enum ExtractorFilter {

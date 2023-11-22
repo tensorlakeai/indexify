@@ -9,8 +9,8 @@ use tracing::{error, info};
 use crate::api::IndexifyAPIError;
 use crate::attribute_index::AttributeIndexManager;
 use crate::internal_api::{
-    CreateWork, CreateWorkResponse, ExecutorInfo,
-    SyncExecutor, SyncWorkerResponse, CoordinateRequest, CoordinateResponse,
+    CoordinateRequest, CoordinateResponse, CreateWork, CreateWorkResponse, ExecutorInfo,
+    SyncExecutor, SyncWorkerResponse,
 };
 use crate::persistence::Repository;
 use crate::server_config::ServerConfig;
@@ -151,7 +151,9 @@ async fn get_coordinate(
         .get_executor(&query.extractor_name)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(CoordinateResponse { content: vec![executor.addr] } ))
+    Ok(Json(CoordinateResponse {
+        content: vec![executor.addr],
+    }))
 }
 
 #[axum_macros::debug_handler]

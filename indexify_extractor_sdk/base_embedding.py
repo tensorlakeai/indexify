@@ -27,7 +27,7 @@ class BaseEmbeddingExtractor(Extractor):
         extracted_content = []
         for content in content_list:
             extracted_embeddings = []
-            if content.content_type != "text":
+            if content.content_type != "text/plain":
                 continue
             text = content.data.decode("utf-8")
             chunks: List[str] = splitter(text)
@@ -56,8 +56,3 @@ class BaseEmbeddingExtractor(Extractor):
     @abstractmethod
     def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
         ...
-
-    @abstractmethod
-    def extract_query_embeddings(self, query: str) -> List[float]:
-        ...
-

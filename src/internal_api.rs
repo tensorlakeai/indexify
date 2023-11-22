@@ -224,38 +224,26 @@ impl Feature {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractedContent {
-    pub content_type: ContentType,
+    pub content_type: String,
     pub source: Vec<u8>,
     pub feature: Option<Feature>,
 }
 
 impl ExtractedContent {
     pub fn source_as_text(&self) -> Option<String> {
-        match self.content_type {
-            ContentType::Text => Some(String::from_utf8(self.source.clone()).unwrap()),
-            _ => None,
+        let mime_type = mime::Mime::from_str(&self.content_type);
+        if let Ok(mime_type) = mime_type {
+            if mime_type == mime::TEXT_PLAIN {
+                return Some(String::from_utf8(self.source.clone()).unwrap());
+            }
         }
+        None
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Display, EnumString, Serialize, Deserialize)]
-pub enum ContentType {
-    #[strum(serialize = "text")]
-    Text,
-
-    #[strum(serialize = "pdf")]
-    Pdf,
-
-    #[strum(serialize = "audio")]
-    Audio,
-
-    #[strum(serialize = "image")]
-    Image,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContentPayload {
-    pub content_type: ContentType,
+    pub content_type: String,
     pub content: String,
     pub external_url: Option<String>,
 }
@@ -263,13 +251,13 @@ pub struct ContentPayload {
 impl TryFrom<persistence::ContentPayload> for ContentPayload {
     type Error = anyhow::Error;
     fn try_from(payload: persistence::ContentPayload) -> Result<Self> {
-        let _content_type = ContentType::from_str(&payload.content_type.to_string());
+        let content_type = payload.content_type.to_string();
         let (external_url, content) = match payload.payload_type {
             persistence::PayloadType::BlobStorageLink => (Some(payload.payload), "".to_string()),
             _ => (None, payload.payload),
         };
         Ok(Self {
-            content_type: ContentType::Text,
+            content_type,
             content,
             external_url,
         })

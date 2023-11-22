@@ -11,21 +11,16 @@ git clone https://github.com/diptanu/indexify.git
 ```shell
 docker compose up
 ```
-This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and Qdrant for storing embeddings.
+This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and storing embedding. We also start a basic embedding extractor which can chunk text and extract embedding from the chunks. Later, we will add another extractor to the mix and demonstrate how easy it is to add new capabilities to Indexify by adding a new extractor.
 
-That's it! Let's explore some primary document storage and retrieval APIs.
+That's it! Let's explore some structured extraction capabilities on documents and retrieval APIs.
 
 ### Install the client libraries (Optional)
-Indexify comes with Python and Typescript clients. They use the HTTP APIs exposed by Indexify under the hood, and provide a convenient way of interacting with the server.
+Indexify comes with a Python client. It uses the HTTP APIs of Indexify under the hood, and provide a convenient way of interacting with the server.
 === "python"
 
     ```python
     pip install indexify
-    ```
-=== "typescript"
-
-    ```shell
-    npm install getindexify
     ```
 
 ### Initialize the Python library
@@ -131,13 +126,6 @@ Every extractor we bind results in a corresponding index being created in Indexi
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor_name": "EntityExtractor",
-            "index_name": "entities"
-        }'
-
-    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
-    -H "Content-Type: application/json" \
-    -d '{
             "extractor_name": "MiniLML6",
             "index_name": "embeddings"
         }'
@@ -145,7 +133,6 @@ Every extractor we bind results in a corresponding index being created in Indexi
 === "python"
 
     ```python
-    repo.bind_extractor(extractor_name="EntityExtractor", index_name="entities")
     repo.bind_extractor(extractor_name="MiniLML6", index_name="embeddings")
 
     print(repo.extractor_bindings())
@@ -154,75 +141,10 @@ Every extractor we bind results in a corresponding index being created in Indexi
     Output:
 
     ```
-    [ExtractorBinding(extractor_name=MiniLML6, index_name=embeddings), 
-     ExtractorBinding(extractor_name=EntityExtractor, index_name=entities)]
+    [ExtractorBinding(extractor_name=MiniLML6, index_name=embeddings)]
     ```
 
-We now have two indexes - one for entity data extracted by the EntityExtractor and one for embeddings extracted by MiniLML6.
-
-
-#### Query the entity index
-
-Now we can query the index created by the named entity extractor. The index will have json documents containing the key/value pairs extracted from the text.
-
-=== "curl"
-
-    ```shell
-    curl -v -X GET http://localhost:8900/repositories/default/attributes\?index=entities
-    ```
-
-    Response:
-
-    ```json
-    {"attributes": [
-        {
-            "id": "6cb7908f79888e9b",
-            "content_id": "a64c6ddc9683f031",
-            "attributes": {
-                "entity": "Organization",
-                "score": "0.99146568775177",
-                "value": "LLM"
-            },
-            "extractor_name": "EntityExtractor"
-        },
-        {
-            "id": "5b414b846bad4ba3",
-            "content_id": "b11de1146ff5f9ec",
-            "attributes": {
-                "entity": "Person",
-                "score": "0.9999637603759766",
-                "value": "Kevin Durant"
-            },
-            "extractor_name": "EntityExtractor"
-        },
-        {
-            "id": "fc682f2bb202cb2d",
-            "content_id": "5e55fda07f7be40b",
-            "attributes": {
-                "entity": "Media",
-                "score": "0.7528226971626282",
-                "value": "Indexify"
-            },
-            "extractor_name": "EntityExtractor"
-        }
-    ]}
-    ```
-
-=== "python"
-
-    ```python
-    attributes = repo.query_attribute("entities")
-    print('Attributes:', *attributes, sep='\n')
-    ```
-
-    Output:
-
-    ```
-    Attributes: 
-    {'id': '6cb7908f79888e9b', 'content_id': 'a64c6ddc9683f031', 'attributes': {'entity': 'Organization', 'score': '0.99146568775177', 'value': 'LLM'}, 'extractor_name': 'EntityExtractor'}
-    {'id': '5b414b846bad4ba3', 'content_id': 'b11de1146ff5f9ec', 'attributes': {'entity': 'Person', 'score': '0.9999637603759766', 'value': 'Kevin Durant'}, 'extractor_name': 'EntityExtractor'}
-    {'id': 'fc682f2bb202cb2d', 'content_id': '5e55fda07f7be40b', 'attributes': {'entity': 'Media', 'score': '0.7528226971626282', 'value': 'Indexify'}, 'extractor_name': 'EntityExtractor'}
-    ```
+We now have an index with embedding extracted by MiniLML6.
 
 #### Query the embedding index
 
@@ -412,39 +334,4 @@ Now you can add extractor bindings with filters which match the URL and index co
                         include=dict(url="https://memory-alpha.fandom.com/wiki/USS_Cayuga"))
 
     print(repo.extractor_bindings)
-    ```
-
-
-
-#### Start Using Long Term Memory
-Long Term Memory in Indexify indicates there may be some causal relationships in data ingested into the system. And to serve such use cases where the order of messages in extraction or generation is important, Indexify provides a `Event` abstraction. Events contain a message and a timestamp in addition to any other opaque metadata that you might want to use for filtering events while creating indexes and retrieving from them.
-
-- Create Memory Session
-Memory is usually stored for interactions of an agent with a user or in a given context. Related messages are grouped in Indexify as a `Session`, so first create a session!
-
-- Add Memory Events
-=== "curl"
-
-    ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/events \
-    -H "Content-Type: application/json" \
-    -d '{
-            "events": [
-                {
-                "text": "Indexify is amazing!",
-                "metadata": {"role": "human"}
-                },
-                {
-                "text": "How are you planning on using Indexify?!",
-                "metadata": {"role": "ai"}
-                }
-        ]}'
-    ```
-
-
-- Retrieve All Memory Events
-You can retrieve all the previously stored messages in Indexify for a given session.
-=== "curl"
-    ```shell
-    curl -v -X GET http://localhost:8900/repositories/default/events
     ```

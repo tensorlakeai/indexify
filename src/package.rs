@@ -13,7 +13,6 @@ use walkdir::WalkDir;
 use std::env;
 use std::io::Write;
 use std::path::PathBuf;
-use std::thread::current;
 
 use crate::server_config::ExtractorConfig;
 
@@ -37,10 +36,18 @@ impl Packager {
         let path_buf = PathBuf::from(path.clone())
             .canonicalize()
             .map_err(|e| anyhow!(format!("unable to use path {}", e.to_string())))?;
-        let current_dir = env::current_dir().ok().ok_or(anyhow!("unable to get current dir from env"))?;
+        let current_dir = env::current_dir()
+            .ok()
+            .ok_or(anyhow!("unable to get current dir from env"))?;
         let code_dir_relative_path = path_buf
             .strip_prefix(&current_dir)
-            .map_err(|e| anyhow!(format!("unable to strip prefix of path: {:?} error: {}", &current_dir.to_str(), e.to_string())))?
+            .map_err(|e| {
+                anyhow!(format!(
+                    "unable to strip prefix of path: {:?} error: {}",
+                    &current_dir.to_str(),
+                    e.to_string()
+                ))
+            })?
             .parent()
             .ok_or(anyhow!("unable to get parent of path"))?;
 
