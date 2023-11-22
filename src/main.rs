@@ -2,7 +2,7 @@ use anyhow::{Error, Result};
 
 use clap::{Args, Parser, Subcommand};
 use indexify::{
-    coordinator_service::CoordinatorServer, executor_server::ExecutorServer, extractors, server,
+    coordinator_service::CoordinatorServer, executor_server::ExecutorServer, extractor, server,
     server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig,
 };
 use std::sync::Arc;
@@ -163,7 +163,7 @@ async fn main() -> Result<(), Error> {
                     text,
                     file,
                 } => {
-                    let extracted_content = extractors::run_extractor(extractor_path, text, file)?;
+                    let extracted_content = extractor::run_extractor(extractor_path, text, file)?;
                     println!("{}", serde_json::to_string_pretty(&extracted_content)?);
                 }
                 ExtractorCmd::Package { dev, verbose } => {

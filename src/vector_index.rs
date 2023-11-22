@@ -2,9 +2,9 @@ use anyhow::{anyhow, Result};
 use std::fmt;
 
 use crate::{
-    extractors::ExtractedEmbeddings,
+    extractor::ExtractedEmbeddings,
     index::IndexError,
-    internal_api::{self, ExtractRequest, ExtractResponse, CoordinateRequest, CoordinateResponse},
+    internal_api::{self, CoordinateRequest, CoordinateResponse, ExtractRequest, ExtractResponse},
     persistence::{Chunk, ExtractorDescription, Repository},
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
@@ -148,7 +148,7 @@ impl VectorIndexManager {
             },
         };
 
-        let coordinate_request = CoordinateRequest{
+        let coordinate_request = CoordinateRequest {
             extractor_name: extractor_name.to_string(),
         };
 
@@ -160,7 +160,10 @@ impl VectorIndexManager {
             .map_err(|e| anyhow::anyhow!("unable to embed query: {}", e))?
             .json::<CoordinateResponse>()
             .await?;
-        let extractor_addr = coordinate_response.content.get(0).ok_or(anyhow!("no extractor found"))?;
+        let extractor_addr = coordinate_response
+            .content
+            .get(0)
+            .ok_or(anyhow!("no extractor found"))?;
         let resp = reqwest::Client::new()
             .post(&format!("http://{}/extract", extractor_addr))
             .json(&request)

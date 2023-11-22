@@ -4,7 +4,7 @@ use tracing::{error, info};
 
 use crate::{
     attribute_index::AttributeIndexManager,
-    extractors::ExtractedEmbeddings,
+    extractor::ExtractedEmbeddings,
     internal_api::{self, CreateWork, ExecutorInfo},
     persistence::{
         ExtractedAttributes, ExtractionEventPayload, ExtractorBinding, Repository, Work,

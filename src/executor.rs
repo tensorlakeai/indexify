@@ -4,7 +4,7 @@ use crate::server_config::ExtractorConfig;
 use crate::work_store::WorkStore;
 use crate::{
     attribute_index::AttributeIndexManager,
-    extractors::{self, ExtractorTS},
+    extractor::{self, ExtractorTS},
     internal_api::{ExecutorInfo, ExtractorDescription, SyncExecutor, SyncWorkerResponse, Work},
     persistence::Repository,
     server_config::ExecutorConfig,
@@ -57,7 +57,7 @@ impl ExtractorExecutor {
         let executor_id = create_executor_id();
 
         let extractor =
-            extractors::create_extractor(&extractor_config.module, &extractor_config.name)?;
+            extractor::create_extractor(&extractor_config.module, &extractor_config.name)?;
         let extractor_executor = Self {
             executor_config,
             extractor_config,
@@ -78,7 +78,7 @@ impl ExtractorExecutor {
         attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self> {
         let extractor =
-            extractors::create_extractor(&extractor_config.module, &extractor_config.name)?;
+            extractor::create_extractor(&extractor_config.module, &extractor_config.name)?;
         let executor_id = create_executor_id();
         Ok(Self {
             executor_config,
@@ -96,7 +96,7 @@ impl ExtractorExecutor {
         let mut output_schemas = HashMap::new();
         for (output_name, embedding_schema) in extractor_info.embedding_schemas {
             match embedding_schema {
-                extractors::EmbeddingSchema {
+                extractor::EmbeddingSchema {
                     dim,
                     distance_metric,
                 } => {
