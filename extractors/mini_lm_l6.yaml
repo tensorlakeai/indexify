@@ -1,0 +1,10 @@
+name: diptanu/minilm-l6-extractor
+version: 1
+description: "Sentence Transformer based Mini LM L6 Embedding"
+module: minilm_l6_embedding:MiniLML6Extractor
+gpu: false
+python_dependencies:
+  - torch
+  - transformers
+system_dependencies:
+  - curl
