@@ -204,11 +204,13 @@ impl DataRepositoryManager {
             let index_names: HashSet<String> = ex.indexes.index_names().into_iter().collect();
             let new_index_names: HashSet<String> =
                 extractor.indexes.index_names().into_iter().collect();
-            let mut common_names = index_names.intersection(&new_index_names);
-            return Err(DataRepositoryError::NotAllowed(format!(
-                "index with names `{}` already exists",
-                common_names.join(",")
-            )));
+            let common_names: Vec<String> = index_names.intersection(&new_index_names).map(|n| n.to_owned()).collect_vec();
+            if !common_names.is_empty() {
+                return Err(DataRepositoryError::NotAllowed(format!(
+                    "index with names `{}` already exists",
+                    common_names.join(",")
+                )));
+            }
         }
         data_repository.extractor_bindings.push(extractor.clone());
         self.repository.upsert_repository(data_repository).await?;

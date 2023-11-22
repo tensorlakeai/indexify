@@ -95,21 +95,15 @@ impl ExtractorExecutor {
         let extractor_info = self.extractor.schemas().unwrap();
         let mut output_schemas = HashMap::new();
         for (output_name, embedding_schema) in extractor_info.embedding_schemas {
-            match embedding_schema {
-                extractor::EmbeddingSchema {
+            let extractor::EmbeddingSchema{dim, distance_metric} = embedding_schema;
+            let distance_metric = distance_metric.to_string();
+            output_schemas.insert(
+                output_name,
+                internal_api::OutputSchema::Embedding {
                     dim,
                     distance_metric,
-                } => {
-                    let distance_metric = distance_metric.to_string();
-                    output_schemas.insert(
-                        output_name,
-                        internal_api::OutputSchema::Embedding {
-                            dim,
-                            distance_metric,
-                        },
-                    );
-                }
-            }
+                },
+            );
         }
         ExecutorInfo {
             id: self.executor_id.clone(),
