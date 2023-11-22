@@ -208,8 +208,7 @@ pub fn run_extractor(extractor_path: Option<String>, text: Option<String>, file_
         }
         (None, Some(file_path)) => {
             let data = std::fs::read(file_path)?;
-            let content =
-                PyContent::from_bytes(data, internal_api::ContentType::Text).try_into()?;
+            let content = PyContent::from_bytes(data, internal_api::ContentType::Text).try_into()?;
             let extracted_content = extractor.extract(vec![content], json!({}))?;
             let content = extracted_content
                 .get(0)
