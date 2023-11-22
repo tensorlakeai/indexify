@@ -1,6 +1,6 @@
 from .base_extractor import Extractor, Content, Feature, EmbeddingSchema, ExtractorSchema
 
-from typing import List, Type, Any
+from typing import List
 
 from pydantic import BaseModel
 
