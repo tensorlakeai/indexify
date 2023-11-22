@@ -1,8 +1,0 @@
-name: diptanu/language-extractor
-description: "Classifies text into a language"
-version: 1
-module: language_extractor:LanguageExtractor
-gpu: false
-python_dependencies:
-  - lingua-language-detector
-system_dependencies:
