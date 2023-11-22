@@ -1,17 +1,13 @@
-from typing import List, Literal
+import json
 from pydantic import BaseModel
+from typing import List, Literal
+
 from indexify_extractor_sdk import (
     Extractor,
     Feature,
     ExtractorSchema,
-    EmbeddingSchema,
     Content,
 )
-import json
-from indexify_extractor_sdk.base_embedding import (
-    EmbeddingInputParams,
-)
-from indexify_extractor_sdk.sentence_transformer import SentenceTransformersEmbedding
 from lingua import LanguageDetectorBuilder
 
 
@@ -20,6 +16,10 @@ class LanguageExtractionInputParams(BaseModel):
     text_splitter: Literal["char", "token", "recursive", "new_line"] = "new_line"
 
 class LanguageExtractor(Extractor):
+    """
+    Extractor class for detecting the language of given content.
+    """
+
     def __init__(self):
         super().__init__()
         self._model = LanguageDetectorBuilder.from_all_languages().build()

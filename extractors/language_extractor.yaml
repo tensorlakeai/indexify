@@ -1,5 +1,5 @@
 name: diptanu/language-extractor
-description: "Classifies text into a language"
+description: "Classifies text into a human language"
 version: 1
 module: language_extractor:LanguageExtractor
 gpu: false
