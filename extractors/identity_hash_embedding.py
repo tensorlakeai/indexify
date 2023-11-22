@@ -23,7 +23,6 @@ import numpy as np
 class IdentityHashEmbedding(BaseEmbeddingExtractor):
 
     def __init__(self):
-        print("Hello")
         super(IdentityHashEmbedding, self).__init__(max_context_length=128)
         self._model = hashlib.sha256()
 

@@ -78,16 +78,10 @@ class SimpleInvoiceParserExtractor(Extractor):
     def extract(
         self, content: List[Content], params: SimpleInvoiceParserInputParams
     ) -> List[List[Content]]:
-        # TODO: Assert that filepaths are provided
         content_filebytes = [c.data for c in content]
 
-        # This assumes that filepaths are local, we should prob use requests if it is on AWS or similar
-        # response = requests.get("https://huggingface.co/spaces/impira/docquery/resolve/2359223c1837a7587402bda0f2643382a6eefeab/invoice.png")
-        # img = Image.open(BytesIO(response.content)).convert("RGB")
-        print("Filebytes are: ", content_filebytes)
         # TODO: Right now it only looks at the first image! We should probably flatten it and do it for each page!
         images = [convert_from_bytes(x)[0].convert("RGB") for x in content_filebytes]
-        print("Images are: ", images)
 
         out = []
         for i, x in enumerate(content):
@@ -100,10 +94,6 @@ class SimpleInvoiceParserExtractor(Extractor):
                 )]
             )
         return out
-
-    def extract_query_embeddings(self, query: str) -> List[float]:
-        # TODO: This will not be implemented for this extractor
-        raise NotImplementedError
 
     def schemas(self) -> ExtractorSchema:
         """

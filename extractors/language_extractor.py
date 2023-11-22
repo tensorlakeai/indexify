@@ -42,10 +42,6 @@ class LanguageExtractor(Extractor):
             )
         return out
 
-    def extract_query_embeddings(self, query: str) -> List[float]:
-        # TODO: This will not be implemented for this extractor, perhaps this should be removed from the base class?
-        raise NotImplementedError 
-
     def schemas(self) -> ExtractorSchema:
         """
         Returns a list of options for indexing.
