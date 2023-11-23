@@ -75,27 +75,26 @@ Extractors are used to extract information from the documents in our repository.
     Response:
 
     ```json
-    {"extractors": [
-        {
-            "name": "EntityExtractor",
-            "description": "EntityExtractor",
-            "extractor_type": {
-                "embedding": {
-                    "schema": "{\"entity\": \"string\", \"value\": \"string\", \"score\": \"float\"}"
-                }
-            }
-        },
-        {
-            "name": "MiniLML6",
-            "description": "MiniLML6 Embeddings",
-            "extractor_type": {
-                "embedding": {
-                    "dim": 384,
-                    "distance": "cosine"
-                }
-            }
+    {
+  "extractors": [
+    {
+      "name": "diptanu/minilm-l6-extractor",
+      "description": "Sentence Transformer based Mini LM L6 Embedding",
+      "input_params": {
+        "overlap": 0,
+        "text_splitter": "recursive"
+      },
+      "schemas": {
+        "outputs": {
+          "embedding": {
+            "dim": 384,
+            "distance": "cosine"
+          }
         }
-    ]}
+      }
+    }
+  ]
+    }
     ```
 
 === "python"
