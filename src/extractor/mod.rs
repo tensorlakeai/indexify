@@ -14,6 +14,7 @@ use py_extractors::{PyContent, PythonExtractor};
 use crate::{internal_api::ExtractedContent, server_config::ExtractorConfig};
 
 mod python_path;
+mod scaffold;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
@@ -110,4 +111,9 @@ pub fn run_extractor(
         }
         _ => Err(anyhow!("either text or file path must be provided")),
     }
+}
+
+pub fn create_extractor_template(extractor_path: &str, name: &str) -> Result<(), anyhow::Error> {
+    std::fs::create_dir_all(extractor_path)?;
+    scaffold::render_extractor_templates(extractor_path, name)
 }

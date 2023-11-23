@@ -95,7 +95,10 @@ impl ExtractorExecutor {
         let extractor_info = self.extractor.schemas().unwrap();
         let mut output_schemas = HashMap::new();
         for (output_name, embedding_schema) in extractor_info.embedding_schemas {
-            let extractor::EmbeddingSchema{dim, distance_metric} = embedding_schema;
+            let extractor::EmbeddingSchema {
+                dim,
+                distance_metric,
+            } = embedding_schema;
             let distance_metric = distance_metric.to_string();
             output_schemas.insert(
                 output_name,
