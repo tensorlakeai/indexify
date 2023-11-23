@@ -141,7 +141,9 @@ COPY setup.py /indexify/setup.py
 RUN python3 setup.py install
         "
         } else {
-            ""
+            "
+RUN pip3 install --no-input indexify_extractor_sdk
+            "
         };
         let tmpl = DockerfileTemplate {
             system_dependencies: &system_dependencies,
