@@ -17,13 +17,13 @@ class TestMockExtractor(unittest.TestCase):
 
 
     def test_extractor_wrapper(self):
-        e = ExtractorWrapper("indexify_extractor_sdk.mock_extractor:MockExtractor")
+        e = ExtractorWrapper("indexify_extractor_sdk.mock_extractor", "MockExtractor")
         extracted_content = e.extract([Content(content_type="text", data="Hello World")], '{"a": 1, "b": "foo"}')
         self.assertEqual(len(extracted_content), 1)
         self.assertEqual(len(extracted_content[0]), 3)
 
     def test_extractor_schema(self):
-        e = ExtractorWrapper("indexify_extractor_sdk.mock_extractor:MockExtractor")
+        e = ExtractorWrapper("indexify_extractor_sdk.mock_extractor", "MockExtractor")
         schemas = e.schemas()
         self.assertEqual(schemas.embedding_schemas['embedding'].distance_metric, "cosine")
 

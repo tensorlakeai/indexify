@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Type, Optional
+from typing import List, Type, Optional, Union
 import json
 from importlib import import_module
 from typing import get_type_hints
@@ -11,6 +11,11 @@ class EmbeddingSchema(BaseModel):
     dim: int
 
 class ExtractorSchema(BaseModel):
+    output_schemas: dict[str, Union[EmbeddingSchema, Json]]
+    input_params: Optional[str]
+
+
+class InternalExtractorSchema(BaseModel):
     embedding_schemas: dict[str, EmbeddingSchema]
     input_params: Optional[str]
 
@@ -74,5 +79,11 @@ class ExtractorWrapper:
             content_list.append(Content(content_type=c.content_type, data=bytes(c.data)))
         return self._instance.extract(content_list, param_instance)
 
-    def schemas(self) -> ExtractorSchema:
-        return self._instance.schemas()
+    def schemas(self) -> InternalExtractorSchema:
+        schema: ExtractorSchema = self._instance.schemas()
+        embedding_schemas = {}
+        for k,v in schema.output_schemas.items():
+            if isinstance(v, EmbeddingSchema):
+                embedding_schemas[k] = v
+                continue
+        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=schema.input_params)

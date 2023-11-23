@@ -133,17 +133,17 @@ impl Packager {
         let system_dependencies = self.config.system_dependencies.join(" ");
         let python_dependencies = self.config.python_dependencies.join(" ");
         let additional_dev_setup = if self.dev {
-            "
+"
 COPY indexify_extractor_sdk /indexify/indexify_extractor_sdk
 
 COPY setup.py /indexify/setup.py
 
 RUN python3 setup.py install
-        "
+"
         } else {
-            "
+"
 RUN pip3 install --no-input indexify_extractor_sdk
-            "
+"
         };
         let tmpl = DockerfileTemplate {
             system_dependencies: &system_dependencies,
@@ -218,6 +218,8 @@ COPY extractors /indexify/extractors
 
 COPY indexify.yaml indexify.yaml
 
+
+RUN pip3 install --no-input indexify_extractor_sdk
 
 
 ENV PYTHONPATH=$PTYTHONPATH:/indexify/extractors
