@@ -41,6 +41,13 @@ services:
     networks:
       server:
         ipv4_address: 172.21.0.5
+  embedding-extractor:
+    image: diptanu/minilm-l6-extractor
+    command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950"]
+    networks:
+      server:
+        ipv4_address: 172.21.0.9
+
 
 volumes:
   data:
