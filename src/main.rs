@@ -35,6 +35,13 @@ enum ExtractorCmd {
         #[arg(long, help = "address of the indexify server")]
         coordinator_addr: String,
     },
+    New {
+        #[arg(long, help = "path to create the extractor template")]
+        path: Option<String>,
+
+        #[arg(long, help = "name of the extractor")]
+        name: String,
+    },
     Package {
         #[arg(short, long)]
         dev: bool,
@@ -184,6 +191,13 @@ async fn main() -> Result<(), Error> {
                     let executor_server =
                         ExecutorServer::new(Arc::new(executor_config), extractor_config).await?;
                     executor_server.run().await?
+                }
+                ExtractorCmd::New { path, name } => {
+                    let current_dir = std::env::current_dir()?;
+                    let current_dir = current_dir.to_str().to_owned().unwrap();
+                    let path = path.unwrap_or_else(|| current_dir.to_string());
+                    info!("creating new extractor at: {}", path);
+                    extractor::create_extractor_template(&path, &name).unwrap()
                 }
             }
         }
