@@ -9,7 +9,7 @@ use super::{EmbeddingSchema, Extractor};
 
 use crate::{
     content_reader::ContentReader,
-    internal_api::{self, ContentPayload, ExtractedContent},
+    internal_api::{self, ContentPayload, Content},
 };
 use pyo3::types::{PyList, PyString};
 
@@ -37,7 +37,7 @@ pub struct PyContent {
     pub feature: Option<PyFeature>,
 }
 
-impl TryFrom<PyContent> for internal_api::ExtractedContent {
+impl TryFrom<PyContent> for internal_api::Content {
     type Error = anyhow::Error;
 
     fn try_from(py_content: PyContent) -> Result<Self, Self::Error> {
@@ -60,7 +60,7 @@ impl TryFrom<PyContent> for internal_api::ExtractedContent {
             }
             None => None,
         };
-        let extracted_content = internal_api::ExtractedContent {
+        let extracted_content = internal_api::Content {
             content_type: mime_type.to_string(),
             source: py_content.data,
             feature,
@@ -69,10 +69,10 @@ impl TryFrom<PyContent> for internal_api::ExtractedContent {
     }
 }
 
-impl TryFrom<internal_api::ExtractedContent> for PyContent {
+impl TryFrom<internal_api::Content> for PyContent {
     type Error = anyhow::Error;
 
-    fn try_from(content: internal_api::ExtractedContent) -> Result<Self, Self::Error> {
+    fn try_from(content: internal_api::Content) -> Result<Self, Self::Error> {
         let content_type = content.content_type.to_string();
         let data = content.source;
         Ok(PyContent {
@@ -167,9 +167,9 @@ impl Extractor for PythonExtractor {
 
     fn extract(
         &self,
-        content: Vec<ExtractedContent>,
+        content: Vec<Content>,
         input_params: serde_json::Value,
-    ) -> Result<Vec<Vec<ExtractedContent>>, anyhow::Error> {
+    ) -> Result<Vec<Vec<Content>>, anyhow::Error> {
         let extracted_content = Python::with_gil(|py| {
             let json_string = serde_json::to_string(&input_params)?.into_py(py);
             let content: Vec<PyContent> = content
@@ -214,7 +214,7 @@ impl Extractor for PythonExtractor {
                         }
                         None => None,
                     };
-                    temp.push(ExtractedContent {
+                    temp.push(Content {
                         content_type,
                         source: data,
                         feature,

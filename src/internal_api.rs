@@ -106,12 +106,12 @@ pub struct ExecutorInfo {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
-    pub content: ExtractedContent,
+    pub content: Content,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractResponse {
-    pub content: Vec<ExtractedContent>,
+    pub content: Vec<Content>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -152,7 +152,7 @@ impl From<WorkState> for persistence::WorkState {
 pub struct WorkStatus {
     pub work_id: String,
     pub status: WorkState,
-    pub extracted_content: Vec<ExtractedContent>,
+    pub extracted_content: Vec<Content>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -223,13 +223,13 @@ impl Feature {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ExtractedContent {
+pub struct Content {
     pub content_type: String,
     pub source: Vec<u8>,
     pub feature: Option<Feature>,
 }
 
-impl ExtractedContent {
+impl Content {
     pub fn source_as_text(&self) -> Option<String> {
         let mime_type = mime::Mime::from_str(&self.content_type);
         if let Ok(mime_type) = mime_type {

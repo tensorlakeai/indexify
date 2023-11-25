@@ -1,5 +1,5 @@
 use crate::content_reader::ContentReader;
-use crate::internal_api::{self, ExtractedContent, WorkState, WorkStatus};
+use crate::internal_api::{self, Content, WorkState, WorkStatus};
 use crate::server_config::ExtractorConfig;
 use crate::work_store::WorkStore;
 use crate::{
@@ -188,8 +188,8 @@ impl ExtractorExecutor {
     #[tracing::instrument]
     pub async fn extract(
         &self,
-        content: ExtractedContent,
-    ) -> Result<Vec<ExtractedContent>, anyhow::Error> {
+        content: Content,
+    ) -> Result<Vec<Content>, anyhow::Error> {
         let extracted_content = self.extractor.extract(vec![content], json!({}))?;
         let content = extracted_content
             .get(0)
@@ -226,10 +226,10 @@ impl ExtractorExecutor {
     async fn create_content_from_payload(
         &self,
         content_payload: internal_api::ContentPayload,
-    ) -> Result<ExtractedContent, anyhow::Error> {
+    ) -> Result<Content, anyhow::Error> {
         let content_reader = ContentReader::new(content_payload.clone());
         let data = content_reader.read().await?;
-        let extracted_content = ExtractedContent {
+        let extracted_content = Content {
             content_type: content_payload.content_type,
             source: data,
             feature: None,
