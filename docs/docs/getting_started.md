@@ -126,8 +126,8 @@ Every extractor we bind results in a corresponding index being created in Indexi
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor_name": "MiniLML6",
-            "index_name": "embeddings"
+            "extractor_name": "diptanu/minilm-l6-extractor",
+            "index_names": {"embedding": "embeddings"}
         }'
     ```
 === "python"
@@ -316,8 +316,8 @@ Now you can add extractor bindings with filters which match the URL and index co
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor_name": "MiniLML6",
-            "index_name": "star_trek_embeddings",
+            "extractor_name": "diptanu/minilm-l6-extractor",
+            "index_names": {"embedding": "star_trek_embeddings"},
             "filters": [
                 {
                     "eq": {
