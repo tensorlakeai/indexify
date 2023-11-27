@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 
 use std::env;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
 use crate::server_config::ExtractorConfig;
 
@@ -160,13 +160,15 @@ RUN pip3 install --no-input indexify_extractor_sdk
     ) -> Result<()> {
         for entry in WalkDir::new(dir_path) {
             let entry = entry?;
-            let path = entry.path();
+            let src_path = entry.path();
             let metadata = entry.metadata()?;
+            let path_name = src_path.strip_prefix(dir_path)?;
+            let path_name = Path::new("extractors").join(path_name);
 
             if metadata.is_dir() {
-                tar_builder.append_dir_all(path, path)?;
+                tar_builder.append_dir_all(path_name, src_path)?;
             } else if metadata.is_file() {
-                tar_builder.append_path_with_name(path, path)?;
+                tar_builder.append_path_with_name(src_path, path_name)?;
             }
         }
         Ok(())
