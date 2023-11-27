@@ -1,9 +1,5 @@
 FROM diptanu/indexify-extractor-base
 
-RUN apt update
-
-RUN apt-get install -y python3-pip
-
 RUN apt-get install -y  {{ system_dependencies }}
 
 RUN pip3 install --no-input {{ python_dependencies }}
