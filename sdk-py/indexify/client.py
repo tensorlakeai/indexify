@@ -33,7 +33,7 @@ class IndexifyClient:
 
     def get_repository(self, name: str) -> Repository:
         return Repository(name, self._service_url)
-    
+
     def extractors(self) -> List[Extractor]:
         response = httpx.get(f"{self._service_url}/extractors")
         response.raise_for_status()
@@ -42,5 +42,3 @@ class IndexifyClient:
         for ed in extractors_dict:
             extractors.append(Extractor.from_dict(ed))
         return extractors
-    
-

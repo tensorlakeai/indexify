@@ -95,7 +95,9 @@ class Repository:
             documents = [documents]
         req = {"documents": documents}
         response = httpx.post(
-            f"{self._service_url}/repositories/{self.name}/add_texts", json=req
+            f"{self._service_url}/repositories/{self.name}/add_texts",
+            json=req,
+            headers={"Content-Type": "application/json"},
         )
         response.raise_for_status()
 
@@ -126,9 +128,10 @@ class Repository:
         """
         req = {
             "extractor_name": extractor_name,
-            "index_name": index_name,
+            "index_names": {"embedding": index_name},
             "filters": filter.json() if filter else [],
         }
+
         request_body = json.dumps(req, default=json_set_default)
         response = httpx.post(
             f"{self._service_url}/repositories/{self.name}/extractor_bindings",
@@ -139,7 +142,7 @@ class Repository:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ApiException(exc.response.text)
-        return 
+        return
 
     def indexes(self) -> List[Index]:
         pass
@@ -177,7 +180,9 @@ class Repository:
     def search_index(self, index_name: str, query: str, top_k: int) -> list[TextChunk]:
         req = {"index": index_name, "query": query, "k": top_k}
         response = httpx.post(
-            f"{self._service_url}/repositories/{self.name}/search", json=req
+            f"{self._service_url}/repositories/{self.name}/search",
+            json=req,
+            headers={"Content-Type": "application/json"},
         )
         response.raise_for_status()
         return response.json()["results"]

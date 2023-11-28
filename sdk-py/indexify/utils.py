@@ -1,12 +1,11 @@
-import asyncio
 from enum import Enum
-import json
 
 
 def json_set_default(obj):
     if isinstance(obj, set):
         return list(obj)
     raise TypeError
+
 
 class Metric(str, Enum):
     COSINE = "cosine"
