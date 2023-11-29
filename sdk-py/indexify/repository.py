@@ -111,7 +111,7 @@ class Repository:
 
         Args:
             - name (str): Name of the extractor.
-            - outputs (dict): Dictionary containing index names of outputs.
+            - outputs (dict): Dictionary containing index names.
             - filter (Filter): Optional filter for this extractor
 
         Returns:
