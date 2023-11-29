@@ -53,6 +53,9 @@ enum ExtractorCmd {
         #[arg(short = 'e', long)]
         extractor_path: Option<String>,
 
+        #[arg(short = 'n', long)]
+        name: Option<String>,
+
         #[arg(short, long)]
         text: Option<String>,
 
@@ -167,10 +170,18 @@ async fn main() -> Result<(), Error> {
             match args.commands {
                 ExtractorCmd::Extract {
                     extractor_path,
+                    name,
                     text,
                     file,
                 } => {
-                    let extracted_content = extractor::run_extractor(extractor_path, text, file)?;
+                    if let Some(name) = name {
+                        let _ = extractor::run_docker_extractor(name, text, file)
+                            .await
+                            .unwrap();
+                        return Ok(());
+                    }
+                    let extracted_content =
+                        extractor::run_local_extractor(extractor_path, text, file)?;
                     println!("{}", serde_json::to_string_pretty(&extracted_content)?);
                 }
                 ExtractorCmd::Package { dev, verbose } => {
