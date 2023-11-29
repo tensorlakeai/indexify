@@ -57,7 +57,8 @@ class TestIntegrationTest(unittest.TestCase):
         filter = FilterBuilder().include("url", url).exclude("url", "bar").build()
 
         repository.bind_extractor(
-            "diptanu/minilm-l6-extractor", index_name, filter=filter
+            {"extractor_name": "diptanu/minilm-l6-extractor", "index_name": index_name},
+            filter=filter,
         )
 
         repository.add_documents(
@@ -83,11 +84,15 @@ class TestIntegrationTest(unittest.TestCase):
         assert repository.name == repository_name
 
     def test_bind_extractor(self):
+        index_name = str(uuid4())
         repository = self.client.create_repository("binding-test-repository")
         filter = (
             FilterBuilder().include("url", "foo.com").exclude("url", "bar.com").build()
         )
-        repository.bind_extractor("diptanu/minilm-l6-extractor", "myindex", filter)
+        repository.bind_extractor(
+            {"extractor_name": "diptanu/minilm-l6-extractor", "index_name": index_name},
+            filter,
+        )
 
 
 if __name__ == "__main__":
