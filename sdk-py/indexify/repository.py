@@ -103,15 +103,16 @@ class Repository:
 
     def bind_extractor(
         self,
-        args: dict,
+        name: str,
+        outputs: dict,
         filter: Filter = None,
     ) -> dict:
         """Bind an extractor to this repository
 
         Args:
-            args (dict): A dictionary containing the following key-value pairs:
-            - extractor_name (str): Name of the extractor.
-            - index_name (str): Name of the corresponding index.
+            - name (str): Name of the extractor.
+            - outputs (dict): Dictionary containing index names of outputs.
+            - filter (Filter): Optional filter for this extractor
 
         Returns:
             dict: response payload
@@ -125,8 +126,8 @@ class Repository:
 
         """
         req = {
-            "extractor_name": args["extractor_name"],
-            "index_names": {"embedding": args["index_name"]},
+            "extractor_name": name,
+            "index_names": outputs,
             "filters": filter.json() if filter else [],
         }
 

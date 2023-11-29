@@ -57,7 +57,8 @@ class TestIntegrationTest(unittest.TestCase):
         filter = FilterBuilder().include("url", url).exclude("url", "bar").build()
 
         repository.bind_extractor(
-            {"extractor_name": "diptanu/minilm-l6-extractor", "index_name": index_name},
+            "diptanu/minilm-l6-extractor",
+            {"embedding": index_name},
             filter=filter,
         )
 
@@ -90,7 +91,8 @@ class TestIntegrationTest(unittest.TestCase):
             FilterBuilder().include("url", "foo.com").exclude("url", "bar.com").build()
         )
         repository.bind_extractor(
-            {"extractor_name": "diptanu/minilm-l6-extractor", "index_name": index_name},
+            "diptanu/minilm-l6-extractor",
+            {"embedding": index_name},
             filter,
         )
 
