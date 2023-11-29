@@ -9,7 +9,7 @@ use super::{EmbeddingSchema, Extractor};
 
 use crate::{
     content_reader::ContentReader,
-    internal_api::{self, ContentPayload, Content},
+    internal_api::{self, Content, ContentPayload},
 };
 use pyo3::types::{PyList, PyString};
 

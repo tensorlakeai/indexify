@@ -186,10 +186,7 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument]
-    pub async fn extract(
-        &self,
-        content: Content,
-    ) -> Result<Vec<Content>, anyhow::Error> {
+    pub async fn extract(&self, content: Content) -> Result<Vec<Content>, anyhow::Error> {
         let extracted_content = self.extractor.extract(vec![content], json!({}))?;
         let content = extracted_content
             .get(0)

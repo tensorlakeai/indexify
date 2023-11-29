@@ -1,6 +1,13 @@
-use anyhow::{anyhow, Ok};
+use anyhow::anyhow;
+use bollard::{
+    container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions},
+    service::{HostConfig, Mount},
+    Docker,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::{path::Path, result::Result::Ok};
+use tokio_stream::StreamExt;
 
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -69,13 +76,77 @@ pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS,
     Ok(Arc::new(extractor))
 }
 
-pub fn run_extractor(
+pub async fn run_docker_extractor(
+    name: String,
+    text: Option<String>,
+    file_path: Option<String>,
+) -> Result<Vec<Content>, anyhow::Error> {
+    let docker = Docker::connect_with_socket_defaults().unwrap();
+    let options = Some(CreateContainerOptions {
+        name: name.clone().replace("/", "."),
+        platform: None,
+    });
+    let mut args = vec!["extractor".to_string(), "extract".to_string()];
+    if let Some(text) = text {
+        args.push("--text".to_string());
+        args.push(text.escape_default().to_string());
+    }
+    let mut host_config: Option<HostConfig> = None;
+    if let Some(file_path) = file_path {
+        let file_path = Path::new(&file_path).canonicalize().unwrap();
+        let file_name = file_path.file_name().unwrap().to_str().unwrap();
+        args.push("--file".to_string());
+        args.push(format!("./{}", file_name));
+        let mounts = vec![Mount {
+            target: Some(format!("/indexify/{}", file_name)),
+            source: Some(file_path.display().to_string()),
+            typ: Some(bollard::service::MountTypeEnum::BIND),
+            ..Default::default()
+        }];
+        host_config.replace(HostConfig {
+            mounts: Some(mounts),
+            ..Default::default()
+        });
+    }
+    let config = Config {
+        image: Some(name.clone()),
+        cmd: Some(args),
+        attach_stderr: Some(true),
+        attach_stdout: Some(true),
+        host_config,
+        ..Default::default()
+    };
+    let id: String = docker.create_container(options, config).await?.id;
+
+    docker
+        .start_container(&id, None::<StartContainerOptions<String>>)
+        .await?;
+    let options = Some(LogsOptions::<String> {
+        follow: true,
+        stdout: true,
+        stderr: true,
+
+        ..Default::default()
+    });
+
+    let mut log_stream = docker.logs(&id, options);
+    while let Ok(log) = log_stream.next().await.ok_or(anyhow!("no logs")) {
+        if let Ok(log) = log {
+            print!("{}", log);
+        } else {
+            println!("error {}", log.err().unwrap());
+        }
+    }
+    Ok(vec![])
+}
+
+pub fn run_local_extractor(
     extractor_path: Option<String>,
     text: Option<String>,
     file_path: Option<String>,
 ) -> Result<Vec<Content>, anyhow::Error> {
     let extractor_path = match extractor_path {
-        Some(extractor_path) => Ok(extractor_path),
+        Some(extractor_path) => Ok::<std::string::String, anyhow::Error>(extractor_path),
         None => {
             info!("no module name provided, looking up indexify.yaml");
             let extractor_config = ExtractorConfig::from_path("indexify.yaml".into())?;

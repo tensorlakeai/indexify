@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 
 use std::env;
 use std::io::Write;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 
 use crate::server_config::ExtractorConfig;
 
@@ -114,10 +114,10 @@ impl Packager {
                     .collect();
                 for vertex in &status.vertexes {
                     if verbose && !vertex.name.is_empty() {
-                        println!("{}", vertex.name);
+                        print!("{}", vertex.name);
                     }
                     if !vertex.error.is_empty() {
-                        println!("{}", vertex.error);
+                        print!("{}", vertex.error);
                         return Err(anyhow!(vertex.error.clone()));
                     }
                 }
