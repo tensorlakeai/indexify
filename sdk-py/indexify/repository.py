@@ -95,40 +95,42 @@ class Repository:
             documents = [documents]
         req = {"documents": documents}
         response = httpx.post(
-            f"{self._service_url}/repositories/{self.name}/add_texts", json=req
+            f"{self._service_url}/repositories/{self.name}/add_texts",
+            json=req,
+            headers={"Content-Type": "application/json"},
         )
         response.raise_for_status()
 
     def bind_extractor(
         self,
-        extractor_name: str,
-        index_name: str,
+        name: str,
+        outputs: dict,
         filter: Filter = None,
     ) -> dict:
         """Bind an extractor to this repository
 
         Args:
-            extractor_name (str): Name of extractor
-            index_name (str): Name of corresponding index
-            filter (Filter, optional): Filter to apply to documents while choosing
-                which documents to run the extractor on. Defaults to None.
+            - name (str): Name of the extractor.
+            - outputs (dict): Dictionary containing index names.
+            - filter (Filter): Optional filter for this extractor
 
         Returns:
             dict: response payload
 
         Examples:
-            >>> repo.bind_extractor("EfficientNet", "png_embeddings",
+            >>> repo.bind_extractor({"extractor_name": "EfficientNet", "index_name": "png_embeddings"},
                                     include={"file_ext": "png"})
 
-            >>> repo.bind_extractor("MiniLML6", "non_english",
+            >>> repo.bind_extractor({"extractor_name": "MiniLML6", "index_name": "non_english"},
                                     exclude={"language": "en"})
 
         """
         req = {
-            "extractor_name": extractor_name,
-            "index_name": index_name,
+            "extractor_name": name,
+            "index_names": outputs,
             "filters": filter.json() if filter else [],
         }
+
         request_body = json.dumps(req, default=json_set_default)
         response = httpx.post(
             f"{self._service_url}/repositories/{self.name}/extractor_bindings",
@@ -139,7 +141,7 @@ class Repository:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ApiException(exc.response.text)
-        return 
+        return
 
     def indexes(self) -> List[Index]:
         pass
@@ -177,7 +179,9 @@ class Repository:
     def search_index(self, index_name: str, query: str, top_k: int) -> list[TextChunk]:
         req = {"index": index_name, "query": query, "k": top_k}
         response = httpx.post(
-            f"{self._service_url}/repositories/{self.name}/search", json=req
+            f"{self._service_url}/repositories/{self.name}/search",
+            json=req,
+            headers={"Content-Type": "application/json"},
         )
         response.raise_for_status()
         return response.json()["results"]
