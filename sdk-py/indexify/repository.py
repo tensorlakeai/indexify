@@ -104,30 +104,28 @@ class Repository:
     def bind_extractor(
         self,
         name: str,
-        outputs: dict,
+        index_names: dict,
         filter: Filter = None,
     ) -> dict:
         """Bind an extractor to this repository
 
         Args:
             - name (str): Name of the extractor.
-            - outputs (dict): Dictionary containing index names.
+            - index_names (dict): Dictionary containing index names.
             - filter (Filter): Optional filter for this extractor
 
         Returns:
             dict: response payload
 
         Examples:
-            >>> repo.bind_extractor({"extractor_name": "EfficientNet", "index_name": "png_embeddings"},
-                                    include={"file_ext": "png"})
+            >>> repo.bind_extractor("EfficientNet", {"index_name": "png_embeddings"})
 
-            >>> repo.bind_extractor({"extractor_name": "MiniLML6", "index_name": "non_english"},
-                                    exclude={"language": "en"})
+            >>> repo.bind_extractor("MiniLML6", {"index_name": "non_english"})
 
         """
         req = {
             "extractor_name": name,
-            "index_names": outputs,
+            "index_names": index_names,
             "filters": filter.json() if filter else [],
         }
 
