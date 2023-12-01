@@ -23,9 +23,7 @@ class BaseEmbeddingExtractor(Extractor):
     def extract(
         self, content_list: List[Content], params: EmbeddingInputParams
     ) -> List[List[Content]]:
-        splitter: Callable[[str], List[str]] = self._create_splitter(
-            params.text_splitter
-        )
+        splitter: Callable[[str], List[str]] = self._create_splitter(params)
         extracted_content = []
         for content in content_list:
             extracted_embeddings = []
