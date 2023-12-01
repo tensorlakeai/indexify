@@ -44,13 +44,12 @@ class BaseEmbeddingExtractor(Extractor):
     def _create_splitter(
         self, input_params: EmbeddingInputParams
     ) -> Callable[[str], List[str]]:
-        # TODO Make chunk overlap parameterized
-        if text_splitter_name == "recursive":
+        if input_params.text_splitter == "recursive":
             return text_splitter.RecursiveCharacterTextSplitter(
                 chunk_size=self._model_context_length,
                 chunk_overlap=input_params.overlap,
             ).split_text
-        elif text_splitter_name == "char":
+        elif input_params.text_splitter == "char":
             return text_splitter.CharacterTextSplitter(
                 chunk_size=self._model_context_length,
                 chunk_overlap=input_params.overlap,
