@@ -24,8 +24,6 @@ done
 
 pip install .[test]
 
-export PYTHONPATH=$PYTHONPATH:$(pwd)/extractors
-
 cargo test -- --test-threads 1
 
 echo "Ok, that is enough"
