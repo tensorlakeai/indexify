@@ -1,3 +1,4 @@
+use axum::extract::DefaultBodyLimit;
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use std::net::SocketAddr;
@@ -68,7 +69,8 @@ impl CoordinatorServer {
             )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
-            .layer(metrics);
+            .layer(metrics)
+            .layer(DefaultBodyLimit::disable());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
