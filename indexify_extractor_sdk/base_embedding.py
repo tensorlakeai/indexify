@@ -13,6 +13,7 @@ from .base_extractor import (
 
 class EmbeddingInputParams(BaseModel):
     overlap: int = 0
+    chunk_size: int = 0
     text_splitter: Literal["char", "recursive"] = "recursive"
 
 
@@ -23,6 +24,9 @@ class BaseEmbeddingExtractor(Extractor):
     def extract(
         self, content_list: List[Content], params: EmbeddingInputParams
     ) -> List[List[Content]]:
+        if params.chunk_size == 0:
+            params.chunk_size = self._model_context_length
+
         splitter: Callable[[str], List[str]] = self._create_splitter(params)
         extracted_content = []
         for content in content_list:
@@ -46,12 +50,12 @@ class BaseEmbeddingExtractor(Extractor):
     ) -> Callable[[str], List[str]]:
         if input_params.text_splitter == "recursive":
             return text_splitter.RecursiveCharacterTextSplitter(
-                chunk_size=self._model_context_length,
+                chunk_size=input_params.chunk_size,
                 chunk_overlap=input_params.overlap,
             ).split_text
         elif input_params.text_splitter == "char":
             return text_splitter.CharacterTextSplitter(
-                chunk_size=self._model_context_length,
+                chunk_size=input_params.chunk_size,
                 chunk_overlap=input_params.overlap,
                 separator="\n\n",
             ).split_text
