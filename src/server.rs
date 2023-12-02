@@ -12,7 +12,7 @@ use crate::{
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 
 use anyhow::Result;
-use axum::extract::{Multipart, Path, Query};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query};
 use axum::http::StatusCode;
 use axum::{extract::State, routing::get, routing::post, Json, Router};
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
@@ -176,7 +176,8 @@ impl Server {
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
             )
             .layer(OtelAxumLayer::default())
-            .layer(metrics);
+            .layer(metrics)
+            .layer(DefaultBodyLimit::disable());
         info!("server is listening at addr {}", &self.addr.to_string());
         axum::Server::bind(&self.addr)
             .serve(app.into_make_service())
