@@ -54,9 +54,8 @@ pub struct RepositoryEndpointState {
             list_executors
         ),
         components(
-            schemas(CreateRepository, CreateRepositoryResponse, DataConnector,
-                IndexDistance,
-                SourceType, TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
+            schemas(CreateRepository, CreateRepositoryResponse, IndexDistance,
+                TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,
         ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)

@@ -10,9 +10,9 @@ pub mod db_utils {
     use crate::attribute_index::AttributeIndexManager;
     use crate::coordinator::Coordinator;
     use crate::executor::ExtractorExecutor;
+    use crate::persistence::ExtractorSchema;
     use crate::persistence::{DataRepository, ExtractorOutputSchema};
-    use crate::persistence::{ExtractorBinding, ExtractorDescription, Repository};
-    use crate::persistence::{ExtractorSchema, IndexBindings};
+    use crate::persistence::{Extractor, ExtractorBinding, Repository};
     use crate::server_config::ExtractorConfig;
     use crate::vector_index::VectorIndexManager;
     use crate::vectordbs::{self, IndexDistance};
@@ -28,9 +28,9 @@ pub mod db_utils {
             data_connectors: vec![],
             metadata: HashMap::new(),
             extractor_bindings: vec![ExtractorBinding::new(
+                "test_extractor_binding",
                 DEFAULT_TEST_REPOSITORY,
                 DEFAULT_TEST_EXTRACTOR.into(),
-                IndexBindings::from_feature(DEFAULT_TEST_EXTRACTOR),
                 vec![],
                 serde_json::json!({}),
             )],
@@ -87,7 +87,7 @@ pub mod db_utils {
             .await
             .unwrap();
 
-        let default_extractor = ExtractorDescription {
+        let default_extractor = Extractor {
             name: DEFAULT_TEST_EXTRACTOR.into(),
             description: "test extractor".into(),
             input_params: json!({}),

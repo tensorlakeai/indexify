@@ -1,12 +1,7 @@
 use anyhow::Result;
 use bytes::Bytes;
-use itertools::Itertools;
 use sea_orm::DbConn;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt, sync::Arc};
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -17,8 +12,8 @@ use crate::{
     blob_storage::BlobStorageTS,
     index::IndexError,
     persistence::{
-        ContentPayload, DataRepository, Event, ExtractedAttributes, ExtractorBinding,
-        ExtractorDescription, ExtractorOutputSchema, Index, Repository, RepositoryError,
+        ContentPayload, DataRepository, Event, ExtractedAttributes, Extractor, ExtractorBinding,
+        ExtractorOutputSchema, Index, Repository, RepositoryError,
     },
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
@@ -37,9 +32,6 @@ pub enum DataRepositoryError {
 
     #[error("operation not allowed: `{0}`")]
     NotAllowed(String),
-
-    #[error("output name `{0}` not found in extractor")]
-    OutputNameNotFound(String),
 }
 
 pub struct DataRepositoryManager {
@@ -124,28 +116,14 @@ impl DataRepositoryManager {
     ) -> Result<(), DataRepositoryError> {
         let extractor = self
             .repository
-            .extractor_by_name(&extractor_binding.extractor_name)
+            .extractor_by_name(&extractor_binding.extractor)
             .await?;
-        for (feature_name, index_name) in extractor_binding.indexes.bindings().clone() {
-            let extractor_output_schema = extractor
-                .schemas
-                .outputs
-                .get(&feature_name)
-                .ok_or_else(|| DataRepositoryError::OutputNameNotFound(feature_name))?;
-
-            match extractor_output_schema.clone() {
-                ExtractorOutputSchema::Embedding {
-                    dim,
-                    distance_metric,
-                } => {
+        for (output_name, schema) in extractor.schemas.outputs.clone() {
+            let index_name = format!("{}-{}", extractor_binding.name, output_name);
+            match schema {
+                ExtractorOutputSchema::Embedding(schema) => {
                     self.vector_index_manager
-                        .create_index(
-                            repository,
-                            &index_name,
-                            extractor.clone(),
-                            distance_metric,
-                            dim,
-                        )
+                        .create_index(repository, &index_name, &extractor.name, schema)
                         .await
                         .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
                 }
@@ -191,30 +169,23 @@ impl DataRepositoryManager {
         extractor: ExtractorBinding,
     ) -> Result<(), DataRepositoryError> {
         info!(
-            "adding extractor bindings repository: {}, extractor: {}, index: {}",
-            repository, extractor.extractor_name, extractor.indexes,
+            "adding extractor bindings repository: {}, extractor: {}, binding: {}",
+            repository, extractor.extractor, extractor.name,
         );
-        self.create_index(repository, &extractor).await?;
         let mut data_repository = self
             .repository
             .repository_by_name(repository)
             .await
             .unwrap();
         for ex in &data_repository.extractor_bindings {
-            let index_names: HashSet<String> = ex.indexes.index_names().into_iter().collect();
-            let new_index_names: HashSet<String> =
-                extractor.indexes.index_names().into_iter().collect();
-            let common_names: Vec<String> = index_names
-                .intersection(&new_index_names)
-                .map(|n| n.to_owned())
-                .collect_vec();
-            if !common_names.is_empty() {
+            if ex.name == extractor.name {
                 return Err(DataRepositoryError::NotAllowed(format!(
-                    "index with names `{}` already exists",
-                    common_names.join(",")
+                    "binding with name {} already exists in repository: {}",
+                    extractor.name, repository,
                 )));
             }
         }
+        self.create_index(repository, &extractor).await?;
         data_repository.extractor_bindings.push(extractor.clone());
         self.repository.upsert_repository(data_repository).await?;
         Ok(())
@@ -273,7 +244,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_extractors(&self) -> Result<Vec<ExtractorDescription>, DataRepositoryError> {
+    pub async fn list_extractors(&self) -> Result<Vec<Extractor>, DataRepositoryError> {
         let extractors = self
             .repository
             .list_extractors()
@@ -331,7 +302,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::blob_storage::BlobStorageBuilder;
-    use crate::persistence::{DataConnector, Event, ExtractorBinding, IndexBindings, SourceType};
+    use crate::persistence::{DataConnector, Event, ExtractorBinding, SourceType};
     use crate::test_util;
     use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};
 
@@ -353,9 +324,9 @@ mod tests {
         let repository = DataRepository {
             name: "test".to_string(),
             extractor_bindings: vec![ExtractorBinding::new(
+                "test_extractor_binding",
                 "test",
                 DEFAULT_TEST_EXTRACTOR.to_string(),
-                IndexBindings::from_feature("embedding"),
                 vec![],
                 serde_json::json!({}),
             )],
