@@ -9,8 +9,11 @@ from .base_extractor import (
     Extractor,
     Feature,
 )
+
+
 class EmbeddingInputParams(BaseModel):
     overlap: int = 0
+    chunk_size: int = 0
     text_splitter: Literal["char", "recursive"] = "recursive"
 
 
@@ -21,9 +24,10 @@ class BaseEmbeddingExtractor(Extractor):
     def extract(
         self, content_list: List[Content], params: EmbeddingInputParams
     ) -> List[List[Content]]:
-        splitter: Callable[[str], List[str]] = self._create_splitter(
-            params.text_splitter
-        )
+        if params.chunk_size == 0:
+            params.chunk_size = self._model_context_length
+
+        splitter: Callable[[str], List[str]] = self._create_splitter(params)
         extracted_content = []
         for content in content_list:
             extracted_embeddings = []
@@ -41,16 +45,19 @@ class BaseEmbeddingExtractor(Extractor):
             extracted_content.append(extracted_embeddings)
         return extracted_content
 
-    def _create_splitter(self, text_splitter_name: str) -> Callable[[str], List[str]]:
-        # TODO Make chunk overlap parameterized
-        if text_splitter_name == "recursive":
+    def _create_splitter(
+        self, input_params: EmbeddingInputParams
+    ) -> Callable[[str], List[str]]:
+        if input_params.text_splitter == "recursive":
             return text_splitter.RecursiveCharacterTextSplitter(
-                chunk_size=self._model_context_length,
-                chunk_overlap=self._model_context_length,
+                chunk_size=input_params.chunk_size,
+                chunk_overlap=input_params.overlap,
             ).split_text
-        elif text_splitter_name == "char":
+        elif input_params.text_splitter == "char":
             return text_splitter.CharacterTextSplitter(
-                chunk_size=self._model_context_length, separator="\n\n"
+                chunk_size=input_params.chunk_size,
+                chunk_overlap=input_params.overlap,
+                separator="\n\n",
             ).split_text
 
     @abstractmethod
