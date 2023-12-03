@@ -40,6 +40,5 @@ class MyExtractor(Extractor):
         Returns a list of options for indexing.
         """
         return ExtractorSchema(
-            output_schemas={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
-            input_params=json.dumps(InputParams.model_json_schema()),
+            features={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
         )

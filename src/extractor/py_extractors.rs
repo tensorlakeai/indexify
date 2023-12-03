@@ -271,7 +271,7 @@ mod tests {
         )
         .unwrap();
 
-        let data = std::fs::read("extractors_tests/data/test.pdf").unwrap();
+        let data = std::fs::read("extractors_sdk_tests/data/test.pdf").unwrap();
         let content = PyContent::from_bytes(data, mime::APPLICATION_PDF)
             .try_into()
             .unwrap();

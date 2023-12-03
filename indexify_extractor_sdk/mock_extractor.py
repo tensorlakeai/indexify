@@ -39,7 +39,7 @@ class MockExtractor(Extractor):
         Returns a list of options for indexing.
         """
         return ExtractorSchema(
-            output_schemas={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
+            features={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
         )
 
 
@@ -65,5 +65,5 @@ class MockExtractorNoInputParams(Extractor):
         Returns a list of options for indexing.
         """
         return ExtractorSchema(
-            output_schemas={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
+            features={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
         )

@@ -11,7 +11,7 @@ class EmbeddingSchema(BaseModel):
     dim: int
 
 class ExtractorSchema(BaseModel):
-    output_schemas: dict[str, Union[EmbeddingSchema, Json]]
+    features: dict[str, Union[EmbeddingSchema, Json]]
 
 class InternalExtractorSchema(BaseModel):
     embedding_schemas: dict[str, EmbeddingSchema]
@@ -80,7 +80,7 @@ class ExtractorWrapper:
     def schemas(self) -> InternalExtractorSchema:
         schema: ExtractorSchema = self._instance.schemas()
         embedding_schemas = {}
-        for k,v in schema.output_schemas.items():
+        for k,v in schema.features.items():
             if isinstance(v, EmbeddingSchema):
                 embedding_schemas[k] = v
                 continue
