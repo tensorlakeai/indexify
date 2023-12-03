@@ -7,7 +7,8 @@ A typical workflow using Indexify involves adding content to a data repository, 
 ## Extractors
 Extractors extract features such as embedding or any other structured data from content to be made available for retrieval processes. Extractors can also produce more content, that can be consumed by other extractors. 
 
-Some examples of extractors are -
+Some examples of extractors are - 
+
 * PDF Extractors that extract embedding from texts, finds named entities, or summarize content.
 * Audio segmentation extractors which chunks audio based on presence of human speech. 
 
