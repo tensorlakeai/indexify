@@ -64,7 +64,7 @@ def schemas(cls) -> ExtractorSchema:
         )
 ```
 
-#### Test the extractor
+#### Test the extractor locally
 
 Extractors are just python modules so you can write a unit test like any any other python module. You should also test the extractor using the indexify binary to make sure it works as expected. 
 
@@ -72,9 +72,40 @@ Extractors are just python modules so you can write a unit test like any any oth
 indexify extractor extract -e my-extractor/custom_extractor.py:MyExtractor --text "hello world"
 ```
 
+#### Update the extractor configuration
+You can include the python and system dependencies of the extractor in the configuration file. Update the indexify.yaml file with the dependencies of the extractor. 
+
+```yaml
+name: my-extractor
+version: 1
+description: "Description of the Extractor goes here"
+# Rename the file and the class name if you wish to
+module: custom_extractor.py:MyExtractor
+gpu: false
+# Add all the python dependencies here which are required for the extractor to work
+python_dependencies:
+  - torch
+# Add all the system dependencies here. We use a ubuntu base image, so the package names
+# should be available in ubuntu
+system_dependencies:
+  - ffmpeg
+
+```
+
 #### Package the extractor
 Once you have tested the package, pakcage it into a container. From here the extractor is deployable to any environment. You can share the extractor on our Hub for other developers to know about it! 
 
 ```shell
 indexify extractor package -v -c my-extractor/indexify.yaml
+```
+
+The packaged extractors should also be visible as a docker container locally.
+```shell
+docker images
+```
+
+#### Test the packaged extractor
+
+```shell
+indexify extractor extractor --name your-name/indexify-extractor --text "hello world"
 ```
