@@ -6,7 +6,7 @@ Extractors are used for structured extraction from un-structured data of any mod
 
 Extractors consume `Content` which contains the raw data and they product a list of Content which can either produce more content and features from them. For example, a PDF document can produce 10 `Content` each being a chunk of text and the corresponding embeddings of the chunk. There are no restrictions of how many features can be emitted by an extractor. 
 
-![Extractor High Level Overview](images/content_extractor_concept.jpg)
+![High Level Concept](images/content_extractor_concept.png)
 
 Extractors are typically built from a AI model and some additional pre and post processing of content. 
 
