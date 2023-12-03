@@ -26,10 +26,9 @@ nav:
   - Concepts: 'concepts.md'
   - APIs:
     - Overview: 'apis/index.md'
-    - Data Repository: 'apis/data_repository.md'
     - Extractors: 'apis/extractors.md'
+    - Data Repository: 'apis/data_repository.md'
     - Retrieval: 'apis/retrieval.md'
-    - Custom Extractors: 'apis/custom_extractors.md'
   - Configuration: 'configuration.md'
   - Deployment: 'deployment.md'
   - Develop Indexify: 'develop.md'
