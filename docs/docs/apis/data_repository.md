@@ -1,7 +1,10 @@
-# Data Repository API
+# Content Ingestion 
 
-Data Repository APIs allow users to create a new repository where documents and memory of interactive LLM agents can be stored for retrieval. One or many extractor bindings can be added to the repositories to extract information from data, such as creating indexes by embedding documents for semantic search. 
+Data Repositories store content either uploaded by applications or from extractors that chunk or transform content.
 
+!!! note
+
+    A default data repository, named `default` is created when Indexify is started.
 
 ## Create or Update a Data Repository
 A data repository can be created by specifying a unique name, and any additional metadata or extractor bindings.
@@ -12,11 +15,11 @@ A data repository can be created by specifying a unique name, and any additional
     -H 'Content-Type: application/json' \
     -d '
         {
-          "name": "default",
+          "name": "research",
           "extractor_bindings": [
             {
-              "extractor_name": "MiniLML6",
-              "index_name": "search_index"
+              "extractor": "MiniLML6",
+              "name": "minilm61"
             }
           ],
           "metadata": {"sensitive": true}
@@ -35,11 +38,11 @@ A data repository can be created by specifying a unique name, and any additional
 {
   "repositories": [
     {
-      "name": "default",
+      "name": "research",
       "extractor_bindings": [
         {
-          "extractor_name": "MiniLML6",
-          "index_name": "search_index",
+          "extractor": "diptanu/minilm-l6-extractor",
+          "name": "minilm61",
           "filters": [],
           "input_params": {}
         }
@@ -52,8 +55,9 @@ A data repository can be created by specifying a unique name, and any additional
 }
 ```
 
-## Adding Extractor Bindings to a Repository
-Adding an extractor binding creating indexes from content in a repository by running extractors on them. Once a binding is added, any new content being ingested is automatically extracted and indexes are updated. Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
+## Extractor Bindings 
+Extractor Bindings are rules to instruct Indexify to run a particular extractor on content in a repository. Bindings are evaluated when new content is added and extractors are run automatically on new or existing content. Bindings keep indexes updated as new content is ingested.
+Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
 
 For ex, the example below binds the extractor `MiniLML6` to all the content in the repository `default` which has metadata `url` as `https://www.example.com`. Anytime any text is added to the repository with metadata that matches the content they are indexed.
 
@@ -63,8 +67,8 @@ For ex, the example below binds the extractor `MiniLML6` to all the content in t
     -H "Content-Type: application/json" \
     -d '{
             "repository": "default",
-            "extractor_name": "MiniLML6",
-            "index_name": "myindex",
+            "extractor": "MiniLML6",
+            "name": "minilml6-embedding",
             "filters": [
                 {
                     "eq": {
