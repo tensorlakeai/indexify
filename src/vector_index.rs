@@ -5,8 +5,8 @@ use crate::{
     extractor::ExtractedEmbeddings,
     index::IndexError,
     internal_api::{self, CoordinateRequest, CoordinateResponse, ExtractRequest, ExtractResponse},
-    persistence::{Chunk, ExtractorDescription, Repository},
-    vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
+    persistence::{Chunk, EmbeddingSchema, Repository},
+    vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::error;
@@ -47,26 +47,25 @@ impl VectorIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extractor_config: ExtractorDescription,
-        distance: IndexDistance,
-        dim: usize,
+        extractor_name: &str,
+        schema: EmbeddingSchema,
     ) -> Result<()> {
         let mut index_params: Option<CreateIndexParams> = None;
         let vector_index_name = format!("{}-{}", repository, index_name);
         let create_index_params = CreateIndexParams {
             vectordb_index_name: vector_index_name.clone(),
-            vector_dim: dim as u64,
-            distance,
+            vector_dim: schema.dim as u64,
+            distance: schema.distance.clone(),
             unique_params: None,
         };
         index_params.replace(create_index_params);
         self.repository
             .create_index_metadata(
                 repository,
-                &extractor_config.name,
+                &extractor_name,
                 index_name,
                 &vector_index_name,
-                serde_json::json!(extractor_config.schemas),
+                serde_json::json!(schema),
                 "embedding",
             )
             .await?;
@@ -195,7 +194,7 @@ mod tests {
 
     use crate::blob_storage::BlobStorageBuilder;
     use crate::data_repository_manager::DataRepositoryManager;
-    use crate::persistence::{ContentPayload, DataRepository, ExtractorBinding, IndexBindings};
+    use crate::persistence::{ContentPayload, DataRepository, ExtractorBinding};
     use crate::test_util;
     use crate::test_util::db_utils::{
         create_index_manager, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
@@ -218,9 +217,9 @@ mod tests {
                 data_connectors: vec![],
                 metadata: HashMap::new(),
                 extractor_bindings: vec![ExtractorBinding::new(
+                    "test_extractor_binding",
                     DEFAULT_TEST_REPOSITORY,
                     DEFAULT_TEST_EXTRACTOR.into(),
-                    IndexBindings::from_feature(DEFAULT_TEST_EXTRACTOR),
                     vec![],
                     serde_json::json!({"a": 1, "b": "hello"}),
                 )],

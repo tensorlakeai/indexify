@@ -182,20 +182,20 @@ impl Coordinator {
                     "Creating work for repository: {}, content: {}, extractor: {}, index: {}",
                     &repository_id,
                     &content.id,
-                    &extractor_binding.extractor_name,
-                    extractor_binding.indexes,
+                    &extractor_binding.extractor,
+                    extractor_binding.name,
                 );
                 let work = Work::new(
                     &content.id,
                     repository_id,
-                    extractor_binding.indexes.clone(),
-                    &extractor_binding.extractor_name,
+                    &extractor_binding.extractor,
+                    &extractor_binding.name,
                     &extractor_binding.input_params,
                     None,
                 );
                 self.repository.insert_work(&work).await?;
                 self.repository
-                    .mark_content_as_processed(&work.content_id, &extractor_binding.id)
+                    .mark_content_as_processed(&work.content_id, &extractor_binding.name)
                     .await?;
             }
         }
@@ -289,12 +289,7 @@ impl Coordinator {
                 .await?;
             for extracted_content in work_status.extracted_content {
                 if let Some(feature) = extracted_content.feature.clone() {
-                    let index_name = work
-                        .indexes
-                        .get_index_name(feature.name.as_str())
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("no index name found for feature: {}", feature.name)
-                        })?;
+                    let index_name = format!("{}-{}", work.extractor_binding, feature.name);
                     if let Some(text) = extracted_content.source_as_text() {
                         if let Some(embedding) = feature.embedding() {
                             let embeddings = ExtractedEmbeddings {
@@ -303,7 +298,7 @@ impl Coordinator {
                                 embeddings: embedding.clone(),
                             };
                             self.vector_index_manager
-                                .add_embedding(&work.repository_id, index_name, vec![embeddings])
+                                .add_embedding(&work.repository_id, &index_name, vec![embeddings])
                                 .await?;
                         }
                     }
@@ -314,7 +309,7 @@ impl Coordinator {
                             &work.extractor,
                         );
                         self.attribute_index_manager
-                            .add_index(&work.repository_id, index_name, extracted_attributes)
+                            .add_index(&work.repository_id, &index_name, extracted_attributes)
                             .await?;
                     }
                 }
@@ -331,7 +326,7 @@ mod tests {
 
     use crate::{
         blob_storage::BlobStorageBuilder,
-        persistence::{ExtractorBinding, IndexBindings},
+        persistence::ExtractorBinding,
         test_util::{
             self,
             db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
@@ -362,9 +357,9 @@ mod tests {
                 data_connectors: vec![],
                 metadata: HashMap::new(),
                 extractor_bindings: vec![ExtractorBinding::new(
+                    "test_extractor_binding",
                     DEFAULT_TEST_REPOSITORY,
                     DEFAULT_TEST_EXTRACTOR.into(),
-                    IndexBindings::from_feature(DEFAULT_TEST_EXTRACTOR),
                     vec![],
                     serde_json::json!({}),
                 )],
