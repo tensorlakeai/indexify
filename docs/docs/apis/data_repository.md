@@ -32,28 +32,28 @@ A data repository can be created by specifying a unique name, and any additional
     ``` shell
     curl -X GET http://localhost:8900/repositories
     ```
+??? abstract "output"
 
-#### Output
-``` json
-{
-  "repositories": [
+    ``` json
     {
-      "name": "research",
-      "extractor_bindings": [
+      "repositories": [
         {
-          "extractor": "diptanu/minilm-l6-extractor",
-          "name": "minilm61",
-          "filters": [],
-          "input_params": {}
+          "name": "research",
+          "extractor_bindings": [
+            {
+              "extractor": "diptanu/minilm-l6-extractor",
+              "name": "minilm61",
+              "filters": [],
+              "input_params": {}
+            }
+          ],
+          "metadata": {
+            "sensitive": true
+          }
         }
-      ],
-      "metadata": {
-        "sensitive": true
-      }
+      ]
     }
-  ]
-}
-```
+    ```
 
 ## Extractor Bindings 
 Extractor Bindings are rules to instruct Indexify to run a particular extractor on content in a repository. Bindings are evaluated when new content is added and extractors are run automatically on new or existing content. Bindings keep indexes updated as new content is ingested.
