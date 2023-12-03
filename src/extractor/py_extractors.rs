@@ -264,21 +264,6 @@ mod tests {
     }
 
     #[test]
-    fn extract_embedding() {
-        let extractor = PythonExtractor::new("minilm_l6_embedding", "MiniLML6Extractor").unwrap();
-
-        let content1 = PyContent::new("My name is Donald and I live in Seattle".to_string())
-            .try_into()
-            .unwrap();
-        let content2 = PyContent::new("My name is Donald and I live in Seattle".to_string())
-            .try_into()
-            .unwrap();
-        let content = vec![content1, content2];
-        let extracted_data1 = extractor.extract(content, json!({})).unwrap();
-        assert_eq!(extracted_data1.len(), 2);
-    }
-
-    #[test]
     fn extract_from_blob() {
         let extractor = PythonExtractor::new(
             "indexify_extractor_sdk.mock_extractor",

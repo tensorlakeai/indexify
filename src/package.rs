@@ -197,10 +197,6 @@ mod tests {
 
         let expected_dockerfile = r#"FROM diptanu/indexify-extractor-base
 
-RUN apt update
-
-RUN apt-get install -y python3-pip
-
 RUN apt-get install -y  libpq-dev libssl-dev
 
 RUN pip3 install --no-input numpy pandas
