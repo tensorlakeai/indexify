@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use sea_orm::DbConn;
 use std::{collections::HashMap, fmt, sync::Arc};
@@ -29,9 +29,6 @@ pub enum DataRepositoryError {
 
     #[error(transparent)]
     RetrievalError(#[from] IndexError),
-
-    #[error("operation not allowed: `{0}`")]
-    NotAllowed(String),
 }
 
 pub struct DataRepositoryManager {
@@ -79,10 +76,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn create_default_repository(
-        &self,
-        _server_config: &ServerConfig,
-    ) -> Result<(), DataRepositoryError> {
+    pub async fn create_default_repository(&self, _server_config: &ServerConfig) -> Result<()> {
         let resp = self
             .repository
             .repository_by_name(DEFAULT_REPOSITORY_NAME)
@@ -113,7 +107,7 @@ impl DataRepositoryManager {
         &self,
         repository: &str,
         extractor_binding: &ExtractorBinding,
-    ) -> Result<(), DataRepositoryError> {
+    ) -> Result<()> {
         let extractor = self
             .repository
             .extractor_by_name(&extractor_binding.extractor)
@@ -139,17 +133,15 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn create(&self, repository: &DataRepository) -> Result<(), DataRepositoryError> {
+    pub async fn create(&self, repository: &DataRepository) -> Result<()> {
         info!("creating data repository: {}", repository.name);
         self.repository
             .upsert_repository(repository.clone())
-            .await
-            .map_err(DataRepositoryError::Persistence)?;
+            .await?;
         for extractor_binding in &repository.extractor_bindings {
-            let result = self.create_index(&repository.name, extractor_binding).await;
-            if result.is_err() {
-                error!("unable to create index: {:?}", result.err());
-            }
+            let _ = self
+                .create_index(&repository.name, extractor_binding)
+                .await?;
         }
         Ok(())
     }
@@ -167,7 +159,7 @@ impl DataRepositoryManager {
         &self,
         repository: &str,
         extractor: ExtractorBinding,
-    ) -> Result<(), DataRepositoryError> {
+    ) -> Result<()> {
         info!(
             "adding extractor bindings repository: {}, extractor: {}, binding: {}",
             repository, extractor.extractor, extractor.name,
@@ -179,10 +171,11 @@ impl DataRepositoryManager {
             .unwrap();
         for ex in &data_repository.extractor_bindings {
             if ex.name == extractor.name {
-                return Err(DataRepositoryError::NotAllowed(format!(
+                return Err(anyhow!(
                     "binding with name {} already exists in repository: {}",
-                    extractor.name, repository,
-                )));
+                    extractor.name,
+                    repository,
+                ));
             }
         }
         self.create_index(repository, &extractor).await?;
@@ -192,28 +185,18 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn add_texts(
-        &self,
-        repo_name: &str,
-        texts: Vec<ContentPayload>,
-    ) -> Result<(), DataRepositoryError> {
+    pub async fn add_texts(&self, repo_name: &str, texts: Vec<ContentPayload>) -> Result<()> {
         let _ = self.repository.repository_by_name(repo_name).await?;
-        self.repository
-            .add_content(repo_name, texts)
-            .await
-            .map_err(DataRepositoryError::Persistence)
+        self.repository.add_content(repo_name, texts).await
     }
 
     #[tracing::instrument]
-    pub async fn list_indexes(
-        &self,
-        repository_name: &str,
-    ) -> Result<Vec<Index>, DataRepositoryError> {
+    pub async fn list_indexes(&self, repository_name: &str) -> Result<Vec<Index>> {
         let indexes = self
             .repository
             .list_indexes(repository_name)
             .await
-            .map_err(DataRepositoryError::Persistence)?;
+            .map_err(|e| anyhow!("unable to list indexes, error: {}", e.to_string()))?;
         Ok(indexes)
     }
 
@@ -224,11 +207,10 @@ impl DataRepositoryManager {
         index_name: &str,
         query: &str,
         k: u64,
-    ) -> Result<Vec<ScoredText>, DataRepositoryError> {
+    ) -> Result<Vec<ScoredText>> {
         self.vector_index_manager
             .search(repository, index_name, query, k as usize)
             .await
-            .map_err(DataRepositoryError::RetrievalError)
     }
 
     #[tracing::instrument]

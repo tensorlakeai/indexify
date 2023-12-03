@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use entity::data_repository::Entity as DataRepositoryEntity;
 use entity::extraction_event::Entity as ExtractionEventEntity;
 use entity::extractors;
@@ -441,23 +441,8 @@ pub enum RepositoryError {
     #[error("repository `{0}` not found")]
     RepositoryNotFound(String),
 
-    #[error("extractor`{0}` not found")]
-    ExtractorNotFound(String),
-
-    #[error("index `{0}` not found")]
-    IndexNotFound(String),
-
     #[error("content`{0}` not found")]
     ContentNotFound(String),
-
-    #[error("chunk `{0}` not found")]
-    ChunkNotFound(String),
-
-    #[error("unable to serialize unique params `{0}`")]
-    UniqueParamsSerializationError(#[from] serde_json::Error),
-
-    #[error("internal application error `{0}`")]
-    LogicError(String),
 }
 
 #[derive(Debug)]
@@ -518,7 +503,7 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>, RepositoryError> {
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>> {
         let index_models = IndexEntity::find()
             .filter(index::Column::RepositoryId.eq(repository))
             .all(&self.conn)
@@ -530,11 +515,11 @@ impl Repository {
                 "embedding" => {
                     let embedding_schema: EmbeddingSchema =
                         serde_json::from_value(index_model.index_schema.clone()).map_err(|e| {
-                            RepositoryError::LogicError(format!(
+                            anyhow!(
                                 "unable to read index_schema: {}, error: {}",
                                 index_model.index_schema.to_string(),
                                 e.to_string()
-                            ))
+                            )
                         })?;
                     ExtractorOutputSchema::Embedding(embedding_schema)
                 }
@@ -542,10 +527,7 @@ impl Repository {
                     schema: index_model.index_schema,
                 }),
                 _ => {
-                    return Err(RepositoryError::LogicError(format!(
-                        "unknown index type: {}",
-                        index_model.index_type
-                    )));
+                    return Err(anyhow!("unknown index type: {}", index_model.index_type));
                 }
             };
             indexes.push(Index {
@@ -557,17 +539,13 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn get_index(
-        &self,
-        index: &str,
-        repository: &str,
-    ) -> Result<IndexModel, RepositoryError> {
+    pub async fn get_index(&self, index: &str, repository: &str) -> Result<IndexModel> {
         IndexEntity::find()
             .filter(index::Column::Name.eq(index))
             .filter(index::Column::RepositoryId.eq(repository))
             .one(&self.conn)
             .await?
-            .ok_or(RepositoryError::IndexNotFound(index.into()))
+            .ok_or(anyhow!("index: {} not found", index))
     }
 
     #[tracing::instrument]
@@ -624,7 +602,7 @@ impl Repository {
         &self,
         repository: &str,
         content_payloads: Vec<ContentPayload>,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<()> {
         let mut content_list = Vec::new();
         let mut extraction_events = Vec::new();
         for content_payload in content_payloads {
@@ -677,7 +655,7 @@ impl Repository {
                 })
             })
             .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()))?;
+            .map_err(|e| anyhow!("unable to add content, error: {}", e.to_string()))?;
         Ok(())
     }
 
@@ -834,12 +812,12 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata, RepositoryError> {
+    pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata> {
         let chunk = entity::chunked_content::Entity::find()
             .filter(entity::chunked_content::Column::ChunkId.eq(id))
             .one(&self.conn)
             .await?
-            .ok_or(RepositoryError::ChunkNotFound(id.to_string()))?;
+            .ok_or(anyhow!("chunk id: {} not found", id))?;
         let content = entity::content::Entity::find()
             .filter(entity::content::Column::Id.eq(&chunk.content_id))
             .one(&self.conn)
@@ -859,10 +837,7 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn upsert_repository(
-        &self,
-        repository: DataRepository,
-    ) -> Result<(), RepositoryError> {
+    pub async fn upsert_repository(&self, repository: DataRepository) -> Result<()> {
         let mut extractor_event_models = Vec::new();
         let mut extractor_bindings = HashMap::new();
         for eb in &repository.extractor_bindings {
@@ -915,7 +890,7 @@ impl Repository {
                 })
             })
             .await
-            .map_err(|e| RepositoryError::LogicError(e.to_string()));
+            .map_err(|e| anyhow!("unable to update repository, error: {}", e.to_string()));
 
         Ok(())
     }
@@ -942,17 +917,20 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn extractor_by_name(&self, name: &str) -> Result<Extractor, RepositoryError> {
+    pub async fn extractor_by_name(&self, name: &str) -> Result<Extractor> {
         let extractor_model = extractors::Entity::find()
             .filter(entity::extractors::Column::Id.eq(name))
             .one(&self.conn)
-            .await;
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to find extractor by name: {}, error: {}",
+                    name,
+                    e.to_string()
+                )
+            })?;
 
-        if let Err(e) = &extractor_model {
-            error!("Error getting extractor by name {}: {:?}", name, e);
-        }
-        let extractor_model =
-            extractor_model?.ok_or(RepositoryError::ExtractorNotFound(name.to_owned()))?;
+        let extractor_model = extractor_model.ok_or(anyhow!("extractor: {} not found", name))?;
         Ok(extractor_model.into())
     }
 
@@ -1118,26 +1096,21 @@ impl Repository {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn update_work_state(
-        &self,
-        work_id: &str,
-        state: &WorkState,
-    ) -> Result<Work, RepositoryError> {
+    pub async fn update_work_state(&self, work_id: &str, state: &WorkState) -> Result<Work> {
         let result = entity::work::Entity::update_many()
             .col_expr(entity::work::Column::State, Expr::value(state.to_string()))
             .filter(entity::work::Column::Id.eq(work_id))
             .exec_with_returning(&self.conn)
             .await?;
         if result.is_empty() {
-            return Err(RepositoryError::LogicError(
-                "unable to find work".to_string(),
-            ));
+            return Err(anyhow!("unable to find work {}", work_id));
         }
         result
             .get(0)
             .map(|r| r.to_owned().try_into().unwrap())
-            .ok_or(RepositoryError::LogicError(
-                "unable to find work".to_string(),
+            .ok_or(anyhow!(
+                "unable to retrieve work from retreived work list: {}",
+                work_id
             ))
     }
 
