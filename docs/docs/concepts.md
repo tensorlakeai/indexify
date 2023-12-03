@@ -5,17 +5,21 @@ A typical workflow using Indexify involves adding content to a data repository, 
 ![High Level Concept](images/indexify_high_level_abstract.png)
 
 ## Extractors
-Extractors extract features such as embedding or any other structured data from content to be made available for retrieval processes. Some examples of extractors are - PDF Extractors that extract embedding from texts, finds named entities, or summarize content. Extractors can also produce more content, that can be consumed by other extractors. Some examples are - audio segmentation extractors which chunks audio based on presence of human speech. Extractors run asynchronously and in a distributed manner which makes it easy to scale the service and extract information from millions of documents.  
+Extractors extract features such as embedding or any other structured data from content to be made available for retrieval processes. Extractors can also produce more content, that can be consumed by other extractors. 
+
+Some examples of extractors are -
+* PDF Extractors that extract embedding from texts, finds named entities, or summarize content.
+* Audio segmentation extractors which chunks audio based on presence of human speech. 
 
 ## Indexes
-Indexes are the sinks where Indexify stores extracted features and content from extractors. Indexify uses vector storage to store embedding and structured data such as JSON are stored in Postgres and other document stores. Indexify presents a unified interface and logical data model to abstract away details of accessing the underlying storage systems. Indexes are automatically updated when content is added to a data repository by applying extractors on them, and are made available for retrieval.
+Indexify stores extracted features in Indexes. Indexify uses vector storage to store embedding and structured data such as JSON are stored in Postgres and other document stores. Indexes are automatically updated when content is added to a data repository by applying extractors on them, and are made available for retrieval.
 
 ## Data Repositories
-Data Repositories are logical abstractions for storing related documents. Repositories allow partitioning data based on query patterns, and we will add support for access control per repository in the future. By default, we create a `default` data repository to make it easy to get started.
+Data Repositories are logical abstractions for storing related content. Repositories allow partitioning data based on security and organizational boundaries.
 
 ## Content 
-Content represents information as corpus of text, vidoe, audio or other unstructured data along with corresponding metadata. Content is stored in blob and K/V stores. 
-Documents are chunked, embedded, and indexed automatically. Documents ingested in the system are stored permanently, and Indexify can extract features like embedding, named entity, etc, and store them in various forms of indexes at any point of time in the future.
+Content are ny kind of unstructured data such as text, video or audio along with corresponding metadata. Content is stored in blob and K/V stores. 
+Content are chunked, embedded, and indexed automatically by extractors. Content are either added by external systems or from extractors which chunk or transform unstructured data into intermediate forms, such as text chunks of large PDF/HTML docs, small speech segments of a podcast.
 
 ## Retrieval APIs
 
@@ -26,7 +30,6 @@ Retrieval APIs are used to retrieve information from indexes. Indexify supports 
 A vector index allows for quick retrieval of relevant information, given a user query using semantic search. 
 Indexify currently supports [HNSW (Hierarchical Navigable Small World Graph)](https://arxiv.org/abs/1603.09320) based vector indexes.
 
-#### Attribute Index
+#### Metadata Index
 
-Attribute Index are created from information extracted by models which can be used for filtering and faceting. For example, listing all documents which have a particular named entity like physical addresses of businesses, or all documents which have a particular topic. 
-Attribute Indexes are stored as JSON documents under the hood.
+Metadata Index are created from metadata extracted as JSON documents from content. For example, output of a NER extractor can be searched for chunks of PDFs that has the name of a person. We support full text search on metadata indexes and also json path based queries.

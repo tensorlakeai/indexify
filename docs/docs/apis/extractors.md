@@ -60,7 +60,7 @@ def schemas(cls) -> ExtractorSchema:
         Returns schema of features for indexing.
         """
         return ExtractorSchema(
-            output_schemas={"text_embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
+            features={"text_embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
         )
 ```
 
