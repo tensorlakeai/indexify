@@ -105,7 +105,7 @@ impl VectorIndexManager {
         index: &str,
         query: &str,
         k: usize,
-    ) -> Result<Vec<ScoredText>, IndexError> {
+    ) -> Result<Vec<ScoredText>> {
         let index_info = self.repository.get_index(index, repository).await?;
         let vector_index_name = index_info.vector_index_name.clone().unwrap();
         let embedding = self
