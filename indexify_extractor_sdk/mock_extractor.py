@@ -4,8 +4,6 @@ from typing import List
 
 from pydantic import BaseModel
 
-import json
-
 class InputParams(BaseModel):
     a: int = 0
     b: str = ""
@@ -42,7 +40,6 @@ class MockExtractor(Extractor):
         """
         return ExtractorSchema(
             output_schemas={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
-            input_params=json.dumps(InputParams.model_json_schema()),
         )
 
 
@@ -69,5 +66,4 @@ class MockExtractorNoInputParams(Extractor):
         """
         return ExtractorSchema(
             output_schemas={"embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
-            input_params=None,
         )

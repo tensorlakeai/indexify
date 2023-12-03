@@ -12,8 +12,6 @@ class EmbeddingSchema(BaseModel):
 
 class ExtractorSchema(BaseModel):
     output_schemas: dict[str, Union[EmbeddingSchema, Json]]
-    input_params: Optional[str]
-
 
 class InternalExtractorSchema(BaseModel):
     embedding_schemas: dict[str, EmbeddingSchema]
@@ -86,4 +84,5 @@ class ExtractorWrapper:
             if isinstance(v, EmbeddingSchema):
                 embedding_schemas[k] = v
                 continue
-        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=schema.input_params)
+        input_params = json.dumps(self._param_cls.model_json_schema() if self._param_cls else {})
+        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=input_params)
