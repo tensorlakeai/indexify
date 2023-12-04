@@ -330,7 +330,7 @@ Now you can add extractor bindings with filters which match the URL and index co
 
     ```python
     filter = FilterBuilder().include("url", "https://memory-alpha.fandom.com/wiki/USS_Cayuga").build()
-    repo.bind_extractor("diptanu/minilm-l6-extractor", {"index_name":"star_trek_embeddings"}, filter)
+    repo.bind_extractor("diptanu/minilm-l6-extractor", {"index_name":"star_trek_embeddings"}, filter=filter)
 
     print(repo.extractor_bindings)
     ```
