@@ -23,39 +23,40 @@ class AttributeExtractor:
 
 
 @dataclass
+class EmbeddingSchema:
+    distance: str
+    dim: int
+
+
+@dataclass
+class ExtractorSchema:
+    outputs: dict[str, Union[EmbeddingSchema, dict]]
+
+
+@dataclass
 class Extractor:
     name: str
     description: str
-    extractor_type: Union[EmbeddingExtractor, AttributeExtractor]
+    input_params: dict
+    schemas: ExtractorSchema
 
 
 class Extractor:
     def __init__(
-        self,
-        name: str,
-        description: str,
-        extractor_type: Union[EmbeddingExtractor, AttributeExtractor],
+        self, name: str, description: str, input_params: dict, schemas: ExtractorSchema
     ):
         self.name = name
         self.description = description
-        self.extractor_type = extractor_type
+        self.input_params = input_params
+        self.schemas = schemas
 
     @classmethod
     def from_dict(cls, data):
-        extractor_type_data = (
-            data.get("schemas", {}).get("outputs", {}).get("embedding")
-        )
-        if extractor_type_data:
-            # Embedding Extractor
-            extractor_type_data = EmbeddingExtractor(**extractor_type_data)
-        else:
-            # Attribute Extractor
-            extractor_type_data = None
-
         return Extractor(
             name=data["name"],
             description=data["description"],
-            extractor_type=extractor_type_data,
+            input_params=data["input_params"],
+            schemas=data["schemas"],
         )
 
     def __repr__(self) -> str:
