@@ -111,8 +111,8 @@ class Repository:
         """Bind an extractor to this repository
 
         Args:
-            - extractor (str): Name of the extractor.
-            - name (str): Name of extractor binding.
+            - extractor (str): Name of the extractor
+            - name (str): Name of extractor binding
             - input_params (dict): Dictionary containing extractor input params
             - filter (Filter): Optional filter for this extractor
 
