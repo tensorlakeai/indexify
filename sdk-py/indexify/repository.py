@@ -104,15 +104,15 @@ class Repository:
     def bind_extractor(
         self,
         extractor: str,
-        name: dict,
+        name: str,
         input_params: dict = {},
         filter: Filter = None,
     ) -> dict:
         """Bind an extractor to this repository
 
         Args:
-            - name (str): Name of the extractor.
-            - index_names (dict): Dictionary containing index names.
+            - extractor (str): Name of the extractor.
+            - name (str): Name of extractor binding.
             - input_params (dict): Dictionary containing extractor input params
             - filter (Filter): Optional filter for this extractor
 
