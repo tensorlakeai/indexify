@@ -112,7 +112,7 @@ class Repository:
 
         Args:
             - extractor (str): Name of the extractor
-            - name (str): Name of extractor binding
+            - name (str): Name of extractor embeddings
             - input_params (dict): Dictionary containing extractor input params
             - filter (Filter): Optional filter for this extractor
 
