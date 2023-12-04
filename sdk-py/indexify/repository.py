@@ -105,6 +105,7 @@ class Repository:
         self,
         name: str,
         index_names: dict,
+        input_params: dict = {},
         filter: Filter = None,
     ) -> dict:
         """Bind an extractor to this repository
@@ -112,6 +113,7 @@ class Repository:
         Args:
             - name (str): Name of the extractor.
             - index_names (dict): Dictionary containing index names.
+            - input_params (dict): Dictionary containing extractor input params
             - filter (Filter): Optional filter for this extractor
 
         Returns:
@@ -126,6 +128,7 @@ class Repository:
         req = {
             "extractor_name": name,
             "index_names": index_names,
+            "input_params": input_params,
             "filters": filter.json() if filter else [],
         }
 

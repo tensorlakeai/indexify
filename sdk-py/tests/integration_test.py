@@ -1,6 +1,5 @@
 import sys
 
-sys.path.append(".")
 from indexify import FilterBuilder
 from indexify.repository import Document
 from indexify.client import IndexifyClient
@@ -93,7 +92,20 @@ class TestIntegrationTest(unittest.TestCase):
         repository.bind_extractor(
             "diptanu/minilm-l6-extractor",
             {"embedding": index_name},
-            filter,
+            filter=filter,
+        )
+
+    def test_extractor_input_params(self):
+        index_name = str(uuid4())
+        repository = self.client.create_repository("binding-test-repository")
+        repository.bind_extractor(
+            name="diptanu/minilm-l6-extractor",
+            index_names={"embedding": index_name},
+            input_params={
+                "chunk_size": 300,
+                "overlap": 50,
+                "text_splitter": "char",
+            },
         )
 
 
