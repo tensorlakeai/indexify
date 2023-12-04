@@ -1,6 +1,5 @@
 import sys
 
-sys.path.append(".")
 from indexify import FilterBuilder
 from indexify.repository import Document
 from indexify.client import IndexifyClient
@@ -51,14 +50,14 @@ class TestIntegrationTest(unittest.TestCase):
         )
 
     def test_search(self):
-        index_name = str(uuid4())
+        name = str(uuid4())
         repository = self.client.get_repository("default")
         url = "https://memory-alpha.fandom.com"
         filter = FilterBuilder().include("url", url).exclude("url", "bar").build()
 
         repository.bind_extractor(
             "diptanu/minilm-l6-extractor",
-            {"embedding": index_name},
+            name,
             filter=filter,
         )
 
@@ -71,7 +70,7 @@ class TestIntegrationTest(unittest.TestCase):
             ]
         )
         time.sleep(10)
-        results = repository.search_index(index_name, "LLM", 1)
+        results = repository.search_index(f"{name}-embedding", "LLM", 1)
         assert len(results) == 1
 
     def test_list_extractors(self):
@@ -85,16 +84,39 @@ class TestIntegrationTest(unittest.TestCase):
         assert repository.name == repository_name
 
     def test_bind_extractor(self):
-        index_name = str(uuid4())
+        name = str(uuid4())
         repository = self.client.create_repository("binding-test-repository")
         filter = (
             FilterBuilder().include("url", "foo.com").exclude("url", "bar.com").build()
         )
         repository.bind_extractor(
             "diptanu/minilm-l6-extractor",
-            {"embedding": index_name},
-            filter,
+            name,
+            filter=filter,
         )
+
+    def test_extractor_input_params(self):
+        name = str(uuid4())
+        repository = self.client.create_repository("binding-test-repository")
+        repository.bind_extractor(
+            extractor="diptanu/minilm-l6-extractor",
+            name=name,
+            input_params={
+                "chunk_size": 300,
+                "overlap": 50,
+                "text_splitter": "char",
+            },
+        )
+
+    def test_get_indexes(self):
+        name = str(uuid4())
+        repository = self.client.create_repository("binding-test-repository")
+        repository.bind_extractor(
+            "diptanu/minilm-l6-extractor",
+            name,
+        )
+        indexes = repository.indexes()
+        assert len(list(filter(lambda x: x.get("name").startswith(name), indexes))) == 1
 
 
 if __name__ == "__main__":
