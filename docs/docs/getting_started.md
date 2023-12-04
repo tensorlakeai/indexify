@@ -126,13 +126,13 @@ Every extractor we bind results in a corresponding index being created in Indexi
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "diptanu/minilm-l6-extractor",
-            "name": "minil6-embeddings",
+            "name": "minil6",
         }'
     ```
 === "python"
 
     ```python
-    repo.bind_extractor("diptanu/minilm-l6-extractor", "minil6-embeddings")
+    repo.bind_extractor("diptanu/minilm-l6-extractor", "minil6")
 
     print(repo.extractor_bindings())
     ```
@@ -316,7 +316,7 @@ Now you can add extractor bindings with filters which match the URL and index co
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "diptanu/minilm-l6-extractor",
-            "name": "star_trek_embeddings",
+            "name": "star_trek",
             "filters": [
                 {
                     "eq": {
@@ -330,7 +330,7 @@ Now you can add extractor bindings with filters which match the URL and index co
 
     ```python
     filter = FilterBuilder().include("url", "https://memory-alpha.fandom.com/wiki/USS_Cayuga").build()
-    repo.bind_extractor("diptanu/minilm-l6-extractor", "star_trek_embeddings", filter=filter)
+    repo.bind_extractor("diptanu/minilm-l6-extractor", "star_trek", filter=filter)
 
     print(repo.extractor_bindings)
     ```

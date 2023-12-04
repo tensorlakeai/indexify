@@ -112,7 +112,7 @@ class Repository:
 
         Args:
             - extractor (str): Name of the extractor
-            - name (str): Name of extractor embeddings
+            - name (str): Name for this instance
             - input_params (dict): Dictionary containing extractor input params
             - filter (Filter): Optional filter for this extractor
 
@@ -120,9 +120,9 @@ class Repository:
             dict: response payload
 
         Examples:
-            >>> repo.bind_extractor("EfficientNet", "efficientnet-embeddings")
+            >>> repo.bind_extractor("EfficientNet", "efficientnet")
 
-            >>> repo.bind_extractor("MiniLML6", "minilm-embeddings")
+            >>> repo.bind_extractor("MiniLML6", "minilm")
 
         """
         req = {
