@@ -120,9 +120,9 @@ class Repository:
             dict: response payload
 
         Examples:
-            >>> repo.bind_extractor("EfficientNet", "efficientnet")
+            >>> repo.bind_extractor("EfficientNet", "efficientnet-embeddings")
 
-            >>> repo.bind_extractor("MiniLML6", "minilm")
+            >>> repo.bind_extractor("MiniLML6", "minilm-embeddings")
 
         """
         req = {
