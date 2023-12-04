@@ -103,8 +103,8 @@ class Repository:
 
     def bind_extractor(
         self,
-        name: str,
-        index_names: dict,
+        extractor: str,
+        name: dict,
         input_params: dict = {},
         filter: Filter = None,
     ) -> dict:
@@ -120,14 +120,14 @@ class Repository:
             dict: response payload
 
         Examples:
-            >>> repo.bind_extractor("EfficientNet", {"index_name": "png_embeddings"})
+            >>> repo.bind_extractor("EfficientNet", "efficientnet-extractor")
 
-            >>> repo.bind_extractor("MiniLML6", {"index_name": "non_english"})
+            >>> repo.bind_extractor("MiniLML6", "minilm-extractor")
 
         """
         req = {
-            "extractor_name": name,
-            "index_names": index_names,
+            "extractor": extractor,
+            "name": name,
             "input_params": input_params,
             "filters": filter.json() if filter else [],
         }
@@ -145,7 +145,9 @@ class Repository:
         return
 
     def indexes(self) -> List[Index]:
-        pass
+        response = httpx.get(f"{self._service_url}/repositories/{self.name}/indexes")
+        response.raise_for_status()
+        return response.json()["indexes"]
 
     @classmethod
     def get(cls, name: str, service_url: str = DEFAULT_SERVICE_URL) -> "Repository":
@@ -177,8 +179,8 @@ class Repository:
         response.raise_for_status()
         return response.json()["attributes"]
 
-    def search_index(self, index_name: str, query: str, top_k: int) -> list[TextChunk]:
-        req = {"index": index_name, "query": query, "k": top_k}
+    def search_index(self, name: str, query: str, top_k: int) -> list[TextChunk]:
+        req = {"index": name, "query": query, "k": top_k}
         response = httpx.post(
             f"{self._service_url}/repositories/{self.name}/search",
             json=req,
