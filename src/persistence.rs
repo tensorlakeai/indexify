@@ -160,10 +160,10 @@ pub enum ExtractorOutputSchema {
 
 impl ExtractorOutputSchema {
     #[cfg(test)]
-    pub fn embedding(dim: usize, distance_metric: IndexDistance) -> Self {
+    pub fn embedding(dim: usize, distance: IndexDistance) -> Self {
         Self::Embedding(EmbeddingSchema {
             dim,
-            distance: distance_metric,
+            distance,
         })
     }
 }
