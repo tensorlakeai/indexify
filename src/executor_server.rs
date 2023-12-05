@@ -14,7 +14,7 @@ use crate::{
     api::IndexifyAPIError,
     executor::ExtractorExecutor,
     internal_api::{ExtractRequest, ExtractResponse},
-    server_config::{ExecutorConfig, ExtractorConfig},
+    server_config::ExecutorConfig,
 };
 
 enum TickerMessage {
@@ -56,17 +56,17 @@ async fn heartbeat(
 
 pub struct ExecutorServer {
     executor_config: Arc<ExecutorConfig>,
-    extractor_config: Arc<ExtractorConfig>,
+    extractor_config_path: String,
 }
 
 impl ExecutorServer {
     pub async fn new(
+        extractor_config_path: &str,
         executor_config: Arc<ExecutorConfig>,
-        extractor_config: Arc<ExtractorConfig>,
     ) -> Result<Self> {
         Ok(Self {
             executor_config,
-            extractor_config,
+            extractor_config_path: extractor_config_path.into(),
         })
     }
 
@@ -79,7 +79,7 @@ impl ExecutorServer {
         let executor = Arc::new(
             ExtractorExecutor::new(
                 self.executor_config.clone(),
-                self.extractor_config.clone(),
+                &self.extractor_config_path,
                 advertise_addr.clone(),
             )
             .await?,

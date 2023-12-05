@@ -1,4 +1,5 @@
 use crate::content_reader::ContentReader;
+use crate::extractor::python_path;
 use crate::internal_api::{self, Content, WorkState, WorkStatus};
 use crate::server_config::ExtractorConfig;
 use crate::work_store::WorkStore;
@@ -51,10 +52,13 @@ impl ExtractorExecutor {
     #[tracing::instrument]
     pub async fn new(
         executor_config: Arc<ExecutorConfig>,
-        extractor_config: Arc<ExtractorConfig>,
+        extractor_config_path: &str,
         listen_addr: String,
     ) -> Result<Self> {
         let executor_id = create_executor_id();
+        let extractor_config = Arc::new(ExtractorConfig::from_path(extractor_config_path)?);
+        info!("looking up extractor at path: {}", &extractor_config_path);
+        python_path::set_python_path(&extractor_config_path)?;
 
         let extractor =
             extractor::create_extractor(&extractor_config.module, &extractor_config.name)?;

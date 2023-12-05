@@ -20,7 +20,7 @@ use py_extractors::{PyContent, PythonExtractor};
 
 use crate::{internal_api::Content, server_config::ExtractorConfig};
 
-mod python_path;
+pub mod python_path;
 mod scaffold;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
@@ -66,7 +66,19 @@ pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS,
     if tokens.len() != 2 {
         return Err(anyhow!("invalid extractor path: {}", extractor_path));
     }
-    let module_name = tokens[0].trim_end_matches(".py").replace('/', ".");
+    let module_path = tokens[0];
+
+    let module_path = Path::new(module_path);
+    let parent = module_path.parent().ok_or(anyhow!(
+        "couldn't find parent dir of module_path: {:?}",
+        module_path
+    ))?;
+    let module_file_name = module_path
+        .strip_prefix(parent)?
+        .to_str()
+        .ok_or(anyhow!("couldn't find model file name: {:?}", module_path))?;
+    let module_name = module_file_name.trim_end_matches(".py");
+
     let class_name = tokens[1].trim();
     let extractor = PythonExtractor::new(&module_name, class_name)?;
     info!(

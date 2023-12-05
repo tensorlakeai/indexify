@@ -40,7 +40,7 @@ impl Packager {
             .ok_or(anyhow!("unable to get parent of path"))?;
         info!("packaging extractor in: {:?}", code_dir_relative_path);
 
-        let config = ExtractorConfig::from_path(path.clone())?;
+        let config = ExtractorConfig::from_path(&path)?;
         Ok(Packager {
             config_path: path,
             config,
@@ -152,7 +152,7 @@ RUN pip3 install --no-input indexify_extractor_sdk
             let src_path = entry.path();
             let metadata = entry.metadata()?;
             let path_name = src_path.strip_prefix(dir_path)?;
-            let path_name = Path::new("extractors").join(path_name);
+            let path_name = Path::new(".").join(path_name);
 
             if metadata.is_dir() {
                 tar_builder.append_dir_all(path_name, src_path)?;

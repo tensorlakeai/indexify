@@ -3,7 +3,7 @@ use anyhow::{Error, Result};
 use clap::{Args, Parser, Subcommand};
 use indexify::{
     coordinator_service::CoordinatorServer, executor_server::ExecutorServer, extractor, server,
-    server_config::ExecutorConfig, server_config::ExtractorConfig, server_config::ServerConfig,
+    server_config::ExecutorConfig, server_config::ServerConfig,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -163,10 +163,10 @@ async fn main() -> Result<(), Error> {
             coordinator.run().await?
         }
         Commands::Extractor(args) => {
-            let config_path = args
+            let extractor_config_path = args
                 .config_path
                 .unwrap_or_else(|| "indexify.yaml".to_string());
-            info!("using config file: {}", &config_path);
+            info!("using config file: {}", &extractor_config_path);
             match args.commands {
                 ExtractorCmd::Extract {
                     extractor_path,
@@ -186,7 +186,7 @@ async fn main() -> Result<(), Error> {
                 }
                 ExtractorCmd::Package { dev, verbose } => {
                     info!("starting indexify packager, version: {}", version);
-                    let packager = indexify::package::Packager::new(config_path, dev)?;
+                    let packager = indexify::package::Packager::new(extractor_config_path, dev)?;
                     packager.package(verbose).await?;
                 }
                 ExtractorCmd::Start {
@@ -194,13 +194,13 @@ async fn main() -> Result<(), Error> {
                     coordinator_addr,
                 } => {
                     info!("starting indexify executor, version: {}", version);
-                    let extractor_config =
-                        Arc::new(ExtractorConfig::from_path(config_path.clone())?);
-                    let executor_config = ExecutorConfig::default()
-                        .with_advertise_addr(advertise_addr)?
-                        .with_coordinator_addr(coordinator_addr);
+                    let executor_config = Arc::new(
+                        ExecutorConfig::default()
+                            .with_advertise_addr(advertise_addr)?
+                            .with_coordinator_addr(coordinator_addr),
+                    );
                     let executor_server =
-                        ExecutorServer::new(Arc::new(executor_config), extractor_config).await?;
+                        ExecutorServer::new(&extractor_config_path, executor_config).await?;
                     executor_server.run().await?
                 }
                 ExtractorCmd::New { path, name } => {

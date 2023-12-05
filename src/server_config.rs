@@ -133,7 +133,7 @@ pub struct ExtractorConfig {
 }
 
 impl ExtractorConfig {
-    pub fn from_path(path: String) -> Result<ExtractorConfig> {
+    pub fn from_path(path: &str) -> Result<ExtractorConfig> {
         let config = std::fs::read_to_string(path)?;
         let config: ExtractorConfig = serde_yaml::from_str(&config)?;
         Ok(config)
