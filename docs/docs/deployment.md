@@ -1,19 +1,6 @@
 # Deployment 
 
-Indexify can be easily deployed using containers locally on a laptop for testing and evaluation or on a cluster for production usage.
-
-## Local Deployment
-The easiest way to deploy locally is through Docker Compose. We package a compose recipe in the repo which sets everything up and exposes the API on your local machine.
-
-1. Close the repo.
-    ```shell
-    git clone https://github.com/diptanu/indexify.git
-    ```
-2. Start Docker Compose
-    ```shell
-    docker compose up
-    ```
-    If everything goes well, this should start all the dependencies and the server and bring up the API on `https://localhost:8900`
+You can download the Indexify binary and deploy them on your own infrastructure using your automation tool of choice. Here, we show how to run the Indexify control plane with the binary, and on Kubernetes on AWS, GCP and Azure. We have open sourced the Kubernetes deployment scripts, you could use that as a starting point.
 
 ## Production
 The strategies of deploying to production will depend on throughput of API queries, number of documents stored and number of extractors extracting features. Kubernetes is the easiest way to deploy the service across clouds with all it's dependencies. We have included K8s deployment specifications, we expect users deploying the service in their environment to tweak the settings based on their scale and availability requirements. We will go through the steps to deploy our provided K8s deployment configuration on AWS EKS.
