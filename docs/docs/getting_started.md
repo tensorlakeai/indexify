@@ -72,47 +72,14 @@ Extractors are used to extract information from the documents in our repository.
     curl -X GET http://localhost:8900/extractors
     ```
 
-    Response:
-
-    ```json
-    {
-  "extractors": [
-    {
-      "name": "diptanu/minilm-l6-extractor",
-      "description": "Sentence Transformer based Mini LM L6 Embedding",
-      "input_params": {
-        "overlap": 0,
-        "text_splitter": "recursive"
-      },
-      "schemas": {
-        "outputs": {
-          "embedding": {
-            "dim": 384,
-            "distance": "cosine"
-          }
-        }
-      }
-    }
-  ]
-    }
-    ```
-
 === "python"
 
     ```python
     from indexify import IndexifyClient
 
     client = IndexifyClient()
-    print(client.extractors)
+    extractors = client.extractors
     ```
-
-    Output:
-
-    ```
-    [Extractor(name=EntityExtractor, description=EntityExtractor),
-     Extractor(name=MiniLML6, description=MiniLML6 Embeddings)]
-    ```
-
 #### Bind some extractors to the repository
 
 To start extracting information from the documents, we need to bind some extractors to the repository. Let's bind a named entity extractor so that we can retrieve some data in the form of key/value pairs, and an embedding extractor so that we can run semantic search over the raw text.
@@ -134,13 +101,7 @@ Every extractor we bind results in a corresponding index being created in Indexi
     ```python
     repo.bind_extractor("diptanu/minilm-l6-extractor", "minil6")
 
-    print(repo.extractor_bindings())
-    ```
-
-    Output:
-
-    ```
-    [ExtractorBinding(extractor_name=MiniLML6, index_name=embeddings)]
+    bindings = repo.extractor_bindings()
     ```
 
 We now have an index with embedding extracted by MiniLML6.

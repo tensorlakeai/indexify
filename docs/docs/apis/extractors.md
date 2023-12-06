@@ -80,7 +80,7 @@ indexify extractor extract -e my-extractor/custom_extractor.py:MyExtractor --tex
 It's a good idea to test the behavior of the extractor with the Indexify Control Plane locally to make sure it works as expected. 
 
 ```shell
-indexify extractor start -e my-extractor/custom_extractor.py:MyExtractor --control-plane-addr 172.21.0.2:8950
+indexify extractor start -e my-extractor/indexify.yaml --control-plane-addr 172.21.0.2:8950
 ```
 
 #### Update the extractor configuration
