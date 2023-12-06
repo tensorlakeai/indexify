@@ -33,21 +33,21 @@ The extractor code lives in python modules. The template creates a `MyExtractor`
 
 ```python
 def extract(self, content: List[Content]) -> List[List[Content]]:
-        """
-        Extracts features from content.
-        """
-        output: List[List[Content]] = []
-        for cn in content:
-            chunk_contents: List[Content] = []
-            chunks = cn.chunk()
-            for chunk in chunks:
-                embedding = get_embedding(chunk)
-                entities = run_ner_model(chunk)
-                embed_chunk = Content.from_text(text=chunk, feature=Feature.embedding(name="text_embedding", value=embedding))
-                metadata_chunk = Content.from_text(text=chunk, feature=Feature.metadata(name="metadata", json.dumps(entities))),
-                chunk_contents.extend([embed_chunk, metadata_chunk])
-            output.append(chunk_contents)
-        return output
+    """
+    Extracts features from content.
+    """
+    output: List[List[Content]] = []
+    for cn in content:
+        chunk_contents: List[Content] = []
+        chunks = cn.chunk()
+        for chunk in chunks:
+            embedding = get_embedding(chunk)
+            entities = run_ner_model(chunk)
+            embed_chunk = Content.from_text(text=chunk, feature=Feature.embedding(name="text_embedding", value=embedding))
+            metadata_chunk = Content.from_text(text=chunk, feature=Feature.metadata(name="metadata", json.dumps(entities))),
+            chunk_contents.extend([embed_chunk, metadata_chunk])
+        output.append(chunk_contents)
+    return output
 ```
 
 In this example we iterate over a list of content, chunk each content, run a NER model and an embedding model over each chunk and return them as features along with the chunks of text.
@@ -60,12 +60,12 @@ Implement the schemas method to contain the output schema of the extractor. Name
 
 ```python
 def schemas(cls) -> ExtractorSchema:
-        """
-        Returns schema of features for indexing.
-        """
-        return ExtractorSchema(
-            features={"text_embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
-        )
+    """
+    Returns schema of features for indexing.
+    """
+    return ExtractorSchema(
+        features={"text_embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
+    )
 ```
 
 #### Test the extractor locally
