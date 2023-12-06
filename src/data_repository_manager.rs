@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use jsonschema::JSONSchema;
 use sea_orm::DbConn;
 use std::{collections::HashMap, fmt, sync::Arc};
 use thiserror::Error;
@@ -105,13 +106,10 @@ impl DataRepositoryManager {
     #[tracing::instrument]
     async fn create_index(
         &self,
+        extractor: &Extractor,
         repository: &str,
         extractor_binding: &ExtractorBinding,
     ) -> Result<()> {
-        let extractor = self
-            .repository
-            .extractor_by_name(&extractor_binding.extractor)
-            .await?;
         for (output_name, schema) in extractor.schemas.outputs.clone() {
             let index_name = format!("{}-{}", extractor_binding.name, output_name);
             match schema {
@@ -138,10 +136,11 @@ impl DataRepositoryManager {
         self.repository
             .upsert_repository(repository.clone())
             .await?;
+
         for extractor_binding in &repository.extractor_bindings {
             let _ = self
-                .create_index(&repository.name, extractor_binding)
-                .await?;
+                .add_extractor_binding(&repository.name, extractor_binding)
+                .await;
         }
         Ok(())
     }
@@ -154,15 +153,14 @@ impl DataRepositoryManager {
             .map_err(DataRepositoryError::Persistence)
     }
 
-    #[tracing::instrument]
     pub async fn add_extractor_binding(
         &self,
         repository: &str,
-        extractor: ExtractorBinding,
+        extractor_binding: &ExtractorBinding,
     ) -> Result<()> {
         info!(
             "adding extractor bindings repository: {}, extractor: {}, binding: {}",
-            repository, extractor.extractor, extractor.name,
+            repository, extractor_binding.extractor, extractor_binding.name,
         );
         let mut data_repository = self
             .repository
@@ -170,16 +168,42 @@ impl DataRepositoryManager {
             .await
             .unwrap();
         for ex in &data_repository.extractor_bindings {
-            if ex.name == extractor.name {
+            if ex.name == extractor_binding.name {
                 return Err(anyhow!(
                     "binding with name {} already exists in repository: {}",
-                    extractor.name,
+                    extractor_binding.name,
                     repository,
                 ));
             }
         }
-        self.create_index(repository, &extractor).await?;
-        data_repository.extractor_bindings.push(extractor.clone());
+        let extractor = self
+            .repository
+            .extractor_by_name(&extractor_binding.extractor)
+            .await?;
+        let input_params_schema = JSONSchema::compile(&extractor.input_params).map_err(|e| {
+            anyhow!(
+                "unable to compile json schema for input params: {:?}, error: {:?}",
+                &extractor.input_params,
+                e
+            )
+        })?;
+        let validation_result = input_params_schema.validate(&extractor_binding.input_params);
+        if let Err(errors) = validation_result {
+            let errors = errors
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<String>>();
+                return Err(anyhow!(
+                    "unable to validate input params for extractor binding: {}, errors: {}",
+                    extractor_binding.name,
+                    errors.join(",")
+                ));
+        }
+        self.create_index(&extractor, repository, &extractor_binding)
+            .await?;
+        data_repository
+            .extractor_bindings
+            .push(extractor_binding.clone());
         self.repository.upsert_repository(data_repository).await?;
         Ok(())
     }

@@ -84,5 +84,6 @@ class ExtractorWrapper:
             if isinstance(v, EmbeddingSchema):
                 embedding_schemas[k] = v
                 continue
-        input_params = json.dumps(self._param_cls.model_json_schema() if self._param_cls else {})
-        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=input_params)
+        json_schema = self._param_cls.model_json_schema() if self._param_cls else {}
+        json_schema['additionalProperties'] = False
+        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=json.dumps(json_schema))
