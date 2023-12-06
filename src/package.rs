@@ -209,8 +209,6 @@ COPY indexify.yaml indexify.yaml
 RUN pip3 install --no-input indexify_extractor_sdk
 
 
-ENV PYTHONPATH=$PTYTHONPATH:/indexify/extractors
-
 ENTRYPOINT [ "/indexify/indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
     }
