@@ -291,7 +291,6 @@ async fn get_repository(
     }))
 }
 
-#[tracing::instrument]
 #[utoipa::path(
     post,
     path = "/repositories/{repository_name}/extractor_bindings",
@@ -315,7 +314,7 @@ async fn bind_extractor(
         .repository_manager
         .add_extractor_binding(
             &repository_name,
-            into_persistence_extractor_binding(&repository_name, payload.extractor_binding),
+            &into_persistence_extractor_binding(&repository_name, payload.extractor_binding),
         )
         .await
         .map_err(|e| {
