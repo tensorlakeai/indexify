@@ -201,7 +201,7 @@ RUN apt-get install -y  libpq-dev libssl-dev
 
 RUN pip3 install --no-input numpy pandas
 
-COPY extractors /indexify/extractors
+COPY . /indexify/
 
 COPY indexify.yaml indexify.yaml
 
