@@ -16,20 +16,21 @@ client = IndexifyClient()
 from indexify.repository import Document
 repository = client.get_repository("default")
 
+repository.bind_extractor(
+    "diptanu/minilm-l6-extractor",
+    "minilm",
+)
+
 repository.add_documents(
     [
         Document(
             text="Indexify is amazing!",
-            metadata={"url": "https://www.google.com"},
+            metadata={"url": "https://memory-alpha.fandom.com"},
         ),
         Document(
-            text="Indexify is a retrieval service for LLM agents!",
-            metadata={"source": "test"},
-        ),
-        Document(
-            text="Kevin Durant is the best basketball player in the world.",
-            metadata={"source": "test"},
-        ),
+            text="Indexify is also a retrieval service for LLM agents!",
+            metadata={"url": "https://memory-alpha.fandom.com"},
+        )
     ]
 )
 
@@ -37,8 +38,8 @@ repository.add_documents(
 # implement retriever from indexify repo
 from retriever import IndexifyRetriever
 
-params = {"repository_name": "default", "index_name": "test", "top_k": 3}
+params = {"repository_name": "default", "name": "minilm-embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 
-docs = retriever.get_relevant_documents("basketball")
+docs = retriever.get_relevant_documents("test")
 ```

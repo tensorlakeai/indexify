@@ -51,7 +51,7 @@ class IndexifyRetriever(BaseRetriever):
         args = {
             "top_k": self.params.get("top_k", 1),
             "query": query,
-            "index_name": self.params["index_name"],
+            "name": self.params["name"],
         }
 
         results = repository.search_index(**args)
