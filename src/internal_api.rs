@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::{collections::HashMap, str::FromStr};
-use strum_macros::{Display, EnumString};
+use strum::{Display, EnumString};
 
 use crate::{
     persistence::{self, EmbeddingSchema},

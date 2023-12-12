@@ -3,43 +3,48 @@ name = "indexify"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
+resolver = "2"
 
 [workspace]
 members = [".", "migration"]
 
-[dependencies]
-anyhow = { version = "^1" }
-async-trait = "*"
-askama = {version = "^0"}
-axum = { version = "^0", features = ["multipart"] }
-axum-macros = { version = "0.3.7" }
+[workspace.dependencies]
+anyhow = { version = "1" }
+async-trait = "0.1"
+askama = { version = "0.12" }
+axum = { version = "0.6", features = ["multipart"] }
+axum-macros = { version = "0.3" }
 axum-otel-metrics = "0.7"
-axum-tracing-opentelemetry = "0.14.1"
-bollard = {version = "^0", features = ["buildkit"]}
-bytes = "1.5.0"
-clap = { version = "^4", features = ["derive"] }
-figment = { version = "0.10.8", features = ["yaml", "env"] }
-hostname = { version = "^0" }
-itertools = "0.12.0"
-jsonschema = "0.17.1"
-mime = {version = "^0.3"}
-mime_guess = {version = "^2"}
-nanoid = { version = "0.4.0" }
-opensearch = { version = "2.1.0" }
-opentelemetry = { version = "^0", features = ["rt-async-std"] }
-opentelemetry_sdk = "0.21.0"
-opentelemetry-semantic-conventions = "0.13.0"
-opentelemetry-otlp = { version = "*", features = [
+axum-tracing-opentelemetry = "0.14"
+bollard = { version = "0.15", features = ["buildkit"] }
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+figment = { version = "0.10", features = ["yaml", "env"] }
+hostname = { version = "0.3" }
+itertools = "0.12"
+jsonschema = "0.17"
+mime = { version = "0.3" }
+mime_guess = { version = "2" }
+nanoid = { version = "0.4" }
+opensearch = { version = "2" }
+opentelemetry = { version = "0.20", features = ["rt-async-std"] }
+opentelemetry_sdk = "0.21"
+opentelemetry-semantic-conventions = "0.13"
+opentelemetry-otlp = { version = "0.13", features = [
     "http-proto",
     "reqwest-client",
 ] }
-opentelemetry-stdout = {version = "0.2.0", features = ["logs", "metrics", "trace"]}
-pyo3 = { version = "^0", features = ["auto-initialize"] }
-qdrant-client = "1.2.0"
-rand = { version = "^0" }
-regex = { version = "^1" }
-reqwest = { version = "^0", features = ["json"] }
-sea-orm = { version = "0.12.4", features = [
+opentelemetry-stdout = { version = "0.2", features = [
+    "logs",
+    "metrics",
+    "trace",
+] }
+pyo3 = { version = "0.20", features = ["auto-initialize"] }
+qdrant-client = "1"
+rand = { version = "0.8" }
+regex = { version = "1" }
+reqwest = { version = "0.11", features = ["json"] }
+sea-orm = { version = "0.12", features = [
     "sqlx-postgres",
     "runtime-tokio-native-tls",
     "macros",
@@ -48,39 +53,95 @@ sea-orm = { version = "0.12.4", features = [
     "with-time",
     "postgres-array",
 ] }
-sea-query = { version = "^0", features = ["postgres-array"] }
-serde = { version = "^1", features = ["derive"] }
-serde_yaml = { version = "^0" }
-serde_json = { version = "^1", features = ["std"] }
-smart-default = { version = "^0" }
-strum = { version = "^0", features = ["derive"] }
-strum_macros = { version = "^0" }
-thiserror = "*"
-tokio = { version = "^1", features = ["full"] }
-tokio-stream = "0.1.14"
-tracing = { version = "^0", features = ["log"] }
-tracing-core = "0.1.31"
+sea-query = { version = "0.30", features = ["postgres-array"] }
+sea-orm-migration = { version = "0.12", features = [
+    "runtime-tokio-native-tls",
+    "sqlx-postgres",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = { version = "0.9" }
+serde_json = { version = "1" }
+smart-default = { version = "0.7" }
+strum = { version = "0.25", features = ["derive"] }
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tracing = { version = "0.1", features = ["log"] }
+tracing-core = "0.1"
 tracing-opentelemetry = { version = "0.22" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = "*"
-utoipa = { version = "^4", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "^4", features = ["axum"] }
-utoipa-rapidoc = { version = "^1", features = ["axum"] }
-utoipa-redoc = { version = "^1", features = ["axum"] }
-object_store = "0.8.0"
-local-ip-address = {version = "0.5.6"}
-flate2 = "1.0"
+url = "2"
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "4", features = ["axum"] }
+utoipa-rapidoc = { version = "1", features = ["axum"] }
+utoipa-redoc = { version = "1", features = ["axum"] }
+object_store = "0.8"
+local-ip-address = { version = "0.5" }
+flate2 = "1"
 tar = "0.4"
-walkdir = { version="^2" }
+walkdir = { version = "2" }
 
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+askama = { workspace = true }
+axum = { workspace = true }
+axum-macros = { workspace = true }
+axum-otel-metrics = { workspace = true }
+axum-tracing-opentelemetry = { workspace = true }
+bollard = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+figment = { workspace = true }
+hostname = { workspace = true }
+itertools = { workspace = true }
+jsonschema = { workspace = true }
+mime = { workspace = true }
+mime_guess = { workspace = true }
+nanoid = { workspace = true }
+opensearch = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-stdout = { workspace = true }
+pyo3 = { workspace = true }
+qdrant-client = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+sea-orm = { workspace = true }
+sea-query = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+smart-default = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+tracing-core = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+utoipa-rapidoc = { workspace = true }
+utoipa-redoc = { workspace = true }
+object_store = { workspace = true }
+local-ip-address = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+walkdir = { workspace = true }
 
 [dev-dependencies]
 migration = { path = "./migration" }
-tracing-test = { version = "^0", features = ["no-env-filter"] }
+tracing-test = { version = "0.2", features = ["no-env-filter"] }
 
 [build-dependencies]
 # All features enabled
-vergen = { version = "8.0.0", features = [
+vergen = { version = "8", features = [
     "build",
     "cargo",
     "git",
@@ -88,4 +149,4 @@ vergen = { version = "8.0.0", features = [
     "rustc",
     "si",
 ] }
-pyo3-build-config = "0.20.0"
+pyo3-build-config = "0.20"

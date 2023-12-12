@@ -119,7 +119,7 @@ impl VectorDb for QdrantDb {
         }
         let _result = self
             .create_client()?
-            .upsert_points(&index, points, None)
+            .upsert_points(&index, None, points, None)
             .await
             .map_err(|e| VectorDbError::IndexNotCreated(e.to_string()))?;
         Ok(())
@@ -181,7 +181,7 @@ impl VectorDb for QdrantDb {
         let collection_info = result
             .result
             .ok_or(VectorDbError::IndexNotRead("index not found".into()))?;
-        Ok(collection_info.points_count)
+        Ok(collection_info.points_count.unwrap_or_default())
     }
 }
 

@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
-use strum_macros::{Display, EnumString};
+use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::persistence;

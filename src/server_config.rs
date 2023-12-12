@@ -40,7 +40,7 @@ pub struct BlobStorageConfig {
     pub disk: Option<DiskStorageConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum_macros::Display)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
