@@ -10,9 +10,8 @@ mod server;
 #[derive(Debug, Args)]
 pub struct GlobalArgs {
     /// how verbose the logging should be
-    ///
-    /// Currently each command has it's own stuff. I'm just keeping this here as
-    /// an example. We can iterate on this as and when we need to.
+    // Currently each command has it's own stuff. I'm just keeping this here as
+    // an example. We can iterate on this as and when we need to.
     #[arg(
         global = true,
         short = 'v',
