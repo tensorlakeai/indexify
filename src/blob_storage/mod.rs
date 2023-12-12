@@ -1,8 +1,10 @@
-use crate::server_config::BlobStorageConfig;
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
-use std::sync::Arc;
+
+use crate::server_config::BlobStorageConfig;
 
 pub mod disk;
 

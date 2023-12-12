@@ -1,22 +1,27 @@
 #[cfg(test)]
 pub mod db_utils {
+    use std::{collections::HashMap, sync::Arc};
+
     use migration::{Migrator, MigratorTrait};
-    use serde_json::json;
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
     use sea_orm::{Database, DatabaseConnection, DbErr};
+    use serde_json::json;
 
-    use crate::attribute_index::AttributeIndexManager;
-    use crate::coordinator::Coordinator;
-    use crate::executor::ExtractorExecutor;
-    use crate::persistence::ExtractorSchema;
-    use crate::persistence::{DataRepository, ExtractorOutputSchema};
-    use crate::persistence::{Extractor, ExtractorBinding, Repository};
-    use crate::server_config::ExtractorConfig;
-    use crate::vector_index::VectorIndexManager;
-    use crate::vectordbs::{self, IndexDistance};
-    use crate::{server_config::ServerConfig, vectordbs::qdrant::QdrantDb, vectordbs::VectorDBTS};
+    use crate::{
+        attribute_index::AttributeIndexManager,
+        coordinator::Coordinator,
+        executor::ExtractorExecutor,
+        persistence::{
+            DataRepository,
+            Extractor,
+            ExtractorBinding,
+            ExtractorOutputSchema,
+            ExtractorSchema,
+            Repository,
+        },
+        server_config::{ExtractorConfig, ServerConfig},
+        vector_index::VectorIndexManager,
+        vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS},
+    };
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
 

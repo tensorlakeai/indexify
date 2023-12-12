@@ -1,12 +1,18 @@
-use anyhow::Result;
-use axum::{extract::State, routing::get, routing::post, Json, Router};
-use axum_otel_metrics::HttpMetricsLayerBuilder;
-use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use reqwest::StatusCode;
 use std::{
     net::{SocketAddr, TcpListener},
     sync::Arc,
 };
+
+use anyhow::Result;
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json,
+    Router,
+};
+use axum_otel_metrics::HttpMetricsLayerBuilder;
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use reqwest::StatusCode;
 use tokio::{signal, sync::mpsc};
 use tracing::{error, info};
 

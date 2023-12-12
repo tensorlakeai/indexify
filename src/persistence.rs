@@ -1,36 +1,50 @@
-use mime::Mime;
-use nanoid::nanoid;
-use sea_orm::sea_query::Expr;
-use sea_orm::{ConnectionTrait, QueryTrait};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{error, info};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{anyhow, Result};
-use entity::data_repository::Entity as DataRepositoryEntity;
-use entity::extraction_event::Entity as ExtractionEventEntity;
-use entity::extractors;
-use entity::index::Entity as IndexEntity;
-use entity::index::Model as IndexModel;
-use sea_orm::sea_query::OnConflict;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DbBackend, Statement};
-use sea_orm::{
-    ActiveValue::NotSet, Database, DatabaseConnection, DbErr, EntityTrait, Set, TransactionTrait,
+use entity::{
+    data_repository::Entity as DataRepositoryEntity,
+    extraction_event::Entity as ExtractionEventEntity,
+    extractors,
+    index::{Entity as IndexEntity, Model as IndexModel},
+    work::Entity as WorkEntity,
 };
-use sea_orm::{ConnectOptions, QueryFilter};
+use mime::Mime;
+use nanoid::nanoid;
+use sea_orm::{
+    sea_query::{Expr, OnConflict},
+    ActiveModelTrait,
+    ActiveValue::NotSet,
+    ColumnTrait,
+    ConnectOptions,
+    ConnectionTrait,
+    Database,
+    DatabaseConnection,
+    DbBackend,
+    DbErr,
+    EntityTrait,
+    QueryFilter,
+    QueryTrait,
+    Set,
+    Statement,
+    TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use thiserror::Error;
+use tracing::{error, info};
 
-use crate::entity::{index, work};
-use crate::vectordbs::{self};
-use crate::{entity, vectordbs::IndexDistance};
-use entity::work::Entity as WorkEntity;
+use crate::{
+    entity,
+    entity::{index, work},
+    vectordbs::{self, IndexDistance},
+};
 
 pub struct Index {
     pub name: String,
@@ -1149,9 +1163,8 @@ impl Repository {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::db_utils::create_db;
-
     use super::*;
+    use crate::test_util::db_utils::create_db;
 
     #[tokio::test]
     #[tracing_test::traced_test]

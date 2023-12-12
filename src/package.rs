@@ -1,17 +1,18 @@
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
+
 use anyhow::{anyhow, Result};
-
 use askama::Template;
-use bollard::service::BuildInfoAux;
-
-use bollard::image::{BuildImageOptions, BuilderVersion};
-use bollard::Docker;
-
+use bollard::{
+    image::{BuildImageOptions, BuilderVersion},
+    service::BuildInfoAux,
+    Docker,
+};
 use tokio_stream::StreamExt;
 use tracing::info;
 use walkdir::WalkDir;
-
-use std::io::Write;
-use std::path::{Path, PathBuf};
 
 use crate::server_config::ExtractorConfig;
 

@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::fs::File;
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
-use super::BlobStorage;
-use super::BlobStorageReader;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
+use super::{BlobStorage, BlobStorageReader};
 
 #[derive(Debug)]
 pub struct DiskStorage {

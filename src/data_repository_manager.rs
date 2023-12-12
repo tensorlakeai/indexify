@@ -1,8 +1,9 @@
+use std::{collections::HashMap, fmt, sync::Arc};
+
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use jsonschema::JSONSchema;
 use sea_orm::DbConn;
-use std::{collections::HashMap, fmt, sync::Arc};
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -13,8 +14,16 @@ use crate::{
     blob_storage::BlobStorageTS,
     index::IndexError,
     persistence::{
-        ContentPayload, DataRepository, Event, ExtractedAttributes, Extractor, ExtractorBinding,
-        ExtractorOutputSchema, Index, Repository, RepositoryError,
+        ContentPayload,
+        DataRepository,
+        Event,
+        ExtractedAttributes,
+        Extractor,
+        ExtractorBinding,
+        ExtractorOutputSchema,
+        Index,
+        Repository,
+        RepositoryError,
     },
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
@@ -199,7 +208,7 @@ impl DataRepositoryManager {
                 errors.join(",")
             ));
         }
-        self.create_index(&extractor, repository, &extractor_binding)
+        self.create_index(&extractor, repository, extractor_binding)
             .await?;
         data_repository
             .extractor_bindings
@@ -286,8 +295,9 @@ impl DataRepositoryManager {
         name: &str,
         file: Bytes,
     ) -> Result<(), anyhow::Error> {
-        // TODO - wrap the write to blob storage in a lambda and pass it to the persistence layer
-        // so that we can mark the file upload as complete if the blob storage write succeeds.
+        // TODO - wrap the write to blob storage in a lambda and pass it to the
+        // persistence layer so that we can mark the file upload as complete if
+        // the blob storage write succeeds.
         let stored_file_path = self.blob_storage.put(name, file).await?;
         self.repository
             .add_content(
@@ -307,20 +317,21 @@ impl DataRepositoryManager {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::blob_storage::BlobStorageBuilder;
-    use crate::persistence::{DataConnector, Event, ExtractorBinding, SourceType};
-    use crate::test_util;
-    use crate::test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY};
-
     use serde_json::json;
 
     use super::*;
+    use crate::{
+        blob_storage::BlobStorageBuilder,
+        persistence::{DataConnector, Event, ExtractorBinding, SourceType},
+        test_util,
+        test_util::db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+    };
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_sync_repository() {
         let db = test_util::db_utils::create_db().await.unwrap();
-        let (index_manager, _, _) = test_util::db_utils::create_index_manager(db.clone()).await;
+        let (index_manager, ..) = test_util::db_utils::create_index_manager(db.clone()).await;
         let blob_storage =
             BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).unwrap();
         let repository_manager =
@@ -399,8 +410,8 @@ mod tests {
         extractor_executor.sync_repo_test(work_list).await.unwrap();
 
         //let search_results = repository_manager
-        //    .search(DEFAULT_TEST_REPOSITORY, "memory_session_embeddings", "hello", 2)
-        //    .await
+        //    .search(DEFAULT_TEST_REPOSITORY, "memory_session_embeddings",
+        // "hello", 2)    .await
         //    .unwrap();
         //assert_eq!(search_results.len(), 2);
     }

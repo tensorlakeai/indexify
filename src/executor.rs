@@ -1,25 +1,30 @@
-use crate::content_reader::ContentReader;
-use crate::extractor::python_path;
-use crate::internal_api::{self, Content, WorkState, WorkStatus};
-use crate::server_config::ExtractorConfig;
-use crate::work_store::WorkStore;
-use crate::{
-    attribute_index::AttributeIndexManager,
-    extractor::{self, ExtractorTS},
-    internal_api::{ExecutorInfo, ExtractorDescription, SyncExecutor, SyncWorkerResponse, Work},
-    persistence::Repository,
-    server_config::ExecutorConfig,
-    vector_index::VectorIndexManager,
-};
+use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
+
 use anyhow::{anyhow, Ok, Result};
 use nanoid::nanoid;
 use serde_json::json;
-use std::collections::HashMap;
-use std::fmt;
-use std::sync::Arc;
-use std::time::SystemTime;
-use tracing::error;
-use tracing::info;
+use tracing::{error, info};
+
+use crate::{
+    attribute_index::AttributeIndexManager,
+    content_reader::ContentReader,
+    extractor::{self, python_path, ExtractorTS},
+    internal_api::{
+        self,
+        Content,
+        ExecutorInfo,
+        ExtractorDescription,
+        SyncExecutor,
+        SyncWorkerResponse,
+        Work,
+        WorkState,
+        WorkStatus,
+    },
+    persistence::Repository,
+    server_config::{ExecutorConfig, ExtractorConfig},
+    vector_index::VectorIndexManager,
+    work_store::WorkStore,
+};
 
 fn create_executor_id() -> String {
     let host_name = hostname::get()
@@ -58,7 +63,7 @@ impl ExtractorExecutor {
         let executor_id = create_executor_id();
         let extractor_config = Arc::new(ExtractorConfig::from_path(extractor_config_path)?);
         info!("looking up extractor at path: {}", &extractor_config_path);
-        python_path::set_python_path(&extractor_config_path)?;
+        python_path::set_python_path(extractor_config_path)?;
 
         let extractor =
             extractor::create_extractor(&extractor_config.module, &extractor_config.name)?;

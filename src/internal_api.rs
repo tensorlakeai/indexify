@@ -1,7 +1,8 @@
+use std::{collections::HashMap, str::FromStr};
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
-use std::{collections::HashMap, str::FromStr};
 use strum::{Display, EnumString};
 
 use crate::{
@@ -30,6 +31,7 @@ pub struct ExtractorDescription {
 
 impl TryFrom<ExtractorDescription> for persistence::Extractor {
     type Error = anyhow::Error;
+
     fn try_from(extractor: ExtractorDescription) -> Result<persistence::Extractor> {
         let mut output_schema = HashMap::new();
         for (output_name, embedding_schema) in extractor.schema.output {
@@ -252,6 +254,7 @@ pub struct ContentPayload {
 
 impl TryFrom<persistence::ContentPayload> for ContentPayload {
     type Error = anyhow::Error;
+
     fn try_from(payload: persistence::ContentPayload) -> Result<Self> {
         let content_type = payload.content_type.to_string();
         let (external_url, content) = match payload.payload_type {

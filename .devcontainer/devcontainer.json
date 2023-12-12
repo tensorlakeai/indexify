@@ -37,7 +37,13 @@
 				"vscode-icons-team.vscode-icons", // Better file extension icons
 				"IBM.output-colorizer", // Colorize your output/test logs,
 				"ms-azuretools.vscode-docker"
-			]
+			],
+			"settings": {
+				"editor.formatOnSave": true,
+				"rust-analyzer.rustfmt.extraArgs": [
+					"+nightly"
+				]
+			}
 		}
 	}
 	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.

@@ -1,7 +1,6 @@
-use anyhow::Result;
+use std::{fmt, sync::Arc};
 
-use std::fmt;
-use std::sync::Arc;
+use anyhow::Result;
 
 use crate::persistence::{ExtractedAttributes, Extractor, Repository};
 

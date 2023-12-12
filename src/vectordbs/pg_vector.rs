@@ -1,13 +1,22 @@
+use std::fmt;
+
 use async_trait::async_trait;
-use sea_orm::{query::JsonValue, ConnectionTrait, ExecResult, FromQueryResult};
+use itertools::Itertools;
+use sea_orm::{
+    self,
+    query::JsonValue,
+    ConnectionTrait,
+    DbBackend,
+    DbConn,
+    ExecResult,
+    FromQueryResult,
+    Statement,
+};
 use serde_json::Value;
 use tracing::{debug, warn};
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb, VectorDbError};
 use crate::server_config::PgVectorConfig;
-use itertools::Itertools;
-use sea_orm::{self, DbBackend, DbConn, Statement};
-use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct IndexName(String);
@@ -40,8 +49,8 @@ impl PgVector {
 /// Acts as a salt, to make sure there are no collisions with other tables
 const INDEX_TABLE_PREFIX: &str = "index_";
 
-/// Please note that only vectors with a dimension of up to dims=2000 can be indexed!
-/// Can include much more customization if required later on
+/// Please note that only vectors with a dimension of up to dims=2000 can be
+/// indexed! Can include much more customization if required later on
 /// See https://github.com/pgvector/pgvector#approximate-search for more options
 #[async_trait]
 impl VectorDb for PgVector {
@@ -82,7 +91,8 @@ impl VectorDb for PgVector {
                 VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
             })?;
 
-        // Create index if dimensions is below 2000. It will be much slower for larger vectors, we should be explicit about this in the docs
+        // Create index if dimensions is below 2000. It will be much slower for larger
+        // vectors, we should be explicit about this in the docs
         // This is a limitation of pg_vector
         if vector_dim >= 2000 {
             warn!(
@@ -91,7 +101,9 @@ impl VectorDb for PgVector {
             );
         }
         debug!("Parameters for index {} are: {:?}", index_name, self.config);
-        // IF NOT EXISTS requires an index-name in postgres. "_{INDEX_TABLE_PREFIX}{index_name}_hnsw" is automatically set as the index-name
+        // IF NOT EXISTS requires an index-name in postgres.
+        // "_{INDEX_TABLE_PREFIX}{index_name}_hnsw" is automatically set as the
+        // index-name
         let query = format!(
             r#"
                     CREATE INDEX IF NOT EXISTS _{INDEX_TABLE_PREFIX}{index_name}_hnsw ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});
@@ -128,14 +140,14 @@ impl VectorDb for PgVector {
         chunks: Vec<VectorChunk>,
     ) -> Result<(), VectorDbError> {
         let index = IndexName::new(index);
-        // Because sea-orm is not super flexible in accepting arrays of tuples, we build the query somewhat manually.
-        // Indexing starts at 1 (with $1) in Postgres
-        // We "unroll" tuples of (chunk_id, embedding).
+        // Because sea-orm is not super flexible in accepting arrays of tuples, we build
+        // the query somewhat manually. Indexing starts at 1 (with $1) in
+        // Postgres We "unroll" tuples of (chunk_id, embedding).
         // After the table-name, every second item is the chunk_id.
-        // After the table-name, and with an offset of 1 (because chunk_id is inserted), every second item is the embedding
-        // The final query looks similar to:
-        // INSERT INTO index_table (chunk_id, embedding) VALUES (chunk_id_1, embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);
-        //                                                |>(1+2*0)=$1 |>(2+2*0)=$2  |>(1+2*1)=$3 |>(2+2*4)=$4       |>(1+2*n)    |>(2+2*n)
+        // After the table-name, and with an offset of 1 (because chunk_id is inserted),
+        // every second item is the embedding The final query looks similar to:
+        // INSERT INTO index_table (chunk_id, embedding) VALUES (chunk_id_1,
+        // embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);                                                |>(1+2*0)=$1 |>(2+2*0)=$2  |>(1+2*1)=$3 |>(2+2*4)=$4       |>(1+2*n)    |>(2+2*n)
         let value_placeholders = chunks
             .iter()
             .enumerate()
@@ -148,8 +160,8 @@ impl VectorDb for PgVector {
                 DO UPDATE SET embedding = EXCLUDED.embedding;
             "#
         );
-        // Due to the limitations of sea-query (we cannot encode tuples, nor can we encode arrays of arrays)
-        // We iteratively build out the query manually
+        // Due to the limitations of sea-query (we cannot encode tuples, nor can we
+        // encode arrays of arrays) We iteratively build out the query manually
         let parameters = chunks
             .into_iter()
             .flat_map(|chunk| {
@@ -197,7 +209,8 @@ impl VectorDb for PgVector {
         k: u64,
     ) -> Result<Vec<SearchResult>, VectorDbError> {
         let index = IndexName::new(&index);
-        // TODO: confidence_score is a distance here, let's make sure that similarity / distance is the same across vectors databases
+        // TODO: confidence_score is a distance here, let's make sure that similarity /
+        // distance is the same across vectors databases
         let query = format!(
             r#"
             SELECT chunk_id, CAST(embedding <-> ($1)::vector AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> ($1)::vector LIMIT {k};
@@ -276,17 +289,17 @@ mod tests {
 
     use sea_orm::Database;
 
+    use super::CreateIndexParams;
     use crate::{
         server_config::PgVectorConfig,
         vectordbs::{pg_vector::PgVector, IndexDistance, VectorChunk, VectorDBTS},
     };
 
-    use super::CreateIndexParams;
-
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_search_basic() {
-        // Create the sea-orm connection, s.t. we can share it with the application-level pool
+        // Create the sea-orm connection, s.t. we can share it with the
+        // application-level pool
         let database_url = "postgres://postgres:postgres@localhost/indexify";
         let db_conn = Database::connect(database_url).await.unwrap();
         let vector_db: VectorDBTS = Arc::new(PgVector::new(

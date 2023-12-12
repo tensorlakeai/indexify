@@ -1,16 +1,22 @@
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 
+use async_trait::async_trait;
 use qdrant_client::{
-    client::QdrantClient,
-    client::{Payload, QdrantClientConfig},
+    client::{Payload, QdrantClient, QdrantClientConfig},
     qdrant::{
-        vectors_config::Config, with_payload_selector::SelectorOptions, CreateCollection, Distance,
-        PointStruct, SearchPoints, VectorParams, VectorsConfig, WithPayloadSelector,
+        vectors_config::Config,
+        with_payload_selector::SelectorOptions,
+        CreateCollection,
+        Distance,
+        PointStruct,
+        SearchPoints,
+        VectorParams,
+        VectorsConfig,
+        WithPayloadSelector,
     },
 };
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use super::{CreateIndexParams, VectorDb, VectorDbError};
 use crate::{
@@ -189,12 +195,11 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::sync::Arc;
 
+    use super::{CreateIndexParams, QdrantDb};
     use crate::{
         server_config::QdrantConfig,
         vectordbs::{IndexDistance, VectorChunk, VectorDBTS},
     };
-
-    use super::{CreateIndexParams, QdrantDb};
 
     #[tokio::test]
     #[tracing_test::traced_test]

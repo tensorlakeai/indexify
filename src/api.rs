@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::persistence;
-use crate::vectordbs;
+use crate::{persistence, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, EnumString, Display)]
 #[serde(rename = "extractor_filter")]

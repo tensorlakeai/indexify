@@ -1,17 +1,16 @@
+use std::{collections::HashMap, str::FromStr};
+
 use anyhow::{anyhow, Ok};
-use pyo3::prelude::*;
+use pyo3::{
+    prelude::*,
+    types::{PyList, PyString},
+};
 
-use std::collections::HashMap;
-use std::str::FromStr;
-
-use super::ExtractorSchema;
-use super::{EmbeddingSchema, Extractor};
-
+use super::{EmbeddingSchema, Extractor, ExtractorSchema};
 use crate::{
     content_reader::ContentReader,
     internal_api::{self, Content, ContentPayload},
 };
-use pyo3::types::{PyList, PyString};
 
 const EXTRACT_METHOD: &str = "extract";
 
@@ -231,8 +230,9 @@ impl Extractor for PythonExtractor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn extract_content() {

@@ -1,24 +1,36 @@
-use axum::extract::DefaultBodyLimit;
+use std::{net::SocketAddr, sync::Arc, time::SystemTime};
+
+use axum::{
+    extract::{DefaultBodyLimit, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json,
+    Router,
+};
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::SystemTime;
 use tokio::signal;
 use tracing::{error, info};
 
-use crate::api::IndexifyAPIError;
-use crate::attribute_index::AttributeIndexManager;
-use crate::internal_api::{
-    CoordinateRequest, CoordinateResponse, CreateWork, CreateWorkResponse, ExecutorInfo,
-    SyncExecutor, SyncWorkerResponse,
+use crate::{
+    api::IndexifyAPIError,
+    attribute_index::AttributeIndexManager,
+    coordinator::Coordinator,
+    internal_api::{
+        CoordinateRequest,
+        CoordinateResponse,
+        CreateWork,
+        CreateWorkResponse,
+        ExecutorInfo,
+        ListExecutors,
+        SyncExecutor,
+        SyncWorkerResponse,
+    },
+    persistence::Repository,
+    server_config::ServerConfig,
+    vector_index::VectorIndexManager,
+    vectordbs,
 };
-use crate::persistence::Repository;
-use crate::server_config::ServerConfig;
-use crate::vector_index::VectorIndexManager;
-use crate::vectordbs;
-use crate::{coordinator::Coordinator, internal_api::ListExecutors};
-use axum::{extract::State, http::StatusCode, routing::get, routing::post, Json, Router};
 
 pub struct CoordinatorServer {
     addr: SocketAddr,
@@ -78,6 +90,7 @@ impl CoordinatorServer {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn run_extractors(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
