@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -16,8 +15,7 @@ pub mod qdrant;
 
 use qdrant::QdrantDb;
 
-use self::open_search::OpenSearchKnn;
-use self::pg_vector::PgVector;
+use self::{open_search::OpenSearchKnn, pg_vector::PgVector};
 
 #[derive(Display, Debug, Clone, EnumString, Serialize, Deserialize)]
 pub enum IndexDistance {
@@ -50,7 +48,8 @@ pub struct SearchResult {
     pub confidence_score: f32,
 }
 
-/// An enumeration of possible errors that can occur while interacting with the vector database.
+/// An enumeration of possible errors that can occur while interacting with the
+/// vector database.
 #[derive(Error, Debug)]
 pub enum VectorDbError {
     #[error("collection `{0}` has not been deleted: `{1}`")]
@@ -87,20 +86,23 @@ impl VectorChunk {
 }
 
 /// A trait that defines the interface for interacting with a vector database.
-/// The vector database is responsible for storing and querying vector embeddings.
+/// The vector database is responsible for storing and querying vector
+/// embeddings.
 #[async_trait]
 pub trait VectorDb {
     /// Creates a new vector index with the specified configuration.
     async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError>;
 
-    /// Adds a vector embedding to the specified index, along with associated attributes.
+    /// Adds a vector embedding to the specified index, along with associated
+    /// attributes.
     async fn add_embedding(
         &self,
         index: &str,
         chunks: Vec<VectorChunk>,
     ) -> Result<(), VectorDbError>;
 
-    /// Searches for the nearest neighbors of a query vector in the specified index.
+    /// Searches for the nearest neighbors of a query vector in the specified
+    /// index.
     async fn search(
         &self,
         index: String,

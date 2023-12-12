@@ -1,17 +1,15 @@
+use std::{collections::HashMap, path::Path, result::Result::Ok, sync::Arc};
+
 use anyhow::anyhow;
 use bollard::{
     container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions},
     service::{HostConfig, Mount},
     Docker,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::{path::Path, result::Result::Ok};
-use tokio_stream::StreamExt;
-
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio_stream::StreamExt;
 use tracing::info;
 
 mod py_extractors;
@@ -80,7 +78,7 @@ pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS,
     let module_name = module_file_name.trim_end_matches(".py");
 
     let class_name = tokens[1].trim();
-    let extractor = PythonExtractor::new(&module_name, class_name)?;
+    let extractor = PythonExtractor::new(module_name, class_name)?;
     info!(
         "extractor created: name: {}, python module: {}, class name: {}",
         name, module_name, class_name
@@ -95,7 +93,7 @@ pub async fn run_docker_extractor(
 ) -> Result<Vec<Content>, anyhow::Error> {
     let docker = Docker::connect_with_socket_defaults().unwrap();
     let options = Some(CreateContainerOptions {
-        name: name.clone().replace("/", "."),
+        name: name.clone().replace('/', "."),
         platform: None,
     });
     let mut args = vec!["extractor".to_string(), "extract".to_string()];
@@ -161,7 +159,7 @@ pub fn run_local_extractor(
         Some(extractor_path) => Ok::<std::string::String, anyhow::Error>(extractor_path),
         None => {
             info!("no module name provided, looking up indexify.yaml");
-            let extractor_config = ExtractorConfig::from_path("indexify.yaml".into())?;
+            let extractor_config = ExtractorConfig::from_path("indexify.yaml")?;
             Ok(extractor_config.module)
         }
     }?;

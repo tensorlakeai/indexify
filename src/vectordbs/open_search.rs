@@ -1,21 +1,20 @@
-use super::{CreateIndexParams, VectorDb, VectorDbError};
 use async_trait::async_trait;
-use url::Url;
-
-use crate::{
-    server_config::OpenSearchBasicConfig,
-    vectordbs::{IndexDistance, SearchResult, VectorChunk},
-};
-
-use serde::Deserialize;
-use serde_json::{json, Value};
-
 use opensearch::{
     auth::Credentials,
     cert::CertificateValidation,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
     indices::IndicesCreateParts,
-    BulkOperation, OpenSearch,
+    BulkOperation,
+    OpenSearch,
+};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use url::Url;
+
+use super::{CreateIndexParams, VectorDb, VectorDbError};
+use crate::{
+    server_config::OpenSearchBasicConfig,
+    vectordbs::{IndexDistance, SearchResult, VectorChunk},
 };
 
 pub struct OpenSearchKnn {
@@ -294,9 +293,9 @@ mod tests {
             .await
             .unwrap();
 
-        // bulk api returns a response when the document is accepted for indexing, not when it is
-        // actually indexed. So we need to wait until the document is actually indexed before
-        // searching.
+        // bulk api returns a response when the document is accepted for indexing, not
+        // when it is actually indexed. So we need to wait until the document is
+        // actually indexed before searching.
 
         const MAX_MILLIS_TO_WAIT: u64 = 2000;
         let mut millis_spent_waiting: u64 = 0;

@@ -1,3 +1,8 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
+
 use anyhow::Result;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
@@ -7,14 +12,13 @@ use crate::{
     extractor::ExtractedEmbeddings,
     internal_api::{self, CreateWork, ExecutorInfo},
     persistence::{
-        ExtractedAttributes, ExtractionEventPayload, ExtractorBinding, Repository, Work,
+        ExtractedAttributes,
+        ExtractionEventPayload,
+        ExtractorBinding,
+        Repository,
+        Work,
     },
     vector_index::VectorIndexManager,
-};
-
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
 };
 
 #[derive(Debug)]
@@ -322,21 +326,18 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
     use crate::{
         blob_storage::BlobStorageBuilder,
-        persistence::ExtractorBinding,
+        data_repository_manager::DataRepositoryManager,
+        persistence::{ContentPayload, DataRepository, ExtractorBinding},
         test_util::{
             self,
             db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
         },
-    };
-    use std::collections::HashMap;
-
-    use crate::{
-        data_repository_manager::DataRepositoryManager,
-        persistence::{ContentPayload, DataRepository},
     };
 
     #[tokio::test]

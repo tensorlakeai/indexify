@@ -1,14 +1,15 @@
+use std::{
+    fmt,
+    fs,
+    net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
+};
+
 use anyhow::{anyhow, Error, Result};
 use figment::{
     providers::{Env, Format, Yaml},
     Figment,
 };
-
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt, fs,
-    net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
-};
 
 fn default_executor_port() -> u64 {
     0
@@ -212,6 +213,7 @@ impl ExecutorConfig {
         })
     }
 
+    #[allow(dead_code)]
     pub fn with_advertise_ip(mut self, ip: Option<String>) -> Self {
         if let Some(ip) = ip {
             self.advertise_if = NetworkAddress(ip);
@@ -219,6 +221,7 @@ impl ExecutorConfig {
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_advertise_port(mut self, port: Option<u64>) -> Self {
         if let Some(port) = port {
             self.listen_port = port;

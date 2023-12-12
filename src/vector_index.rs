@@ -1,5 +1,7 @@
+use std::{collections::HashMap, fmt, sync::Arc};
+
 use anyhow::{anyhow, Result};
-use std::fmt;
+use tracing::error;
 
 use crate::{
     extractor::ExtractedEmbeddings,
@@ -8,8 +10,6 @@ use crate::{
     persistence::{Chunk, EmbeddingSchema, Repository},
     vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
 };
-use std::{collections::HashMap, sync::Arc};
-use tracing::error;
 
 pub struct VectorIndexManager {
     repository: Arc<Repository>,
@@ -62,7 +62,7 @@ impl VectorIndexManager {
         self.repository
             .create_index_metadata(
                 repository,
-                &extractor_name,
+                extractor_name,
                 index_name,
                 &vector_index_name,
                 serde_json::json!(schema),
@@ -189,15 +189,18 @@ impl VectorIndexManager {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
-    use std::env;
+    use std::{collections::HashMap, env};
 
-    use crate::blob_storage::BlobStorageBuilder;
-    use crate::data_repository_manager::DataRepositoryManager;
-    use crate::persistence::{ContentPayload, DataRepository, ExtractorBinding};
-    use crate::test_util;
-    use crate::test_util::db_utils::{
-        create_index_manager, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY,
+    use crate::{
+        blob_storage::BlobStorageBuilder,
+        data_repository_manager::DataRepositoryManager,
+        persistence::{ContentPayload, DataRepository, ExtractorBinding},
+        test_util,
+        test_util::db_utils::{
+            create_index_manager,
+            DEFAULT_TEST_EXTRACTOR,
+            DEFAULT_TEST_REPOSITORY,
+        },
     };
 
     #[tokio::test]
@@ -263,12 +266,13 @@ mod tests {
 
         extractor_executor.sync_repo_test(work_list).await.unwrap();
 
-        // FIX ME - This is broken because the Test Setup doesn't start the coordinator and executor server
-        // which we rely to get the embeddings of the query
+        // FIX ME - This is broken because the Test Setup doesn't start the
+        // coordinator and executor server which we rely to get the
+        // embeddings of the query
 
         //let result = index_manager
-        //    .search(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR, "pipe", 1)
-        //    .await
+        //    .search(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR, "pipe",
+        // 1)    .await
         //    .unwrap();
         //assert_eq!(1, result.len())
     }

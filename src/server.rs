@@ -1,33 +1,35 @@
-use crate::attribute_index::AttributeIndexManager;
-use crate::blob_storage::BlobStorageBuilder;
-use crate::data_repository_manager::DataRepositoryManager;
-use crate::persistence::Repository;
-use crate::server_config::ServerConfig;
-use crate::vector_index::VectorIndexManager;
-use crate::{
-    api::*,
-    internal_api::{CreateWork, CreateWorkResponse},
-    persistence, vectordbs,
-};
-use axum_otel_metrics::HttpMetricsLayerBuilder;
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query};
-use axum::http::StatusCode;
-use axum::{extract::State, routing::get, routing::post, Json, Router};
+use axum::{
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json,
+    Router,
+};
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use pyo3::Python;
 use tokio::signal;
 use tracing::{error, info};
-
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
-
 use utoipa_swagger_ui::SwaggerUi;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+use crate::{
+    api::*,
+    attribute_index::AttributeIndexManager,
+    blob_storage::BlobStorageBuilder,
+    data_repository_manager::DataRepositoryManager,
+    internal_api::{CreateWork, CreateWorkResponse},
+    persistence,
+    persistence::Repository,
+    server_config::ServerConfig,
+    vector_index::VectorIndexManager,
+    vectordbs,
+};
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
 

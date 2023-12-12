@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::{internal_api::Work, internal_api::WorkStatus};
+use crate::internal_api::{Work, WorkStatus};
 
 pub struct WorkStore {
     allocated_work: Arc<RwLock<HashMap<String, Work>>>,
