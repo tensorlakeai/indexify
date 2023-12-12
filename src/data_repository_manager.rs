@@ -193,11 +193,11 @@ impl DataRepositoryManager {
                 .into_iter()
                 .map(|e| e.to_string())
                 .collect::<Vec<String>>();
-                return Err(anyhow!(
-                    "unable to validate input params for extractor binding: {}, errors: {}",
-                    extractor_binding.name,
-                    errors.join(",")
-                ));
+            return Err(anyhow!(
+                "unable to validate input params for extractor binding: {}, errors: {}",
+                extractor_binding.name,
+                errors.join(",")
+            ));
         }
         self.create_index(&extractor, repository, &extractor_binding)
             .await?;

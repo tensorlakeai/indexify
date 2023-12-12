@@ -24,7 +24,7 @@ use sea_orm::{ConnectOptions, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smart_default::SmartDefault;
-use strum_macros::{Display, EnumString};
+use strum::{Display, EnumString};
 use thiserror::Error;
 
 use crate::entity::{index, work};

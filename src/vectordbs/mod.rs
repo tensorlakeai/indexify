@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use serde::{Deserialize, Serialize};
-use strum_macros::{Display, EnumString};
+use strum::{Display, EnumString};
 use thiserror::Error;
 
 use crate::server_config::{IndexStoreKind, VectorIndexConfig};
