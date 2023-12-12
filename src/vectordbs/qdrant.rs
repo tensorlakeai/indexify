@@ -119,12 +119,7 @@ impl VectorDb for QdrantDb {
         }
         let _result = self
             .create_client()?
-            .upsert_points(
-                &index,
-                None /* TODO: Somebody please check if this parameter is correct. Version upgrades required an extra parameter */,
-                points,
-                None
-            )
+            .upsert_points(&index, None, points, None)
             .await
             .map_err(|e| VectorDbError::IndexNotCreated(e.to_string()))?;
         Ok(())
@@ -186,9 +181,7 @@ impl VectorDb for QdrantDb {
         let collection_info = result
             .result
             .ok_or(VectorDbError::IndexNotRead("index not found".into()))?;
-        // TODO: check if this is correct. The new version returns an optional value instead of a u64
-        let points_count = collection_info.points_count.unwrap_or_default();
-        Ok(points_count)
+        Ok(collection_info.points_count.unwrap_or_default())
     }
 }
 
