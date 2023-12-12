@@ -25,11 +25,11 @@ repository.add_documents(
     [
         Document(
             text="Indexify is amazing!",
-            metadata={"url": "https://memory-alpha.fandom.com"},
+            metadata={"url": "https://github.com/diptanu/indexify"},
         ),
         Document(
             text="Indexify is also a retrieval service for LLM agents!",
-            metadata={"url": "https://memory-alpha.fandom.com"},
+            metadata={"url": "https://github.com/diptanu/indexify"},
         )
     ]
 )
@@ -41,5 +41,5 @@ from retriever import IndexifyRetriever
 params = {"repository_name": "default", "name": "minilm-embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 
-docs = retriever.get_relevant_documents("test")
+docs = retriever.get_relevant_documents("indexify")
 ```
