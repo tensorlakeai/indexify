@@ -14,7 +14,7 @@ class IndexifyRetriever(BaseRetriever):
     client = IndexifyClient()
     params = {
         "repository_name":"default",
-        "index_name": "embeddings",
+        "name": "embeddings",
         "top_k": 3
     }
     retriever = IndexifyRetriever(client=client,params=params)
