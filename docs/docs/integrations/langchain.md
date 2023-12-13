@@ -1,4 +1,4 @@
-# Langhchain Integration
+# Integration with Langchain
 
 Indexify complements LangChain by providing a robust platform for indexing large volume of multi-modal content such as PDFs, raw text, audio and video. It provides a retriever API to retrieve context for LLMs.
 
