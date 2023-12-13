@@ -44,9 +44,7 @@ repository.bind_extractor(
 import time
 
 docs = [Document(doc.page_content, doc.metadata) for doc in chunks]
-for doc in docs:
-    repository.add_documents(doc)
-    time.sleep(3)
+repository.add_documents(docs)
 
 
 # Setup indexify langchain retriever
