@@ -1,6 +1,10 @@
 use clap::Parser;
-use tracing_core::Level;
-use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
+use tracing_core::{Level, LevelFilter};
+use tracing_subscriber::{
+    prelude::__tracing_subscriber_SubscriberExt,
+    util::SubscriberInitExt,
+    Layer,
+};
 
 pub mod coordinator_service;
 pub mod executor_server;
@@ -31,10 +35,11 @@ struct OtelGuard;
 impl OtelGuard {
     fn new() -> Self {
         tracing_subscriber::registry()
-            .with(tracing_subscriber::filter::LevelFilter::from_level(
-                Level::INFO,
-            ))
-            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_filter(LevelFilter::from_level(Level::INFO)),
+            )
             .init();
 
         OtelGuard
