@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, result::Result::Ok, sync::Arc};
 
 use anyhow::anyhow;
 use bollard::{
-    container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions},
+    container::{Config, CreateContainerOptions, LogOutput, LogsOptions, StartContainerOptions},
     service::{HostConfig, Mount},
     Docker,
 };
@@ -141,10 +141,12 @@ pub async fn run_docker_extractor(
 
     let mut log_stream = docker.logs(&id, options);
     while let Ok(log) = log_stream.next().await.ok_or(anyhow!("no logs")) {
-        if let Ok(log) = log {
-            print!("{}", log);
-        } else {
-            println!("error {}", log.err().unwrap());
+        match log {
+            Ok(log) => match &log {
+                LogOutput::StdOut { .. } => print!("{log}"),
+                _ => eprintln!("{log}"),
+            },
+            Err(err) => eprintln!("error from extractor: `{}`", err),
         }
     }
     Ok(vec![])
