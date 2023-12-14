@@ -107,7 +107,7 @@ impl Packager {
                         print!("{}", vertex.name);
                     }
                     if !vertex.error.is_empty() {
-                        print!("{}", vertex.error);
+                        eprint!("{}", vertex.error);
                         return Err(anyhow!(vertex.error.clone()));
                     }
                 }

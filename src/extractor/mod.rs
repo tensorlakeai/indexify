@@ -141,10 +141,9 @@ pub async fn run_docker_extractor(
 
     let mut log_stream = docker.logs(&id, options);
     while let Ok(log) = log_stream.next().await.ok_or(anyhow!("no logs")) {
-        if let Ok(log) = log {
-            print!("{}", log);
-        } else {
-            println!("error {}", log.err().unwrap());
+        match log {
+            Ok(log) => print!("{}", log),
+            Err(err) => eprintln!("error from extractor: `{}`", err),
         }
     }
     Ok(vec![])
