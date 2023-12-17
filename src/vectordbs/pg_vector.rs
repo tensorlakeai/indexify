@@ -147,7 +147,9 @@ impl VectorDb for PgVector {
         // After the table-name, and with an offset of 1 (because chunk_id is inserted),
         // every second item is the embedding The final query looks similar to:
         // INSERT INTO index_table (chunk_id, embedding) VALUES (chunk_id_1,
-        // embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);                                                |>(1+2*0)=$1 |>(2+2*0)=$2  |>(1+2*1)=$3 |>(2+2*4)=$4       |>(1+2*n)    |>(2+2*n)
+        // embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);
+        // |>(1+2*0)=$1 |>(2+2*0)=$2  |>(1+2*1)=$3 |>(2+2*4)=$4       |>(1+2*n)
+        // |>(2+2*n)
         let value_placeholders = chunks
             .iter()
             .enumerate()

@@ -23,6 +23,7 @@ use crate::{
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageBuilder,
     data_repository_manager::DataRepositoryManager,
+    extractor_router::ExtractorRouter,
     internal_api::{CreateWork, CreateWorkResponse},
     persistence,
     persistence::Repository,
@@ -175,6 +176,10 @@ impl Server {
             .route(
                 "/extractors",
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/extractors/:extractor_name/extract",
+                post(extract_content).with_state(repository_endpoint_state.clone()),
             )
             .layer(OtelAxumLayer::default())
             .layer(metrics)
@@ -528,6 +533,27 @@ async fn list_extractors(
         .map(|e| e.into())
         .collect();
     Ok(Json(ListExtractorsResponse { extractors }))
+}
+
+#[axum_macros::debug_handler]
+async fn extract_content(
+    Path(extractor_name): Path<String>,
+    State(repository_endpoint): State<RepositoryEndpointState>,
+    Json(request): Json<ExtractRequest>,
+) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
+    let extractor_router = ExtractorRouter::new(&repository_endpoint.coordinator_addr);
+    let content_list = extractor_router
+        .extract_content(&extractor_name, request.content)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to extract content: {}", e),
+            )
+        })?;
+    Ok(Json(ExtractResponse {
+        content: content_list,
+    }))
 }
 
 #[tracing::instrument]

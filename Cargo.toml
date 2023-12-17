@@ -59,6 +59,7 @@ sea-orm-migration = { version = "0.12", features = [
     "sqlx-postgres",
 ] }
 serde = { version = "1", features = ["derive"] }
+serde_with = {version="3.4.0"}
 serde_yaml = { version = "0.9" }
 serde_json = { version = "1" }
 smart-default = { version = "0.7" }
@@ -113,6 +114,7 @@ reqwest = { workspace = true }
 sea-orm = { workspace = true }
 sea-query = { workspace = true }
 serde = { workspace = true }
+serde_with = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 smart-default = { workspace = true }

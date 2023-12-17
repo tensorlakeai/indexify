@@ -54,3 +54,6 @@ shell:
 
 serve-docs:
 	(cd docs && mkdocs serve)
+
+fmt:
+	cargo +nightly fmt
