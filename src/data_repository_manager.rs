@@ -118,25 +118,33 @@ impl DataRepositoryManager {
         extractor: &Extractor,
         repository: &str,
         extractor_binding: &ExtractorBinding,
-    ) -> Result<()> {
+    ) -> Result<Vec<String>> {
+        let mut index_names = Vec::new();
+
         for (output_name, schema) in extractor.schemas.outputs.clone() {
             let index_name = format!("{}-{}", extractor_binding.name, output_name);
+            info!(
+                "adding index to extractor bindings repository: {}, extractor: {}, binding: {}, index: {}",
+                repository, extractor_binding.extractor, extractor_binding.name, index_name
+            );
             match schema {
                 ExtractorOutputSchema::Embedding(schema) => {
                     self.vector_index_manager
                         .create_index(repository, &index_name, &extractor.name, schema)
                         .await
+                        .map(|index_name| index_names.push(index_name.clone()))
                         .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
                 }
                 ExtractorOutputSchema::Attributes { .. } => {
                     self.attribute_index_manager
                         .create_index(repository, &index_name, extractor.clone())
                         .await
+                        .map(|index_name| index_names.push(index_name.clone()))
                         .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
                 }
             };
         }
-        Ok(())
+        Ok(index_names)
     }
 
     #[tracing::instrument]
@@ -166,7 +174,7 @@ impl DataRepositoryManager {
         &self,
         repository: &str,
         extractor_binding: &ExtractorBinding,
-    ) -> Result<()> {
+    ) -> Result<Vec<String>> {
         info!(
             "adding extractor bindings repository: {}, extractor: {}, binding: {}",
             repository, extractor_binding.extractor, extractor_binding.name,
@@ -208,13 +216,13 @@ impl DataRepositoryManager {
                 errors.join(",")
             ));
         }
-        self.create_index(&extractor, repository, extractor_binding)
+        let index_names = self.create_index(&extractor, repository, extractor_binding)
             .await?;
         data_repository
             .extractor_bindings
             .push(extractor_binding.clone());
         self.repository.upsert_repository(data_repository).await?;
-        Ok(())
+        Ok(index_names)
     }
 
     #[tracing::instrument]
