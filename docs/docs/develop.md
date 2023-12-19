@@ -82,8 +82,17 @@ make local-dev
 Once the binary is built start it with a default config -
 
 ```shell
-./target/debug/indexify start-server -d -c local_config.yaml
+./target/debug/indexify server  -d --config-path local_server_config.yaml
 ```
+
+### Start an Extractor
+Start an extractor to join the server 
+Clone the repository 
+```
+git clone https://github.com/tensorlakeai/indexify-extractors.git
+indexify extractor  start --coordinator-addr localhost:8950 -c /path/to/indexify-extractors/embedding-extractors/minilm-l6/indexify.yaml
+```
+
 
 ## Visual Studio DevContainer
 
