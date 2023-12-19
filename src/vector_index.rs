@@ -4,9 +4,10 @@ use anyhow::{anyhow, Result};
 use tracing::error;
 
 use crate::{
+    api::{self},
     extractor::ExtractedEmbeddings,
+    extractor_router::ExtractorRouter,
     index::IndexError,
-    internal_api::{self, CoordinateRequest, CoordinateResponse, ExtractRequest, ExtractResponse},
     persistence::{Chunk, EmbeddingSchema, Repository},
     vectordbs::{CreateIndexParams, VectorChunk, VectorDBTS},
 };
@@ -14,7 +15,7 @@ use crate::{
 pub struct VectorIndexManager {
     repository: Arc<Repository>,
     vector_db: VectorDBTS,
-    coordinator_addr: String,
+    extractor_router: ExtractorRouter,
 }
 
 impl fmt::Debug for VectorIndexManager {
@@ -36,10 +37,11 @@ impl VectorIndexManager {
         vector_db: VectorDBTS,
         coordinator_addr: String,
     ) -> Self {
+        let extractor_router = ExtractorRouter::new(&coordinator_addr);
         Self {
             repository,
             vector_db,
-            coordinator_addr,
+            extractor_router,
         }
     }
 
@@ -108,10 +110,24 @@ impl VectorIndexManager {
     ) -> Result<Vec<ScoredText>> {
         let index_info = self.repository.get_index(index, repository).await?;
         let vector_index_name = index_info.vector_index_name.clone().unwrap();
-        let embedding = self
-            .get_query_embedding(query, index_info.extractor_name.as_str())
+        let content = api::Content {
+            content_type: mime::TEXT_PLAIN.to_string(),
+            source: query.as_bytes().into(),
+            feature: None,
+        };
+        let content = self
+            .extractor_router
+            .extract_content(&index_info.extractor_name, content)
             .await
-            .map_err(|e| IndexError::QueryEmbedding(e.to_string()))?;
+            .map_err(|e| IndexError::QueryEmbedding(e.to_string()))?
+            .pop()
+            .ok_or(anyhow!("No content was extracted"))?;
+        let features = content
+            .feature
+            .as_ref()
+            .ok_or(anyhow!("No features were extracted"))?;
+        let embedding: Vec<f32> =
+            serde_json::from_value(features.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
         let results = self
             .vector_db
             .search(vector_index_name, embedding, k as u64)
@@ -132,57 +148,6 @@ impl VectorIndexManager {
             index_search_results.push(search_result);
         }
         Ok(index_search_results)
-    }
-
-    async fn get_query_embedding(
-        &self,
-        query: &str,
-        extractor_name: &str,
-    ) -> Result<Vec<f32>, anyhow::Error> {
-        let request = ExtractRequest {
-            content: internal_api::Content {
-                content_type: mime::TEXT_PLAIN.to_string(),
-                source: query.as_bytes().into(),
-                feature: None,
-            },
-        };
-
-        let coordinate_request = CoordinateRequest {
-            extractor_name: extractor_name.to_string(),
-        };
-
-        let coordinate_response = reqwest::Client::new()
-            .post(&format!("http://{}/coordinates", self.coordinator_addr))
-            .json(&coordinate_request)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("unable to embed query: {}", e))?
-            .json::<CoordinateResponse>()
-            .await?;
-        let extractor_addr = coordinate_response
-            .content
-            .get(0)
-            .ok_or(anyhow!("no extractor found"))?;
-        let resp = reqwest::Client::new()
-            .post(&format!("http://{}/extract", extractor_addr))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("unable to embed query: {}", e))?
-            .json::<ExtractResponse>()
-            .await?;
-        let content = resp
-            .content
-            .get(0)
-            .ok_or(anyhow!("no content was extracted"))?
-            .to_owned();
-        let features = content
-            .feature
-            .ok_or(anyhow!("no features were extracted"))?;
-        let embedding = features
-            .embedding()
-            .ok_or(anyhow!("no embedding was found"))?;
-        Ok(embedding)
     }
 }
 
@@ -272,8 +237,7 @@ mod tests {
 
         //let result = index_manager
         //    .search(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR, "pipe",
-        // 1)    .await
-        //    .unwrap();
+        // 1) .await .unwrap();
         //assert_eq!(1, result.len())
     }
 }

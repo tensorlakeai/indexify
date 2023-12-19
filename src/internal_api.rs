@@ -2,10 +2,12 @@ use std::{collections::HashMap, str::FromStr};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 
 use crate::{
+    api,
     persistence::{self, EmbeddingSchema},
     vectordbs::IndexDistance,
 };
@@ -203,6 +205,17 @@ pub enum FeatureType {
     Unknown,
 }
 
+impl From<FeatureType> for api::FeatureType {
+    fn from(feature_type: FeatureType) -> Self {
+        match feature_type {
+            FeatureType::Embedding => api::FeatureType::Embedding,
+            FeatureType::NamedEntity => api::FeatureType::NamedEntity,
+            FeatureType::Metadata => api::FeatureType::Metadata,
+            FeatureType::Unknown => api::FeatureType::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Feature {
     pub feature_type: FeatureType,
@@ -226,9 +239,11 @@ impl Feature {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Content {
     pub content_type: String,
+    #[serde_as(as = "BytesOrString")]
     pub source: Vec<u8>,
     pub feature: Option<Feature>,
 }
@@ -242,6 +257,20 @@ impl Content {
             }
         }
         None
+    }
+}
+
+impl From<Content> for api::Content {
+    fn from(content: Content) -> Self {
+        Self {
+            content_type: content.content_type,
+            source: content.source,
+            feature: content.feature.map(|f| api::Feature {
+                feature_type: f.feature_type.into(),
+                name: f.name,
+                data: f.data,
+            }),
+        }
     }
 }
 

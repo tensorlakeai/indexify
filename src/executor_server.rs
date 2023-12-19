@@ -132,11 +132,18 @@ async fn extract(
     extractor_executor: State<Arc<ExtractorExecutor>>,
     Json(query): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let content = extractor_executor
-        .extract(query.content)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(ExtractResponse { content }))
+    let content = extractor_executor.extract(query.content).await;
+
+    match content {
+        Ok(content) => Ok(Json(ExtractResponse { content })),
+        Err(err) => {
+            error!("unable to extract content: {}", err.to_string());
+            Err(IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err.to_string(),
+            ))
+        }
+    }
 }
 
 #[axum_macros::debug_handler]

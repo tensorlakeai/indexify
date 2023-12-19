@@ -1792,6 +1792,7 @@ dependencies = [
  "sea-query",
  "serde",
  "serde_json",
+ "serde_with",
  "serde_yaml",
  "smart-default",
  "strum",

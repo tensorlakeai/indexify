@@ -22,6 +22,7 @@ mod coordinator;
 mod data_repository_manager;
 mod entity;
 mod executor;
+mod extractor_router;
 mod index;
 mod internal_api;
 mod persistence;
