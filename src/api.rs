@@ -186,7 +186,10 @@ pub struct ExtractorBindRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
-pub struct ExtractorBindResponse {}
+pub struct ExtractorBindResponse {
+    #[serde(default)]
+    pub index_names: Vec<String>
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Text {

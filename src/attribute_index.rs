@@ -24,7 +24,7 @@ impl AttributeIndexManager {
         repository: &str,
         index_name: &str,
         extractor_config: Extractor,
-    ) -> Result<()> {
+    ) -> Result<String> {
         // TODO: create a new table for the index from a postgres schema
         self.repository
             .create_index_metadata(
@@ -36,7 +36,7 @@ impl AttributeIndexManager {
                 "json",
             )
             .await?;
-        Ok(())
+        Ok(index_name.to_string())
     }
 
     pub async fn add_index(

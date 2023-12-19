@@ -310,14 +310,13 @@ async fn get_repository(
 )]
 #[axum_macros::debug_handler]
 async fn bind_extractor(
-    // TODO: shouldn't index_name be required here?
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<ExtractorBindRequest>,
 ) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
-    state
+    let index_names = state
         .repository_manager
         .add_extractor_binding(
             &repository_name,
@@ -329,12 +328,16 @@ async fn bind_extractor(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("failed to bind extractor: {}", e),
             )
-        })?;
+        })?
+        .into_iter()
+        .map(|i| i.into())
+        .collect();
 
-    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
+    if let Err(err) = schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await {
         error!("unable to run extractors: {}", err.to_string());
     }
-    Ok(Json(ExtractorBindResponse {}))
+
+    Ok(Json(ExtractorBindResponse {index_names}))
 }
 
 #[tracing::instrument]
@@ -372,7 +375,7 @@ async fn add_texts(
             )
         })?;
 
-    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.clone()).await {
+    if let Err(err) = schedule_extraction(&repository_name, &state.coordinator_addr.clone()).await {
         error!("unable to run extractors: {}", err.to_string());
     }
 
@@ -408,7 +411,7 @@ async fn upload_file(
     Ok(())
 }
 
-async fn _run_extractors(repository: &str, coordinator_addr: &str) -> Result<(), anyhow::Error> {
+async fn schedule_extraction(repository: &str, coordinator_addr: &str) -> Result<(), anyhow::Error> {
     let req = CreateWork {
         repository_name: repository.into(),
         content: None,
@@ -429,7 +432,7 @@ async fn run_extractors(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
 ) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    _run_extractors(&repository_name, &state.coordinator_addr.to_string())
+    schedule_extraction(&repository_name, &state.coordinator_addr.to_string())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RunExtractorsResponse {}))
@@ -459,7 +462,7 @@ async fn add_events(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Err(err) = _run_extractors(&repository_name, &state.coordinator_addr.to_string()).await {
+    if let Err(err) = schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await {
         error!("unable to run extractors: {}", err.to_string());
     }
 
