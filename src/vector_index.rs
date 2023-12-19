@@ -51,7 +51,7 @@ impl VectorIndexManager {
         index_name: &str,
         extractor_name: &str,
         schema: EmbeddingSchema,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let mut index_params: Option<CreateIndexParams> = None;
         let vector_index_name = format!("{}-{}", repository, index_name);
         let create_index_params = CreateIndexParams {
@@ -74,7 +74,7 @@ impl VectorIndexManager {
         // Remove this unwrap and refactor the code to return a proper error
         // if the extractor config doesn't have embedding type
         self.vector_db.create_index(index_params.unwrap()).await?;
-        Ok(())
+        Ok(vector_index_name.to_string())
     }
 
     pub async fn add_embedding(
