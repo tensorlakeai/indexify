@@ -216,7 +216,8 @@ impl DataRepositoryManager {
                 errors.join(",")
             ));
         }
-        let index_names = self.create_index(&extractor, repository, extractor_binding)
+        let index_names = self
+            .create_index(&extractor, repository, extractor_binding)
             .await?;
         data_repository
             .extractor_bindings

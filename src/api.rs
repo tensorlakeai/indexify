@@ -188,7 +188,7 @@ pub struct ExtractorBindRequest {
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
 pub struct ExtractorBindResponse {
     #[serde(default)]
-    pub index_names: Vec<String>
+    pub index_names: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -444,7 +444,9 @@ pub struct Content {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
+    pub name: String,
     pub content: Content,
+    pub input_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -195,8 +195,14 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument]
-    pub async fn extract(&self, content: Content) -> Result<Vec<Content>, anyhow::Error> {
-        let extracted_content = self.extractor.extract(vec![content], json!({}))?;
+    pub async fn extract(
+        &self,
+        content: Content,
+        input_params: Option<serde_json::Value>,
+    ) -> Result<Vec<Content>, anyhow::Error> {
+        let extracted_content = self
+            .extractor
+            .extract(vec![content], input_params.unwrap_or(json!({})))?;
         let content = extracted_content
             .get(0)
             .ok_or(anyhow!("no content was extracted"))?

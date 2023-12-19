@@ -132,7 +132,9 @@ async fn extract(
     extractor_executor: State<Arc<ExtractorExecutor>>,
     Json(query): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let content = extractor_executor.extract(query.content).await;
+    let content = extractor_executor
+        .extract(query.content, query.input_params)
+        .await;
 
     match content {
         Ok(content) => Ok(Json(ExtractResponse { content })),

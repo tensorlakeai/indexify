@@ -178,7 +178,7 @@ impl Server {
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/extractors/:extractor_name/extract",
+                "/extractors/extract",
                 post(extract_content).with_state(repository_endpoint_state.clone()),
             )
             .layer(OtelAxumLayer::default())
@@ -333,11 +333,13 @@ async fn bind_extractor(
         .map(|i| i.into())
         .collect();
 
-    if let Err(err) = schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await {
+    if let Err(err) =
+        schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await
+    {
         error!("unable to run extractors: {}", err.to_string());
     }
 
-    Ok(Json(ExtractorBindResponse {index_names}))
+    Ok(Json(ExtractorBindResponse { index_names }))
 }
 
 #[tracing::instrument]
@@ -411,7 +413,10 @@ async fn upload_file(
     Ok(())
 }
 
-async fn schedule_extraction(repository: &str, coordinator_addr: &str) -> Result<(), anyhow::Error> {
+async fn schedule_extraction(
+    repository: &str,
+    coordinator_addr: &str,
+) -> Result<(), anyhow::Error> {
     let req = CreateWork {
         repository_name: repository.into(),
         content: None,
@@ -462,7 +467,9 @@ async fn add_events(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Err(err) = schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await {
+    if let Err(err) =
+        schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await
+    {
         error!("unable to run extractors: {}", err.to_string());
     }
 
@@ -540,13 +547,12 @@ async fn list_extractors(
 
 #[axum_macros::debug_handler]
 async fn extract_content(
-    Path(extractor_name): Path<String>,
     State(repository_endpoint): State<RepositoryEndpointState>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
     let extractor_router = ExtractorRouter::new(&repository_endpoint.coordinator_addr);
     let content_list = extractor_router
-        .extract_content(&extractor_name, request.content)
+        .extract_content(&request.name, request.content, request.input_params)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(

@@ -113,6 +113,7 @@ pub struct ExecutorInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
     pub content: Content,
+    pub input_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
