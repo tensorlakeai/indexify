@@ -118,7 +118,7 @@ Let's look for documents related to "sports":
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
-            "index": "embeddings",
+            "index": "minil6-embedding",
             "query": "sports", 
             "k": 3
         }'
