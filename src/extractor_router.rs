@@ -20,6 +20,7 @@ impl ExtractorRouter {
         &self,
         extractor_name: &str,
         content: Content,
+        input_params: Option<serde_json::Value>,
     ) -> Result<Vec<Content>, anyhow::Error> {
         let request = internal_api::ExtractRequest {
             content: internal_api::Content {
@@ -27,6 +28,7 @@ impl ExtractorRouter {
                 source: content.source,
                 feature: None,
             },
+            input_params,
         };
 
         let coordinate_request = internal_api::CoordinateRequest {

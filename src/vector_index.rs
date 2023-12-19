@@ -117,7 +117,7 @@ impl VectorIndexManager {
         };
         let content = self
             .extractor_router
-            .extract_content(&index_info.extractor_name, content)
+            .extract_content(&index_info.extractor_name, content, None)
             .await
             .map_err(|e| IndexError::QueryEmbedding(e.to_string()))?
             .pop()
