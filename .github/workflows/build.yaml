@@ -1,6 +1,9 @@
 name: Manual Build
 on: workflow_dispatch
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build-base-extractor:
     runs-on: ubuntu-latest
