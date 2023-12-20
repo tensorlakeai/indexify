@@ -70,11 +70,11 @@ impl ExtractorRouter {
         let extractor_response: ExtractResponse = serde_json::from_str(&response_body)
             .map_err(|e| anyhow!("unable to extract response from json: {}", e))?;
 
-        let content = extractor_response
+        let content_list = extractor_response
             .content
-            .get(0)
-            .ok_or(anyhow!("no content was extracted"))?
-            .to_owned();
-        Ok(vec![content.into()])
+            .into_iter()
+            .map(|c| c.into())
+            .collect();
+        Ok(content_list)
     }
 }
