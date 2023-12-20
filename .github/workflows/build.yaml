@@ -1,23 +1,10 @@
 name: Manual Build
-on:
-  workflow_dispatch
-  inputs:
-      branchName:
-        description: 'Branch to build'
-        required: true
-        default: 'main'
-
-env:
-  CARGO_TERM_COLOR: always
+on: workflow_dispatch
 
 jobs:
   build-base-extractor:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      # - name: Set up Python 3.9
-      #   uses: actions/setup-python@v2
-      #   with:
-      #     python-version: 3.9
       - name: build-base-extractor
         run: make build-base-extractor
