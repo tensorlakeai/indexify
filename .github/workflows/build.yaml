@@ -1,4 +1,4 @@
-name: Manual Build
+name: Indexify Container Build
 
 on: workflow_dispatch
 
@@ -15,8 +15,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: build-container
-        run: make build-container
       - name: push-container
         run: make push-container
       - name: build-base-extractor-push
