@@ -1,6 +1,6 @@
 name: Manual Build
 
-on: pull_request
+on: workflow_dispatch
 
 env:
   CARGO_TERM_COLOR: always
@@ -10,11 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      # build containers
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: build-container
         run: make build-container
-      - name: build-base-extractor
-        run: make build-base-extractor
-      # push
-      - name: list containers
-        run: docker image ls
+      - name: push-container
+        run: make push-container
+      - name: build-base-extractor-push
+        run: make build-base-extractor-push
