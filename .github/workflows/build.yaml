@@ -10,5 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      # build containers
+      - name: build-container
+        run: make build-container
       - name: build-base-extractor
         run: make build-base-extractor
+      # push
+      - name: list containers
+        run: docker image ls

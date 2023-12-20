@@ -1,4 +1,4 @@
-DOCKER_USERNAME ?= diptanu
+DOCKER_USERNAME ?= tensorlake
 APPLICATION_NAME ?= indexify
 current_dir = $(shell pwd)
 src_py_dir = $(shell pwd)/src_py
