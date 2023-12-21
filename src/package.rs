@@ -196,7 +196,7 @@ mod tests {
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r#"FROM diptanu/indexify-extractor-base
+        let expected_dockerfile = r#"FROM tensorlake/indexify-extractor-base
 
 RUN apt-get install -y  libpq-dev libssl-dev
 
