@@ -3,6 +3,13 @@ APPLICATION_NAME ?= indexify
 current_dir = $(shell pwd)
 src_py_dir = $(shell pwd)/src_py
 
+# Installation directory
+PREFIX = /usr/local
+BINDIR = $(PREFIX)/bin
+
+# Target executable
+TARGET = ./target/release/$(APPLICATION_NAME)
+
 build:
 	cargo build
 
@@ -57,3 +64,7 @@ serve-docs:
 
 fmt:
 	cargo +nightly fmt
+
+install: build-release
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(APPLICATION_NAME)
