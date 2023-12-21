@@ -88,7 +88,7 @@ pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS,
 
 pub async fn run_docker_extractor(
     name: String,
-    extractor_cache_path: Option<String>,
+    cache_dir: Option<String>,
     text: Option<String>,
     file_path: Option<String>,
 ) -> Result<Vec<Content>, anyhow::Error> {
@@ -105,40 +105,52 @@ pub async fn run_docker_extractor(
     }
 
     let mut host_config: Option<HostConfig> = None;
-    if let (Some(file_path), Some(extractor_cache_path)) = (file_path, extractor_cache_path) {
+    let mut mounts: Vec<Mount> = Vec::new();
+    let mut env: Vec<String> = Vec::new();
+
+    if let Some(file_path) = file_path {
         let file_path = Path::new(&file_path).canonicalize().unwrap();
         let file_name = file_path.file_name().unwrap().to_str().unwrap();
         args.push("--file".to_string());
         args.push(format!("./{}", file_name));
-        let mut mounts = vec![Mount {
+        mounts.push(Mount {
             target: Some(format!("/indexify/{}", file_name)),
             source: Some(file_path.display().to_string()),
             typ: Some(bollard::service::MountTypeEnum::BIND),
             ..Default::default()
-        }];
+        });
+    }
 
-        let extractor_cache_path = Path::new(&extractor_cache_path).canonicalize().unwrap();
-        let extractor_cache_path = extractor_cache_path.file_name().unwrap().to_str().unwrap();
+    if let Some(cache_dir) = cache_dir {
+        let cache_dir = Path::new(&cache_dir).canonicalize().unwrap();
+        let cache_name= cache_dir.file_name().unwrap().to_str().unwrap();
         args.push("--extractor-cache-path".to_string());
-        args.push(extractor_cache_path.to_string());
+        args.push(cache_dir.display().to_string());
+
+        let target_path = format!("/indexify/{}", cache_name);
+
         mounts.push(Mount {
-            target: Some(format!("/indexify/{}", extractor_cache_path)),
-            source: Some(extractor_cache_path.display().to_string()),
+            target: Some(target_path.clone()),
+            source: Some(cache_dir.display().to_string()),
             typ: Some(bollard::service::MountTypeEnum::BIND),
             ..Default::default()
         });
 
-        host_config.replace(HostConfig {
-            mounts: Some(mounts),
-            ..Default::default()
-        });
+        env.push(format!("CACHE_DIR={}", target_path.clone()));
     }
+
+    host_config.replace(HostConfig {
+        mounts: Some(mounts),
+        ..Default::default()
+    });
+
     let config = Config {
         image: Some(name.clone()),
         cmd: Some(args),
         attach_stderr: Some(true),
         attach_stdout: Some(true),
         host_config,
+        env: Some(env),
         ..Default::default()
     };
     let id: String = docker.create_container(options, config).await?.id;
