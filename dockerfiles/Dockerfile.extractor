@@ -1,4 +1,4 @@
-FROM diptanu/indexify-extractor-base
+FROM tensorlake/indexify-extractor-base
 
 RUN apt-get install -y  {{ system_dependencies }}
 

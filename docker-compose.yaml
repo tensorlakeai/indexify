@@ -6,7 +6,7 @@ networks:
         - subnet: 172.21.0.0/24
 services:
   indexify:
-    image: diptanu/indexify
+    image: tensorlake/indexify
     entrypoint: [ "/indexify/docker_compose_start.sh" ]
     ports:
       - 8900:8900

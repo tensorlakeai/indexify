@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - command: ["/indexify/docker_compose_start.sh"]
-          image: diptanu/indexify
+          image: tensorlake/indexify
           name: indexify
           ports:
             - containerPort: 8900
@@ -39,13 +39,13 @@ spec:
               name: config
               readOnly: true
           env:
-          - name: DATABASE_URL
-            value: postgres://postgres:postgres@postgres-service.default.svc.cluster.local/indexify
+            - name: DATABASE_URL
+              value: postgres://postgres:postgres@postgres-service.default.svc.cluster.local/indexify
       restartPolicy: Always
       volumes:
-      - name: config
-        configMap:
-          name: indexify-configmap
-          items:
-          - key: "sample_config.yaml"
-            path: "indexify.yaml"
+        - name: config
+          configMap:
+            name: indexify-configmap
+            items:
+              - key: "sample_config.yaml"
+                path: "indexify.yaml"
