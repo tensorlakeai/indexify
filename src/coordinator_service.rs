@@ -9,6 +9,7 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use sea_query::Write;
 use tokio::signal;
 use tracing::{error, info};
 
@@ -21,13 +22,20 @@ use crate::{
         CoordinateResponse,
         CreateWork,
         CreateWorkResponse,
-        ExecutorInfo,
+        ExecutorHeartbeatResponse,
+        ExecutorMetadata,
+        ExtractorHeartbeat,
         ListExecutors,
-        SyncExecutor,
-        SyncWorkerResponse,
+        WriteRequest,
+        WriteResponse,
     },
     persistence::Repository,
     server_config::ServerConfig,
+    state,
+    state::{
+        network::{api, management, raft},
+        SharedState,
+    },
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -35,6 +43,8 @@ use crate::{
 pub struct CoordinatorServer {
     addr: SocketAddr,
     coordinator: Arc<Coordinator>,
+    config: Arc<ServerConfig>,
+    shared_state: SharedState,
 }
 
 impl CoordinatorServer {
@@ -52,20 +62,36 @@ impl CoordinatorServer {
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
-        let coordinator =
-            Coordinator::new(repository, vector_index_manager, attribute_index_manager);
+        let shared_state = state::App::new(config.clone()).await?;
+
+        let coordinator = Coordinator::new(
+            repository,
+            vector_index_manager,
+            attribute_index_manager,
+            shared_state.clone(),
+        );
         info!("coordinator listening on: {}", addr.to_string());
-        Ok(Self { addr, coordinator })
+        Ok(Self {
+            addr,
+            coordinator,
+            config,
+            shared_state: shared_state.clone(),
+        })
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
         let metrics = HttpMetricsLayerBuilder::new().build();
+        info!("raft node id: {}", &self.config.node_id);
         let app = Router::new()
             .merge(metrics.routes())
             .route("/", get(root))
             .route(
-                "/sync_executor",
-                post(sync_executor).with_state(self.coordinator.clone()),
+                "/heartbeat",
+                post(extractor_heartbeat).with_state(self.coordinator.clone()),
+            )
+            .route(
+                "/write-extracted-data",
+                post(write_extracted_data).with_state(self.coordinator.clone()),
             )
             .route(
                 "/executors",
@@ -78,6 +104,48 @@ impl CoordinatorServer {
             .route(
                 "/coordinates",
                 post(get_coordinate).with_state(self.coordinator.clone()),
+            )
+            .route(
+                "/raft-append",
+                post(raft::append).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/raft-snapshot",
+                post(raft::snapshot).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/raft-vote",
+                post(raft::vote).with_state(self.shared_state.clone()),
+            )
+            // admin API
+            .route(
+                "/init",
+                post(management::init).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/add-learner",
+                post(management::add_learner).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/change-membership",
+                post(management::change_membership).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/raft-metrics",
+                get(management::metrics).with_state(self.shared_state.clone()),
+            )
+            // application API
+            .route(
+                "/write",
+                post(api::write).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/read",
+                post(api::read).with_state(self.shared_state.clone()),
+            )
+            .route(
+                "/consistent-read",
+                post(api::consistent_read).with_state(self.shared_state.clone()),
             )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
@@ -100,63 +168,56 @@ async fn root() -> &'static str {
     "Indexify Coordinator"
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(coordinator))]
 #[axum_macros::debug_handler]
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
     let executors = coordinator
-        .get_executors()
+        .shared_state
+        .store
+        .state_machine
+        .read()
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .executors
+        .values()
+        .cloned()
+        .collect();
     Ok(Json(ListExecutors { executors }))
+}
+
+#[tracing::instrument(level = "debug", skip(coordinator))]
+#[tracing::instrument(skip(coordinator, write_request))]
+#[axum_macros::debug_handler]
+async fn write_extracted_data(
+    State(coordinator): State<Arc<Coordinator>>,
+    Json(write_request): Json<WriteRequest>,
+) -> Result<Json<WriteResponse>, IndexifyAPIError> {
+    Ok(Json(WriteResponse {}))
 }
 
 #[tracing::instrument(level = "debug", skip(coordinator))]
 #[tracing::instrument(skip(coordinator, executor))]
 #[axum_macros::debug_handler]
-async fn sync_executor(
+async fn extractor_heartbeat(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(executor): Json<SyncExecutor>,
-) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
-    // Record the health check of the worker
-    let worker_id = executor.executor_id.clone();
-    let _ = coordinator
-        .record_executor(ExecutorInfo {
-            id: worker_id.clone(),
-            last_seen: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            addr: executor.addr.clone(),
-            extractor: executor.extractor.clone(),
-        })
-        .await;
-
-    coordinator
-        .write_extracted_data(executor.work_status)
+    Json(executor): Json<ExtractorHeartbeat>,
+) -> Result<Json<ExecutorHeartbeatResponse>, IndexifyAPIError> {
+    let request = crate::state::store::Request::ExecutorHeartbeat {
+        executor: executor.clone(),
+    };
+    let _response = coordinator
+        .shared_state
+        .raft
+        .client_write(request)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Record the extractors available on the executor
-    coordinator
-        .record_extractor(executor.extractor)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Find more work for the worker
-    let queued_work = coordinator
-        .get_work_for_worker(&executor.executor_id)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Respond
-    Ok(Json(SyncWorkerResponse {
-        content_to_process: queued_work,
+    Ok(Json(ExecutorHeartbeatResponse {
+        content_to_process: vec![],
     }))
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(coordinator))]
 #[axum_macros::debug_handler]
 async fn get_coordinate(
     State(coordinator): State<Arc<Coordinator>>,

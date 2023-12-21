@@ -40,3 +40,9 @@ index_config:
 #     m: 16
 #     efconstruction: 64
 #     efsearch: 40
+
+node_id: 0
+
+peers:
+  - node_id: 0
+    addr: localhost:8950

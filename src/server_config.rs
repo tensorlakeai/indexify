@@ -9,6 +9,7 @@ use figment::{
     providers::{Env, Format, Yaml},
     Figment,
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 fn default_executor_port() -> u64 {
@@ -246,6 +247,13 @@ impl ExecutorConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct ServerPeer {
+    pub addr: String,
+    pub node_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
     #[serde(default)]
     pub listen_if: NetworkAddress,
@@ -258,6 +266,8 @@ pub struct ServerConfig {
     #[serde(default)]
     pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
+    pub node_id: u64,
+    pub peers: Vec<ServerPeer>,
 }
 
 impl Default for ServerConfig {
@@ -276,6 +286,8 @@ impl Default for ServerConfig {
                     path: "blobs".to_string(),
                 }),
             },
+            node_id: 0,
+            peers: vec![],
         }
     }
 }

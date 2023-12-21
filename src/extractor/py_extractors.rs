@@ -9,7 +9,7 @@ use pyo3::{
 use super::{EmbeddingSchema, Extractor, ExtractorSchema};
 use crate::{
     content_reader::ContentReader,
-    internal_api::{self, Content, ContentPayload},
+    internal_api::{self, Content, ContentMetadata},
 };
 
 const EXTRACT_METHOD: &str = "extract";
@@ -84,10 +84,10 @@ impl TryFrom<internal_api::Content> for PyContent {
 
 impl PyContent {
     pub async fn form_content_payload(
-        content_payload: ContentPayload,
+        content_metadata: ContentMetadata,
     ) -> Result<Self, anyhow::Error> {
-        let content_type = content_payload.content_type.clone();
-        let content_reader = ContentReader::new(content_payload);
+        let content_type = content_metadata.content_type.clone();
+        let content_reader = ContentReader::new(content_metadata);
         let data = content_reader.read().await?;
         Ok(Self {
             content_type,

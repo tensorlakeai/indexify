@@ -19,6 +19,7 @@ pub mod db_utils {
             Repository,
         },
         server_config::{ExtractorConfig, ServerConfig},
+        state,
         vector_index::VectorIndexManager,
         vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS},
     };
@@ -82,15 +83,17 @@ pub mod db_utils {
             attribute_index_manager.clone(),
         )
         .unwrap();
+        let shared_state = state::App::new(server_config.clone()).await.unwrap();
         let coordinator = Coordinator::new(
             repository.clone(),
             vector_index_manager.clone(),
             attribute_index_manager.clone(),
+            shared_state,
         );
-        coordinator
-            .record_executor(extractor_executor.get_executor_info())
-            .await
-            .unwrap();
+        //coordinator
+        //    .record_executor(extractor_executor.get_executor_info())
+        //    .await
+        //    .unwrap();
 
         let default_extractor = Extractor {
             name: DEFAULT_TEST_EXTRACTOR.into(),

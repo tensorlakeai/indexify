@@ -3,11 +3,11 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::internal_api::{Work, WorkStatus};
+use crate::internal_api::{Task, TaskStatus};
 
 pub struct WorkStore {
-    allocated_work: Arc<RwLock<HashMap<String, Work>>>,
-    completed_work: Arc<RwLock<HashMap<String, WorkStatus>>>,
+    allocated_work: Arc<RwLock<HashMap<String, Task>>>,
+    completed_work: Arc<RwLock<HashMap<String, TaskStatus>>>,
 }
 
 impl WorkStore {
@@ -22,14 +22,23 @@ impl WorkStore {
         self.completed_work.write().unwrap().clear();
     }
 
-    pub fn add_work_list(&self, work_list: Vec<Work>) {
+    pub fn add_work_list(&self, work_list: Vec<Task>) {
+        let mut new_work = Vec::new();
+        {
+            let allocated_work = self.allocated_work.read().unwrap();
+            for work in work_list {
+                if !allocated_work.contains_key(&work.id) {
+                    new_work.push(work);
+                }
+            }
+        }
         let mut allocated_work = self.allocated_work.write().unwrap();
-        for work in work_list {
+        for work in new_work {
             allocated_work.insert(work.id.clone(), work);
         }
     }
 
-    pub fn update_work_status(&self, work_status: Vec<WorkStatus>) {
+    pub fn update_work_status(&self, work_status: Vec<TaskStatus>) {
         let mut allocated_work_handle = self.allocated_work.write().unwrap();
         let mut completed_work_handle = self.completed_work.write().unwrap();
         for work in work_status {
@@ -38,12 +47,12 @@ impl WorkStore {
         }
     }
 
-    pub fn pending_work(&self) -> Vec<Work> {
+    pub fn pending_work(&self) -> Vec<Task> {
         let allocated_work = self.allocated_work.read().unwrap();
         allocated_work.values().cloned().collect()
     }
 
-    pub fn completed_work(&self) -> Vec<WorkStatus> {
+    pub fn completed_work(&self) -> Vec<TaskStatus> {
         let allocated_work = self.completed_work.read().unwrap();
         allocated_work.values().cloned().collect()
     }

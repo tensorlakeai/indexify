@@ -13,7 +13,10 @@ use axum::{
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use reqwest::StatusCode;
-use tokio::{signal, sync::mpsc};
+use tokio::{
+    signal,
+    sync::{broadcast, mpsc},
+};
 use tracing::{error, info};
 
 use crate::{

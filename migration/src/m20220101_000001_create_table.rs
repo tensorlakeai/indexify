@@ -89,56 +89,6 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await;
-        let _ = manager
-            .create_table(
-                Table::create()
-                    .table(ExtractionEvent::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(ExtractionEvent::Id)
-                            .string()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(ExtractionEvent::Payload)
-                            .json_binary()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(ExtractionEvent::AllocationInfo)
-                            .json_binary()
-                            .null(),
-                    )
-                    .col(
-                        ColumnDef::new(ExtractionEvent::ProcessedAt)
-                            .big_unsigned()
-                            .null(),
-                    )
-                    .to_owned(),
-            )
-            .await;
-
-        let _ = manager
-            .create_table(
-                Table::create()
-                    .table(Work::Table)
-                    .if_not_exists()
-                    .col(ColumnDef::new(Work::Id).string().not_null().primary_key())
-                    .col(ColumnDef::new(Work::State).string().not_null())
-                    .col(ColumnDef::new(Work::WorkerId).string())
-                    .col(ColumnDef::new(Work::ContentId).string().not_null())
-                    .col(ColumnDef::new(Work::Extractor).string().not_null())
-                    .col(ColumnDef::new(Work::ExtractorBinding).string().not_null())
-                    .col(
-                        ColumnDef::new(Work::ExtractorParams)
-                            .json_binary()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(Work::RepositoryId).string().not_null())
-                    .to_owned(),
-            )
-            .await;
 
         let _ = manager
             .create_table(
@@ -185,32 +135,6 @@ impl MigrationTrait for Migration {
             )
             .await;
 
-        let _ = manager
-            .create_table(
-                Table::create()
-                    .table(Extractors::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(Extractors::Id)
-                            .string()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Extractors::Description).string().not_null())
-                    .col(
-                        ColumnDef::new(Extractors::InputParams)
-                            .json_binary()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Extractors::OutputSchema)
-                            .json_binary()
-                            .not_null(),
-                    )
-                    .to_owned(),
-            )
-            .await;
-
         manager
             .create_table(
                 Table::create()
@@ -244,19 +168,10 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(Events::Table).to_owned())
             .await;
         let _ = manager
-            .drop_table(Table::drop().table(ExtractionEvent::Table).to_owned())
-            .await;
-        let _ = manager
             .drop_table(Table::drop().table(DataRepository::Table).to_owned())
             .await;
-        let _ = manager
-            .drop_table(Table::drop().table(Work::Table).to_owned())
-            .await;
-        let _ = manager
-            .drop_table(Table::drop().table(AttributesIndex::Table).to_owned())
-            .await;
         manager
-            .drop_table(Table::drop().table(Extractors::Table).to_owned())
+            .drop_table(Table::drop().table(AttributesIndex::Table).to_owned())
             .await
     }
 }
@@ -304,34 +219,12 @@ enum Events {
 }
 
 #[derive(Iden)]
-enum ExtractionEvent {
-    Table,
-    Id,
-    Payload,
-    AllocationInfo,
-    ProcessedAt,
-}
-
-#[derive(Iden)]
 enum DataRepository {
     Table,
     Name,
     ExtractorBindings,
     Metadata,
     DataConnectors,
-}
-
-#[derive(Iden)]
-enum Work {
-    Table,
-    Id,
-    State,
-    WorkerId,
-    ContentId,
-    Extractor,
-    ExtractorBinding,
-    ExtractorParams,
-    RepositoryId,
 }
 
 #[derive(Iden)]
@@ -344,13 +237,4 @@ enum AttributesIndex {
     IndexName,
     ContentId,
     CreatedAt,
-}
-
-#[derive(Iden)]
-enum Extractors {
-    Table,
-    Id,
-    Description,
-    InputParams,
-    OutputSchema,
 }

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
 
 use anyhow::{anyhow, Ok, Result};
+use bollard::grpc::error;
 use nanoid::nanoid;
 use serde_json::json;
 use tracing::{error, info};
@@ -12,13 +13,13 @@ use crate::{
     internal_api::{
         self,
         Content,
-        ExecutorInfo,
+        ExecutorHeartbeatResponse,
+        ExecutorMetadata,
         ExtractorDescription,
-        SyncExecutor,
-        SyncWorkerResponse,
-        Work,
+        ExtractorHeartbeat,
+        Task,
         WorkState,
-        WorkStatus,
+        TaskStatus,
     },
     persistence::Repository,
     server_config::{ExecutorConfig, ExtractorConfig},
@@ -100,7 +101,7 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument]
-    pub fn get_executor_info(&self) -> ExecutorInfo {
+    pub fn get_executor_info(&self) -> ExecutorMetadata {
         let extractor_info = self.extractor.schemas().unwrap();
         let mut output_schemas = HashMap::new();
         for (output_name, embedding_schema) in extractor_info.embedding_schemas {
@@ -117,7 +118,7 @@ impl ExtractorExecutor {
                 },
             );
         }
-        ExecutorInfo {
+        ExecutorMetadata {
             id: self.executor_id.clone(),
             last_seen: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -136,8 +137,7 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument]
-    pub async fn sync_repo(&self) -> Result<u64, anyhow::Error> {
-        let completed_work = self.work_store.completed_work();
+    pub async fn sync_repo(&self) -> Result<(), anyhow::Error> {
         let extractor_schema = self.extractor.schemas().unwrap();
         let executor_info = self.get_executor_info();
         let extractor_description = ExtractorDescription {
@@ -146,46 +146,34 @@ impl ExtractorExecutor {
             input_params: extractor_schema.input_params,
             schema: executor_info.extractor.schema,
         };
-        let sync_executor_req = SyncExecutor {
+        let hb_request = ExtractorHeartbeat {
             executor_id: self.executor_id.clone(),
             extractor: extractor_description,
             addr: self.listen_addr.clone(),
-            work_status: completed_work,
         };
-        let json_resp = reqwest::Client::new()
+        let resp = reqwest::Client::new()
             .post(&format!(
-                "http://{}/sync_executor",
+                "http://{}/heartbeat",
                 &self.executor_config.coordinator_addr
             ))
-            .json(&sync_executor_req)
+            .json(&hb_request)
             .send()
-            .await?
+            .await
+            .map_err(|e| anyhow!("unable to send heartbeat: {}", e))?
             .text()
-            .await?;
+            .await
+            .map_err(|e| anyhow!("unable to extract text from heartbeat response: {}", e))?;
 
-        let resp: Result<SyncWorkerResponse, serde_json::Error> = serde_json::from_str(&json_resp);
-        if let Err(err) = resp {
-            return Err(anyhow!(
-                "unable to parse server response: err: {:?}, resp: {}",
-                err,
-                &json_resp
-            ));
-        }
+        let resp: ExecutorHeartbeatResponse = serde_json::from_str(&resp)
+            .map_err(|e| anyhow!("unable to parse heartbeat response: {}", e))?;
 
-        self.work_store.clear_completed_work();
+        self.work_store.add_work_list(resp.content_to_process);
 
-        self.work_store
-            .add_work_list(resp.unwrap().content_to_process);
-
-        if let Err(err) = self.perform_work().await {
-            error!("unable perform work: {:?}", err);
-            return Err(anyhow!("unable perform work: {:?}", err));
-        }
-        Ok(0)
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub async fn sync_repo_test(&self, work_list: Vec<Work>) -> Result<u64, anyhow::Error> {
+    pub async fn sync_repo_test(&self, work_list: Vec<Task>) -> Result<u64, anyhow::Error> {
         self.work_store.add_work_list(work_list);
         if let Err(err) = self.perform_work().await {
             error!("unable perform work: {:?}", err);
@@ -212,37 +200,38 @@ impl ExtractorExecutor {
 
     #[tracing::instrument(skip(self))]
     pub async fn perform_work(&self) -> Result<(), anyhow::Error> {
-        let work_list: Vec<Work> = self.work_store.pending_work();
-        let mut work_status_list = Vec::new();
-        for work in work_list {
-            info!("performing work: {}", &work.id);
+        let tasks: Vec<Task> = self.work_store.pending_work();
+        let mut task_statuses = Vec::new();
+        for task in tasks {
+            info!("performing work: {}", &task.id);
             let content = self
-                .create_content_from_payload(work.content_payload)
+                .create_content_from_metadata(task.content_metadata)
                 .await?;
-            let extracted_content_batch =
-                self.extractor.extract(vec![content], work.params.clone())?;
+            let extracted_content_batch = self
+                .extractor
+                .extract(vec![content], task.input_params.clone())?;
 
             for extracted_content_list in extracted_content_batch {
-                let work_status = WorkStatus {
-                    work_id: work.id.clone(),
+                let task_status = TaskStatus {
+                    work_id: task.id.clone(),
                     status: WorkState::Completed,
                     extracted_content: extracted_content_list,
                 };
-                work_status_list.push(work_status);
+                task_statuses.push(task_status);
             }
         }
-        self.work_store.update_work_status(work_status_list);
+        self.work_store.update_work_status(task_statuses);
         Ok(())
     }
 
-    async fn create_content_from_payload(
+    async fn create_content_from_metadata(
         &self,
-        content_payload: internal_api::ContentPayload,
+        content_metadata: internal_api::ContentMetadata,
     ) -> Result<Content, anyhow::Error> {
-        let content_reader = ContentReader::new(content_payload.clone());
+        let content_reader = ContentReader::new(content_metadata.clone());
         let data = content_reader.read().await?;
         let extracted_content = Content {
-            content_type: content_payload.content_type,
+            content_type: content_metadata.content_type,
             source: data,
             feature: None,
         };

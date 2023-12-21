@@ -1,7 +1,11 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::IntoDeserializer};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
@@ -104,7 +108,7 @@ impl From<persistence::Extractor> for ExtractorDescription {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutorInfo {
+pub struct ExecutorMetadata {
     pub id: String,
     pub last_seen: u64,
     pub addr: String,
@@ -156,23 +160,30 @@ impl From<WorkState> for persistence::WorkState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkStatus {
+pub struct TaskStatus {
     pub work_id: String,
     pub status: WorkState,
     pub extracted_content: Vec<Content>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SyncExecutor {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WriteRequest {
+    pub work_status: Vec<TaskStatus>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WriteResponse {}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExtractorHeartbeat {
     pub executor_id: String,
     pub extractor: ExtractorDescription,
     pub addr: String,
-    pub work_status: Vec<WorkStatus>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ListExecutors {
-    pub executors: Vec<ExecutorInfo>,
+    pub executors: Vec<ExecutorMetadata>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -181,8 +192,8 @@ pub struct ListExtractors {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SyncWorkerResponse {
-    pub content_to_process: Vec<Work>,
+pub struct ExecutorHeartbeatResponse {
+    pub content_to_process: Vec<Task>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -276,44 +287,78 @@ impl From<Content> for api::Content {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ContentPayload {
-    pub content_type: String,
-    pub content: String,
-    pub external_url: Option<String>,
+pub struct Task {
+    pub id: String,
+    pub extractor: String,
+    pub repository: String,
+    pub content_metadata: ContentMetadata,
+    pub input_params: serde_json::Value,
 }
 
-impl TryFrom<persistence::ContentPayload> for ContentPayload {
-    type Error = anyhow::Error;
-
-    fn try_from(payload: persistence::ContentPayload) -> Result<Self> {
-        let content_type = payload.content_type.to_string();
-        let (external_url, content) = match payload.payload_type {
-            persistence::PayloadType::BlobStorageLink => (Some(payload.payload), "".to_string()),
-            _ => (None, payload.payload),
-        };
-        Ok(Self {
-            content_type,
-            content,
-            external_url,
-        })
+impl Task {
+    pub fn new(
+        extractor: &str,
+        repository: &str,
+        content_metadata: &ContentMetadata,
+        input_params: serde_json::Value,
+    ) -> Self {
+        let mut s = DefaultHasher::new();
+        extractor.hash(&mut s);
+        repository.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        Self {
+            id,
+            extractor: extractor.into(),
+            repository: repository.into(),
+            content_metadata: content_metadata.to_owned(),
+            input_params,
+        }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Work {
-    pub id: String,
-    pub content_payload: ContentPayload,
-    pub params: serde_json::Value,
+#[derive(Serialize, Debug, Deserialize, Display, EnumString, Clone)]
+pub enum ExtractionEventPayload {
+    ExtractorBindingAdded { repository: String, id: String },
+    CreateContent { content_id: String },
 }
 
-pub fn create_work(
-    work: persistence::Work,
-    content_payload: persistence::ContentPayload,
-) -> Result<Work> {
-    let content_payload = ContentPayload::try_from(content_payload)?;
-    Ok(Work {
-        id: work.id,
-        content_payload,
-        params: work.extractor_params,
-    })
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExtractionEvent {
+    pub id: String,
+    pub repository_id: String,
+    pub payload: ExtractionEventPayload,
+    pub created_at: u64,
+    pub processed_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
+#[serde(rename = "extractor_filter")]
+pub enum ExtractorFilter {
+    Eq {
+        field: String,
+        value: serde_json::Value,
+    },
+    Neq {
+        field: String,
+        value: serde_json::Value,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractorBinding {
+    pub id: String,
+    pub name: String,
+    pub repository: String,
+    pub extractor: String,
+    pub filters: Vec<ExtractorFilter>,
+    pub input_params: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentMetadata {
+    pub id: String,
+    pub content_type: String,
+    pub metadata: HashMap<String, serde_json::Value>,
+    pub storage_url: String,
+    pub created_at: u64,
 }
