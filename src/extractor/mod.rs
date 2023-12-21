@@ -88,6 +88,7 @@ pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS,
 
 pub async fn run_docker_extractor(
     name: String,
+    extractor_cache_path: Option<String>,
     text: Option<String>,
     file_path: Option<String>,
 ) -> Result<Vec<Content>, anyhow::Error> {
@@ -97,22 +98,36 @@ pub async fn run_docker_extractor(
         platform: None,
     });
     let mut args = vec!["extractor".to_string(), "extract".to_string()];
+
     if let Some(text) = text {
         args.push("--text".to_string());
         args.push(text.escape_default().to_string());
     }
+
     let mut host_config: Option<HostConfig> = None;
-    if let Some(file_path) = file_path {
+    if let (Some(file_path), Some(extractor_cache_path)) = (file_path, extractor_cache_path) {
         let file_path = Path::new(&file_path).canonicalize().unwrap();
         let file_name = file_path.file_name().unwrap().to_str().unwrap();
         args.push("--file".to_string());
         args.push(format!("./{}", file_name));
-        let mounts = vec![Mount {
+        let mut mounts = vec![Mount {
             target: Some(format!("/indexify/{}", file_name)),
             source: Some(file_path.display().to_string()),
             typ: Some(bollard::service::MountTypeEnum::BIND),
             ..Default::default()
         }];
+
+        let extractor_cache_path = Path::new(&extractor_cache_path).canonicalize().unwrap();
+        let extractor_cache_path = extractor_cache_path.file_name().unwrap().to_str().unwrap();
+        args.push("--extractor-cache-path".to_string());
+        args.push(extractor_cache_path.to_string());
+        mounts.push(Mount {
+            target: Some(format!("/indexify/{}", extractor_cache_path)),
+            source: Some(extractor_cache_path.display().to_string()),
+            typ: Some(bollard::service::MountTypeEnum::BIND),
+            ..Default::default()
+        });
+
         host_config.replace(HostConfig {
             mounts: Some(mounts),
             ..Default::default()

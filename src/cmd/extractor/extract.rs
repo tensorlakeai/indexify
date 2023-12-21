@@ -7,6 +7,9 @@ pub struct Args {
     #[arg(short = 'e', long)]
     extractor_path: Option<String>,
 
+    #[arg(short = 'c', long)]
+    extractor_cache_path: Option<String>,
+
     #[arg(short = 'n', long)]
     name: Option<String>,
 
@@ -21,13 +24,14 @@ impl Args {
     pub async fn run(self, _extractor_config_path: String, _: GlobalArgs) {
         let Self {
             extractor_path,
+            extractor_cache_path,
             name,
             text,
             file,
         } = self;
 
         if let Some(name) = name {
-            let _ = crate::extractor::run_docker_extractor(name, text, file)
+            let _ = crate::extractor::run_docker_extractor(name, extractor_path, text, file)
                 .await
                 .expect("failed to run docker image");
         } else {
