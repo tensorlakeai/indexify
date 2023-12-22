@@ -124,8 +124,6 @@ pub async fn run_docker_extractor(
     if let Some(cache_dir) = cache_dir {
         let cache_dir = Path::new(&cache_dir).canonicalize().unwrap();
         let cache_name= cache_dir.file_name().unwrap().to_str().unwrap();
-        args.push("--extractor-cache-path".to_string());
-        args.push(cache_dir.display().to_string());
 
         let target_path = format!("/indexify/{}", cache_name);
 
