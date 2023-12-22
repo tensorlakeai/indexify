@@ -88,6 +88,7 @@ pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS,
 
 pub async fn run_docker_extractor(
     name: String,
+    cache_dir: Option<String>,
     text: Option<String>,
     file_path: Option<String>,
 ) -> Result<Vec<Content>, anyhow::Error> {
@@ -97,33 +98,57 @@ pub async fn run_docker_extractor(
         platform: None,
     });
     let mut args = vec!["extractor".to_string(), "extract".to_string()];
+
     if let Some(text) = text {
         args.push("--text".to_string());
         args.push(text.escape_default().to_string());
     }
+
     let mut host_config: Option<HostConfig> = None;
+    let mut mounts: Vec<Mount> = Vec::new();
+    let mut env: Vec<String> = Vec::new();
+
     if let Some(file_path) = file_path {
         let file_path = Path::new(&file_path).canonicalize().unwrap();
         let file_name = file_path.file_name().unwrap().to_str().unwrap();
         args.push("--file".to_string());
         args.push(format!("./{}", file_name));
-        let mounts = vec![Mount {
+        mounts.push(Mount {
             target: Some(format!("/indexify/{}", file_name)),
             source: Some(file_path.display().to_string()),
             typ: Some(bollard::service::MountTypeEnum::BIND),
             ..Default::default()
-        }];
-        host_config.replace(HostConfig {
-            mounts: Some(mounts),
-            ..Default::default()
         });
     }
+
+    if let Some(cache_dir) = cache_dir {
+        let cache_dir = Path::new(&cache_dir).canonicalize().unwrap();
+        let cache_name= cache_dir.file_name().unwrap().to_str().unwrap();
+
+        let target_path = format!("/indexify/{}", cache_name);
+
+        mounts.push(Mount {
+            target: Some(target_path.clone()),
+            source: Some(cache_dir.display().to_string()),
+            typ: Some(bollard::service::MountTypeEnum::BIND),
+            ..Default::default()
+        });
+
+        env.push(format!("CACHE_DIR={}", target_path.clone()));
+    }
+
+    host_config.replace(HostConfig {
+        mounts: Some(mounts),
+        ..Default::default()
+    });
+
     let config = Config {
         image: Some(name.clone()),
         cmd: Some(args),
         attach_stderr: Some(true),
         attach_stdout: Some(true),
         host_config,
+        env: Some(env),
         ..Default::default()
     };
     let id: String = docker.create_container(options, config).await?.id;
