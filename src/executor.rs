@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
+use std::{fmt, sync::Arc, time::SystemTime};
 
 use anyhow::{anyhow, Ok, Result};
 use nanoid::nanoid;
@@ -8,7 +8,7 @@ use tracing::{error, info};
 use crate::{
     attribute_index::AttributeIndexManager,
     content_reader::ContentReader,
-    extractor::{self, python_path, ExtractorTS},
+    extractor::extractor_runner::ExtractorRunner,
     internal_api::{
         self,
         Content,
@@ -21,7 +21,7 @@ use crate::{
         WorkStatus,
     },
     persistence::Repository,
-    server_config::{ExecutorConfig, ExtractorConfig},
+    server_config::ExecutorConfig,
     vector_index::VectorIndexManager,
     work_store::WorkStore,
 };
@@ -36,9 +36,9 @@ fn create_executor_id() -> String {
 
 pub struct ExtractorExecutor {
     executor_config: Arc<ExecutorConfig>,
-    extractor_config: Arc<ExtractorConfig>,
     executor_id: String,
-    extractor: ExtractorTS,
+    extractor_runner: ExtractorRunner,
+    extractor_description: ExtractorDescription,
     listen_addr: String,
 
     work_store: WorkStore,
@@ -57,21 +57,16 @@ impl ExtractorExecutor {
     #[tracing::instrument]
     pub async fn new(
         executor_config: Arc<ExecutorConfig>,
-        extractor_config_path: &str,
+        extractor_runner: ExtractorRunner,
         listen_addr: String,
     ) -> Result<Self> {
         let executor_id = create_executor_id();
-        let extractor_config = Arc::new(ExtractorConfig::from_path(extractor_config_path)?);
-        info!("looking up extractor at path: {}", &extractor_config_path);
-        python_path::set_python_path(extractor_config_path)?;
-
-        let extractor =
-            extractor::create_extractor(&extractor_config.module, &extractor_config.name)?;
+        let extractor_description = extractor_runner.info()?.into();
         let extractor_executor = Self {
             executor_config,
-            extractor_config,
             executor_id,
-            extractor,
+            extractor_runner,
+            extractor_description,
             listen_addr,
             work_store: WorkStore::new(),
         };
@@ -82,18 +77,17 @@ impl ExtractorExecutor {
     pub fn new_test(
         repository: Arc<Repository>,
         executor_config: Arc<ExecutorConfig>,
-        extractor_config: Arc<ExtractorConfig>,
+        extractor_runner: ExtractorRunner,
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self> {
-        let extractor =
-            extractor::create_extractor(&extractor_config.module, &extractor_config.name)?;
         let executor_id = create_executor_id();
+        let extractor_description = extractor_runner.info()?.into();
         Ok(Self {
             executor_config,
-            extractor_config,
             executor_id,
-            extractor,
+            extractor_runner,
+            extractor_description,
             listen_addr: "127.0.0.0:9000".to_string(),
             work_store: WorkStore::new(),
         })
@@ -101,22 +95,6 @@ impl ExtractorExecutor {
 
     #[tracing::instrument]
     pub fn get_executor_info(&self) -> ExecutorInfo {
-        let extractor_info = self.extractor.schemas().unwrap();
-        let mut output_schemas = HashMap::new();
-        for (output_name, embedding_schema) in extractor_info.embedding_schemas {
-            let extractor::EmbeddingSchema {
-                dim,
-                distance_metric,
-            } = embedding_schema;
-            let distance_metric = distance_metric.to_string();
-            output_schemas.insert(
-                output_name,
-                internal_api::OutputSchema::Embedding {
-                    dim,
-                    distance_metric,
-                },
-            );
-        }
         ExecutorInfo {
             id: self.executor_id.clone(),
             last_seen: SystemTime::now()
@@ -124,31 +102,16 @@ impl ExtractorExecutor {
                 .unwrap()
                 .as_secs(),
             addr: self.executor_config.listen_if.clone().into(),
-            extractor: ExtractorDescription {
-                name: self.extractor_config.name.clone(),
-                description: self.extractor_config.description.clone(),
-                input_params: extractor_info.input_params,
-                schema: internal_api::ExtractorSchema {
-                    output: output_schemas,
-                },
-            },
+            extractor: self.extractor_runner.info().unwrap().into(),
         }
     }
 
     #[tracing::instrument]
     pub async fn sync_repo(&self) -> Result<u64, anyhow::Error> {
         let completed_work = self.work_store.completed_work();
-        let extractor_schema = self.extractor.schemas().unwrap();
-        let executor_info = self.get_executor_info();
-        let extractor_description = ExtractorDescription {
-            name: self.extractor_config.name.clone(),
-            description: self.extractor_config.description.clone(),
-            input_params: extractor_schema.input_params,
-            schema: executor_info.extractor.schema,
-        };
         let sync_executor_req = SyncExecutor {
             executor_id: self.executor_id.clone(),
-            extractor: extractor_description,
+            extractor: self.extractor_description.clone(),
             addr: self.listen_addr.clone(),
             work_status: completed_work,
         };
@@ -201,7 +164,7 @@ impl ExtractorExecutor {
         input_params: Option<serde_json::Value>,
     ) -> Result<Vec<Content>, anyhow::Error> {
         let extracted_content = self
-            .extractor
+            .extractor_runner
             .extract(vec![content], input_params.unwrap_or(json!({})))?;
         let content = extracted_content
             .get(0)
@@ -219,8 +182,9 @@ impl ExtractorExecutor {
             let content = self
                 .create_content_from_payload(work.content_payload)
                 .await?;
-            let extracted_content_batch =
-                self.extractor.extract(vec![content], work.params.clone())?;
+            let extracted_content_batch = self
+                .extractor_runner
+                .extract(vec![content], work.params.clone())?;
 
             for extracted_content_list in extracted_content_batch {
                 let work_status = WorkStatus {

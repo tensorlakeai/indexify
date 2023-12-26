@@ -6,10 +6,15 @@ pub fn set_python_path(path: &str) -> Result<(), anyhow::Error> {
     let path = PathBuf::from(path);
     let parent_path = path
         .parent()
-        .ok_or(anyhow::anyhow!("error setting PYTHONPATH: invalid path"))?;
-    let path_str = parent_path
+        .ok_or(anyhow::anyhow!(
+            "error setting PYTHONPATH: unable to get parent path of {:?}",
+            path
+        ))?
         .to_str()
-        .ok_or(anyhow!("error setting PYTHONPATH: invalid path"))?;
+        .ok_or(anyhow!(
+            "error setting PYTHONPATH: unable to get str represtation of parent path of {:?}",
+            path
+        ))?;
     let python_path = std::env::var("PYTHONPATH").unwrap_or("".to_string());
     let mut site_packages: String = "".into();
     // THIS IS NEEEDED FOR MAC OS.
@@ -35,7 +40,7 @@ pub fn set_python_path(path: &str) -> Result<(), anyhow::Error> {
                 .into();
         }
     }
-    let new_python_path = format!("{}:{}:{}", python_path, path_str, site_packages);
+    let new_python_path = format!("{}:{}:{}", python_path, parent_path, site_packages);
     env::set_var("PYTHONPATH", new_python_path);
     Ok(())
 }

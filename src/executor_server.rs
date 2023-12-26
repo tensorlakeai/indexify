@@ -19,8 +19,9 @@ use tracing::{error, info};
 use crate::{
     api::IndexifyAPIError,
     executor::ExtractorExecutor,
+    extractor::{extractor_runner, py_extractors, python_path},
     internal_api::{ExtractRequest, ExtractResponse},
-    server_config::ExecutorConfig,
+    server_config::{ExecutorConfig, ExtractorConfig},
 };
 
 enum TickerMessage {
@@ -70,6 +71,9 @@ impl ExecutorServer {
         extractor_config_path: &str,
         executor_config: Arc<ExecutorConfig>,
     ) -> Result<Self> {
+        // Set Python Path
+        python_path::set_python_path(extractor_config_path)?;
+
         Ok(Self {
             executor_config,
             extractor_config_path: extractor_config_path.into(),
@@ -82,10 +86,15 @@ impl ExecutorServer {
         let listen_addr = listener.local_addr()?.to_string();
         let listen_port = listener.local_addr()?.port();
         let advertise_addr = format!("{}:{}", self.executor_config.advertise_if, listen_port);
+        let extractor_config = ExtractorConfig::from_path(&self.extractor_config_path)?;
+        let extractor =
+            py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.module)?;
+        let extractor_runner =
+            extractor_runner::ExtractorRunner::new(Arc::new(extractor), extractor_config);
         let executor = Arc::new(
             ExtractorExecutor::new(
                 self.executor_config.clone(),
-                &self.extractor_config_path,
+                extractor_runner,
                 advertise_addr.clone(),
             )
             .await?,
