@@ -18,7 +18,7 @@ use crate::{api::ExtractorDescription, internal_api::Content};
 pub mod python_path;
 mod scaffold;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
     pub distance_metric: String,
     pub dim: usize,
@@ -44,7 +44,7 @@ pub trait ExtractorCli {
     fn info(&self) -> Result<ExtractorDescription>;
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorSchema {
     pub embedding_schemas: HashMap<String, EmbeddingSchema>,
     pub input_params: serde_json::Value,

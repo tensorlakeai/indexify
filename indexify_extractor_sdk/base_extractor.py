@@ -55,6 +55,7 @@ class Extractor(ABC):
 
 
     @classmethod
+    @abstractmethod
     def schemas(cls) -> ExtractorSchema:
         """
         Returns a list of options for indexing.
@@ -78,7 +79,7 @@ class ExtractorWrapper:
         return self._instance.extract(content_list, param_instance)
 
     def schemas(self) -> InternalExtractorSchema:
-        schema: ExtractorSchema = self._instance.schemas()
+        schema: ExtractorSchema = self._cls.schemas()
         embedding_schemas = {}
         for k,v in schema.features.items():
             if isinstance(v, EmbeddingSchema):
@@ -87,3 +88,17 @@ class ExtractorWrapper:
         json_schema = self._param_cls.model_json_schema() if self._param_cls else {}
         json_schema['additionalProperties'] = False
         return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=json.dumps(json_schema))
+    
+def extractor_schema(module_name: str, class_name: str) -> InternalExtractorSchema:
+    module = import_module(module_name)
+    cls = getattr(module, class_name)
+    param_cls = get_type_hints(cls.extract).get("params", None)
+    schema: ExtractorSchema = cls.schemas()
+    embedding_schemas = {}
+    for k,v in schema.features.items():
+        if isinstance(v, EmbeddingSchema):
+            embedding_schemas[k] = v
+            continue
+    json_schema = param_cls.model_json_schema() if param_cls else {}
+    json_schema['additionalProperties'] = False
+    return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=json.dumps(json_schema))
