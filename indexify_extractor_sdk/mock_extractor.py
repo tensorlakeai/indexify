@@ -34,7 +34,8 @@ class MockExtractor(Extractor):
     def extract_query_embeddings(self, query: str) -> List[float]:
         return [1, 2, 3]
 
-    def schemas(self) -> ExtractorSchema:
+    @classmethod
+    def schemas(cls) -> ExtractorSchema:
         """
         Returns a list of options for indexing.
         """

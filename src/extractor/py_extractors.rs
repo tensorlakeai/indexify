@@ -116,6 +116,7 @@ impl PyContent {
 #[derive(Debug)]
 pub struct PythonExtractor {
     extractor_wrapper: PyObject,
+    extractor_schema: ExtractorSchema,
 }
 
 impl PythonExtractor {
@@ -137,7 +138,7 @@ impl PythonExtractor {
     }
 
     pub fn new(module_name: &str, class_name: &str) -> Result<Self, anyhow::Error> {
-        let extractor_wrapper = Python::with_gil(|py| {
+        let (extractor_wrapper, extractor_schema) = Python::with_gil(|py| {
             let syspath: &PyList = py
                 .import("sys")?
                 .getattr("path")?
@@ -153,11 +154,23 @@ impl PythonExtractor {
             let class_name = class_name.to_owned().into_py(py);
 
             let extractor_wrapper = extractor_wrapper_class
-                .call1((entry_point, class_name))?
+                .call1((entry_point.clone(), class_name.clone()))?
                 .into_py(py);
-            Ok(extractor_wrapper)
+            let args= (entry_point, class_name);
+            let schemas = module.call_method1("extractor_schema", args)?.into_py(py);
+            let input_params: String = schemas.getattr(py, "input_params")?.extract(py)?;
+            let input_params = serde_json::from_str(&input_params)?;
+            let embedding_schemas: HashMap<String, EmbeddingSchema> =schemas 
+                .getattr(py, "embedding_schemas")?
+                .extract(py)
+                .map_err(|e| anyhow!(e.to_string()))?;
+            let extractor_schema = ExtractorSchema {
+                embedding_schemas,
+                input_params,
+            };
+            Ok((extractor_wrapper, extractor_schema))
         })?;
-        Ok(Self { extractor_wrapper })
+        Ok(Self { extractor_wrapper, extractor_schema })
     }
 }
 
@@ -165,20 +178,7 @@ impl PythonExtractor {
 impl Extractor for PythonExtractor {
     #[tracing::instrument]
     fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error> {
-        let info = Python::with_gil(|py| {
-            let info = self.extractor_wrapper.call_method0(py, "schemas")?;
-            let input_params: String = info.getattr(py, "input_params")?.extract(py)?;
-            let input_params = serde_json::from_str(&input_params)?;
-            let embedding_schemas: HashMap<String, EmbeddingSchema> = info
-                .getattr(py, "embedding_schemas")?
-                .extract(py)
-                .map_err(|e| anyhow!(e.to_string()))?;
-            Ok(ExtractorSchema {
-                embedding_schemas,
-                input_params,
-            })
-        })?;
-        Ok(info)
+        Ok(self.extractor_schema.clone())
     }
 
     fn extract(
