@@ -4,6 +4,7 @@ use super::GlobalArgs;
 use crate::prelude::*;
 
 mod extract;
+mod info;
 mod new;
 mod package;
 mod start;
@@ -32,6 +33,7 @@ impl Args {
             Command::New(args) => args.run(extractor_config_path, global_args).await,
             Command::Package(args) => args.run(extractor_config_path, global_args).await,
             Command::Start(args) => args.run(extractor_config_path, global_args).await,
+            Command::Info(args) => args.run(extractor_config_path, global_args).await,
         }
     }
 }
@@ -41,6 +43,7 @@ pub enum Command {
     Extract(extract::Args),
     New(new::Args),
     Package(package::Args),
+    Info(info::Args),
     /// join the extractor to indexify
     Start(start::Args),
 }

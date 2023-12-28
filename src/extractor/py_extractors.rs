@@ -1,6 +1,6 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, path::Path, str::FromStr};
 
-use anyhow::{anyhow, Ok};
+use anyhow::{anyhow, Ok, Result};
 use pyo3::{
     prelude::*,
     types::{PyList, PyString},
@@ -119,6 +119,23 @@ pub struct PythonExtractor {
 }
 
 impl PythonExtractor {
+    pub fn new_from_extractor_path(extractor_path: &str) -> Result<Self> {
+        let tokens: Vec<&str> = extractor_path.split(':').collect();
+        if tokens.len() != 2 {
+            return Err(anyhow!("invalid extractor path: {}", extractor_path));
+        }
+        let module_path = tokens[0];
+        let class_name = tokens[1].trim();
+        let module_file_name = Path::new(module_path)
+            .file_name()
+            .ok_or(anyhow!("couldn't find model file name: {:?}", module_path))?
+            .to_str()
+            .ok_or(anyhow!("couldn't find model file name: {:?}", module_path))?;
+
+        let module_name = module_file_name.trim_end_matches(".py");
+        Self::new(module_name, class_name)
+    }
+
     pub fn new(module_name: &str, class_name: &str) -> Result<Self, anyhow::Error> {
         let extractor_wrapper = Python::with_gil(|py| {
             let syspath: &PyList = py

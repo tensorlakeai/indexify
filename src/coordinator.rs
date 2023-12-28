@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
@@ -12,6 +13,7 @@ use crate::{
     extractor::ExtractedEmbeddings,
     internal_api::{self, CreateWork, ExecutorInfo},
     persistence::{
+        self,
         ExtractedAttributes,
         ExtractionEventPayload,
         ExtractorBinding,
@@ -19,6 +21,7 @@ use crate::{
         Work,
     },
     vector_index::VectorIndexManager,
+    vectordbs::IndexDistance,
 };
 
 #[derive(Debug)]
@@ -212,9 +215,38 @@ impl Coordinator {
         &self,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<(), anyhow::Error> {
-        self.repository
-            .record_extractors(vec![extractor.try_into().unwrap()])
-            .await?;
+        let mut outputs = HashMap::new();
+        for (name, output_schema) in extractor.schema.output {
+            match output_schema {
+                internal_api::OutputSchema::Embedding { dim, distance } => {
+                    let distance_metric = IndexDistance::from_str(&distance)?;
+                    outputs.insert(
+                        name,
+                        persistence::ExtractorOutputSchema::Embedding(
+                            persistence::EmbeddingSchema {
+                                dim,
+                                distance: distance_metric,
+                            },
+                        ),
+                    );
+                }
+                internal_api::OutputSchema::Feature(schema) => {
+                    outputs.insert(
+                        name,
+                        persistence::ExtractorOutputSchema::Attributes(
+                            persistence::MetadataSchema { schema },
+                        ),
+                    );
+                }
+            }
+        }
+        let extractor = persistence::Extractor {
+            name: extractor.name,
+            description: extractor.description,
+            input_params: extractor.input_params,
+            schemas: persistence::ExtractorSchema { outputs },
+        };
+        self.repository.record_extractors(vec![extractor]).await?;
         Ok(())
     }
 

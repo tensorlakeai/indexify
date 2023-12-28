@@ -8,13 +8,12 @@ use strum::{Display, EnumString};
 
 use crate::{
     api,
-    persistence::{self, EmbeddingSchema},
-    vectordbs::IndexDistance,
+    persistence::{self},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OutputSchema {
-    Embedding { dim: usize, distance_metric: String },
+    Embedding { dim: usize, distance: String },
     Feature(serde_json::Value),
 }
 
@@ -31,64 +30,23 @@ pub struct ExtractorDescription {
     pub schema: ExtractorSchema,
 }
 
-impl TryFrom<ExtractorDescription> for persistence::Extractor {
-    type Error = anyhow::Error;
-
-    fn try_from(extractor: ExtractorDescription) -> Result<persistence::Extractor> {
-        let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in extractor.schema.output {
-            match embedding_schema {
-                OutputSchema::Embedding {
-                    dim,
-                    distance_metric,
-                } => {
-                    let distance = IndexDistance::from_str(&distance_metric)?;
-                    output_schema.insert(
-                        output_name,
-                        persistence::ExtractorOutputSchema::Embedding(EmbeddingSchema {
-                            dim,
-                            distance,
-                        }),
-                    );
-                }
-                OutputSchema::Feature(schema) => {
-                    output_schema.insert(
-                        output_name,
-                        persistence::ExtractorOutputSchema::Attributes(
-                            persistence::MetadataSchema { schema },
-                        ),
-                    );
-                }
-            }
-        }
-        Ok(Self {
-            name: extractor.name,
-            description: extractor.description,
-            input_params: extractor.input_params,
-            schemas: persistence::ExtractorSchema {
-                outputs: output_schema,
-            },
-        })
-    }
-}
-
-impl From<persistence::Extractor> for ExtractorDescription {
-    fn from(extractor: persistence::Extractor) -> Self {
+impl From<api::ExtractorDescription> for ExtractorDescription {
+    fn from(extractor: api::ExtractorDescription) -> ExtractorDescription {
         let mut output_schema = HashMap::new();
         for (output_name, embedding_schema) in extractor.schemas.outputs {
             match embedding_schema {
-                persistence::ExtractorOutputSchema::Embedding(schema) => {
-                    let distance_metric = schema.distance.to_string();
+                api::ExtractorOutputSchema::Embedding { dim, distance } => {
+                    let distance_metric = distance.to_string();
                     output_schema.insert(
                         output_name,
                         OutputSchema::Embedding {
-                            dim: schema.dim,
-                            distance_metric,
+                            dim,
+                            distance: distance_metric,
                         },
                     );
                 }
-                persistence::ExtractorOutputSchema::Attributes(schema) => {
-                    output_schema.insert(output_name, OutputSchema::Feature(schema.schema));
+                api::ExtractorOutputSchema::Attributes { schema } => {
+                    output_schema.insert(output_name, OutputSchema::Feature(schema));
                 }
             }
         }

@@ -10,6 +10,7 @@ pub mod db_utils {
         attribute_index::AttributeIndexManager,
         coordinator::Coordinator,
         executor::ExtractorExecutor,
+        extractor::{extractor_runner, py_extractors},
         persistence::{
             DataRepository,
             Extractor,
@@ -74,10 +75,15 @@ pub mod db_utils {
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
         let extractor_config = Arc::new(mock_extractor_config());
+        let extractor =
+            py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.module)
+                .unwrap();
+        let extractor_runner =
+            extractor_runner::ExtractorRunner::new(Arc::new(extractor), mock_extractor_config());
         let extractor_executor = ExtractorExecutor::new_test(
             repository.clone(),
             executor_config,
-            extractor_config,
+            extractor_runner,
             vector_index_manager.clone(),
             attribute_index_manager.clone(),
         )
@@ -101,8 +107,8 @@ pub mod db_utils {
                 ExtractorOutputSchema::embedding(10, IndexDistance::Cosine),
             ),
         };
-        coordinator
-            .record_extractor(default_extractor.into())
+        repository
+            .record_extractors(vec![default_extractor])
             .await
             .unwrap();
         (vector_index_manager, extractor_executor, coordinator)

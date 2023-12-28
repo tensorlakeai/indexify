@@ -330,7 +330,6 @@ async fn bind_extractor(
             )
         })?
         .into_iter()
-        .map(|i| i.into())
         .collect();
 
     if let Err(err) =

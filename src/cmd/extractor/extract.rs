@@ -1,6 +1,14 @@
-use clap::Args as ClapArgs;
+use std::sync::Arc;
 
-use crate::cmd::GlobalArgs;
+use anyhow::anyhow;
+use clap::Args as ClapArgs;
+use serde_json::json;
+
+use crate::{
+    cmd::GlobalArgs,
+    extractor::{py_extractors::PythonExtractor, python_path, ExtractorTS},
+    internal_api::Content,
+};
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
@@ -30,14 +38,44 @@ impl Args {
             file,
         } = self;
 
+        if extractor_path.is_none() && name.is_none() {
+            panic!("either extractor path or name must be provided");
+        }
+
         if let Some(name) = name {
             let _ = crate::extractor::run_docker_extractor(name, cache_dir, text, file)
                 .await
                 .expect("failed to run docker image");
-        } else {
-            let extracted_content =
-                crate::extractor::run_local_extractor(extractor_path, text, file)
-                    .expect("failed to run local extractor");
+        } else if let Some(extractor_path) = extractor_path {
+            python_path::set_python_path(&extractor_path).unwrap();
+            let extractor = PythonExtractor::new_from_extractor_path(&extractor_path)
+                .expect("failed to create extractor");
+            let extractor: ExtractorTS = Arc::new(extractor);
+            let py_content = match (text, file) {
+                (Some(text), None) => Ok(Content {
+                    content_type: "text/plain".to_string(),
+                    source: text.as_bytes().to_vec(),
+                    feature: None,
+                }),
+                (None, Some(file_path)) => {
+                    let data = std::fs::read(&file_path)
+                        .map_err(|e| {
+                            anyhow!(format!("unable to read file: {}, error: {}", &file_path, e))
+                        })
+                        .unwrap();
+                    let mime_type = mime_guess::from_path(&file_path).first_or_octet_stream();
+                    Ok(Content {
+                        content_type: mime_type.to_string(),
+                        source: data,
+                        feature: None,
+                    })
+                }
+                _ => Err(anyhow!("either text or file path must be provided")),
+            }
+            .expect("unable to create content");
+            let extracted_content = extractor
+                .extract(vec![py_content], json!({}))
+                .expect("failed to extract content");
             println!(
                 "{}",
                 serde_json::to_string_pretty(&extracted_content)

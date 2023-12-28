@@ -1,6 +1,6 @@
-use std::{collections::HashMap, path::Path, result::Result::Ok, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, path::Path, result::Result::Ok, sync::Arc};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use bollard::{
     container::{Config, CreateContainerOptions, LogOutput, LogsOptions, StartContainerOptions},
     service::{HostConfig, Mount},
@@ -8,15 +8,12 @@ use bollard::{
 };
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio_stream::StreamExt;
-use tracing::info;
 
-mod py_extractors;
+pub mod extractor_runner;
+pub mod py_extractors;
 
-use py_extractors::{PyContent, PythonExtractor};
-
-use crate::{internal_api::Content, server_config::ExtractorConfig};
+use crate::{api::ExtractorDescription, internal_api::Content};
 
 pub mod python_path;
 mod scaffold;
@@ -27,7 +24,7 @@ pub struct EmbeddingSchema {
     pub dim: usize,
 }
 
-pub trait Extractor {
+pub trait Extractor: Debug {
     fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error>;
 
     fn extract(
@@ -35,6 +32,16 @@ pub trait Extractor {
         content: Vec<Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<Vec<Content>>, anyhow::Error>;
+}
+
+pub trait ExtractorCli {
+    fn extract(
+        &self,
+        content: Vec<Content>,
+        input_params: serde_json::Value,
+    ) -> Result<Vec<Vec<Content>>>;
+    fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<Content>>;
+    fn info(&self) -> Result<ExtractorDescription>;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,41 +56,6 @@ pub struct ExtractedEmbeddings {
     pub content_id: String,
     pub text: String,
     pub embeddings: Vec<f32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct AttributeData {
-    pub content_id: String,
-    pub text: String,
-    pub json: Option<serde_json::Value>,
-}
-
-#[tracing::instrument]
-pub fn create_extractor(extractor_path: &str, name: &str) -> Result<ExtractorTS, anyhow::Error> {
-    let tokens: Vec<&str> = extractor_path.split(':').collect();
-    if tokens.len() != 2 {
-        return Err(anyhow!("invalid extractor path: {}", extractor_path));
-    }
-    let module_path = tokens[0];
-
-    let module_path = Path::new(module_path);
-    let parent = module_path.parent().ok_or(anyhow!(
-        "couldn't find parent dir of module_path: {:?}",
-        module_path
-    ))?;
-    let module_file_name = module_path
-        .strip_prefix(parent)?
-        .to_str()
-        .ok_or(anyhow!("couldn't find model file name: {:?}", module_path))?;
-    let module_name = module_file_name.trim_end_matches(".py");
-
-    let class_name = tokens[1].trim();
-    let extractor = PythonExtractor::new(module_name, class_name)?;
-    info!(
-        "extractor created: name: {}, python module: {}, class name: {}",
-        name, module_name, class_name
-    );
-    Ok(Arc::new(extractor))
 }
 
 pub async fn run_docker_extractor(
@@ -123,7 +95,7 @@ pub async fn run_docker_extractor(
 
     if let Some(cache_dir) = cache_dir {
         let cache_dir = Path::new(&cache_dir).canonicalize().unwrap();
-        let cache_name= cache_dir.file_name().unwrap().to_str().unwrap();
+        let cache_name = cache_dir.file_name().unwrap().to_str().unwrap();
 
         let target_path = format!("/indexify/{}", cache_name);
 
@@ -175,50 +147,6 @@ pub async fn run_docker_extractor(
         }
     }
     Ok(vec![])
-}
-
-pub fn run_local_extractor(
-    extractor_path: Option<String>,
-    text: Option<String>,
-    file_path: Option<String>,
-) -> Result<Vec<Content>, anyhow::Error> {
-    let extractor_path = match extractor_path {
-        Some(extractor_path) => Ok::<std::string::String, anyhow::Error>(extractor_path),
-        None => {
-            info!("no module name provided, looking up indexify.yaml");
-            let extractor_config = ExtractorConfig::from_path("indexify.yaml")?;
-            Ok(extractor_config.module)
-        }
-    }?;
-    info!("looking up extractor at path: {}", &extractor_path);
-    python_path::set_python_path(&extractor_path)?;
-    let extractor = create_extractor(&extractor_path, &extractor_path)?;
-
-    match (text, file_path) {
-        (Some(text), None) => {
-            let content = PyContent::new(text).try_into()?;
-            let extracted_content = extractor.extract(vec![content], json!({}))?;
-            let content = extracted_content
-                .get(0)
-                .ok_or(anyhow!("no content was extracted"))?
-                .to_owned();
-            Ok(content)
-        }
-        (None, Some(file_path)) => {
-            let data = std::fs::read(&file_path).map_err(|e| {
-                anyhow!(format!("unable to read file: {}, error: {}", &file_path, e))
-            })?;
-            let mime_type = mime_guess::from_path(&file_path).first_or_octet_stream();
-            let content = PyContent::from_bytes(data, mime_type).try_into()?;
-            let extracted_content = extractor.extract(vec![content], json!({}))?;
-            let content = extracted_content
-                .get(0)
-                .ok_or(anyhow!("no content was extracted"))?
-                .to_owned();
-            Ok(content)
-        }
-        _ => Err(anyhow!("either text or file path must be provided")),
-    }
 }
 
 pub fn create_extractor_template(extractor_path: &str, name: &str) -> Result<(), anyhow::Error> {

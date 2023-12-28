@@ -141,7 +141,7 @@ pub struct ListRepositoriesResponse {
     pub repositories: Vec<DataRepository>,
 }
 
-#[derive(Display, Debug, Serialize, Deserialize, Clone, Default, ToSchema)]
+#[derive(Display, EnumString, Debug, Serialize, Deserialize, Clone, Default, ToSchema)]
 #[serde(rename = "distance")]
 pub enum IndexDistance {
     #[serde(rename = "dot")]
