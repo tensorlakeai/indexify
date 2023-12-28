@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use clap::Args as ClapArgs;
 use serde_json::json;
+use tracing_unwrap::ResultExt;
 
 use crate::{
     cmd::GlobalArgs,
@@ -45,11 +46,11 @@ impl Args {
         if let Some(name) = name {
             let _ = crate::extractor::run_docker_extractor(name, cache_dir, text, file)
                 .await
-                .expect("failed to run docker image");
+                .unwrap_err_or_log();
         } else if let Some(extractor_path) = extractor_path {
             python_path::set_python_path(&extractor_path).unwrap();
             let extractor = PythonExtractor::new_from_extractor_path(&extractor_path)
-                .expect("failed to create extractor");
+            .unwrap_or_log();
             let extractor: ExtractorTS = Arc::new(extractor);
             let py_content = match (text, file) {
                 (Some(text), None) => Ok(Content {
@@ -62,7 +63,7 @@ impl Args {
                         .map_err(|e| {
                             anyhow!(format!("unable to read file: {}, error: {}", &file_path, e))
                         })
-                        .unwrap();
+                        .unwrap_or_log();
                     let mime_type = mime_guess::from_path(&file_path).first_or_octet_stream();
                     Ok(Content {
                         content_type: mime_type.to_string(),
@@ -72,14 +73,13 @@ impl Args {
                 }
                 _ => Err(anyhow!("either text or file path must be provided")),
             }
-            .expect("unable to create content");
+            .unwrap_or_log();
             let extracted_content = extractor
                 .extract(vec![py_content], json!({}))
-                .expect("failed to extract content");
+                .unwrap_or_log();
             println!(
                 "{}",
-                serde_json::to_string_pretty(&extracted_content)
-                    .expect("unable to serialize extracted content as JSON")
+                serde_json::to_string_pretty(&extracted_content).unwrap_or_log()
             );
         }
     }
