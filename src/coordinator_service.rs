@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::SystemTime};
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{DefaultBodyLimit, State},
@@ -21,13 +21,15 @@ use crate::{
         CoordinateResponse,
         CreateWork,
         CreateWorkResponse,
-        ExecutorInfo,
+        ExtractorHeartbeat,
+        ExtractorHeartbeatResponse,
         ListExecutors,
-        SyncExecutor,
-        SyncWorkerResponse,
+        WriteRequest,
+        WriteResponse,
     },
     persistence::Repository,
     server_config::ServerConfig,
+    state,
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -51,9 +53,14 @@ impl CoordinatorServer {
             config.coordinator_lis_addr_sock().unwrap().to_string(),
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
+        let shared_state = state::App::new(config.clone()).await?;
 
-        let coordinator =
-            Coordinator::new(repository, vector_index_manager, attribute_index_manager);
+        let coordinator = Coordinator::new(
+            repository,
+            vector_index_manager,
+            attribute_index_manager,
+            shared_state,
+        );
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self { addr, coordinator })
     }
@@ -64,8 +71,8 @@ impl CoordinatorServer {
             .merge(metrics.routes())
             .route("/", get(root))
             .route(
-                "/sync_executor",
-                post(sync_executor).with_state(self.coordinator.clone()),
+                "/heartbeat",
+                post(extractor_heartbeat).with_state(self.coordinator.clone()),
             )
             .route(
                 "/executors",
@@ -78,6 +85,10 @@ impl CoordinatorServer {
             .route(
                 "/coordinates",
                 post(get_coordinate).with_state(self.coordinator.clone()),
+            )
+            .route(
+                "/write",
+                post(write_extracted_data).with_state(self.coordinator.clone()),
             )
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
@@ -101,8 +112,8 @@ async fn root() -> &'static str {
     "Indexify Coordinator"
 }
 
-#[tracing::instrument]
-#[axum::debug_handler]
+#[tracing::instrument(skip(coordinator))]
+#[axum_macros::debug_handler]
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
@@ -113,52 +124,27 @@ async fn list_executors(
     Ok(Json(ListExecutors { executors }))
 }
 
-#[tracing::instrument(level = "debug", skip(coordinator))]
-#[tracing::instrument(skip(coordinator, executor))]
-#[axum::debug_handler]
-async fn sync_executor(
+#[tracing::instrument(skip(coordinator, heartbeat))]
+#[axum_macros::debug_handler]
+async fn extractor_heartbeat(
     State(coordinator): State<Arc<Coordinator>>,
-    Json(executor): Json<SyncExecutor>,
-) -> Result<Json<SyncWorkerResponse>, IndexifyAPIError> {
-    // Record the health check of the worker
-    let worker_id = executor.executor_id.clone();
-    let _ = coordinator
-        .record_executor(ExecutorInfo {
-            id: worker_id.clone(),
-            last_seen: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            addr: executor.addr.clone(),
-            extractor: executor.extractor.clone(),
-        })
-        .await;
-
-    coordinator
-        .write_extracted_data(executor.work_status)
-        .await
+    Json(heartbeat): Json<ExtractorHeartbeat>,
+) -> Result<Json<ExtractorHeartbeatResponse>, IndexifyAPIError> {
+    let _ = coordinator.shared_state.heartbeat(heartbeat.clone()).await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Record the extractors available on the executor
-    coordinator
-        .record_extractor(executor.extractor)
+    let tasks = coordinator
+        .shared_state
+        .tasks_for_executor(&heartbeat.executor_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Find more work for the worker
-    let queued_work = coordinator
-        .get_work_for_worker(&executor.executor_id)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // Respond
-    Ok(Json(SyncWorkerResponse {
-        content_to_process: queued_work,
+    Ok(Json(ExtractorHeartbeatResponse {
+        content_to_process: tasks,
     }))
 }
 
-#[tracing::instrument]
-#[axum::debug_handler]
+#[tracing::instrument(skip(coordinator))]
+#[axum_macros::debug_handler]
 async fn get_coordinate(
     State(coordinator): State<Arc<Coordinator>>,
     Json(query): Json<CoordinateRequest>,
@@ -181,6 +167,18 @@ async fn create_work(
         error!("unable to send create work request: {}", err.to_string());
     }
     Ok(Json(CreateWorkResponse {}))
+}
+
+#[axum_macros::debug_handler]
+async fn write_extracted_data(
+    State(coordinator): State<Arc<Coordinator>>,
+    Json(data): Json<WriteRequest>,
+) -> Result<Json<WriteResponse>, IndexifyAPIError> {
+    let _ = coordinator
+        .write_extracted_data(data.task_statuses)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    Ok(Json(WriteResponse {  }))
 }
 
 #[tracing::instrument]

@@ -27,6 +27,7 @@ jsonschema = "0.17"
 mime = { version = "0.3" }
 mime_guess = { version = "2" }
 nanoid = { version = "0.4" }
+openraft = {version = "0.8.8", features = ["serde"] }
 opensearch = { version = "2" }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.21"
@@ -102,6 +103,7 @@ jsonschema = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
 nanoid = { workspace = true }
+openraft = { workspace = true }
 opensearch = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }

@@ -20,8 +20,9 @@ pub mod db_utils {
             Repository,
         },
         server_config::{ExtractorConfig, ServerConfig},
+        state,
         vector_index::VectorIndexManager,
-        vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS},
+        vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS}, internal_api::ExtractorHeartbeat,
     };
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
@@ -88,13 +89,20 @@ pub mod db_utils {
             attribute_index_manager.clone(),
         )
         .unwrap();
+        let shared_state = state::App::new(server_config.clone()).await.unwrap();
         let coordinator = Coordinator::new(
             repository.clone(),
             vector_index_manager.clone(),
             attribute_index_manager.clone(),
+            shared_state,
         );
+        let executor_info = extractor_executor.get_executor_info();
         coordinator
-            .record_executor(extractor_executor.get_executor_info())
+            .shared_state.heartbeat(ExtractorHeartbeat{
+                executor_id: executor_info.id,
+                extractor: executor_info.extractor,
+                addr: executor_info.addr,
+            })
             .await
             .unwrap();
 

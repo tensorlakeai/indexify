@@ -277,6 +277,9 @@ impl TlsConfig {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file_path)
         }
     }
+pub struct ServerPeer {
+    pub addr: String,
+    pub node_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -294,6 +297,8 @@ pub struct ServerConfig {
     pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
     pub tls: Option<TlsConfig>,
+    pub node_id: u64,
+    pub peers: Vec<ServerPeer>,
 }
 
 impl Default for ServerConfig {
@@ -313,6 +318,8 @@ impl Default for ServerConfig {
                 }),
             },
             tls: None,
+            node_id: 0,
+            peers: vec![],
         }
     }
 }

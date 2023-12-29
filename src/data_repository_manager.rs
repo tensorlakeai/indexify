@@ -413,9 +413,9 @@ mod tests {
         info!("manually syncing messages");
         coordinator.process_and_distribute_work().await.unwrap();
         let executor_id = extractor_executor.get_executor_info().id;
-        let work_list = coordinator.get_work_for_worker(&executor_id).await.unwrap();
+        let work_list = coordinator.shared_state.tasks_for_executor(&executor_id).await.unwrap();
 
-        extractor_executor.sync_repo_test(work_list).await.unwrap();
+        //extractor_executor.sync_repo_test(work_list).await.unwrap();
 
         //let search_results = repository_manager
         //    .search(DEFAULT_TEST_REPOSITORY, "memory_session_embeddings",

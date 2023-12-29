@@ -11,7 +11,7 @@ use tracing::{error, info};
 use crate::{
     attribute_index::AttributeIndexManager,
     extractor::ExtractedEmbeddings,
-    internal_api::{self, CreateWork, ExecutorInfo},
+    internal_api::{self, CreateWork, ExecutorInfo, ExecutorMetadata},
     persistence::{
         self,
         ExtractedAttributes,
@@ -20,15 +20,12 @@ use crate::{
         Repository,
         Work,
     },
+    state::SharedState,
     vector_index::VectorIndexManager,
     vectordbs::IndexDistance,
 };
 
-#[derive(Debug)]
 pub struct Coordinator {
-    // Executor ID -> Last Seen Timestamp
-    executor_health_checks: Arc<RwLock<HashMap<String, u64>>>,
-
     executors: Arc<RwLock<HashMap<String, ExecutorInfo>>>,
 
     // Extractor Name -> [Executor ID]
@@ -40,6 +37,8 @@ pub struct Coordinator {
 
     attribute_index_manager: Arc<AttributeIndexManager>,
 
+    pub shared_state: SharedState,
+
     tx: Sender<CreateWork>,
 }
 
@@ -48,16 +47,17 @@ impl Coordinator {
         repository: Arc<Repository>,
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
+        shared_state: SharedState,
     ) -> Arc<Self> {
         let (tx, rx) = mpsc::channel(32);
 
         let coordinator = Arc::new(Self {
-            executor_health_checks: Arc::new(RwLock::new(HashMap::new())),
             executors: Arc::new(RwLock::new(HashMap::new())),
             extractors_table: Arc::new(RwLock::new(HashMap::new())),
             repository,
             vector_index_manager,
             attribute_index_manager,
+            shared_state,
             tx,
         });
         let coordinator_clone = coordinator.clone();
@@ -67,37 +67,8 @@ impl Coordinator {
         coordinator
     }
 
-    pub async fn get_executors(&self) -> Result<Vec<ExecutorInfo>> {
-        let executors = self.executors.read().unwrap();
-        Ok(executors.values().cloned().collect())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn record_executor(&self, worker: ExecutorInfo) -> Result<(), anyhow::Error> {
-        // First see if the executor is already in the table
-        let is_new_executor = self
-            .executor_health_checks
-            .read()
-            .unwrap()
-            .get(&worker.id)
-            .is_none();
-        self.executor_health_checks
-            .write()
-            .unwrap()
-            .insert(worker.id.clone(), worker.last_seen);
-        if is_new_executor {
-            info!("recording new executor: {}", &worker.id);
-            self.executors
-                .write()
-                .unwrap()
-                .insert(worker.id.clone(), worker.clone());
-            let mut extractors_table = self.extractors_table.write().unwrap();
-            let executors = extractors_table
-                .entry(worker.extractor.name.clone())
-                .or_default();
-            executors.push(worker.id.clone());
-        }
-        Ok(())
+    pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+        self.shared_state.get_executors().await
     }
 
     #[tracing::instrument(skip(self))]
@@ -250,25 +221,6 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
-    pub async fn get_work_for_worker(
-        &self,
-        worker_id: &str,
-    ) -> Result<Vec<internal_api::Work>, anyhow::Error> {
-        let work_list = self.repository.work_for_worker(worker_id).await?;
-        let mut result = Vec::new();
-        for work in work_list {
-            let content_payload = self
-                .repository
-                .content_from_repo(&work.content_id, &work.repository_id)
-                .await?;
-            let internal_api_work = internal_api::create_work(work, content_payload)?;
-            result.push(internal_api_work);
-        }
-
-        Ok(result)
-    }
-
     #[tracing::instrument(skip(self, rx))]
     async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
         info!("starting work distribution loop");
@@ -316,12 +268,12 @@ impl Coordinator {
     #[tracing::instrument(skip(self))]
     pub async fn write_extracted_data(
         &self,
-        work_status_list: Vec<internal_api::WorkStatus>,
+        task_statuses: Vec<internal_api::TaskStatus>,
     ) -> Result<()> {
-        for work_status in work_status_list {
+        for work_status in task_statuses {
             let work = self
                 .repository
-                .update_work_state(&work_status.work_id, &work_status.status.into())
+                .update_work_state(&work_status.task_id, &work_status.status.into())
                 .await?;
             for extracted_content in work_status.extracted_content {
                 if let Some(feature) = extracted_content.feature.clone() {
@@ -420,12 +372,11 @@ mod tests {
         // Insert a new worker and then create work
         coordinator.process_and_distribute_work().await.unwrap();
 
-        let work_list = coordinator
-            .get_work_for_worker(&extractor_executor.get_executor_info().id)
+        let task_list = coordinator.shared_state.tasks_for_executor(&extractor_executor.get_executor_info().id)
             .await?;
 
         // Check amount of work queued for the worker
-        assert_eq!(work_list.len(), 2);
+        assert_eq!(task_list.len(), 2);
         Ok(())
     }
 }

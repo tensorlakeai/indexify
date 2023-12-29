@@ -50,3 +50,8 @@ tls:
   ca_file: .dev-tls/ca.crt        # Path to the CA certificate
   cert_file: .dev-tls/server.crt  # Path to the server certificate
   key_file: .dev-tls/server.key   # Path to the server private key
+
+node_id: 0
+peers:
+  - node_id: 0
+    addr: localhost:8950

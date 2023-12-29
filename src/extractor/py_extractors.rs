@@ -209,9 +209,9 @@ impl Extractor for PythonExtractor {
                 })?;
             let py_extracted_data: Vec<Vec<PyObject>> = extracted_data.clone().extract(py).unwrap();
             let mut extracted_content = Vec::new();
-            for (_, list1) in py_extracted_data.iter().enumerate() {
+            for list1 in py_extracted_data.iter() {
                 let mut temp = Vec::new();
-                for (_, py_content) in list1.iter().enumerate() {
+                for py_content in list1.iter() {
                     let content_type: String =
                         py_content.getattr(py, "content_type")?.extract(py)?;
                     let data: Vec<u8> = py_content.getattr(py, "data")?.extract(py)?;
@@ -271,9 +271,14 @@ mod tests {
 
         let extracted_data = extractor.extract(content.clone(), input_params).unwrap();
         assert_eq!(extracted_data.len(), 1);
-        assert_eq!(extracted_data.get(0).unwrap().len(), 3);
+        assert_eq!(extracted_data.first().unwrap().len(), 3);
         assert_eq!(
-            extracted_data.get(0).unwrap().get(0).unwrap().content_type,
+            extracted_data
+                .first()
+                .unwrap()
+                .first()
+                .unwrap()
+                .content_type,
             mime::TEXT_PLAIN.to_string()
         );
 

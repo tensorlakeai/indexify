@@ -1117,7 +1117,7 @@ impl Repository {
             return Err(anyhow!("unable to find work {}", work_id));
         }
         result
-            .get(0)
+            .first()
             .map(|r| r.to_owned().try_into().unwrap())
             .ok_or(anyhow!(
                 "unable to retrieve work from retreived work list: {}",

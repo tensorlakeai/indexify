@@ -117,7 +117,7 @@ impl ExtractorExecutor {
         };
         let json_resp = reqwest::Client::new()
             .post(&format!(
-                "http://{}/sync_executor",
+                "http://{}/heartbeat",
                 &self.executor_config.coordinator_addr
             ))
             .json(&sync_executor_req)
@@ -167,7 +167,7 @@ impl ExtractorExecutor {
             .extractor_runner
             .extract(vec![content], input_params.unwrap_or(json!({})))?;
         let content = extracted_content
-            .get(0)
+            .first()
             .ok_or(anyhow!("no content was extracted"))?
             .to_owned();
         Ok(content)

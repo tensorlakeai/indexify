@@ -46,7 +46,7 @@ impl ExtractorRouter {
             .map_err(|e| anyhow!("unable to decode coordinate response {}", e))?;
         let extractor_addr = coordinate_response
             .content
-            .get(0)
+            .first()
             .ok_or(anyhow!("no extractor found"))?;
         let resp = reqwest::Client::new()
             .post(&format!("http://{}/extract", extractor_addr))

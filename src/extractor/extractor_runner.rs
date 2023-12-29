@@ -38,7 +38,7 @@ impl ExtractorRunner {
         };
         let extracted_content = self.extract(vec![content], serde_json::Value::Null)?;
         let extracted_content = extracted_content
-            .get(0)
+            .first()
             .ok_or_else(|| anyhow!("Expected one content item, got none"))?;
         Ok(extracted_content.to_owned())
     }
