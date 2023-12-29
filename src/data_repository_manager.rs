@@ -132,17 +132,16 @@ impl DataRepositoryManager {
                     self.vector_index_manager
                         .create_index(repository, &index_name, &extractor.name, schema)
                         .await
-                        .map(|index_name| index_names.push(index_name.clone()))
                         .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
                 }
                 ExtractorOutputSchema::Attributes { .. } => {
                     self.attribute_index_manager
                         .create_index(repository, &index_name, extractor.clone())
                         .await
-                        .map(|index_name| index_names.push(index_name.clone()))
                         .map_err(|e| DataRepositoryError::IndexCreation(e.to_string()))?;
                 }
             };
+            index_names.push(index_name.clone())
         }
         Ok(index_names)
     }
