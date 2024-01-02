@@ -92,8 +92,8 @@ Every extractor we bind results in a corresponding index being created in Indexi
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor": "diptanu/minilm-l6-extractor",
-            "name": "minil6",
+            "extractor": "tensorlake/minilm-l6-extractor",
+            "name": "minil6"
         }'
     ```
 === "python"
