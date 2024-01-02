@@ -131,6 +131,12 @@ pub struct ExtractorConfig {
     pub gpu: bool,
     pub system_dependencies: Vec<String>,
     pub python_dependencies: Vec<String>,
+
+    #[serde(default)]
+    pub cuda_version: String,
+
+    #[serde(default)]
+    pub cudann_version: String,
 }
 
 impl ExtractorConfig {

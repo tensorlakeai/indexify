@@ -1,8 +1,10 @@
-FROM tensorlake/indexify-extractor-base
+FROM {{ image_name }}
+
+RUN apt-get update
 
 RUN apt-get install -y  {{ system_dependencies }}
 
-RUN pip3 install --no-input {{ python_dependencies }}
+RUN pip3 install --no-input {{ additional_pip_flags }} {{ python_dependencies }}
 
 COPY . /indexify/
 
