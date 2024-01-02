@@ -7,6 +7,7 @@ use std::{
     time::SystemTime,
 };
 
+use anyhow::anyhow;
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
@@ -26,16 +27,21 @@ use openraft::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use tracing::Instrument;
+use utoipa::openapi::Content;
 
 use super::{NodeId, TypeConfig};
-use crate::internal_api::{
-    ContentMetadata,
-    ExecutorMetadata,
-    ExtractionEvent,
-    ExtractorBinding,
-    ExtractorDescription,
-    ExtractorHeartbeat,
-    Task,
+use crate::{
+    indexify_coordinator,
+    internal_api::{
+        ContentMetadata,
+        ExecutorMetadata,
+        ExtractionEvent,
+        ExtractorBinding,
+        ExtractorDescription,
+        ExtractorHeartbeat,
+        Task,
+    },
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -49,6 +55,9 @@ pub enum Request {
         heartbeat: ExtractorHeartbeat,
     },
 
+    CreateRepository {
+        name: String,
+    },
     CreateTasks {
         tasks: Vec<Task>,
     },
@@ -63,6 +72,7 @@ pub enum Request {
         event_id: String,
     },
     CreateContent {
+        id: String,
         content_metadata: ContentMetadata,
     },
     CreateBinding {
@@ -115,7 +125,7 @@ pub struct StateMachine {
     pub data: BTreeMap<String, String>,
 
     // Executor ID -> Last Seen Timestamp
-    executor_health_checks: HashMap<ExecutorId, u64>,
+    pub executor_health_checks: HashMap<ExecutorId, u64>,
 
     pub executors: HashMap<ExecutorId, ExecutorMetadata>,
 
@@ -131,11 +141,15 @@ pub struct StateMachine {
 
     pub content_table: HashMap<ContentId, ContentMetadata>,
 
-    pub bindings_table: HashMap<RepositoryId, ExtractorBinding>,
+    pub content_repository_table: HashMap<RepositoryId, HashSet<ContentId>>,
+
+    pub bindings_table: HashMap<RepositoryId, HashSet<ExtractorBinding>>,
 
     pub extractors_table: HashMap<ExtractorName, Vec<ExecutorId>>,
 
-    extractors: HashMap<ExtractorName, ExtractorDescription>,
+    pub extractors: HashMap<ExtractorName, ExtractorDescription>,
+
+    pub repositories: HashSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -407,14 +421,27 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
 
                         res.push(Response { value: None })
                     }
-                    Request::CreateContent { content_metadata } => {
+                    Request::CreateContent {
+                        id,
+                        content_metadata,
+                    } => {
                         sm.content_table
-                            .insert(content_metadata.id.clone(), content_metadata.clone());
+                            .insert(id.clone(), content_metadata.clone());
+                        sm.content_repository_table
+                            .entry(content_metadata.repository.clone())
+                            .or_default()
+                            .insert(id.clone());
                         res.push(Response { value: None })
                     }
                     Request::CreateBinding { binding } => {
                         sm.bindings_table
-                            .insert(binding.repository.clone(), binding.clone());
+                            .entry(binding.repository.clone())
+                            .or_default()
+                            .insert(binding.clone());
+                        res.push(Response { value: None })
+                    }
+                    Request::CreateRepository { name } => {
+                        sm.repositories.insert(name.clone());
                         res.push(Response { value: None })
                     }
                 },

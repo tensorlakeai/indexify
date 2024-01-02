@@ -78,8 +78,6 @@ impl ExtractorExecutor {
         repository: Arc<Repository>,
         executor_config: Arc<ExecutorConfig>,
         extractor_runner: ExtractorRunner,
-        vector_index_manager: Arc<VectorIndexManager>,
-        attribute_index_manager: Arc<AttributeIndexManager>,
     ) -> Result<Self> {
         let executor_id = create_executor_id();
         let extractor_description = extractor_runner.info()?.into();

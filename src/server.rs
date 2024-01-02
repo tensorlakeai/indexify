@@ -29,6 +29,7 @@ use crate::{
     persistence,
     persistence::Repository,
     server_config::ServerConfig,
+    service_client,
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -123,6 +124,10 @@ impl Server {
         ));
         let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
 
+        let coordinator_client = Arc::new(
+            service_client::CoordinatorClient::new(self.config.coordinator_addr.clone()).await?,
+        );
+
         let blob_storage =
             BlobStorageBuilder::new(Arc::new(self.config.blob_storage.clone())).build()?;
 
@@ -132,6 +137,7 @@ impl Server {
                 vector_index_manager,
                 attribute_index_manager,
                 blob_storage.clone(),
+                coordinator_client.clone(),
             )
             .await?,
         );
@@ -368,10 +374,7 @@ async fn bind_extractor(
 ) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
     let index_names = state
         .repository_manager
-        .add_extractor_binding(
-            &repository_name,
-            &into_persistence_extractor_binding(&repository_name, payload.extractor_binding),
-        )
+        .add_extractor_binding(&repository_name, &payload.extractor_binding)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(

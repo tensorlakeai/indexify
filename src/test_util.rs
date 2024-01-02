@@ -5,12 +5,15 @@ pub mod db_utils {
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{Database, DatabaseConnection, DbErr};
     use serde_json::json;
+    use utoipa_swagger_ui::serve;
 
     use crate::{
         attribute_index::AttributeIndexManager,
         coordinator::Coordinator,
+        coordinator_service::CoordinatorServer,
         executor::ExtractorExecutor,
         extractor::{extractor_runner, py_extractors},
+        internal_api::ExtractorHeartbeat,
         persistence::{
             DataRepository,
             Extractor,
@@ -22,7 +25,7 @@ pub mod db_utils {
         server_config::{ExtractorConfig, ServerConfig},
         state,
         vector_index::VectorIndexManager,
-        vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS}, internal_api::ExtractorHeartbeat,
+        vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS},
     };
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
@@ -58,7 +61,7 @@ pub mod db_utils {
 
     pub async fn create_index_manager(
         db: DatabaseConnection,
-    ) -> (Arc<VectorIndexManager>, ExtractorExecutor, Arc<Coordinator>) {
+    ) -> (ExtractorExecutor, CoordinatorServer) {
         let index_name = format!("{}/{}", DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR);
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::server_config::QdrantConfig {
             addr: "http://localhost:6334".into(),
@@ -67,59 +70,17 @@ pub mod db_utils {
         let repository = Arc::new(Repository::new_with_db(db.clone()));
         let server_config = Arc::new(ServerConfig::from_path("local_server_config.yaml").unwrap());
         let executor_config = Arc::new(crate::server_config::ExecutorConfig::default());
-        let vector_db =
-            vectordbs::create_vectordb(server_config.index_config.clone(), db.clone()).unwrap();
-        let vector_index_manager = Arc::new(VectorIndexManager::new(
-            repository.clone(),
-            vector_db,
-            "localhost:9000".to_string(),
-        ));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
         let extractor_config = Arc::new(mock_extractor_config());
         let extractor =
             py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.module)
                 .unwrap();
         let extractor_runner =
             extractor_runner::ExtractorRunner::new(Arc::new(extractor), mock_extractor_config());
-        let extractor_executor = ExtractorExecutor::new_test(
-            repository.clone(),
-            executor_config,
-            extractor_runner,
-            vector_index_manager.clone(),
-            attribute_index_manager.clone(),
-        )
-        .unwrap();
-        let shared_state = state::App::new(server_config.clone()).await.unwrap();
-        let coordinator = Coordinator::new(
-            repository.clone(),
-            vector_index_manager.clone(),
-            attribute_index_manager.clone(),
-            shared_state,
-        );
-        let executor_info = extractor_executor.get_executor_info();
-        coordinator
-            .shared_state.heartbeat(ExtractorHeartbeat{
-                executor_id: executor_info.id,
-                extractor: executor_info.extractor,
-                addr: executor_info.addr,
-            })
-            .await
-            .unwrap();
-
-        let default_extractor = Extractor {
-            name: DEFAULT_TEST_EXTRACTOR.into(),
-            description: "test extractor".into(),
-            input_params: json!({}),
-            schemas: ExtractorSchema::from_output_schema(
-                "embedding",
-                ExtractorOutputSchema::embedding(10, IndexDistance::Cosine),
-            ),
-        };
-        repository
-            .record_extractors(vec![default_extractor])
-            .await
-            .unwrap();
-        (vector_index_manager, extractor_executor, coordinator)
+        let extractor_executor =
+            ExtractorExecutor::new_test(repository.clone(), executor_config, extractor_runner)
+                .unwrap();
+        let coordinator_svr = CoordinatorServer::new(server_config).await.unwrap();
+        (extractor_executor, coordinator_svr)
     }
 
     pub async fn create_db() -> Result<DatabaseConnection, DbErr> {

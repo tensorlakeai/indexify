@@ -2,7 +2,7 @@
 #![deny(unused_qualifications)]
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     io::Cursor,
     sync::Arc,
 };
@@ -15,7 +15,16 @@ use store::{Request, Response, Store};
 
 use self::store::{ExecutorId, TaskId};
 use crate::{
-    internal_api::{ContentMetadata, ExtractionEvent, ExtractorBinding, Task, ExecutorMetadata, ExtractorHeartbeat},
+    indexify_coordinator,
+    internal_api::{
+        ContentMetadata,
+        ExecutorMetadata,
+        ExtractionEvent,
+        ExtractorBinding,
+        ExtractorDescription,
+        ExtractorHeartbeat,
+        Task, self,
+    },
     server_config::ServerConfig,
 };
 
@@ -150,26 +159,114 @@ impl App {
         Ok(tasks)
     }
 
-    pub async fn get_executors_for_extractor(&self, extractor: &str) -> Result<Vec<String>> {
+    pub async fn get_executors_for_extractor(
+        &self,
+        extractor: &str,
+    ) -> Result<Vec<ExecutorMetadata>> {
         let store = self.store.state_machine.read().await;
-        let executors = store
+        let executor_ids = store
             .extractors_table
             .get(extractor)
             .cloned()
             .unwrap_or(vec![]);
+        let mut executors = Vec::new();
+        for executor_id in executor_ids {
+            let executor = store.executors.get(&executor_id).unwrap();
+            executors.push(executor.clone());
+        }
         Ok(executors)
     }
 
     pub async fn heartbeat(&self, heartbeat: ExtractorHeartbeat) -> Result<()> {
         let request = store::Request::ExecutorHeartbeat {
-        heartbeat: heartbeat.clone(),
-    };
-    let _response = self
-        .raft
-        .client_write(request)
-        .await
-        .map_err(|e| anyhow!("unable to write heartbeat to raft {}", e.to_string()))?;
-    Ok(())
+            heartbeat: heartbeat.clone(),
+        };
+        let _response = self
+            .raft
+            .client_write(request)
+            .await
+            .map_err(|e| anyhow!("unable to write heartbeat to raft {}", e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn list_content(&self, repository: &str) -> Result<Vec<ContentMetadata>> {
+        let store = self.store.state_machine.read().await;
+        let content_ids = store
+            .content_repository_table
+            .get(repository)
+            .cloned()
+            .unwrap_or_default();
+        let mut content = Vec::new();
+        for content_id in content_ids {
+            let content_metadata = store.content_table.get(&content_id).unwrap();
+            content.push(content_metadata.clone());
+        }
+        Ok(content)
+    }
+
+    pub async fn create_binding(&self, binding: ExtractorBinding) -> Result<()> {
+        let _resp = self
+            .raft
+            .client_write(Request::CreateBinding { binding })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn extractor_with_name(&self, extractor: &str) -> Result<ExtractorDescription> {
+        let store = self.store.state_machine.read().await;
+        let binding = store
+            .extractors
+            .get(extractor)
+            .ok_or(anyhow!("extractor not found"))?;
+        Ok(binding.clone())
+    }
+
+    pub async fn list_bindings(&self, repository: &str) -> Result<Vec<ExtractorBinding>> {
+        let store = self.store.state_machine.read().await;
+        let bindings = store
+            .bindings_table
+            .get(repository)
+            .cloned()
+            .unwrap_or_default().into_iter().collect_vec();
+        Ok(bindings)
+    }
+
+    pub async fn create_repository(&self, repository: &str) -> Result<()> {
+        let _resp = self
+            .raft
+            .client_write(Request::CreateRepository { name: repository.to_string() })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Repository>> {
+        let store = self.store.state_machine.read().await;
+        let mut repositories = Vec::new();
+        for repository_name in &store.repositories {
+            let bindings = store.bindings_table.get(repository_name).cloned().unwrap_or_default();
+            let repository = internal_api::Repository{
+                name: repository_name.clone(),
+                extractor_bindings:bindings.into_iter().collect_vec(),
+            };
+            repositories.push(repository);
+        }
+        Ok(repositories)
+    }
+
+    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Repository> {
+        let store = self.store.state_machine.read().await;
+        let bindings = store.bindings_table.get(repository).cloned().unwrap_or_default();
+        let repository = internal_api::Repository{
+            name: repository.to_string(),
+            extractor_bindings:bindings.into_iter().collect_vec(),
+        };
+        Ok(repository)
+    }
+
+    pub async fn list_extractors(&self) -> Result<Vec<ExtractorDescription>> {
+        let store = self.store.state_machine.read().await;
+        let extractors = store.extractors.values().map(|e| e.clone()).collect_vec();
+        Ok(extractors)
     }
 
     pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
@@ -186,6 +283,19 @@ impl App {
             .raft
             .client_write(Request::AssignTask { assignments })
             .await?;
+        Ok(())
+    }
+
+    pub async fn create_content(&self, id: &str, content_metadata: ContentMetadata) -> Result<()> {
+        let req = Request::CreateContent {
+            id: id.to_string(),
+            content_metadata,
+        };
+        let _ = self
+            .raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to create content metadata: {}", e.to_string()))?;
         Ok(())
     }
 

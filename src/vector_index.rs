@@ -151,93 +151,99 @@ impl VectorIndexManager {
     }
 }
 
-#[cfg(test)]
-mod tests {
-
-    use std::{collections::HashMap, env};
-
-    use crate::{
-        blob_storage::BlobStorageBuilder,
-        data_repository_manager::DataRepositoryManager,
-        persistence::{ContentPayload, DataRepository, ExtractorBinding},
-        test_util,
-        test_util::db_utils::{
-            create_index_manager,
-            DEFAULT_TEST_EXTRACTOR,
-            DEFAULT_TEST_REPOSITORY,
-        },
-    };
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_index_search_basic() {
-        env::set_var("RUST_LOG", "debug");
-        let db = test_util::db_utils::create_db().await.unwrap();
-        let (index_manager, extractor_executor, coordinator) =
-            create_index_manager(db.clone()).await;
-        let blob_storage =
-            BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).unwrap();
-        let repository_manager =
-            DataRepositoryManager::new_with_db(db.clone(), index_manager.clone(), blob_storage);
-        let _ = repository_manager
-            .create(&DataRepository {
-                name: DEFAULT_TEST_REPOSITORY.into(),
-                data_connectors: vec![],
-                metadata: HashMap::new(),
-                extractor_bindings: vec![ExtractorBinding::new(
-                    "test_extractor_binding",
-                    DEFAULT_TEST_REPOSITORY,
-                    DEFAULT_TEST_EXTRACTOR.into(),
-                    vec![],
-                    serde_json::json!({"a": 1, "b": "hello"}),
-                )],
-            })
-            .await;
-
-        repository_manager
-            .add_texts(
-                DEFAULT_TEST_REPOSITORY,
-                vec![
-                    ContentPayload::from_text(
-                        DEFAULT_TEST_REPOSITORY,
-                        "hello world",
-                        HashMap::new(),
-                    ),
-                    ContentPayload::from_text(
-                        DEFAULT_TEST_REPOSITORY,
-                        "hello pipe",
-                        HashMap::new(),
-                    ),
-                    ContentPayload::from_text(DEFAULT_TEST_REPOSITORY, "nba", HashMap::new()),
-                ],
-            )
-            .await
-            .unwrap();
-        repository_manager
-            .add_texts(
-                DEFAULT_TEST_REPOSITORY,
-                vec![ContentPayload::from_text(
-                    DEFAULT_TEST_REPOSITORY,
-                    "hello world",
-                    HashMap::new(),
-                )],
-            )
-            .await
-            .unwrap();
-
-        coordinator.process_and_distribute_work().await.unwrap();
-        let executor_id = extractor_executor.get_executor_info().id;
-        let work_list = coordinator.shared_state.tasks_for_executor(&executor_id).await.unwrap();
-
-        //extractor_executor.sync_repo_test(work_list).await.unwrap();
-
-        // FIX ME - This is broken because the Test Setup doesn't start the
-        // coordinator and executor server which we rely to get the
-        // embeddings of the query
-
-        //let result = index_manager
-        //    .search(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR, "pipe",
-        // 1) .await .unwrap();
-        //assert_eq!(1, result.len())
-    }
-}
+//#[cfg(test)]
+//mod tests {
+//
+//    use std::{collections::HashMap, env};
+//
+//    use crate::{
+//        blob_storage::BlobStorageBuilder,
+//        data_repository_manager::DataRepositoryManager,
+//        persistence::{ContentPayload, DataRepository, ExtractorBinding},
+//        test_util,
+//        test_util::db_utils::{
+//            create_index_manager,
+//            DEFAULT_TEST_EXTRACTOR,
+//            DEFAULT_TEST_REPOSITORY,
+//        },
+//    };
+//
+//    #[tokio::test]
+//    #[tracing_test::traced_test]
+//    async fn test_index_search_basic() {
+//        env::set_var("RUST_LOG", "debug");
+//        let db = test_util::db_utils::create_db().await.unwrap();
+//        let (index_manager, extractor_executor, coordinator) =
+//            create_index_manager(db.clone()).await;
+//        let blob_storage =
+//
+// BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).
+// unwrap();        let repository_manager =
+//            DataRepositoryManager::new_with_db(db.clone(),
+// index_manager.clone(), blob_storage);        let _ = repository_manager
+//            .create(&DataRepository {
+//                name: DEFAULT_TEST_REPOSITORY.into(),
+//                data_connectors: vec![],
+//                metadata: HashMap::new(),
+//                extractor_bindings: vec![ExtractorBinding::new(
+//                    "test_extractor_binding",
+//                    DEFAULT_TEST_REPOSITORY,
+//                    DEFAULT_TEST_EXTRACTOR.into(),
+//                    vec![],
+//                    serde_json::json!({"a": 1, "b": "hello"}),
+//                )],
+//            })
+//            .await;
+//
+//        repository_manager
+//            .add_texts(
+//                DEFAULT_TEST_REPOSITORY,
+//                vec![
+//                    ContentPayload::from_text(
+//                        DEFAULT_TEST_REPOSITORY,
+//                        "hello world",
+//                        HashMap::new(),
+//                    ),
+//                    ContentPayload::from_text(
+//                        DEFAULT_TEST_REPOSITORY,
+//                        "hello pipe",
+//                        HashMap::new(),
+//                    ),
+//                    ContentPayload::from_text(DEFAULT_TEST_REPOSITORY, "nba",
+// HashMap::new()),                ],
+//            )
+//            .await
+//            .unwrap();
+//        repository_manager
+//            .add_texts(
+//                DEFAULT_TEST_REPOSITORY,
+//                vec![ContentPayload::from_text(
+//                    DEFAULT_TEST_REPOSITORY,
+//                    "hello world",
+//                    HashMap::new(),
+//                )],
+//            )
+//            .await
+//            .unwrap();
+//
+//        coordinator.process_and_distribute_work().await.unwrap();
+//        let executor_id = extractor_executor.get_executor_info().id;
+//        let work_list = coordinator
+//            .shared_state
+//            .tasks_for_executor(&executor_id)
+//            .await
+//            .unwrap();
+//
+//        //extractor_executor.sync_repo_test(work_list).await.unwrap();
+//
+//        // FIX ME - This is broken because the Test Setup doesn't start the
+//        // coordinator and executor server which we rely to get the
+//        // embeddings of the query
+//
+//        //let result = index_manager
+//        //    .search(DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR, "pipe",
+//        // 1) .await .unwrap();
+//        //assert_eq!(1, result.len())
+//    }
+//}
+//

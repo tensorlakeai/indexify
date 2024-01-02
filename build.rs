@@ -10,5 +10,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         .all_rustc()
         .all_sysinfo()
         .emit()?;
+
+    tonic_build::configure()
+        .out_dir("src/")
+        .type_attribute("routeguide.Point", "#[derive(De)]")
+        .type_attribute(
+            "CreateContentRequest",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "ContentMetadata",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .compile(&["proto/coordinator_service.proto"], &["proto"])
+        .unwrap();
     Ok(())
 }

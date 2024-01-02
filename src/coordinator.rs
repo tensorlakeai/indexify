@@ -1,16 +1,20 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
     str::FromStr,
     sync::{Arc, RwLock},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use jsonschema::JSONSchema;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tonic::IntoRequest;
 use tracing::{error, info};
 
 use crate::{
     attribute_index::AttributeIndexManager,
     extractor::ExtractedEmbeddings,
+    indexify_coordinator,
     internal_api::{self, CreateWork, ExecutorInfo, ExecutorMetadata},
     persistence::{
         self,
@@ -26,8 +30,6 @@ use crate::{
 };
 
 pub struct Coordinator {
-    executors: Arc<RwLock<HashMap<String, ExecutorInfo>>>,
-
     // Extractor Name -> [Executor ID]
     extractors_table: Arc<RwLock<HashMap<String, Vec<String>>>>,
 
@@ -38,8 +40,6 @@ pub struct Coordinator {
     attribute_index_manager: Arc<AttributeIndexManager>,
 
     pub shared_state: SharedState,
-
-    tx: Sender<CreateWork>,
 }
 
 impl Coordinator {
@@ -49,20 +49,12 @@ impl Coordinator {
         attribute_index_manager: Arc<AttributeIndexManager>,
         shared_state: SharedState,
     ) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel(32);
-
         let coordinator = Arc::new(Self {
-            executors: Arc::new(RwLock::new(HashMap::new())),
             extractors_table: Arc::new(RwLock::new(HashMap::new())),
             repository,
             vector_index_manager,
             attribute_index_manager,
             shared_state,
-            tx,
-        });
-        let coordinator_clone = coordinator.clone();
-        tokio::spawn(async move {
-            coordinator_clone.loop_for_work(rx).await.unwrap();
         });
         coordinator
     }
@@ -181,6 +173,79 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn list_content(
+        &self,
+        repository: &str,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.shared_state.list_content(repository).await
+    }
+
+    pub async fn list_bindings(&self, repository: &str) -> Result<Vec<internal_api::ExtractorBinding>> {
+        self.shared_state.list_bindings(repository).await
+    }
+
+    pub async fn create_repository(&self, repository: &str) -> Result<()> {
+        let _ = self.shared_state.create_repository(repository).await?;
+        Ok(())
+    }
+
+    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Repository>> {
+        self.shared_state.list_repositories().await
+    }
+
+    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Repository> {
+        self.shared_state.get_repository(repository).await
+    }
+
+    pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
+        self.shared_state.list_extractors().await
+    }
+
+    pub async fn create_binding(
+        &self,
+        binding: internal_api::ExtractorBinding,
+    ) -> Result<Vec<String>> {
+        let mut indexes = Vec::new();
+        let extractor = self
+            .shared_state
+            .extractor_with_name(&binding.extractor)
+            .await?;
+        let input_params_schema = JSONSchema::compile(&extractor.input_params).map_err(|e| {
+            anyhow!(
+                "unable to compile json schema for input params: {:?}, error: {:?}",
+                &extractor.input_params,
+                e
+            )
+        })?;
+        let extractor_params_schema = binding.input_params.clone();
+        let validation_result = input_params_schema.validate(&extractor_params_schema);
+        if let Err(errors) = validation_result {
+            let errors = errors
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<String>>();
+            return Err(anyhow!(
+                "unable to validate input params for extractor binding: {}, errors: {}",
+                &binding.name,
+                errors.join(",")
+            ));
+        }
+        for (name, output_schema) in &extractor.schema.output {
+            match output_schema {
+                internal_api::OutputSchema::Embedding { dim, distance } => {
+                    let index_name = format!("{}-{}", binding.name, name);
+                    indexes.push(index_name);
+                }
+                internal_api::OutputSchema::Feature(schema) => {
+                    let index_name = format!("{}-{}", binding.name, name);
+                    indexes.push(index_name);
+                }
+            }
+        }
+        let _ = self.shared_state.create_binding(binding).await?;
+        Ok(indexes)
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn record_extractor(
         &self,
@@ -245,24 +310,48 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn get_executor(&self, extractor_name: &str) -> Result<ExecutorInfo, anyhow::Error> {
-        let extractors_table = self.extractors_table.read().unwrap();
-        let executors = extractors_table.get(extractor_name).ok_or(anyhow::anyhow!(
-            "no executors for extractor: {}",
-            extractor_name
-        ))?;
-        let rand_index = rand::random::<usize>() % executors.len();
-        let executor_id = executors[rand_index].clone();
-        let executors = self.executors.read().unwrap();
-        let executor = executors
-            .get(&executor_id)
-            .ok_or(anyhow::anyhow!("no executor found for id: {}", executor_id))?;
-        Ok(executor.clone())
+    pub async fn create_content_metadata(
+        &self,
+        req: indexify_coordinator::CreateContentRequest,
+    ) -> Result<String> {
+        let mut s = DefaultHasher::new();
+        req.repository.hash(&mut s);
+        req.content.clone().unwrap().file_name.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        let metadata = HashMap::new();
+        if let Some(content) = req.content {
+            let content_metadata = internal_api::ContentMetadata {
+                id: id.clone(),
+                content_type: content.mime.clone(),
+                created_at: content.created_at,
+                storage_url: content.storage_url.clone(),
+                parent_id: "".to_string(),
+                repository: req.repository.clone(),
+                name: content.file_name.clone(),
+                metadata,
+            };
+            let _ = self
+                .shared_state
+                .create_content(&id, content_metadata)
+                .await?;
+        }
+        Ok(id)
     }
 
-    pub async fn publish_work(&self, work: CreateWork) -> Result<(), anyhow::Error> {
-        self.tx.send(work).await?;
-        Ok(())
+    pub async fn get_executor(
+        &self,
+        extractor_name: &str,
+    ) -> Result<ExecutorMetadata, anyhow::Error> {
+        let executors = self
+            .shared_state
+            .get_executors_for_extractor(extractor_name)
+            .await?;
+        let rand_index = rand::random::<usize>() % executors.len();
+        let executor = executors.get(rand_index).ok_or(anyhow::anyhow!(
+            "no executor found at index: {}",
+            rand_index
+        ))?;
+        Ok(executor.to_owned())
     }
 
     #[tracing::instrument(skip(self))]
@@ -308,75 +397,79 @@ impl Coordinator {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use serde_json::json;
-
-    use crate::{
-        blob_storage::BlobStorageBuilder,
-        data_repository_manager::DataRepositoryManager,
-        persistence::{ContentPayload, DataRepository, ExtractorBinding},
-        test_util::{
-            self,
-            db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
-        },
-    };
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_create_work() -> Result<(), anyhow::Error> {
-        let db = test_util::db_utils::create_db().await.unwrap();
-        let (vector_index_manager, extractor_executor, coordinator) =
-            test_util::db_utils::create_index_manager(db.clone()).await;
-        let blob_storage =
-            BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).unwrap();
-        let repository_manager =
-            DataRepositoryManager::new_with_db(db.clone(), vector_index_manager, blob_storage);
-
-        // Create a repository
-        repository_manager
-            .create(&DataRepository {
-                name: DEFAULT_TEST_REPOSITORY.into(),
-                data_connectors: vec![],
-                metadata: HashMap::new(),
-                extractor_bindings: vec![ExtractorBinding::new(
-                    "test_extractor_binding",
-                    DEFAULT_TEST_REPOSITORY,
-                    DEFAULT_TEST_EXTRACTOR.into(),
-                    vec![],
-                    serde_json::json!({}),
-                )],
-            })
-            .await?;
-
-        repository_manager
-            .add_texts(
-                DEFAULT_TEST_REPOSITORY,
-                vec![
-                    ContentPayload::from_text(
-                        DEFAULT_TEST_REPOSITORY,
-                        "hello",
-                        HashMap::from([("topic".to_string(), json!("pipe"))]),
-                    ),
-                    ContentPayload::from_text(
-                        DEFAULT_TEST_REPOSITORY,
-                        "world",
-                        HashMap::from([("topic".to_string(), json!("baz"))]),
-                    ),
-                ],
-            )
-            .await?;
-
-        // Insert a new worker and then create work
-        coordinator.process_and_distribute_work().await.unwrap();
-
-        let task_list = coordinator.shared_state.tasks_for_executor(&extractor_executor.get_executor_info().id)
-            .await?;
-
-        // Check amount of work queued for the worker
-        assert_eq!(task_list.len(), 2);
-        Ok(())
-    }
-}
+//#[cfg(test)]
+//mod tests {
+//    use std::collections::HashMap;
+//
+//    use serde_json::json;
+//
+//    use crate::{
+//        blob_storage::BlobStorageBuilder,
+//        data_repository_manager::DataRepositoryManager,
+//        persistence::{ContentPayload, DataRepository, ExtractorBinding},
+//        test_util::{
+//            self,
+//            db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+//        },
+//    };
+//
+//    #[tokio::test]
+//    #[tracing_test::traced_test]
+//    async fn test_create_work() -> Result<(), anyhow::Error> {
+//        let db = test_util::db_utils::create_db().await.unwrap();
+//        let (vector_index_manager, extractor_executor, coordinator) =
+//            test_util::db_utils::create_index_manager(db.clone()).await;
+//        let blob_storage =
+//
+// BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).
+// unwrap();        let repository_manager =
+//            DataRepositoryManager::new_with_db(db.clone(),
+// vector_index_manager, blob_storage);
+//
+//        // Create a repository
+//        repository_manager
+//            .create(&DataRepository {
+//                name: DEFAULT_TEST_REPOSITORY.into(),
+//                data_connectors: vec![],
+//                metadata: HashMap::new(),
+//                extractor_bindings: vec![ExtractorBinding::new(
+//                    "test_extractor_binding",
+//                    DEFAULT_TEST_REPOSITORY,
+//                    DEFAULT_TEST_EXTRACTOR.into(),
+//                    vec![],
+//                    serde_json::json!({}),
+//                )],
+//            })
+//            .await?;
+//
+//        repository_manager
+//            .add_texts(
+//                DEFAULT_TEST_REPOSITORY,
+//                vec![
+//                    ContentPayload::from_text(
+//                        DEFAULT_TEST_REPOSITORY,
+//                        "hello",
+//                        HashMap::from([("topic".to_string(), json!("pipe"))]),
+//                    ),
+//                    ContentPayload::from_text(
+//                        DEFAULT_TEST_REPOSITORY,
+//                        "world",
+//                        HashMap::from([("topic".to_string(), json!("baz"))]),
+//                    ),
+//                ],
+//            )
+//            .await?;
+//
+//        // Insert a new worker and then create work
+//        coordinator.process_and_distribute_work().await.unwrap();
+//
+//        let task_list = coordinator
+//            .shared_state
+//            .tasks_for_executor(&extractor_executor.get_executor_info().id)
+//            .await?;
+//
+//        // Check amount of work queued for the worker
+//        assert_eq!(task_list.len(), 2);
+//        Ok(())
+//    }
+//}

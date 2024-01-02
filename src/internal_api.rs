@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, hash::Hasher};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use strum::{Display, EnumString};
 
 use crate::{
     api,
+    indexify_coordinator,
     persistence::{self},
 };
 
@@ -28,6 +29,21 @@ pub struct ExtractorDescription {
     pub description: String,
     pub input_params: serde_json::Value,
     pub schema: ExtractorSchema,
+}
+
+impl From<ExtractorDescription> for indexify_coordinator::Extractor {
+    fn from(value: ExtractorDescription) -> Self {
+        let mut output_schema = HashMap::new();
+        for (output_name, embedding_schema) in value.schema.output {
+            output_schema.insert(output_name, serde_json::to_string(&embedding_schema).unwrap());
+        }
+        Self {
+            name: value.name,
+            description: value.description,
+            input_params: value.input_params.to_string(),
+            outputs: output_schema,
+        }
+    }
 }
 
 impl From<api::ExtractorDescription> for ExtractorDescription {
@@ -126,16 +142,6 @@ pub struct SyncExecutor {
     pub extractor: ExtractorDescription,
     pub addr: String,
     pub work_status: Vec<WorkStatus>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ListExecutors {
-    pub executors: Vec<ExecutorMetadata>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ListExtractors {
-    pub extractors: Vec<ExtractorDescription>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -288,7 +294,7 @@ pub struct ExtractionEvent {
     pub processed_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display)]
+#[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display, Eq, PartialEq)]
 #[serde(rename = "extractor_filter")]
 pub enum ExtractorFilter {
     Eq {
@@ -301,7 +307,7 @@ pub enum ExtractorFilter {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct ExtractorBinding {
     pub id: String,
     pub name: String,
@@ -311,13 +317,88 @@ pub struct ExtractorBinding {
     pub input_params: serde_json::Value,
 }
 
+impl std::hash::Hash for ExtractorBinding {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.repository.hash(state);
+        self.name.hash(state);
+    }
+}
+
+impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
+   fn from(value: ExtractorBinding) -> Self {
+        let mut eq_filters = HashMap::new();
+        let mut neq_filters = HashMap::new();
+        for filter in value.filters {
+            match filter {
+                ExtractorFilter::Eq { field, value } => {
+                    eq_filters.insert(field,value.to_string());
+                }
+                ExtractorFilter::Neq { field, value } => {
+                    neq_filters.insert(field,value.to_string());
+                }
+            }
+        }
+ 
+        Self {
+            extractor: value.extractor,
+            name: value.name,
+            eq_filters: eq_filters,
+            neq_filters: neq_filters,
+            input_params: value.input_params.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentMetadata {
     pub id: String,
+    pub parent_id: String,
+    pub repository: String,
+    pub name: String,
     pub content_type: String,
     pub metadata: HashMap<String, serde_json::Value>,
     pub storage_url: String,
-    pub created_at: u64,
+    pub created_at: i64,
+}
+
+impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
+    fn from(value: ContentMetadata) -> Self {
+        let mut labels = HashMap::new();
+        for (key, value) in value.metadata.iter() {
+            labels.insert(key.to_owned(), serde_json::to_string(value).unwrap());
+        }
+        Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            file_name: value.name,
+            mime: value.content_type,
+            labels,
+            storage_url: value.storage_url,
+            created_at: value.created_at,
+            repository: value.repository,
+        }
+    }
+}
+
+impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
+        let mut metadata = HashMap::new();
+        for (key, value) in value.labels.iter() {
+            metadata.insert(key.to_owned(), serde_json::from_str(&value)?);
+        }
+        Ok(Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            name: value.file_name,
+            content_type: value.mime,
+            metadata,
+            storage_url: value.storage_url,
+            created_at: value.created_at,
+            repository: value.repository,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -353,4 +434,19 @@ pub struct TaskStatus {
     pub task_id: String,
     pub status: WorkState,
     pub extracted_content: Vec<Content>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Repository {
+    pub name: String,
+    pub extractor_bindings: Vec<ExtractorBinding>,
+}
+
+impl From<Repository> for indexify_coordinator::Repository {
+    fn from(value: Repository) -> Self {
+        Self {
+            name: value.name,
+            bindings: value.extractor_bindings.into_iter().map(|b| b.into()).collect(),
+        }
+    }
 }
