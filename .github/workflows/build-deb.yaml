@@ -1,4 +1,4 @@
-name: Indexify Container Build
+name: Indexify Deb Build
 
 on: pull_request
 
