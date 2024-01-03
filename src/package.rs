@@ -82,18 +82,27 @@ impl Packager {
             ..Default::default()
         };
 
-        let docker = Docker::connect_with_local_defaults().unwrap();
+        let docker = Docker::connect_with_local_defaults().map_err(|e| anyhow!("unable to connect to docker {}", e))?;
 
         let mut image_build_stream =
             docker.build_image(build_image_options, None, Some(compressed.into()));
 
-        while let Some(Ok(build_info)) = image_build_stream.next().await {
+        while let Some(build_info_result) = image_build_stream.next().await {
+            if let Err(err) = build_info_result {
+                return Err(anyhow!("unable to connect to docker {}", err));
+            }
+
+            let build_info = build_info_result.unwrap();
+
             if let Some(error) = &build_info.error {
                 return Err(anyhow!(error.clone()));
             }
+
             if let Some(status) = &build_info.stream {
                 info!("build message: {}", status);
             }
+
+            // TODO image name is being printed here but somehow missing
             if let Some(BuildInfoAux::BuildKit(status)) = &build_info.aux {
                 let messages: Vec<String> = status
                     .logs
@@ -116,6 +125,7 @@ impl Packager {
                 }
             }
         }
+
         Ok(())
     }
 
