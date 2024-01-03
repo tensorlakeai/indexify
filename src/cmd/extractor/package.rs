@@ -7,7 +7,7 @@ pub struct Args {
     #[arg(short, long)]
     dev: bool,
 
-    #[arg(short, long)]
+    #[arg(long)]
     verbose: bool,
 }
 
