@@ -99,7 +99,7 @@ Every extractor we bind results in a corresponding index being created in Indexi
 === "python"
 
     ```python
-    repo.bind_extractor("diptanu/minilm-l6-extractor", "minil6")
+    repo.bind_extractor("tensorlake/minilm-l6-extractor", "minil6")
 
     bindings = repo.extractor_bindings()
     ```
@@ -195,7 +195,7 @@ Now let's rerun our query for documents related to "sports":
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
-            "index": "embeddings",
+            "index": "minil6-embedding",
             "query": "sports", 
             "k": 3
         }'
@@ -276,7 +276,7 @@ Now you can add extractor bindings with filters which match the URL and index co
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor": "diptanu/minilm-l6-extractor",
+            "extractor": "tensorlake/minilm-l6-extractor",
             "name": "star_trek",
             "filters": [
                 {
@@ -291,7 +291,7 @@ Now you can add extractor bindings with filters which match the URL and index co
 
     ```python
     filter = FilterBuilder().include("url", "https://memory-alpha.fandom.com/wiki/USS_Cayuga").build()
-    repo.bind_extractor("diptanu/minilm-l6-extractor", "star_trek", filter=filter)
+    repo.bind_extractor("tensorlake/minilm-l6-extractor", "star_trek", filter=filter)
 
     print(repo.extractor_bindings)
     ```
