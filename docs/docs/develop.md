@@ -11,6 +11,13 @@ Install various rust related tools -
 * Rust Compiler - <http://rustup.rs>
 * Cargo tools - clippy, rustfmt is very helpful for formating and fixing warnings.
 
+Install the "nightly" toolchain -
+
+```shell
+rustup update nightly
+rustup override set nightly
+```
+
 ### Python Dependencies
 
 Create a virtual env
