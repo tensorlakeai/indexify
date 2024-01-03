@@ -133,10 +133,10 @@ pub struct ExtractorConfig {
     pub python_dependencies: Vec<String>,
 
     #[serde(default)]
-    pub cuda_version: String,
+    pub cuda_version: Option<String>,
 
     #[serde(default)]
-    pub cudann_version: String,
+    pub cudann_version: Option<String>,
 }
 
 impl ExtractorConfig {

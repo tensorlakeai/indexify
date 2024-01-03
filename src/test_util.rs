@@ -52,8 +52,8 @@ pub mod db_utils {
             gpu: false,
             system_dependencies: vec![],
             python_dependencies: vec![],
-            cuda_version: "".to_string(),
-            cudann_version: "".to_string(),
+            cuda_version: Option::None,
+            cudann_version: Option::None
         }
     }
 

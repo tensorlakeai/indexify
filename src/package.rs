@@ -54,7 +54,7 @@ impl Packager {
 
     pub async fn package(&self, verbose: bool) -> Result<()> {
         let docker_file = self.create_docker_file()?;
-        println!("{}", docker_file);
+        info!("{}", docker_file);
         let mut header = tar::Header::new_gnu();
         header.set_path("Dockerfile").unwrap();
         header.set_size(docker_file.len() as u64);
@@ -157,18 +157,17 @@ impl Packager {
 
         match (pytorch_version, gpu) {
             (Some(version), true) => {
-                if version == "latest" || cuda_version == "" || cuda_nn == "" {
+                if version == "latest" || cuda_version.is_none() || cuda_nn.is_none() {
                     image_name = "pytorch/pytorch:latest".to_string();
                 } else {
-                    image_name = format!("pytorch/pytorch:{}-cuda{}-cudnn{}-runtime", version, cuda_version, cuda_nn);
+                    image_name = format!("pytorch/pytorch:{}-cuda{}-cudnn{}-runtime", version, cuda_version.unwrap(), cuda_nn.unwrap());
                 }
             },
             (Some(_version), false) => {
                 image_name = "tensorlake/indexify-extractor-base".to_string();
                 additional_pip_flags = "--index-url https://download.pytorch.org/whl/cpu";
             },
-            (None, true) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
-            (None, false) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
+            (None, _) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
         }
 
         let system_dependencies = self.config.system_dependencies.join(" ");
@@ -239,9 +238,9 @@ mod tests {
             version: "0.1.0".to_string(),
             gpu: false,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
-            cuda_version: "".to_string(),
+            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: "".to_string(),
+            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -280,9 +279,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
-            cuda_version: "".to_string(),
+            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: "".to_string(),
+            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -322,9 +321,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
-            cuda_version: "".to_string(),
+            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: "".to_string(),
+            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -364,9 +363,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: false,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
-            cuda_version: "".to_string(),
+            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: "".to_string(),
+            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -405,9 +404,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
-            cuda_version: "".to_string(),
+            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: "".to_string(),
+            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -446,9 +445,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
-            cuda_version: "12.1".to_string(),
+            cuda_version: Option::from("12.1".to_string()),
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: "8".to_string(),
+            cudann_version: Option::from("8".to_string()),
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -476,6 +475,5 @@ RUN pip3 install --no-input indexify_extractor_sdk
 
 ENTRYPOINT [ "/indexify/indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
-
     }
 }
