@@ -154,3 +154,10 @@ vergen = { version = "8", features = [
     "si",
 ] }
 pyo3-build-config = "0.20"
+
+[package.metadata.deb]
+maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+Indexify is a reactive structured extraction engine for un-structured data.
+"""
