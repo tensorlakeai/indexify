@@ -23,14 +23,21 @@ jobs:
       - uses: actions/checkout@v3
       - name: Build
         run: cargo build
-      - name: Deb Build
-        uses: ebbflow-io/cargo-deb-amd64-ubuntu@1.0
   debbuild:
     needs: [build]
     runs-on: ubuntu-latest
     name: Amd64Deb
     steps:
       - uses: actions/checkout@v2
-      - name: BuildDeb
-        id: debbuild
-        uses: ebbflow-io/cargo-deb-amd64-ubuntu@1.0
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build and Package
+        run: cargo deb --output-type deb
