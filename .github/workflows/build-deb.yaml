@@ -6,13 +6,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - run: cargo check
-      - name: Build
-        run: cargo build
   debbuild:
     needs: [build]
     runs-on: ubuntu-latest
@@ -25,7 +18,10 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-
+      - name: Cargo check
+        run: cargo check
+      - name: Cargo build
+        run: cargo build
       - name: Install cargo-deb
         run: cargo install cargo-deb
 
