@@ -6,9 +6,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-base-extractor:
+  quickcheck:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.rustversion.outputs.rustversion }}
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo check
+      - run: cargo pkgid
+      - run: 'echo "$(cargo pkgid | cut -d# -f2)"'
+      - id: rustversion
+        run: 'echo "::set-output name=rustversion::$(cargo pkgid | cut -d# -f2)"'
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build
       - name: Deb Build
+        uses: ebbflow-io/cargo-deb-amd64-ubuntu@1.0
+  debbuild:
+    needs: [build]
+    runs-on: ubuntu-latest
+    name: Amd64Deb
+    steps:
+      - uses: actions/checkout@v2
+      - name: BuildDeb
+        id: debbuild
         uses: ebbflow-io/cargo-deb-amd64-ubuntu@1.0
