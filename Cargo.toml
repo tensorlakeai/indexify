@@ -17,6 +17,7 @@ axum = { version = "0.6", features = ["multipart"] }
 axum-macros = { version = "0.3" }
 axum-otel-metrics = "0.7"
 axum-tracing-opentelemetry = "0.14"
+axum-server = { version = "0.3", features = ["tls-rustls"] }
 bollard = { version = "0.15", features = ["buildkit"] }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
@@ -90,6 +91,7 @@ async-trait = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 axum-macros = { workspace = true }
+axum-server = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
 bollard = { workspace = true }
