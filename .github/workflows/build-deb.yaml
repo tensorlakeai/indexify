@@ -40,4 +40,4 @@ jobs:
         run: cargo install cargo-deb
 
       - name: Build and Package
-        run: cargo deb --output-type deb
+        run: cargo deb

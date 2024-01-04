@@ -2,6 +2,7 @@
 name = "indexify"
 version = "0.1.0"
 edition = "2021"
+authors = ["Diptanu Gon Choudhury <diptanu@tensorlake.ai>"]
 build = "build.rs"
 resolver = "2"
 
