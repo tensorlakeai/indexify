@@ -7,7 +7,6 @@ env:
 
 jobs:
   debbuild:
-    needs: [build]
     runs-on: ubuntu-latest
     name: Amd64Deb
     steps:
@@ -20,10 +19,9 @@ jobs:
           override: true
       - name: Cargo check
         run: cargo check
-      - name: Cargo build
-        run: cargo build
+      - name: Make build-release
+        run: make build-release
       - name: Install cargo-deb
         run: cargo install cargo-deb
-
       - name: Build and Package
         run: cargo deb
