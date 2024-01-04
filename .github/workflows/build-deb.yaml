@@ -1,0 +1,27 @@
+name: Indexify Deb Build
+
+on: pull_request # to test
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  debbuild:
+    runs-on: ubuntu-latest
+    name: Amd64Deb
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Cargo check
+        run: cargo check
+      - name: Make build-release
+        run: make build-release
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+      - name: Build and Package
+        run: cargo deb
