@@ -83,8 +83,9 @@ impl CoordinatorServer {
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(DefaultBodyLimit::disable());
-        axum::Server::bind(&self.addr)
-            .serve(app.into_make_service())
+
+        let listener = tokio::net::TcpListener::bind(&self.addr).await?;
+        axum::serve(listener, app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
             .await?;
         Ok(())

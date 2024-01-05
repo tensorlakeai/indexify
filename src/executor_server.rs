@@ -122,8 +122,7 @@ impl ExecutorServer {
             error!("unable to send heartbeat: {:?}", err.to_string());
         }
         tokio::spawn(heartbeat(tx.clone(), rx, executor.clone()));
-        axum::Server::from_tcp(listener)?
-            .serve(app.into_make_service())
+        axum::serve(listener, app.into_make_service())
             .with_graceful_shutdown(shutdown_signal(tx.clone()))
             .await?;
         Ok(())

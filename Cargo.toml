@@ -13,7 +13,7 @@ members = [".", "migration"]
 anyhow = { version = "1" }
 async-trait = "0.1"
 askama = { version = "0.12" }
-axum = { version = "0.6", features = ["multipart"] }
+axum = { version = "0.7", features = ["multipart"] }
 axum-macros = { version = "0.3" }
 axum-otel-metrics = "0.7"
 axum-tracing-opentelemetry = "0.14"
