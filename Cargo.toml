@@ -13,11 +13,10 @@ members = [".", "migration"]
 anyhow = { version = "1" }
 async-trait = "0.1"
 askama = { version = "0.12" }
-axum = { version = "0.7", features = ["multipart"] }
-axum-macros = { version = "0.3" }
-axum-otel-metrics = "0.7"
-axum-tracing-opentelemetry = "0.14"
-axum-server = { version = "0.3", features = ["tls-rustls"] }
+axum = { version = "0.7", features = ["multipart", "macros"] }
+axum-otel-metrics = "0.8"
+axum-tracing-opentelemetry = "0.16"
+axum-server = { version = "0.6", features = ["tls-rustls"] }
 bollard = { version = "0.15", features = ["buildkit"] }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
@@ -76,9 +75,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-unwrap = {version="0.10"}
 url = "2"
 utoipa = { version = "4", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "4", features = ["axum"] }
-utoipa-rapidoc = { version = "1", features = ["axum"] }
-utoipa-redoc = { version = "1", features = ["axum"] }
+utoipa-swagger-ui = { version = "5", features = ["axum"] }
+utoipa-rapidoc = { version = "2", features = ["axum"] }
+utoipa-redoc = { version = "2", features = ["axum"] }
 object_store = "0.8"
 local-ip-address = { version = "0.5" }
 flate2 = "1"
@@ -90,7 +89,6 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
-axum-macros = { workspace = true }
 axum-server = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }

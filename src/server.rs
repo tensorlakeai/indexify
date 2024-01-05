@@ -12,8 +12,7 @@ use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use pyo3::Python;
-use tokio::signal;
-use tokio::sync::Notify;
+use tokio::{signal, sync::Notify};
 use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
@@ -70,6 +69,34 @@ pub struct RepositoryEndpointState {
         )
     )]
 struct ApiDoc;
+
+macro_rules! setup_and_run_server {
+    ($addr:expr, $app:expr, $server_expr:expr) => {{
+        // Create a handle for graceful shutdown
+        let handle = Handle::new();
+
+        // Create the server
+        let server = $server_expr
+            .handle(handle.clone())
+            .serve($app.into_make_service());
+
+        // Setup for graceful shutdown
+        let shutdown_notify = Arc::new(Notify::new());
+        let notify_clone = shutdown_notify.clone();
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            notify_clone.notify_one();
+        });
+
+        // Start the server, and listen for the shutdown signal
+        tokio::select! {
+            _ = server => {},
+            _ = shutdown_notify.notified() => {
+                handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+            }
+        }
+    }};
+}
 
 pub struct Server {
     addr: SocketAddr,
@@ -190,48 +217,26 @@ impl Server {
             .layer(DefaultBodyLimit::disable());
 
         if use_tls {
-            let tls_config = self.config.tls.clone().expect("TLS config is required")
-                .into_rustlsconfig().await.expect("failed to create TLS config");
+            let tls_config = self
+                .config
+                .tls
+                .clone()
+                .expect("TLS config is required")
+                .into_rustlsconfig()
+                .await
+                .expect("failed to create TLS config");
 
-            info!("server is listening at addr {} with TLS", self.addr.to_string());
+            info!(
+                "server is listening at addr {} with TLS",
+                self.addr.to_string()
+            );
 
-            // Create a handle so that we can gracefully shutdown the server later
-            let handle = Handle::new();
-
-            // Create the server
-            let server = axum_server::bind_rustls(self.addr, tls_config)
-                // TODO: in axum_server 0.6 there is access to the underlying http server builder,
-                // which will allow us to use Hyper's graceful shutdown feature. To upgrade to
-                // axum_server 0.6, we need to upgrade to axum 0.7.
-                // .http_builder()
-                .handle(handle.clone())
-                .serve(app.into_make_service());
-
-            // axum_server does not support a graceful shutdown method, so we need to
-            // implement it ourselves. We do this by listening for a shutdown signal
-            // and then stopping the server.
-            let shutdown_notify = Arc::new(Notify::new());
-
-            // Run the shutdown_signal function in a separate task
-            let notify_clone = shutdown_notify.clone();
-            tokio::spawn(async move {
-                shutdown_signal().await;
-                notify_clone.notify_one();
-            });
-
-            // Start the server, and also listen for the shutdown signal
-            tokio::select! {
-                _ = server => {},
-                _ = shutdown_notify.notified() => {
-                    handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
-                }
-            }
+            let server_expr = axum_server::bind_rustls(self.addr, tls_config);
+            setup_and_run_server!(self.addr, app, server_expr);
         } else {
-            info!("server is listening at addr {}", &self.addr.to_string());
-            let listener = tokio::net::TcpListener::bind(&self.addr).await?;
-            axum::serve(listener, app.into_make_service())
-                .with_graceful_shutdown(shutdown_signal())
-                .await?;
+            info!("server is listening at addr {}", self.addr.to_string());
+            let server_expr = axum_server::bind(self.addr);
+            setup_and_run_server!(self.addr, app, server_expr);
         }
 
         Ok(())
@@ -244,7 +249,7 @@ async fn root() -> &'static str {
 }
 
 #[tracing::instrument]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 #[utoipa::path(
     post,
     path = "/repositories",
@@ -353,7 +358,7 @@ async fn get_repository(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to bind extractor to repository")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn bind_extractor(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
@@ -397,7 +402,7 @@ async fn bind_extractor(
         (status = BAD_REQUEST, description = "Unable to add texts")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn add_texts(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -429,7 +434,7 @@ async fn add_texts(
 }
 
 #[tracing::instrument]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn upload_file(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -498,7 +503,7 @@ async fn run_extractors(
         (status = BAD_REQUEST, description = "Unable to add event")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn add_events(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -530,7 +535,7 @@ async fn add_events(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn list_events(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -557,7 +562,7 @@ async fn list_events(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to load executors")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn list_executors(
     State(_state): State<RepositoryEndpointState>,
 ) -> Result<Json<ListExecutorsResponse>, IndexifyAPIError> {
@@ -574,7 +579,7 @@ async fn list_executors(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn list_extractors(
     State(state): State<RepositoryEndpointState>,
 ) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
@@ -589,7 +594,7 @@ async fn list_extractors(
     Ok(Json(ListExtractorsResponse { extractors }))
 }
 
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn extract_content(
     State(repository_endpoint): State<RepositoryEndpointState>,
     Json(request): Json<ExtractRequest>,
@@ -619,7 +624,7 @@ async fn extract_content(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in repository")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn list_indexes(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -645,7 +650,7 @@ async fn list_indexes(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn index_search(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -686,7 +691,7 @@ async fn index_search(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
     ),
 )]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn attribute_lookup(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,

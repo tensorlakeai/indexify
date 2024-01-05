@@ -2,7 +2,7 @@ use std::{
     fmt,
     fs,
     net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
-    path::{PathBuf, Path},
+    path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Error, Result};
@@ -256,7 +256,8 @@ pub struct TlsConfig {
 }
 
 /// TlsConfig converts to RustlsConfig
-/// If a relative path is provided, it is assumed to be relative to the project root
+/// If a relative path is provided, it is assumed to be relative to the project
+/// root
 impl TlsConfig {
     pub async fn into_rustlsconfig(self) -> Result<RustlsConfig> {
         let cert_file = TlsConfig::resolve_path(&self.cert_file);

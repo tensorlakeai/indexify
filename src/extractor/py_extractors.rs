@@ -156,11 +156,11 @@ impl PythonExtractor {
             let extractor_wrapper = extractor_wrapper_class
                 .call1((entry_point.clone(), class_name.clone()))?
                 .into_py(py);
-            let args= (entry_point, class_name);
+            let args = (entry_point, class_name);
             let schemas = module.call_method1("extractor_schema", args)?.into_py(py);
             let input_params: String = schemas.getattr(py, "input_params")?.extract(py)?;
             let input_params = serde_json::from_str(&input_params)?;
-            let embedding_schemas: HashMap<String, EmbeddingSchema> =schemas 
+            let embedding_schemas: HashMap<String, EmbeddingSchema> = schemas
                 .getattr(py, "embedding_schemas")?
                 .extract(py)
                 .map_err(|e| anyhow!(e.to_string()))?;
@@ -170,7 +170,10 @@ impl PythonExtractor {
             };
             Ok((extractor_wrapper, extractor_schema))
         })?;
-        Ok(Self { extractor_wrapper, extractor_schema })
+        Ok(Self {
+            extractor_wrapper,
+            extractor_schema,
+        })
     }
 }
 
