@@ -184,7 +184,7 @@ impl VectorDb for OpenSearchKnn {
                         }
                         Ok(hit) => {
                             documents.push(SearchResult {
-                                chunk_id: hit._id,
+                                content_id: hit._id,
                                 confidence_score: hit._score as f32,
                             });
                         }

@@ -10,6 +10,7 @@ resolver = "2"
 members = [".", "migration"]
 
 [workspace.dependencies]
+anyerror = "*"
 anyhow = { version = "1" }
 async-trait = "0.1"
 askama = { version = "0.12" }
@@ -89,6 +90,7 @@ tar = "0.4"
 walkdir = { version = "2" }
 
 [dependencies]
+anyerror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 askama = { workspace = true }

@@ -1,19 +1,19 @@
-use crate::{blob_storage::BlobStorageBuilder, internal_api::ContentPayload};
+use crate::{blob_storage::BlobStorageBuilder, internal_api::ContentMetadata};
 
 pub struct ContentReader {
-    payload: ContentPayload,
+    content_metadata: ContentMetadata,
 }
 
 impl ContentReader {
-    pub fn new(payload: ContentPayload) -> Self {
-        Self { payload }
+    pub fn new(content_metadata: ContentMetadata) -> Self {
+        Self { content_metadata }
     }
 
     pub async fn read(&self) -> Result<Vec<u8>, anyhow::Error> {
-        if let Some(external_url) = &self.payload.external_url {
-            let blob_storage_reader = BlobStorageBuilder::reader_from_link(external_url)?;
-            return blob_storage_reader.get(external_url).await;
-        }
-        Ok(self.payload.content.clone().into_bytes())
+        let blob_storage_reader =
+            BlobStorageBuilder::reader_from_link(&self.content_metadata.storage_url)?;
+        return blob_storage_reader
+            .get(&self.content_metadata.storage_url)
+            .await;
     }
 }

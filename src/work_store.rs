@@ -3,48 +3,48 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::internal_api::{Work, WorkStatus};
+use crate::internal_api::{Task, TaskResult};
 
-pub struct WorkStore {
-    allocated_work: Arc<RwLock<HashMap<String, Work>>>,
-    completed_work: Arc<RwLock<HashMap<String, WorkStatus>>>,
+pub struct TaskStore {
+    pending: Arc<RwLock<HashMap<String, Task>>>,
+    finished: Arc<RwLock<HashMap<String, TaskResult>>>,
 }
 
-impl WorkStore {
+impl TaskStore {
     pub fn new() -> Self {
         Self {
-            allocated_work: Arc::new(RwLock::new(HashMap::new())),
-            completed_work: Arc::new(RwLock::new(HashMap::new())),
+            pending: Arc::new(RwLock::new(HashMap::new())),
+            finished: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     pub fn clear_completed_work(&self) {
-        self.completed_work.write().unwrap().clear();
+        self.finished.write().unwrap().clear();
     }
 
-    pub fn add_work_list(&self, work_list: Vec<Work>) {
-        let mut allocated_work = self.allocated_work.write().unwrap();
-        for work in work_list {
-            allocated_work.insert(work.id.clone(), work);
+    pub fn add(&self, tasks: Vec<Task>) {
+        let mut pending = self.pending.write().unwrap();
+        for task in tasks {
+            pending.insert(task.id.clone(), task);
         }
     }
 
-    pub fn update_work_status(&self, work_status: Vec<WorkStatus>) {
-        let mut allocated_work_handle = self.allocated_work.write().unwrap();
-        let mut completed_work_handle = self.completed_work.write().unwrap();
-        for work in work_status {
-            allocated_work_handle.remove(&work.work_id);
-            completed_work_handle.insert(work.work_id.clone(), work);
+    pub fn update(&self, task_results: Vec<TaskResult>) {
+        let mut pending = self.pending.write().unwrap();
+        let mut finished = self.finished.write().unwrap();
+        for task_result in task_results {
+            pending.remove(&task_result.task_id);
+            finished.insert(task_result.task_id.clone(), task_result);
         }
     }
 
-    pub fn pending_work(&self) -> Vec<Work> {
-        let allocated_work = self.allocated_work.read().unwrap();
-        allocated_work.values().cloned().collect()
+    pub fn pending_tasks(&self) -> Vec<Task> {
+        let pending = self.pending.read().unwrap();
+        pending.values().cloned().collect()
     }
 
-    pub fn completed_work(&self) -> Vec<WorkStatus> {
-        let allocated_work = self.completed_work.read().unwrap();
-        allocated_work.values().cloned().collect()
+    pub fn finished_tasks(&self) -> Vec<TaskResult> {
+        let finished = self.finished.read().unwrap();
+        finished.values().cloned().collect()
     }
 }

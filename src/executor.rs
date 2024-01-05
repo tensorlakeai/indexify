@@ -6,24 +6,12 @@ use serde_json::json;
 use tracing::{error, info};
 
 use crate::{
-    attribute_index::AttributeIndexManager,
     content_reader::ContentReader,
     extractor::extractor_runner::ExtractorRunner,
-    internal_api::{
-        self,
-        Content,
-        ExecutorInfo,
-        ExtractorDescription,
-        SyncExecutor,
-        SyncWorkerResponse,
-        Work,
-        WorkState,
-        WorkStatus,
-    },
+    internal_api::{self, Content, ExecutorInfo, ExtractorDescription, TaskResult, TaskState},
     persistence::Repository,
     server_config::ExecutorConfig,
-    vector_index::VectorIndexManager,
-    work_store::WorkStore,
+    work_store::TaskStore,
 };
 
 fn create_executor_id() -> String {
@@ -41,7 +29,7 @@ pub struct ExtractorExecutor {
     extractor_description: ExtractorDescription,
     listen_addr: String,
 
-    work_store: WorkStore,
+    work_store: TaskStore,
 }
 
 impl fmt::Debug for ExtractorExecutor {
@@ -68,7 +56,7 @@ impl ExtractorExecutor {
             extractor_runner,
             extractor_description,
             listen_addr,
-            work_store: WorkStore::new(),
+            work_store: TaskStore::new(),
         };
         Ok(extractor_executor)
     }
@@ -87,7 +75,7 @@ impl ExtractorExecutor {
             extractor_runner,
             extractor_description,
             listen_addr: "127.0.0.0:9000".to_string(),
-            work_store: WorkStore::new(),
+            work_store: TaskStore::new(),
         })
     }
 
@@ -102,57 +90,6 @@ impl ExtractorExecutor {
             addr: self.executor_config.listen_if.clone().into(),
             extractor: self.extractor_runner.info().unwrap().into(),
         }
-    }
-
-    #[tracing::instrument]
-    pub async fn sync_repo(&self) -> Result<u64, anyhow::Error> {
-        let completed_work = self.work_store.completed_work();
-        let sync_executor_req = SyncExecutor {
-            executor_id: self.executor_id.clone(),
-            extractor: self.extractor_description.clone(),
-            addr: self.listen_addr.clone(),
-            work_status: completed_work,
-        };
-        let json_resp = reqwest::Client::new()
-            .post(&format!(
-                "http://{}/heartbeat",
-                &self.executor_config.coordinator_addr
-            ))
-            .json(&sync_executor_req)
-            .send()
-            .await?
-            .text()
-            .await?;
-
-        let resp: Result<SyncWorkerResponse, serde_json::Error> = serde_json::from_str(&json_resp);
-        if let Err(err) = resp {
-            return Err(anyhow!(
-                "unable to parse server response: err: {:?}, resp: {}",
-                err,
-                &json_resp
-            ));
-        }
-
-        self.work_store.clear_completed_work();
-
-        self.work_store
-            .add_work_list(resp.unwrap().content_to_process);
-
-        if let Err(err) = self.perform_work().await {
-            error!("unable perform work: {:?}", err);
-            return Err(anyhow!("unable perform work: {:?}", err));
-        }
-        Ok(0)
-    }
-
-    #[tracing::instrument]
-    pub async fn sync_repo_test(&self, work_list: Vec<Work>) -> Result<u64, anyhow::Error> {
-        self.work_store.add_work_list(work_list);
-        if let Err(err) = self.perform_work().await {
-            error!("unable perform work: {:?}", err);
-            return Err(anyhow!("unable perform work: {:?}", err));
-        }
-        Ok(0)
     }
 
     #[tracing::instrument]
@@ -172,40 +109,42 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn perform_work(&self) -> Result<(), anyhow::Error> {
-        let work_list: Vec<Work> = self.work_store.pending_work();
-        let mut work_status_list = Vec::new();
-        for work in work_list {
-            info!("performing work: {}", &work.id);
-            let content = self
-                .create_content_from_payload(work.content_payload)
-                .await?;
+    pub async fn execute_pending_tasks(&self) -> Result<(), anyhow::Error> {
+        let tasks = self.work_store.pending_tasks();
+        let mut results = Vec::new();
+        for task in tasks {
+            info!("performing task: {}", &task.id);
+            let content = self.get_content(task.content_metadata).await?;
             let extracted_content_batch = self
                 .extractor_runner
-                .extract(vec![content], work.params.clone())?;
+                .extract(vec![content], task.input_params.clone())?;
 
             for extracted_content_list in extracted_content_batch {
-                let work_status = WorkStatus {
-                    work_id: work.id.clone(),
-                    status: WorkState::Completed,
+                let work_status = TaskResult {
+                    task_id: task.id.clone(),
+                    status: TaskState::Completed,
                     extracted_content: extracted_content_list,
                 };
-                work_status_list.push(work_status);
+                results.push(work_status);
             }
         }
-        self.work_store.update_work_status(work_status_list);
+        self.work_store.update(results);
         Ok(())
     }
 
-    async fn create_content_from_payload(
+    pub async fn heartbeat(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn get_content(
         &self,
-        content_payload: internal_api::ContentPayload,
+        content_metadata: internal_api::ContentMetadata,
     ) -> Result<Content, anyhow::Error> {
-        let content_reader = ContentReader::new(content_payload.clone());
+        let content_reader = ContentReader::new(content_metadata.clone());
         let data = content_reader.read().await?;
         let extracted_content = Content {
-            content_type: content_payload.content_type,
-            source: data,
+            mime: content_metadata.content_type,
+            bytes: data,
             feature: None,
         };
         Ok(extracted_content)

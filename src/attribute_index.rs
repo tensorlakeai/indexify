@@ -2,10 +2,17 @@ use std::{fmt, sync::Arc};
 
 use anyhow::Result;
 
-use crate::persistence::{ExtractedAttributes, Extractor, Repository};
+use crate::{
+    grpc_helper::GrpcHelper,
+    indexify_coordinator::{CreateIndexRequest, Index},
+    internal_api::ExtractorDescription,
+    persistence::{ExtractedAttributes, Repository},
+    service_client::CoordinatorClient,
+};
 
 pub struct AttributeIndexManager {
     repository: Arc<Repository>,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl fmt::Debug for AttributeIndexManager {
@@ -15,27 +22,32 @@ impl fmt::Debug for AttributeIndexManager {
 }
 
 impl AttributeIndexManager {
-    pub fn new(repository: Arc<Repository>) -> Self {
-        Self { repository }
+    pub fn new(repository: Arc<Repository>, coordinator_client: Arc<CoordinatorClient>) -> Self {
+        Self {
+            repository,
+            coordinator_client,
+        }
     }
 
     pub async fn create_index(
         &self,
         repository: &str,
         index_name: &str,
-        extractor_config: Extractor,
+        extractor_config: ExtractorDescription,
     ) -> Result<String> {
-        // TODO: create a new table for the index from a postgres schema
-        self.repository
-            .create_index_metadata(
-                repository,
-                &extractor_config.name,
-                index_name,
-                "structured_store",
-                serde_json::json!(extractor_config.schemas),
-                "json",
-            )
-            .await?;
+        let index = CreateIndexRequest {
+            index: Some(Index {
+                name: index_name.to_string(),
+                table_name: "structured_store".to_string(),
+                repository: repository.to_string(),
+                schema: serde_json::to_value(extractor_config.schema)
+                    .unwrap()
+                    .to_string(),
+                extractor: extractor_config.name.to_string(),
+            }),
+        };
+        let req = GrpcHelper::into_req(index);
+        let _resp = self.coordinator_client.get().create_index(req).await?;
         Ok(index_name.to_string())
     }
 

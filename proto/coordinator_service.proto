@@ -24,26 +24,63 @@ service CoordinatorService {
 
     rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
 
-    rpc WriteExtractedData (WriteExtractedDataRequest) returns (WriteExtractedDataResponse) {}
+    rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
+
+    rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
+
+    rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
 }
 
-message Feature {
+message ListIndexesRequest {
+    string repository = 1;
+}
+
+message ListIndexesResponse {
+    repeated Index indexes = 1;
+}
+
+message GetIndexRequest {
+    string repository = 1;
+    string name = 2;
+}
+
+message GetIndexResponse {
+    Index index = 1;
+}
+
+message CreateIndexRequest {
+    Index index = 2;
+}
+
+message CreateIndexResponse {
+}
+
+message Index {
+    string name = 1;
+    string repository = 2;
+    string table_name = 3;
+    string schema = 4;
+    string extractor = 5;
+}
+
+message Embedding {
     repeated float embedding = 1;
+}
+
+message Attributes {
     string attributes = 2;
 }
 
-message ExtractedContent {
-    string mime = 1;
-    bytes data = 2;
-    repeated Feature features = 3;
+message Feature {
+    string name = 1;
+    Embedding embedding = 2;
+    Attributes attributes = 3;
 }
 
-message WriteExtractedDataRequest {
-    string task_id = 1;
-    repeated ExtractedContent content = 2;
-}
-
-message WriteExtractedDataResponse {
+message Content {
+    string mime = 2;
+    bytes data = 3;
+    repeated Feature features = 4;
 }
 
 message RegisterExecutorRequest {
@@ -71,6 +108,8 @@ message Task {
     string repository = 3;
     ContentMetadata content_metadata = 4;
     string input_params = 5;
+    string extractor_binding = 6;
+    map<string, string> output_index_mapping = 7;
 }
 
 message ListExtractorsRequest {
@@ -114,6 +153,7 @@ message ListBindingsResponse {
 
 message CreateRepositoryRequest {
     string name = 1;
+    repeated ExtractorBinding bindings = 2;
 }
 
 message CreateRepositoryResponse {
@@ -138,8 +178,7 @@ message ExtractorBinding {
     string extractor = 1;
     string name = 2;
     string input_params = 4;
-    map<string, string> eq_filters = 5;
-    map<string, string> neq_filters = 6;
+    map<string, string> filters = 5;
 }
 
 message ExtractorBindRequest {
@@ -165,7 +204,6 @@ message ContentMetadata {
 }
 
 message CreateContentRequest {
-    string repository = 1;
     ContentMetadata content = 2;
 }
 

@@ -1,32 +1,30 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    str::FromStr,
     sync::{Arc, RwLock},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Ok, Result};
 use jsonschema::JSONSchema;
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tonic::IntoRequest;
 use tracing::{error, info};
 
 use crate::{
     attribute_index::AttributeIndexManager,
     extractor::ExtractedEmbeddings,
     indexify_coordinator,
-    internal_api::{self, CreateWork, ExecutorInfo, ExecutorMetadata},
-    persistence::{
+    internal_api::{
         self,
-        ExtractedAttributes,
+        Content,
+        ContentMetadata,
+        ExecutorMetadata,
         ExtractionEventPayload,
         ExtractorBinding,
-        Repository,
-        Work,
+        ExtractorDescription,
+        Task,
     },
+    persistence::{self, ExtractedAttributes, Repository},
     state::SharedState,
     vector_index::VectorIndexManager,
-    vectordbs::IndexDistance,
 };
 
 pub struct Coordinator {
@@ -39,7 +37,7 @@ pub struct Coordinator {
 
     attribute_index_manager: Arc<AttributeIndexManager>,
 
-    pub shared_state: SharedState,
+    shared_state: SharedState,
 }
 
 impl Coordinator {
@@ -65,112 +63,83 @@ impl Coordinator {
 
     #[tracing::instrument(skip(self))]
     pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
-        let events = self.repository.unprocessed_extraction_events().await?;
+        let events = self.shared_state.unprocessed_extraction_events().await?;
         for event in &events {
             info!("processing extraction event: {}", event.id);
-            match &event.payload {
-                ExtractionEventPayload::ExtractorBindingAdded { repository, id } => {
-                    let binding = self.repository.binding_by_id(repository, id).await?;
-                    self.generate_work_for_extractor_bindings(repository, &binding)
+            let mut tasks = Vec::new();
+            match event.payload.clone() {
+                ExtractionEventPayload::ExtractorBindingAdded {
+                    repository,
+                    binding,
+                } => {
+                    let content_list = self
+                        .shared_state
+                        .content_matching_binding(&repository, &binding)
                         .await?;
+                    let tasks_for_binding = self.create_task(&binding, content_list).await?;
+                    tasks.extend(tasks_for_binding);
                 }
-                ExtractionEventPayload::CreateContent { content_id } => {
-                    if let Err(err) = self
-                        .create_work(&event.repository_id, Some(content_id))
-                        .await
-                    {
-                        error!("unable to create work: {}", &err.to_string());
-                        return Err(err);
+                ExtractionEventPayload::CreateContent { content } => {
+                    let bindings = self
+                        .shared_state
+                        .filter_extractor_binding_for_content(&content)
+                        .await?;
+                    for binding in bindings {
+                        let task_for_binding =
+                            self.create_task(&binding, vec![content.clone()]).await?;
+                        tasks.extend(task_for_binding);
                     }
                 }
             };
-
-            self.repository
-                .mark_extraction_event_as_processed(&event.id)
+            self.shared_state.create_tasks(tasks).await?;
+            self.shared_state
+                .mark_extraction_event_processed(&event.id)
                 .await?;
         }
         Ok(())
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn generate_work_for_extractor_bindings(
-        &self,
-        repository: &str,
-        extractor_binding: &ExtractorBinding,
-    ) -> Result<(), anyhow::Error> {
-        let content_list = self
-            .repository
-            .content_with_unapplied_extractor(repository, extractor_binding, None)
-            .await?;
-        for content in content_list {
-            self.create_work(repository, Some(&content.id)).await?;
-        }
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn distribute_work(&self) -> Result<(), anyhow::Error> {
-        let unallocated_work = self.repository.unallocated_work().await?;
+    pub async fn distribute_work(&self) -> Result<HashMap<String, String>, anyhow::Error> {
+        let unallocated_tasks = self.shared_state.unassigned_tasks().await?;
 
         // work_id -> executor_id
-        let mut work_assignment = HashMap::new();
-        for work in unallocated_work {
+        let mut task_assignments = HashMap::new();
+        for task in unallocated_tasks {
             let extractor_table = self.extractors_table.read().unwrap();
-            let executors = extractor_table.get(&work.extractor).ok_or(anyhow::anyhow!(
+            let executors = extractor_table.get(&task.extractor).ok_or(anyhow::anyhow!(
                 "no executors for extractor: {}",
-                work.extractor
+                task.extractor
             ))?;
             let rand_index = rand::random::<usize>() % executors.len();
             if !executors.is_empty() {
                 let executor_id = executors[rand_index].clone();
-                work_assignment.insert(work.id.clone(), executor_id);
+                task_assignments.insert(task.id.clone(), executor_id);
             }
         }
-        info!("finishing work assignment: {:}", work_assignment.len());
-        self.repository.assign_work(work_assignment).await?;
-        Ok(())
+        info!("finishing work assignment: {:}", task_assignments.len());
+        Ok(task_assignments)
     }
 
-    #[tracing::instrument(skip(self))]
-    pub async fn create_work(
+    pub async fn create_task(
         &self,
-        repository_id: &str,
-        content_id: Option<&str>,
-    ) -> Result<(), anyhow::Error> {
-        let extractor_bindings = self
-            .repository
-            .repository_by_name(repository_id)
-            .await?
-            .extractor_bindings;
-        for extractor_binding in &extractor_bindings {
-            let content_list = self
-                .repository
-                .content_with_unapplied_extractor(repository_id, extractor_binding, content_id)
-                .await?;
-            for content in content_list {
-                info!(
-                    "Creating work for repository: {}, content: {}, extractor: {}, index: {}",
-                    &repository_id,
-                    &content.id,
-                    &extractor_binding.extractor,
-                    extractor_binding.name,
-                );
-                let work = Work::new(
-                    &content.id,
-                    repository_id,
-                    &extractor_binding.extractor,
-                    &extractor_binding.name,
-                    &extractor_binding.input_params,
-                    None,
-                );
-                self.repository.insert_work(&work).await?;
-                self.repository
-                    .mark_content_as_processed(&work.content_id, &extractor_binding.name)
-                    .await?;
-            }
+        extractor_binding: &ExtractorBinding,
+        content_list: Vec<ContentMetadata>,
+    ) -> Result<Vec<Task>> {
+        let mut tasks = Vec::new();
+        for content in content_list {
+            let task = Task {
+                id: "".to_string(),
+                extractor: extractor_binding.extractor.clone(),
+                extractor_binding: extractor_binding.name.clone(),
+                output_index_mapping: todo!(),
+                repository: extractor_binding.repository.clone(),
+                content_metadata: content.clone(),
+                input_params: extractor_binding.input_params.clone(),
+            };
+            tasks.push(task);
         }
-
-        Ok(())
+        Ok(tasks)
     }
 
     pub async fn list_content(
@@ -180,7 +149,10 @@ impl Coordinator {
         self.shared_state.list_content(repository).await
     }
 
-    pub async fn list_bindings(&self, repository: &str) -> Result<Vec<internal_api::ExtractorBinding>> {
+    pub async fn list_bindings(
+        &self,
+        repository: &str,
+    ) -> Result<Vec<internal_api::ExtractorBinding>> {
         self.shared_state.list_bindings(repository).await
     }
 
@@ -199,6 +171,28 @@ impl Coordinator {
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
         self.shared_state.list_extractors().await
+    }
+
+    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<Task>> {
+        self.shared_state.heartbeat(executor_id).await?;
+        let tasks = self.shared_state.tasks_for_executor(executor_id).await?;
+        Ok(tasks)
+    }
+
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<String>> {
+        // self.shared_state.list_indexes(repository).await
+        Ok(vec![])
+    }
+
+    pub async fn register_executor(
+        &self,
+        addr: &str,
+        executor_id: &str,
+        extractor: ExtractorDescription,
+    ) -> Result<()> {
+        self.shared_state
+            .register_executor(addr, executor_id, extractor)
+            .await
     }
 
     pub async fn create_binding(
@@ -232,7 +226,7 @@ impl Coordinator {
         }
         for (name, output_schema) in &extractor.schema.output {
             match output_schema {
-                internal_api::OutputSchema::Embedding { dim, distance } => {
+                internal_api::OutputSchema::Embedding(embedding_schema) => {
                     let index_name = format!("{}-{}", binding.name, name);
                     indexes.push(index_name);
                 }
@@ -244,60 +238,6 @@ impl Coordinator {
         }
         let _ = self.shared_state.create_binding(binding).await?;
         Ok(indexes)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn record_extractor(
-        &self,
-        extractor: internal_api::ExtractorDescription,
-    ) -> Result<(), anyhow::Error> {
-        let mut outputs = HashMap::new();
-        for (name, output_schema) in extractor.schema.output {
-            match output_schema {
-                internal_api::OutputSchema::Embedding { dim, distance } => {
-                    let distance_metric = IndexDistance::from_str(&distance)?;
-                    outputs.insert(
-                        name,
-                        persistence::ExtractorOutputSchema::Embedding(
-                            persistence::EmbeddingSchema {
-                                dim,
-                                distance: distance_metric,
-                            },
-                        ),
-                    );
-                }
-                internal_api::OutputSchema::Feature(schema) => {
-                    outputs.insert(
-                        name,
-                        persistence::ExtractorOutputSchema::Attributes(
-                            persistence::MetadataSchema { schema },
-                        ),
-                    );
-                }
-            }
-        }
-        let extractor = persistence::Extractor {
-            name: extractor.name,
-            description: extractor.description,
-            input_params: extractor.input_params,
-            schemas: persistence::ExtractorSchema { outputs },
-        };
-        self.repository.record_extractors(vec![extractor]).await?;
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self, rx))]
-    async fn loop_for_work(&self, mut rx: Receiver<CreateWork>) -> Result<(), anyhow::Error> {
-        info!("starting work distribution loop");
-        loop {
-            if (rx.recv().await).is_none() {
-                info!("no work to process");
-                return Ok(());
-            }
-            if let Err(err) = self.process_and_distribute_work().await {
-                error!("unable to process and distribute work: {}", err.to_string());
-            }
-        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -315,7 +255,7 @@ impl Coordinator {
         req: indexify_coordinator::CreateContentRequest,
     ) -> Result<String> {
         let mut s = DefaultHasher::new();
-        req.repository.hash(&mut s);
+        req.content.clone().unwrap().repository.hash(&mut s);
         req.content.clone().unwrap().file_name.hash(&mut s);
         let id = format!("{:x}", s.finish());
         let metadata = HashMap::new();
@@ -326,7 +266,7 @@ impl Coordinator {
                 created_at: content.created_at,
                 storage_url: content.storage_url.clone(),
                 parent_id: "".to_string(),
-                repository: req.repository.clone(),
+                repository: content.repository.clone(),
                 name: content.file_name.clone(),
                 metadata,
             };
@@ -352,48 +292,6 @@ impl Coordinator {
             rand_index
         ))?;
         Ok(executor.to_owned())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn write_extracted_data(
-        &self,
-        task_statuses: Vec<internal_api::TaskStatus>,
-    ) -> Result<()> {
-        for work_status in task_statuses {
-            let work = self
-                .repository
-                .update_work_state(&work_status.task_id, &work_status.status.into())
-                .await?;
-            for extracted_content in work_status.extracted_content {
-                if let Some(feature) = extracted_content.feature.clone() {
-                    let index_name = format!("{}-{}", work.extractor_binding, feature.name);
-                    if let Some(text) = extracted_content.source_as_text() {
-                        if let Some(embedding) = feature.embedding() {
-                            let embeddings = ExtractedEmbeddings {
-                                content_id: work.content_id.clone(),
-                                text: text.clone(),
-                                embeddings: embedding.clone(),
-                            };
-                            self.vector_index_manager
-                                .add_embedding(&work.repository_id, &index_name, vec![embeddings])
-                                .await?;
-                        }
-                    }
-                    if let Some(metadata) = feature.metadata() {
-                        let extracted_attributes = ExtractedAttributes::new(
-                            &work.content_id,
-                            metadata.clone(),
-                            &work.extractor,
-                        );
-                        self.attribute_index_manager
-                            .add_index(&work.repository_id, &index_name, extracted_attributes)
-                            .await?;
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 

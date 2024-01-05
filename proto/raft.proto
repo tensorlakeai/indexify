@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+
+package indexify_raft;
+
+
+message RaftRequest {
+    string data = 1;
+}
+
+message RaftReply {
+    string data = 1;
+    string error = 2;
+}
+
+service RaftApi { 
+    rpc Forward(RaftRequest) returns (RaftReply);
+    rpc AppendEntries(RaftRequest) returns (RaftReply);
+    rpc InstallSnapshot(RaftRequest) returns (RaftReply);
+    rpc Vote(RaftRequest) returns (RaftReply);
+}
+

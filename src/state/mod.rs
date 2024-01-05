@@ -2,34 +2,44 @@
 #![deny(unused_qualifications)]
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     io::Cursor,
     sync::Arc,
 };
 
 use anyhow::{anyhow, Result};
+use axum_server::bind;
 use itertools::Itertools;
 use network::Network;
 use openraft::{self, storage::Adaptor, BasicNode};
 use store::{Request, Response, Store};
+use tokio::{
+    sync::{watch, Mutex},
+    task::JoinHandle,
+};
+use tracing::{error, info};
 
-use self::store::{ExecutorId, TaskId};
+use self::{
+    grpc_server::RaftGrpcServer,
+    store::{ExecutorId, TaskId},
+};
 use crate::{
-    indexify_coordinator,
+    indexify_raft::raft_api_server::RaftApiServer,
     internal_api::{
+        self,
         ContentMetadata,
         ExecutorMetadata,
         ExtractionEvent,
         ExtractorBinding,
         ExtractorDescription,
-        ExtractorHeartbeat,
-        Task, self,
+        Task,
     },
     server_config::ServerConfig,
 };
 
-pub mod client;
+pub mod grpc_server;
 pub mod network;
+pub mod raft_client;
 pub mod store;
 
 pub type NodeId = u64;
@@ -51,14 +61,16 @@ pub mod typ {
 
     use super::{NodeId, TypeConfig};
 
+    pub type RPCError<E> = openraft::error::RPCError<NodeId, BasicNode, E>;
+    pub type RemoteError<E> = openraft::error::RemoteError<NodeId, BasicNode, E>;
     pub type RaftError<E = openraft::error::Infallible> = openraft::error::RaftError<NodeId, E>;
-    pub type RPCError<E = openraft::error::Infallible> =
-        openraft::error::RPCError<NodeId, BasicNode, RaftError<E>>;
+    pub type NetworkError = openraft::error::NetworkError;
 
     pub type ClientWriteError = openraft::error::ClientWriteError<NodeId, BasicNode>;
     pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<NodeId, BasicNode>;
     pub type ForwardToLeader = openraft::error::ForwardToLeader<NodeId, BasicNode>;
     pub type InitializeError = openraft::error::InitializeError<NodeId, BasicNode>;
+    pub type InstallSnapshotError = openraft::error::InstallSnapshotError;
 
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
@@ -67,6 +79,10 @@ pub struct App {
     pub id: NodeId,
     pub addr: String,
     pub raft: Raft,
+    nodes: BTreeMap<NodeId, BasicNode>,
+    shutdown_rx: watch::Receiver<()>,
+    shutdown_tx: watch::Sender<()>,
+    join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
     pub store: Arc<Store>,
     pub config: Arc<openraft::Config>,
 }
@@ -83,7 +99,7 @@ impl App {
         let config = Arc::new(raft_config.validate().unwrap());
         let store = Arc::new(Store::default());
         let (log_store, state_machine) = Adaptor::new(store.clone());
-        let network = Network {};
+        let network = Network::new();
 
         let raft = openraft::Raft::new(
             server_config.node_id,
@@ -104,20 +120,66 @@ impl App {
                 },
             );
         }
-        raft.initialize(nodes)
-            .await
-            .map_err(|e| anyhow!("unable to initialize raft: {}", e))?;
+        let (tx, rx) = watch::channel::<()>(());
 
-        Ok(Arc::new(App {
+        let addr = server_config.raft_addr_sock().unwrap();
+        let raft_servr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
+
+        let app = Arc::new(App {
             id: server_config.node_id,
             addr: server_config
                 .coordinator_lis_addr_sock()
                 .unwrap()
                 .to_string(),
             raft,
+            shutdown_rx: rx,
+            shutdown_tx: tx,
+            join_handles: Mutex::new(vec![]),
+            nodes,
             store,
             config,
-        }))
+        });
+
+        let mut rx = app.shutdown_rx.clone();
+
+        let grpc_svc = tonic::transport::Server::builder().add_service(raft_servr);
+        let h = tokio::spawn(async move {
+            grpc_svc
+                .serve_with_shutdown(addr, async move {
+                    let _ = rx.changed().await;
+                    info!("shutting down grpc server");
+                })
+                .await
+                .map_err(|e| anyhow!("grpc server error: {}", e))
+        });
+        app.join_handles.lock().await.push(h);
+
+        Ok(app)
+    }
+
+    pub async fn initialize_raft(&self) -> Result<()> {
+        self.raft
+            .initialize(self.nodes.clone())
+            .await
+            .map_err(|e| anyhow!("unable to initialize raft: {}", e))?;
+        Ok(())
+    }
+
+    pub async fn stop(&self) -> Result<()> {
+        info!("stopping raft server");
+        let _ = self.raft.shutdown().await;
+        self.shutdown_tx.send(()).unwrap();
+        for j in self.join_handles.lock().await.iter_mut() {
+            let res = j.await;
+            info!("task quit res: {:?}", res);
+
+            // The returned error does not mean this function call failed.
+            // Do not need to return this error. Keep shutting down other tasks.
+            if let Err(ref e) = res {
+                error!("task quit with error: {:?}", e);
+            }
+        }
+        Ok(())
     }
 
     pub async fn unprocessed_extraction_events(&self) -> Result<Vec<ExtractionEvent>> {
@@ -144,9 +206,66 @@ impl App {
 
     pub async fn filter_extractor_binding_for_content(
         &self,
-        _content_id: &str,
+        content_metadata: &ContentMetadata,
     ) -> Result<Vec<ExtractorBinding>> {
-        Ok(vec![])
+        let bindings = {
+            let store = self.store.state_machine.read().await;
+            store
+                .bindings_table
+                .get(&content_metadata.repository)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let mut matched_bindings = Vec::new();
+        for binding in &bindings {
+            for (name, value) in &binding.filters {
+                let is_mach = content_metadata
+                    .metadata
+                    .get(name)
+                    .map(|v| v == value)
+                    .unwrap_or(false);
+                if !is_mach {
+                    continue;
+                }
+            }
+            matched_bindings.push(binding.clone());
+        }
+        Ok(matched_bindings)
+    }
+
+    pub async fn content_matching_binding(
+        &self,
+        repository: &str,
+        binding: &ExtractorBinding,
+    ) -> Result<Vec<ContentMetadata>> {
+        let content_list = {
+            let store = self.store.state_machine.read().await;
+            let content_list = store
+                .content_repository_table
+                .get(repository)
+                .cloned()
+                .unwrap_or_default();
+            let mut content_meta_list = Vec::new();
+            for content_id in content_list {
+                let content_metadata = store.content_table.get(&content_id).unwrap();
+                content_meta_list.push(content_metadata.clone());
+            }
+            content_meta_list
+        };
+        let mut matched_content_list = Vec::new();
+        for content in content_list {
+            let is_match = &binding.filters.iter().all(|(name, value)| {
+                content
+                    .metadata
+                    .get(name)
+                    .map(|v| v == value)
+                    .unwrap_or(false)
+            });
+            if binding.filters.is_empty() || *is_match {
+                matched_content_list.push(content);
+            }
+        }
+        Ok(matched_content_list)
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<Task>> {
@@ -177,9 +296,9 @@ impl App {
         Ok(executors)
     }
 
-    pub async fn heartbeat(&self, heartbeat: ExtractorHeartbeat) -> Result<()> {
+    pub async fn heartbeat(&self, executor_id: &str) -> Result<()> {
         let request = store::Request::ExecutorHeartbeat {
-            heartbeat: heartbeat.clone(),
+            executor_id: executor_id.to_string(),
         };
         let _response = self
             .raft
@@ -227,14 +346,18 @@ impl App {
             .bindings_table
             .get(repository)
             .cloned()
-            .unwrap_or_default().into_iter().collect_vec();
+            .unwrap_or_default()
+            .into_iter()
+            .collect_vec();
         Ok(bindings)
     }
 
     pub async fn create_repository(&self, repository: &str) -> Result<()> {
         let _resp = self
             .raft
-            .client_write(Request::CreateRepository { name: repository.to_string() })
+            .client_write(Request::CreateRepository {
+                name: repository.to_string(),
+            })
             .await?;
         Ok(())
     }
@@ -243,10 +366,14 @@ impl App {
         let store = self.store.state_machine.read().await;
         let mut repositories = Vec::new();
         for repository_name in &store.repositories {
-            let bindings = store.bindings_table.get(repository_name).cloned().unwrap_or_default();
-            let repository = internal_api::Repository{
+            let bindings = store
+                .bindings_table
+                .get(repository_name)
+                .cloned()
+                .unwrap_or_default();
+            let repository = internal_api::Repository {
                 name: repository_name.clone(),
-                extractor_bindings:bindings.into_iter().collect_vec(),
+                extractor_bindings: bindings.into_iter().collect_vec(),
             };
             repositories.push(repository);
         }
@@ -255,12 +382,33 @@ impl App {
 
     pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Repository> {
         let store = self.store.state_machine.read().await;
-        let bindings = store.bindings_table.get(repository).cloned().unwrap_or_default();
-        let repository = internal_api::Repository{
+        let bindings = store
+            .bindings_table
+            .get(repository)
+            .cloned()
+            .unwrap_or_default();
+        let repository = internal_api::Repository {
             name: repository.to_string(),
-            extractor_bindings:bindings.into_iter().collect_vec(),
+            extractor_bindings: bindings.into_iter().collect_vec(),
         };
         Ok(repository)
+    }
+
+    pub async fn register_executor(
+        &self,
+        addr: &str,
+        executor_id: &str,
+        extractor: ExtractorDescription,
+    ) -> Result<()> {
+        let _resp = self
+            .raft
+            .client_write(Request::RegisterExecutor {
+                addr: addr.to_string(),
+                executor_id: executor_id.to_string(),
+                extractor,
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<ExtractorDescription>> {
@@ -329,5 +477,11 @@ impl App {
             })
             .unwrap_or(vec![]);
         Ok(tasks)
+    }
+
+    pub async fn task_with_id(&self, task_id: &str) -> Result<Task> {
+        let store = self.store.state_machine.read().await;
+        let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
+        Ok(task.clone())
     }
 }

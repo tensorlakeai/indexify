@@ -159,7 +159,7 @@ impl VectorDb for QdrantDb {
                 .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
             documents.push(SearchResult {
                 confidence_score: point.score,
-                chunk_id: qdrant_payload.chunk_id,
+                content_id: qdrant_payload.chunk_id,
             });
         }
         Ok(documents)

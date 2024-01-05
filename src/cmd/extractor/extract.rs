@@ -52,10 +52,10 @@ impl Args {
             let extractor =
                 PythonExtractor::new_from_extractor_path(&extractor_path).unwrap_or_log();
             let extractor: ExtractorTS = Arc::new(extractor);
-            let py_content = match (text, file) {
+            let content = match (text, file) {
                 (Some(text), None) => Ok(Content {
-                    content_type: "text/plain".to_string(),
-                    source: text.as_bytes().to_vec(),
+                    mime: "text/plain".to_string(),
+                    bytes: text.as_bytes().to_vec(),
                     feature: None,
                 }),
                 (None, Some(file_path)) => {
@@ -66,17 +66,15 @@ impl Args {
                         .unwrap_or_log();
                     let mime_type = mime_guess::from_path(&file_path).first_or_octet_stream();
                     Ok(Content {
-                        content_type: mime_type.to_string(),
-                        source: data,
+                        mime: mime_type.to_string(),
+                        bytes: data,
                         feature: None,
                     })
                 }
                 _ => Err(anyhow!("either text or file path must be provided")),
             }
             .unwrap_or_log();
-            let extracted_content = extractor
-                .extract(vec![py_content], json!({}))
-                .unwrap_or_log();
+            let extracted_content = extractor.extract(vec![content], json!({})).unwrap_or_log();
             println!(
                 "{}",
                 serde_json::to_string_pretty(&extracted_content).unwrap_or_log()

@@ -40,7 +40,7 @@ async fn heartbeat(
                 break;
             }
             Some(TickerMessage::Heartbeat) => {
-                if let Err(err) = executor.sync_repo().await {
+                if let Err(err) = executor.heartbeat().await {
                     error!("unable to sync repo: {}", err.to_string());
                 }
                 interval.tick().await;
@@ -158,7 +158,7 @@ async fn sync_worker(
 ) -> Result<(), IndexifyAPIError> {
     let extractor_executor = extractor_executor;
     tokio::spawn(async move {
-        let _ = extractor_executor.sync_repo().await;
+        let _ = extractor_executor.heartbeat().await;
     });
     Ok(())
 }

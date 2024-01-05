@@ -26,6 +26,10 @@ fn default_coordinator_port() -> u64 {
     8950
 }
 
+fn default_raft_port() -> u64 {
+    8970
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct S3Config {
     pub bucket: String,
@@ -277,6 +281,9 @@ impl TlsConfig {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file_path)
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerPeer {
     pub addr: String,
     pub node_id: u64,
@@ -291,6 +298,7 @@ pub struct ServerConfig {
     pub listen_port: u64,
     #[serde(default = "default_coordinator_port")]
     pub coordinator_port: u64,
+    pub raft_port: u64,
     pub index_config: VectorIndexConfig,
     pub db_url: String,
     #[serde(default)]
@@ -307,6 +315,7 @@ impl Default for ServerConfig {
             listen_if: "0.0.0.0".into(),
             listen_port: default_server_port(),
             coordinator_port: default_coordinator_port(),
+            raft_port: default_raft_port(),
             index_config: VectorIndexConfig::default(),
             db_url: "postgres://postgres:postgres@localhost/indexify".into(),
             coordinator_addr: format!("localhost:{}", default_coordinator_port()),
@@ -351,6 +360,13 @@ impl ServerConfig {
 
     pub fn coordinator_lis_addr_sock(&self) -> Result<SocketAddr> {
         let addr = format!("{}:{}", self.listen_if, self.coordinator_port);
+        addr.parse().map_err(|e: AddrParseError| {
+            anyhow!("Failed to parse listen address {} :{}", addr, e.to_string())
+        })
+    }
+
+    pub fn raft_addr_sock(&self) -> Result<SocketAddr> {
+        let addr = format!("{}:{}", self.listen_if, self.raft_port);
         addr.parse().map_err(|e: AddrParseError| {
             anyhow!("Failed to parse listen address {} :{}", addr, e.to_string())
         })

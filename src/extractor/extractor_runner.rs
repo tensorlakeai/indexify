@@ -32,8 +32,8 @@ impl ExtractorRunner {
 
     pub fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<Content>> {
         let content = Content {
-            source: data,
-            content_type: mime.to_string(),
+            bytes: data,
+            mime: mime.to_string(),
             feature: None,
         };
         let extracted_content = self.extract(vec![content], serde_json::Value::Null)?;

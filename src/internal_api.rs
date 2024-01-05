@@ -1,4 +1,8 @@
-use std::{collections::HashMap, str::FromStr, hash::Hasher};
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -13,8 +17,19 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingSchema {
+    pub dim: usize,
+    pub distance: String,
+}
+
+pub struct Index {
+    pub name: String,
+    pub schema: OutputSchema,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OutputSchema {
-    Embedding { dim: usize, distance: String },
+    Embedding(EmbeddingSchema),
     Feature(serde_json::Value),
 }
 
@@ -35,13 +50,34 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
     fn from(value: ExtractorDescription) -> Self {
         let mut output_schema = HashMap::new();
         for (output_name, embedding_schema) in value.schema.output {
-            output_schema.insert(output_name, serde_json::to_string(&embedding_schema).unwrap());
+            output_schema.insert(
+                output_name,
+                serde_json::to_string(&embedding_schema).unwrap(),
+            );
         }
         Self {
             name: value.name,
             description: value.description,
             input_params: value.input_params.to_string(),
             outputs: output_schema,
+        }
+    }
+}
+
+impl From<indexify_coordinator::Extractor> for ExtractorDescription {
+    fn from(value: indexify_coordinator::Extractor) -> Self {
+        let mut output_schema = HashMap::new();
+        for (output_name, embedding_schema) in value.outputs {
+            let embedding_schema: OutputSchema = serde_json::from_str(&embedding_schema).unwrap();
+            output_schema.insert(output_name, embedding_schema);
+        }
+        Self {
+            name: value.name,
+            description: value.description,
+            input_params: serde_json::from_str(&value.input_params).unwrap(),
+            schema: ExtractorSchema {
+                output: output_schema,
+            },
         }
     }
 }
@@ -55,10 +91,10 @@ impl From<api::ExtractorDescription> for ExtractorDescription {
                     let distance_metric = distance.to_string();
                     output_schema.insert(
                         output_name,
-                        OutputSchema::Embedding {
+                        OutputSchema::Embedding(EmbeddingSchema {
                             dim,
                             distance: distance_metric,
-                        },
+                        }),
                     );
                 }
                 api::ExtractorOutputSchema::Attributes { schema } => {
@@ -108,7 +144,7 @@ pub struct CoordinateResponse {
 #[derive(
     Debug, PartialEq, Eq, Serialize, Clone, Deserialize, EnumString, Display, SmartDefault,
 )]
-pub enum WorkState {
+pub enum TaskState {
     #[default]
     Unknown,
     Pending,
@@ -117,36 +153,16 @@ pub enum WorkState {
     Failed,
 }
 
-impl From<WorkState> for persistence::WorkState {
-    fn from(work_state: WorkState) -> Self {
+impl From<TaskState> for persistence::WorkState {
+    fn from(work_state: TaskState) -> Self {
         match work_state {
-            WorkState::Unknown => persistence::WorkState::Unknown,
-            WorkState::Pending => persistence::WorkState::Pending,
-            WorkState::InProgress => persistence::WorkState::InProgress,
-            WorkState::Completed => persistence::WorkState::Completed,
-            WorkState::Failed => persistence::WorkState::Failed,
+            TaskState::Unknown => persistence::WorkState::Unknown,
+            TaskState::Pending => persistence::WorkState::Pending,
+            TaskState::InProgress => persistence::WorkState::InProgress,
+            TaskState::Completed => persistence::WorkState::Completed,
+            TaskState::Failed => persistence::WorkState::Failed,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkStatus {
-    pub work_id: String,
-    pub status: WorkState,
-    pub extracted_content: Vec<Content>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SyncExecutor {
-    pub executor_id: String,
-    pub extractor: ExtractorDescription,
-    pub addr: String,
-    pub work_status: Vec<WorkStatus>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SyncWorkerResponse {
-    pub content_to_process: Vec<Work>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -207,18 +223,18 @@ impl Feature {
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Content {
-    pub content_type: String,
+    pub mime: String,
     #[serde_as(as = "BytesOrString")]
-    pub source: Vec<u8>,
+    pub bytes: Vec<u8>,
     pub feature: Option<Feature>,
 }
 
 impl Content {
     pub fn source_as_text(&self) -> Option<String> {
-        let mime_type = mime::Mime::from_str(&self.content_type);
+        let mime_type = mime::Mime::from_str(&self.mime);
         if let Ok(mime_type) = mime_type {
             if mime_type == mime::TEXT_PLAIN {
-                return Some(String::from_utf8(self.source.clone()).unwrap());
+                return Some(String::from_utf8(self.bytes.clone()).unwrap());
             }
         }
         None
@@ -228,8 +244,8 @@ impl Content {
 impl From<Content> for api::Content {
     fn from(content: Content) -> Self {
         Self {
-            content_type: content.content_type,
-            source: content.source,
+            content_type: content.mime,
+            source: content.bytes,
             feature: content.feature.map(|f| api::Feature {
                 feature_type: f.feature_type.into(),
                 name: f.name,
@@ -239,50 +255,40 @@ impl From<Content> for api::Content {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ContentPayload {
-    pub content_type: String,
-    pub content: String,
-    pub external_url: Option<String>,
-}
-
-impl TryFrom<persistence::ContentPayload> for ContentPayload {
-    type Error = anyhow::Error;
-
-    fn try_from(payload: persistence::ContentPayload) -> Result<Self> {
-        let content_type = payload.content_type.to_string();
-        let (external_url, content) = match payload.payload_type {
-            persistence::PayloadType::BlobStorageLink => (Some(payload.payload), "".to_string()),
-            _ => (None, payload.payload),
-        };
-        Ok(Self {
-            content_type,
-            content,
-            external_url,
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Work {
-    pub id: String,
-    pub content_payload: ContentPayload,
-    pub params: serde_json::Value,
-}
-
 #[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct Task {
     pub id: String,
     pub extractor: String,
+    pub extractor_binding: String,
+    pub output_index_mapping: HashMap<String, String>,
     pub repository: String,
     pub content_metadata: ContentMetadata,
     pub input_params: serde_json::Value,
 }
 
-#[derive(Serialize, Debug, Deserialize, Display, EnumString, Clone)]
+impl From<Task> for indexify_coordinator::Task {
+    fn from(value: Task) -> Self {
+        Self {
+            id: value.id,
+            extractor: value.extractor,
+            repository: value.repository,
+            content_metadata: Some(value.content_metadata.try_into().unwrap()),
+            input_params: value.input_params.to_string(),
+            extractor_binding: value.extractor_binding,
+            output_index_mapping: value.output_index_mapping,
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Deserialize, Display, Clone)]
 pub enum ExtractionEventPayload {
-    ExtractorBindingAdded { repository: String, id: String },
-    CreateContent { content_id: String },
+    ExtractorBindingAdded {
+        repository: String,
+        binding: ExtractorBinding,
+    },
+    CreateContent {
+        content: ContentMetadata,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -294,26 +300,13 @@ pub struct ExtractionEvent {
     pub processed_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, EnumString, Display, Eq, PartialEq)]
-#[serde(rename = "extractor_filter")]
-pub enum ExtractorFilter {
-    Eq {
-        field: String,
-        value: serde_json::Value,
-    },
-    Neq {
-        field: String,
-        value: serde_json::Value,
-    },
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct ExtractorBinding {
     pub id: String,
     pub name: String,
     pub repository: String,
     pub extractor: String,
-    pub filters: Vec<ExtractorFilter>,
+    pub filters: HashMap<String, serde_json::Value>,
     pub input_params: serde_json::Value,
 }
 
@@ -325,25 +318,16 @@ impl std::hash::Hash for ExtractorBinding {
 }
 
 impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
-   fn from(value: ExtractorBinding) -> Self {
-        let mut eq_filters = HashMap::new();
-        let mut neq_filters = HashMap::new();
+    fn from(value: ExtractorBinding) -> Self {
+        let mut filters = HashMap::new();
         for filter in value.filters {
-            match filter {
-                ExtractorFilter::Eq { field, value } => {
-                    eq_filters.insert(field,value.to_string());
-                }
-                ExtractorFilter::Neq { field, value } => {
-                    neq_filters.insert(field,value.to_string());
-                }
-            }
+            filters.insert(filter.0, filter.1.to_string());
         }
- 
+
         Self {
             extractor: value.extractor,
             name: value.name,
-            eq_filters: eq_filters,
-            neq_filters: neq_filters,
+            filters,
             input_params: value.input_params.to_string(),
         }
     }
@@ -423,16 +407,16 @@ pub struct ExtractorHeartbeatResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WriteRequest {
-    pub task_statuses: Vec<TaskStatus>,
+    pub task_statuses: Vec<TaskResult>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WriteResponse {}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TaskStatus {
+pub struct TaskResult {
     pub task_id: String,
-    pub status: WorkState,
+    pub status: TaskState,
     pub extracted_content: Vec<Content>,
 }
 
@@ -446,7 +430,11 @@ impl From<Repository> for indexify_coordinator::Repository {
     fn from(value: Repository) -> Self {
         Self {
             name: value.name,
-            bindings: value.extractor_bindings.into_iter().map(|b| b.into()).collect(),
+            bindings: value
+                .extractor_bindings
+                .into_iter()
+                .map(|b| b.into())
+                .collect(),
         }
     }
 }

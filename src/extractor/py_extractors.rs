@@ -9,7 +9,7 @@ use pyo3::{
 use super::{EmbeddingSchema, Extractor, ExtractorSchema};
 use crate::{
     content_reader::ContentReader,
-    internal_api::{self, Content, ContentPayload},
+    internal_api::{self, Content, ContentMetadata},
 };
 
 const EXTRACT_METHOD: &str = "extract";
@@ -60,8 +60,8 @@ impl TryFrom<PyContent> for internal_api::Content {
             None => None,
         };
         let extracted_content = internal_api::Content {
-            content_type: mime_type.to_string(),
-            source: py_content.data,
+            mime: mime_type.to_string(),
+            bytes: py_content.data,
             feature,
         };
         Ok(extracted_content)
@@ -72,8 +72,8 @@ impl TryFrom<internal_api::Content> for PyContent {
     type Error = anyhow::Error;
 
     fn try_from(content: internal_api::Content) -> Result<Self, Self::Error> {
-        let content_type = content.content_type.to_string();
-        let data = content.source;
+        let content_type = content.mime.to_string();
+        let data = content.bytes;
         Ok(PyContent {
             content_type,
             data,
@@ -83,8 +83,8 @@ impl TryFrom<internal_api::Content> for PyContent {
 }
 
 impl PyContent {
-    pub async fn form_content_payload(
-        content_payload: ContentPayload,
+    pub async fn form_content_metadata(
+        content_payload: ContentMetadata,
     ) -> Result<Self, anyhow::Error> {
         let content_type = content_payload.content_type.clone();
         let content_reader = ContentReader::new(content_payload);
@@ -212,8 +212,7 @@ impl Extractor for PythonExtractor {
             for list1 in py_extracted_data.iter() {
                 let mut temp = Vec::new();
                 for py_content in list1.iter() {
-                    let content_type: String =
-                        py_content.getattr(py, "content_type")?.extract(py)?;
+                    let mime: String = py_content.getattr(py, "content_type")?.extract(py)?;
                     let data: Vec<u8> = py_content.getattr(py, "data")?.extract(py)?;
                     let py_feature: Option<PyObject> =
                         py_content.getattr(py, "feature")?.extract(py)?;
@@ -234,8 +233,8 @@ impl Extractor for PythonExtractor {
                         None => None,
                     };
                     temp.push(Content {
-                        content_type,
-                        source: data,
+                        mime,
+                        bytes: data,
                         feature,
                     });
                 }
@@ -273,12 +272,7 @@ mod tests {
         assert_eq!(extracted_data.len(), 1);
         assert_eq!(extracted_data.first().unwrap().len(), 3);
         assert_eq!(
-            extracted_data
-                .first()
-                .unwrap()
-                .first()
-                .unwrap()
-                .content_type,
+            extracted_data.first().unwrap().first().unwrap().mime,
             mime::TEXT_PLAIN.to_string()
         );
 

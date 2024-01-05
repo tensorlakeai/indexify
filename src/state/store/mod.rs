@@ -7,7 +7,6 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::anyhow;
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
@@ -27,34 +26,28 @@ use openraft::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::Instrument;
-use utoipa::openapi::Content;
 
 use super::{NodeId, TypeConfig};
-use crate::{
-    indexify_coordinator,
-    internal_api::{
-        ContentMetadata,
-        ExecutorMetadata,
-        ExtractionEvent,
-        ExtractorBinding,
-        ExtractorDescription,
-        ExtractorHeartbeat,
-        Task,
-    },
+use crate::internal_api::{
+    ContentMetadata,
+    ExecutorMetadata,
+    ExtractionEvent,
+    ExtractorBinding,
+    ExtractorDescription,
+    Task,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
-    Set {
-        key: String,
-        value: String,
-    },
-
     ExecutorHeartbeat {
-        heartbeat: ExtractorHeartbeat,
+        executor_id: String,
     },
 
+    RegisterExecutor {
+        addr: String,
+        executor_id: String,
+        extractor: ExtractorDescription,
+    },
     CreateRepository {
         name: String,
     },
@@ -120,9 +113,6 @@ pub struct StateMachine {
     pub last_applied_log: Option<LogId<NodeId>>,
 
     pub last_membership: StoredMembership<NodeId, BasicNode>,
-
-    /// Application data.
-    pub data: BTreeMap<String, String>,
 
     // Executor ID -> Last Seen Timestamp
     pub executor_health_checks: HashMap<ExecutorId, u64>,
@@ -355,28 +345,31 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
             match entry.payload {
                 EntryPayload::Blank => res.push(Response { value: None }),
                 EntryPayload::Normal(ref req) => match req {
-                    Request::Set { key, value } => {
-                        sm.data.insert(key.clone(), value.clone());
-                        res.push(Response {
-                            value: Some(value.clone()),
-                        })
-                    }
-                    Request::ExecutorHeartbeat { heartbeat } => {
+                    Request::ExecutorHeartbeat { executor_id } => {
                         let current_ts = SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs();
                         sm.executor_health_checks
-                            .insert(heartbeat.executor_id.clone(), current_ts);
-                        sm.extractors.insert(
-                            heartbeat.extractor.name.clone(),
-                            heartbeat.extractor.clone(),
-                        );
+                            .insert(executor_id.clone(), current_ts);
+                        res.push(Response { value: None })
+                    }
+                    Request::RegisterExecutor {
+                        addr,
+                        executor_id,
+                        extractor,
+                    } => {
+                        let current_ts = SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+                        sm.extractors
+                            .insert(extractor.name.clone(), extractor.clone());
                         let executor_info = ExecutorMetadata {
-                            id: heartbeat.executor_id.clone(),
+                            id: executor_id.clone(),
                             last_seen: current_ts,
-                            addr: heartbeat.addr.clone(),
-                            extractor: heartbeat.extractor.clone(),
+                            addr: addr.clone(),
+                            extractor: extractor.clone(),
                         };
                         sm.executors.insert(executor_info.id.clone(), executor_info);
                         res.push(Response { value: None })

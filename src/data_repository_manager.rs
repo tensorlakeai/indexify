@@ -1,27 +1,29 @@
-use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    fmt,
+    hash::{Hash, Hasher},
+    sync::Arc,
+    time::SystemTime,
+};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use mime::Mime;
 use sea_orm::DbConn;
+use tonic::IntoRequest;
 use tracing::info;
+use tracing_core::span::Current;
+use utoipa::openapi::Content;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
-
 use crate::{
     api,
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageTS,
-    indexify_coordinator,
-    persistence::{
-        ContentPayload,
-        DataRepository,
-        Event,
-        ExtractedAttributes,
-        Extractor,
-        Index,
-        Repository,
-        RepositoryError,
-    },
+    extractor::ExtractedEmbeddings,
+    grpc_helper::GrpcHelper,
+    indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
+    persistence::{ExtractedAttributes, Repository, RepositoryError},
     server_config::ServerConfig,
     service_client::CoordinatorClient,
     vector_index::{ScoredText, VectorIndexManager},
@@ -66,7 +68,10 @@ impl DataRepositoryManager {
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Self {
         let repository = Arc::new(Repository::new_with_db(db));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
+        let attribute_index_manager = Arc::new(AttributeIndexManager::new(
+            repository.clone(),
+            coordinator_client.clone(),
+        ));
         Self {
             repository,
             vector_index_manager,
@@ -78,20 +83,14 @@ impl DataRepositoryManager {
 
     #[tracing::instrument]
     pub async fn create_default_repository(&self, _server_config: &ServerConfig) -> Result<()> {
-        let resp = self
-            .repository
-            .repository_by_name(DEFAULT_REPOSITORY_NAME)
-            .await;
-        if resp.is_err() {
-            info!("creating default repository");
-            let default_repo = DataRepository {
+        let _ = self
+            .coordinator_client
+            .get()
+            .create_repository(indexify_coordinator::CreateRepositoryRequest {
                 name: DEFAULT_REPOSITORY_NAME.into(),
-                extractor_bindings: vec![],
-                data_connectors: vec![],
-                metadata: HashMap::new(),
-            };
-            return self.create(&default_repo).await;
-        }
+                bindings: Vec::new(),
+            })
+            .await?;
         Ok(())
     }
 
@@ -105,19 +104,25 @@ impl DataRepositoryManager {
             .map(|r| api::DataRepository {
                 name: r.name,
                 extractor_bindings: Vec::new(),
-                metadata: HashMap::new(),
             })
             .collect();
         Ok(data_respoistories)
     }
 
     #[tracing::instrument]
-    pub async fn create(&self, repository: &DataRepository) -> Result<()> {
+    pub async fn create(&self, repository: &api::DataRepository) -> Result<()> {
         info!("creating data repository: {}", repository.name);
+        let bindings = repository
+            .extractor_bindings
+            .clone()
+            .into_iter()
+            .map(|b| b.into())
+            .collect();
         let request = indexify_coordinator::CreateRepositoryRequest {
             name: repository.name.clone(),
+            bindings,
         };
-        let _ = self
+        let _resp = self
             .coordinator_client
             .get()
             .create_repository(request)
@@ -135,7 +140,6 @@ impl DataRepositoryManager {
         let data_repository = api::DataRepository {
             name: repository.name,
             extractor_bindings: Vec::new(),
-            metadata: HashMap::new(),
         };
         Ok(data_repository)
     }
@@ -149,39 +153,9 @@ impl DataRepositoryManager {
             "adding extractor bindings repository: {}, extractor: {}, binding: {}",
             repository, extractor_binding.extractor, extractor_binding.name,
         );
-        let mut eq_filters = HashMap::new();
-        let mut neq_filters = HashMap::new();
-        if let Some(filters) = extractor_binding.filters.clone() {
-            for filter in filters {
-                match filter {
-                    api::ExtractorFilter::Eq { filters } => {
-                        for (k, v) in filters {
-                            eq_filters.insert(k, v.to_string());
-                        }
-                    }
-                    api::ExtractorFilter::Neq { filters } => {
-                        for (k, v) in filters {
-                            neq_filters.insert(k, v.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        let binding = indexify_coordinator::ExtractorBinding {
-            name: extractor_binding.name.clone(),
-            extractor: extractor_binding.extractor.clone(),
-            input_params: extractor_binding
-                .input_params
-                .clone()
-                .map(|p| p.to_string())
-                .unwrap_or_default(),
-            eq_filters,
-            neq_filters,
-        };
         let req = indexify_coordinator::ExtractorBindRequest {
             repository: repository.to_string(),
-            binding: Some(binding),
+            binding: Some(extractor_binding.clone().into()),
             created_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs() as i64,
@@ -190,19 +164,146 @@ impl DataRepositoryManager {
         Ok(response.into_inner().index_names.clone())
     }
 
-    #[tracing::instrument]
-    pub async fn add_texts(&self, repo_name: &str, texts: Vec<ContentPayload>) -> Result<()> {
-        let _ = self.repository.repository_by_name(repo_name).await?;
-        self.repository.add_content(repo_name, texts).await
+    pub async fn list_content(&self, repository: &str) -> Result<Vec<api::ContentMetadata>> {
+        let req = indexify_coordinator::ListContentRequest {
+            repository: repository.to_string(),
+        };
+        let response = self.coordinator_client.get().list_content(req).await?;
+        let content_list = response.into_inner().content_list;
+        let mut content = Vec::new();
+        for c in content_list {
+            let metadata = c
+                .labels
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, serde_json::from_str(&v).unwrap()))
+                .collect();
+            content.push(api::ContentMetadata {
+                id: c.id,
+                name: c.file_name,
+                storage_url: c.storage_url,
+                parent_id: c.parent_id,
+                created_at: c.created_at,
+                content_type: c.mime,
+                repository: c.repository,
+                metadata,
+            })
+        }
+        Ok(content)
     }
 
     #[tracing::instrument]
-    pub async fn list_indexes(&self, repository_name: &str) -> Result<Vec<Index>> {
-        let indexes = self
-            .repository
-            .list_indexes(repository_name)
-            .await
-            .map_err(|e| anyhow!("unable to list indexes, error: {}", e.to_string()))?;
+    pub async fn add_texts(&self, repo_name: &str, texts: Vec<api::Text>) -> Result<()> {
+        let current_ts = SystemTime::now();
+        let current_ts_ms = current_ts
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_millis();
+        let current_ts_secs = current_ts.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
+        for (i, text) in texts.iter().enumerate() {
+            let mut s = DefaultHasher::new();
+            repo_name.hash(&mut s);
+            text.text.hash(&mut s);
+            let id = format!("{:x}", s.finish());
+            let file_name = format!("{}_{}", current_ts_ms, i);
+            let storage_url = self
+                .upload_file(repo_name, &file_name, Bytes::from(text.text.clone()))
+                .await
+                .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
+            let labels = text
+                .metadata
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, v.to_string()))
+                .collect();
+            let content_metadata = ContentMetadata {
+                id,
+                file_name,
+                storage_url,
+                parent_id: "".to_string(),
+                created_at: current_ts_secs as i64,
+                mime: mime::TEXT_PLAIN.to_string(),
+                repository: repo_name.to_string(),
+                labels,
+            };
+            let req = CreateContentRequest {
+                content: Some(content_metadata),
+            };
+
+            self.coordinator_client
+                .get()
+                .create_content(GrpcHelper::into_req(req))
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "unable to write content metadata to coordinator {}",
+                        e.to_string()
+                    )
+                })?;
+        }
+        Ok(())
+    }
+
+    async fn write_content(&self, content: api::Content) -> Result<ContentMetadata> {
+        Err(anyhow!("not implemented"))
+    }
+
+    pub async fn write_extracted_content(
+        &self,
+        extracted_content: api::WriteExtractedContent,
+    ) -> Result<()> {
+        for content in extracted_content.content_list {
+            let content_metadata = self.write_content(content.clone()).await?;
+            if let Some(feature) = content.feature.clone() {
+                match feature.feature_type {
+                    api::FeatureType::Embedding => {
+                        let emebedding: Vec<f32> = serde_json::from_value(feature.data)?;
+                        let embeddings = ExtractedEmbeddings {
+                            content_id: content_metadata.id.to_string(),
+                            embeddings: emebedding,
+                        };
+                        self.vector_index_manager
+                            .add_embedding(&extracted_content.index_name, vec![embeddings])
+                            .await?;
+                    }
+                    api::FeatureType::Metadata => {
+                        let extracted_attributes = ExtractedAttributes::new(
+                            &content_metadata.id,
+                            feature.data.clone(),
+                            "extractor_name",
+                        );
+                        self.attribute_index_manager
+                            .add_index(
+                                &extracted_content.repository,
+                                &extracted_content.index_name,
+                                extracted_attributes,
+                            )
+                            .await?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument]
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<api::Index>> {
+        let req = ListIndexesRequest {
+            repository: repository.to_string(),
+        };
+        let resp = self.coordinator_client.get().list_indexes(req).await?;
+        let indexes = resp
+            .into_inner()
+            .indexes
+            .into_iter()
+            .map(|i| api::Index {
+                name: i.name,
+                schema: api::ExtractorOutputSchema::Embedding {
+                    dim: 384,
+                    distance: api::IndexDistance::Cosine,
+                },
+            })
+            .collect();
         Ok(indexes)
     }
 
@@ -238,43 +339,14 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn add_events(&self, repository: &str, events: Vec<Event>) -> Result<()> {
-        self.repository
-            .add_events(repository, events)
-            .await
-            .map_err(|e| anyhow!("unable to add events, error: {}", e.to_string()))
-    }
-
-    #[tracing::instrument]
-    pub async fn list_events(&self, repository: &str) -> Result<Vec<Event>> {
-        self.repository
-            .list_events(repository)
-            .await
-            .map_err(|e| anyhow!("unable to list events, error: {}", e.to_string()))
-    }
-
-    #[tracing::instrument]
     pub async fn upload_file(
         &self,
         repository: &str,
         name: &str,
         file: Bytes,
-    ) -> Result<(), anyhow::Error> {
-        // TODO - wrap the write to blob storage in a lambda and pass it to the
-        // persistence layer so that we can mark the file upload as complete if
-        // the blob storage write succeeds.
+    ) -> Result<String, anyhow::Error> {
         let stored_file_path = self.blob_storage.put(name, file).await?;
-        self.repository
-            .add_content(
-                repository,
-                vec![ContentPayload::from_file(
-                    repository,
-                    name,
-                    &stored_file_path,
-                )],
-            )
-            .await?;
-        Ok(())
+        Ok(stored_file_path)
     }
 }
 

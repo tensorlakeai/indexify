@@ -1,19 +1,20 @@
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 
 use crate::{
     api::Content,
     internal_api::{self, CoordinateResponse, ExtractResponse},
+    service_client::CoordinatorClient,
 };
 
 pub struct ExtractorRouter {
-    coordinator_addr: String,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl ExtractorRouter {
-    pub fn new(coordinator_addr: &str) -> Self {
-        Self {
-            coordinator_addr: coordinator_addr.into(),
-        }
+    pub fn new(coordinator_client: Arc<CoordinatorClient>) -> Self {
+        Self { coordinator_client }
     }
 
     pub async fn extract_content(
@@ -24,8 +25,8 @@ impl ExtractorRouter {
     ) -> Result<Vec<Content>, anyhow::Error> {
         let request = internal_api::ExtractRequest {
             content: internal_api::Content {
-                content_type: content.content_type,
-                source: content.source,
+                mime: content.content_type,
+                bytes: content.source,
                 feature: None,
             },
             input_params,
@@ -36,7 +37,7 @@ impl ExtractorRouter {
         };
 
         let coordinate_response = reqwest::Client::new()
-            .post(&format!("http://{}/coordinates", self.coordinator_addr))
+            .post(&format!("http://{}/coordinates", "foo"))
             .json(&coordinate_request)
             .send()
             .await

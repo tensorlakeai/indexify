@@ -13,7 +13,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     tonic_build::configure()
         .out_dir("src/")
-        .type_attribute("routeguide.Point", "#[derive(De)]")
         .type_attribute(
             "CreateContentRequest",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -22,7 +21,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             "ContentMetadata",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
-        .compile(&["proto/coordinator_service.proto"], &["proto"])
+        .compile(
+            &["proto/coordinator_service.proto", "proto/raft.proto"],
+            &["proto"],
+        )
         .unwrap();
     Ok(())
 }

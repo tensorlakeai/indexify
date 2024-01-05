@@ -14,14 +14,7 @@ pub mod db_utils {
         executor::ExtractorExecutor,
         extractor::{extractor_runner, py_extractors},
         internal_api::ExtractorHeartbeat,
-        persistence::{
-            DataRepository,
-            Extractor,
-            ExtractorBinding,
-            ExtractorOutputSchema,
-            ExtractorSchema,
-            Repository,
-        },
+        persistence::Repository,
         server_config::{ExtractorConfig, ServerConfig},
         state,
         vector_index::VectorIndexManager,
@@ -31,21 +24,6 @@ pub mod db_utils {
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
 
     pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
-
-    pub fn default_test_data_repository() -> DataRepository {
-        DataRepository {
-            name: DEFAULT_TEST_REPOSITORY.into(),
-            data_connectors: vec![],
-            metadata: HashMap::new(),
-            extractor_bindings: vec![ExtractorBinding::new(
-                "test_extractor_binding",
-                DEFAULT_TEST_REPOSITORY,
-                DEFAULT_TEST_EXTRACTOR.into(),
-                vec![],
-                serde_json::json!({}),
-            )],
-        }
-    }
 
     fn mock_extractor_config() -> ExtractorConfig {
         ExtractorConfig {
