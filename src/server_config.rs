@@ -2,9 +2,11 @@ use std::{
     fmt,
     fs,
     net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
+    path::{PathBuf, Path},
 };
 
 use anyhow::{anyhow, Error, Result};
+use axum_server::tls_rustls::RustlsConfig;
 use figment::{
     providers::{Env, Format, Yaml},
     Figment,
@@ -15,6 +17,7 @@ fn default_executor_port() -> u64 {
     0
 }
 
+// TODO: provide default https port as well?
 fn default_server_port() -> u64 {
     8900
 }
@@ -246,6 +249,37 @@ impl ExecutorConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct TlsConfig {
+    pub api: bool,
+    cert_file: String,
+    key_file: String,
+}
+
+/// TlsConfig converts to RustlsConfig
+/// If a relative path is provided, it is assumed to be relative to the project root
+impl TlsConfig {
+    pub async fn into_rustlsconfig(self) -> Result<RustlsConfig> {
+        let cert_file = TlsConfig::resolve_path(&self.cert_file);
+        let key_file = TlsConfig::resolve_path(&self.key_file);
+
+        let config = RustlsConfig::from_pem_file(cert_file, key_file)
+            .await
+            .map_err(|e| anyhow!("Failed to load TLS config: {}", e.to_string()))?;
+        Ok(config)
+    }
+
+    // Helper function to resolve paths
+    fn resolve_path(file_path: &str) -> PathBuf {
+        if Path::new(file_path).is_absolute() {
+            PathBuf::from(file_path)
+        } else {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file_path)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
     #[serde(default)]
     pub listen_if: NetworkAddress,
@@ -258,6 +292,7 @@ pub struct ServerConfig {
     #[serde(default)]
     pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
+    pub tls: Option<TlsConfig>,
 }
 
 impl Default for ServerConfig {
@@ -276,6 +311,7 @@ impl Default for ServerConfig {
                     path: "blobs".to_string(),
                 }),
             },
+            tls: None,
         }
     }
 }

@@ -2,6 +2,7 @@
 name = "indexify"
 version = "0.1.0"
 edition = "2021"
+authors = ["Diptanu Gon Choudhury <diptanu@tensorlake.ai>"]
 build = "build.rs"
 resolver = "2"
 
@@ -16,6 +17,7 @@ axum = { version = "0.6", features = ["multipart"] }
 axum-macros = { version = "0.3" }
 axum-otel-metrics = "0.7"
 axum-tracing-opentelemetry = "0.14"
+axum-server = { version = "0.3", features = ["tls-rustls"] }
 bollard = { version = "0.15", features = ["buildkit"] }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
@@ -89,6 +91,7 @@ async-trait = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 axum-macros = { workspace = true }
+axum-server = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
 bollard = { workspace = true }
@@ -154,3 +157,16 @@ vergen = { version = "8", features = [
     "si",
 ] }
 pyo3-build-config = "0.20"
+
+[package.metadata.deb]
+maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
+copyright = "2024, Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+Indexify is a reactive structured extraction engine for un-structured data.
+"""
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/indexify", "/usr/local/bin/indexify", "755"],
+]

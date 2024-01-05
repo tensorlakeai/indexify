@@ -33,3 +33,12 @@ make local-dev
 # start the server
 ./target/debug/indexify start-server -d -c local_config.yaml
 ```
+
+### Environment Variables
+
+IndexifyClient uses httpx under the hood, so you can set the following environment variables to configure the client to use https:
+
+- `SSL_CERT_FILE`: path to a file containing the SSL certificate
+- `SSL_CERT_DIR`: path to a directory containing SSL certificates
+
+`httpx` also offers proxy support. More information on supported environment variables can be found [here](https://www.python-httpx.org/environment_variables/).
