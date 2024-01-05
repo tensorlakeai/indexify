@@ -1,8 +1,12 @@
-FROM {{ image_name }}
+FROM --platform=linux/amd64 {{ image_name }}
 
-RUN apt-get update
-
-RUN apt-get install -y  {{ system_dependencies }}
+RUN apt-get update -y && \
+    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
+    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get install -y  {{ system_dependencies }} && \
+    apt-get -y clean
 
 RUN pip3 install --no-input {{ additional_pip_flags }} {{ python_dependencies }}
 

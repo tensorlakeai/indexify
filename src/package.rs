@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use askama::Template;
 use bollard::{
     image::{BuildImageOptions, BuilderVersion},
@@ -116,15 +116,15 @@ impl Packager {
                     .collect();
                 for vertex in &status.vertexes {
                     if verbose && !vertex.name.is_empty() {
-                        print!("{}", vertex.name);
+                        println!("{}", vertex.name);
                     }
                     if !vertex.error.is_empty() {
-                        eprint!("{}", vertex.error);
+                        eprintln!("{}", vertex.error);
                         return Err(anyhow!(vertex.error.clone()));
                     }
                 }
                 if verbose && !messages.is_empty() {
-                    print!("{}", messages.join("\n"));
+                    println!("{}", messages.join("\n"));
                 }
             }
         }
@@ -132,43 +132,8 @@ impl Packager {
         Ok(())
     }
 
-    fn create_docker_file(&self) -> Result<String> {
-
-        let pytorch = self.config.python_dependencies.iter().position(|x| x.contains("torch"));
-        let gpu = self.config.gpu;
-        let cuda_version = self.config.cuda_version.clone();
-        let cuda_nn = self.config.cudann_version.clone();
-
-        let mut pytorch_version = None;
-        match pytorch {
-            Some(pos) => {
-                let dep_string = &self.config.python_dependencies[pos];
-                if dep_string.contains("==") {
-                    pytorch_version = Option::Some(dep_string.split("==").collect::<Vec<_>>()[1]);
-                } else {
-                    pytorch_version = Option::Some("latest");
-                }
-            },
-            None => {}
-        }
-
-        let mut additional_pip_flags = "";
-        let image_name:String;
-
-        match (pytorch_version, gpu) {
-            (Some(version), true) => {
-                if version == "latest" || cuda_version.is_none() || cuda_nn.is_none() {
-                    image_name = "pytorch/pytorch:latest".to_string();
-                } else {
-                    image_name = format!("pytorch/pytorch:{}-cuda{}-cudnn{}-runtime", version, cuda_version.unwrap(), cuda_nn.unwrap());
-                }
-            },
-            (Some(_version), false) => {
-                image_name = "tensorlake/indexify-extractor-base".to_string();
-                additional_pip_flags = "--index-url https://download.pytorch.org/whl/cpu";
-            },
-            (None, _) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
-        }
+    fn create_docker_file(&self) -> Result<String, Error> {
+        let (image_name, additional_pip_flags) = self.generate_base_image_name_for_matching_modify_dependencies()?;
 
         let system_dependencies = self.config.system_dependencies.join(" ");
         let python_dependencies = self.config.python_dependencies.join(" ");
@@ -189,10 +154,51 @@ RUN pip3 install --no-input indexify_extractor_sdk
             image_name: &image_name,
             system_dependencies: &system_dependencies,
             python_dependencies: &python_dependencies,
-            additional_pip_flags: &additional_pip_flags,
+            additional_pip_flags,
             additional_dev_setup,
         };
         tmpl.render().map_err(|e| anyhow!(e.to_string()))
+    }
+
+    // TODO move image strings to config
+    pub fn generate_base_image_name_for_matching_modify_dependencies(&self) -> Result<(String, &'static str), Error> {
+        let pytorch = self.config.python_dependencies.iter().position(|x| x.contains("torch"));
+        let gpu = self.config.gpu;
+
+        let mut pytorch_version = None;
+        match pytorch {
+            Some(pos) => {
+                let dep_string = &self.config.python_dependencies[pos];
+                if dep_string.contains("==") {
+                    pytorch_version = Option::Some(dep_string.split("==").collect::<Vec<_>>()[1]);
+                } else {
+                    pytorch_version = Option::Some("latest");
+                }
+            },
+            None => {}
+        }
+
+        let mut additional_pip_flags = "";
+        let image_name:String;
+
+        match (pytorch_version, gpu) {
+            (Some(version), true) => {
+                if version == "latest" {
+                    return Err(anyhow!("Please make sure to specify pytorch version and cuda version"));
+                } else {
+                    image_name = "ubuntu:22.04".to_string();
+                }
+            },
+            (Some(_version), false) => {
+                image_name = "tensorlake/indexify-extractor-base".to_string();
+                additional_pip_flags = "--index-url https://download.pytorch.org/whl/cpu";
+            },
+            (None, _) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
+        }
+
+        info!("Selecting image_name `{}`", image_name);
+
+        Ok((image_name, additional_pip_flags))
     }
 
     fn add_directory_to_tar(
@@ -238,9 +244,7 @@ mod tests {
             version: "0.1.0".to_string(),
             gpu: false,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
-            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -250,11 +254,15 @@ mod tests {
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r#"FROM tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
 
-RUN apt-get update
-
-RUN apt-get install -y  libpq-dev libssl-dev
+RUN apt-get update -y && \
+    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
+    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get install -y  libpq-dev libssl-dev && \
+    apt-get -y clean
 
 RUN pip3 install --no-input  numpy pandas
 
@@ -279,9 +287,7 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
-            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -291,11 +297,15 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r#"FROM tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
 
-RUN apt-get update
-
-RUN apt-get install -y  libpq-dev libssl-dev
+RUN apt-get update -y && \
+    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
+    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get install -y  libpq-dev libssl-dev && \
+    apt-get -y clean
 
 RUN pip3 install --no-input  numpy pandas
 
@@ -313,7 +323,6 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
     #[test]
     fn test_create_docker_file_for_gpu_with_pytorch() {
-        // cuda version and cudann were not specified - so use latest image.
         let config = ExtractorConfig {
             name: "test".to_string(),
             module: "foo.py/ModuleName".to_string(),
@@ -321,9 +330,28 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
-            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: Option::None,
+        };
+        let packager = Packager {
+            config_path: "test".to_string(),
+            config,
+            code_dir: PathBuf::from("/tmp"),
+            dev: false,
+        };
+        assert!(packager.create_docker_file().is_err());
+    }
+
+    #[test]
+    fn test_create_docker_file_no_gpu_with_pytorch() {
+        // cuda version was not specified - so use latest image.
+        let config = ExtractorConfig {
+            name: "test".to_string(),
+            module: "foo.py/ModuleName".to_string(),
+            description: "test_description".into(),
+            version: "0.1.0".to_string(),
+            gpu: false,
+            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
+            system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -333,13 +361,17 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r#"FROM pytorch/pytorch:latest
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
 
-RUN apt-get update
+RUN apt-get update -y && \
+    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
+    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get install -y  libpq-dev libssl-dev && \
+    apt-get -y clean
 
-RUN apt-get install -y  libpq-dev libssl-dev
-
-RUN pip3 install --no-input  numpy pandas torch
+RUN pip3 install --no-input --index-url https://download.pytorch.org/whl/cpu numpy pandas torch
 
 COPY . /indexify/
 
@@ -354,18 +386,15 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
     }
 
     #[test]
-    fn test_create_docker_file_no_gpu_with_pytorch() {
-        // cuda version and cudann were not specified - so use latest image.
+    fn test_create_docker_file_no_gpu_with_pytorch_version() {
         let config = ExtractorConfig {
             name: "test".to_string(),
             module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
             gpu: false,
-            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
-            cuda_version: Option::None,
+            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -375,13 +404,17 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r#"FROM tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
 
-RUN apt-get update
+RUN apt-get update -y && \
+    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
+    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get install -y  libpq-dev libssl-dev && \
+    apt-get -y clean
 
-RUN apt-get install -y  libpq-dev libssl-dev
-
-RUN pip3 install --no-input --index-url https://download.pytorch.org/whl/cpu numpy pandas torch
+RUN pip3 install --no-input --index-url https://download.pytorch.org/whl/cpu numpy pandas torch==2.1.2
 
 COPY . /indexify/
 
@@ -404,9 +437,7 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             version: "0.1.0".to_string(),
             gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
-            cuda_version: Option::None,
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: Option::None,
         };
         let packager = Packager {
             config_path: "test".to_string(),
@@ -416,52 +447,15 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
         };
         let docker_file = packager.create_docker_file().unwrap();
 
-        let expected_dockerfile = r#"FROM pytorch/pytorch:latest
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 ubuntu:22.04
 
-RUN apt-get update
-
-RUN apt-get install -y  libpq-dev libssl-dev
-
-RUN pip3 install --no-input  numpy pandas torch==2.1.2
-
-COPY . /indexify/
-
-COPY indexify.yaml indexify.yaml
-
-
-RUN pip3 install --no-input indexify_extractor_sdk
-
-
-ENTRYPOINT [ "/indexify/indexify" ]"#;
-        assert_eq!(docker_file, expected_dockerfile);
-    }
-
-    #[test]
-    fn test_create_docker_file_for_gpu_with_pytorch_and_cuda_versions() {
-        let config = ExtractorConfig {
-            name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
-            description: "test_description".into(),
-            version: "0.1.0".to_string(),
-            gpu: true,
-            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
-            cuda_version: Option::from("12.1".to_string()),
-            system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            cudann_version: Option::from("8".to_string()),
-        };
-        let packager = Packager {
-            config_path: "test".to_string(),
-            config,
-            code_dir: PathBuf::from("/tmp"),
-            dev: false,
-        };
-        let docker_file = packager.create_docker_file().unwrap();
-
-        let expected_dockerfile = r#"FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
-
-RUN apt-get update
-
-RUN apt-get install -y  libpq-dev libssl-dev
+RUN apt-get update -y && \
+    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
+    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get install -y  libpq-dev libssl-dev && \
+    apt-get -y clean
 
 RUN pip3 install --no-input  numpy pandas torch==2.1.2
 
