@@ -49,6 +49,15 @@ local-dev:
 	docker stop indexify-local-opensearch || true
 	docker run --rm -p 9200:9200 -p 9600:9600 --name=indexify-local-opensearch -d -e "discovery.type=single-node" opensearchproject/opensearch:latest
 
+# Used for local development only - referenced by the "tls" field in local_server_config.yaml
+local-dev-tls-insecure:
+	@mkdir -p .dev-tls && \
+	openssl req -x509 -newkey rsa:4096 -keyout .dev-tls/ca.key -out .dev-tls/ca.crt -days 365 -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localtestca" && \
+	openssl req -new -newkey rsa:4096 -keyout .dev-tls/server.key -out .dev-tls/server.csr -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localhost" && \
+	openssl x509 -req -in .dev-tls/server.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/server.crt -days 365
+
+.PHONY: local-dev-tls-insecure
+
 test:
 	./run_tests.sh
 

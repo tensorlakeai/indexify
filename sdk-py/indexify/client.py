@@ -7,6 +7,8 @@ from typing import List
 
 
 class IndexifyClient:
+    # TODO: update client to handle custom CA certificates for local development
+    # or internal deployments with self-signed certificates
     def __init__(self, service_url: str = DEFAULT_SERVICE_URL):
         self._service_url = service_url
 

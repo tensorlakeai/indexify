@@ -9,9 +9,11 @@ use axum::{
     Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
+use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use pyo3::Python;
 use tokio::signal;
+use tokio::sync::Notify;
 use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
@@ -80,6 +82,8 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
+        // TLS is set to true if the "tls" field is present in the config
+        let use_tls = self.config.tls.is_some();
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
         let vector_db = vectordbs::create_vectordb(
             self.config.index_config.clone(),
@@ -184,11 +188,52 @@ impl Server {
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(DefaultBodyLimit::disable());
-        info!("server is listening at addr {}", &self.addr.to_string());
-        axum::Server::bind(&self.addr)
-            .serve(app.into_make_service())
-            .with_graceful_shutdown(shutdown_signal())
-            .await?;
+
+        if use_tls {
+            let tls_config = self.config.tls.clone().expect("TLS config is required")
+                .into_rustlsconfig().await.expect("failed to create TLS config");
+
+            info!("server is listening at addr {} with TLS", self.addr.to_string());
+
+            // Create a handle so that we can gracefully shutdown the server later
+            let handle = Handle::new();
+
+            // Create the server
+            let server = axum_server::bind_rustls(self.addr, tls_config)
+                // TODO: in axum_server 0.6 there is access to the underlying http server builder,
+                // which will allow us to use Hyper's graceful shutdown feature. To upgrade to
+                // axum_server 0.6, we need to upgrade to axum 0.7.
+                // .http_builder()
+                .handle(handle.clone())
+                .serve(app.into_make_service());
+
+            // axum_server does not support a graceful shutdown method, so we need to
+            // implement it ourselves. We do this by listening for a shutdown signal
+            // and then stopping the server.
+            let shutdown_notify = Arc::new(Notify::new());
+
+            // Run the shutdown_signal function in a separate task
+            let notify_clone = shutdown_notify.clone();
+            tokio::spawn(async move {
+                shutdown_signal().await;
+                notify_clone.notify_one();
+            });
+
+            // Start the server, and also listen for the shutdown signal
+            tokio::select! {
+                _ = server => {},
+                _ = shutdown_notify.notified() => {
+                    handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+                }
+            }
+        } else {
+            info!("server is listening at addr {}", &self.addr.to_string());
+            axum::Server::bind(&self.addr)
+                .serve(app.into_make_service())
+                .with_graceful_shutdown(shutdown_signal())
+                .await?;
+        }
+
         Ok(())
     }
 }
