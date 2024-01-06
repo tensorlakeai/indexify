@@ -83,8 +83,9 @@ impl CoordinatorServer {
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(DefaultBodyLimit::disable());
-        axum::Server::bind(&self.addr)
-            .serve(app.into_make_service())
+
+        let listener = tokio::net::TcpListener::bind(&self.addr).await?;
+        axum::serve(listener, app.into_make_service())
             .with_graceful_shutdown(shutdown_signal())
             .await?;
         Ok(())
@@ -101,7 +102,7 @@ async fn root() -> &'static str {
 }
 
 #[tracing::instrument]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn list_executors(
     State(coordinator): State<Arc<Coordinator>>,
 ) -> Result<Json<ListExecutors>, IndexifyAPIError> {
@@ -114,7 +115,7 @@ async fn list_executors(
 
 #[tracing::instrument(level = "debug", skip(coordinator))]
 #[tracing::instrument(skip(coordinator, executor))]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn sync_executor(
     State(coordinator): State<Arc<Coordinator>>,
     Json(executor): Json<SyncExecutor>,
@@ -157,7 +158,7 @@ async fn sync_executor(
 }
 
 #[tracing::instrument]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn get_coordinate(
     State(coordinator): State<Arc<Coordinator>>,
     Json(query): Json<CoordinateRequest>,
@@ -171,7 +172,7 @@ async fn get_coordinate(
     }))
 }
 
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn create_work(
     State(coordinator): State<Arc<Coordinator>>,
     Json(create_work): Json<CreateWork>,

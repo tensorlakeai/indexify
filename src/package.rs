@@ -85,7 +85,8 @@ impl Packager {
             ..Default::default()
         };
 
-        let docker = Docker::connect_with_local_defaults().map_err(|e| anyhow!("unable to connect to docker {}", e))?;
+        let docker = Docker::connect_with_local_defaults()
+            .map_err(|e| anyhow!("unable to connect to docker {}", e))?;
 
         let mut image_build_stream =
             docker.build_image(build_image_options, None, Some(compressed.into()));

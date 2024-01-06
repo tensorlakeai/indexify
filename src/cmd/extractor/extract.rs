@@ -49,8 +49,8 @@ impl Args {
                 .unwrap_err_or_log();
         } else if let Some(extractor_path) = extractor_path {
             python_path::set_python_path(&extractor_path).unwrap();
-            let extractor = PythonExtractor::new_from_extractor_path(&extractor_path)
-            .unwrap_or_log();
+            let extractor =
+                PythonExtractor::new_from_extractor_path(&extractor_path).unwrap_or_log();
             let extractor: ExtractorTS = Arc::new(extractor);
             let py_content = match (text, file) {
                 (Some(text), None) => Ok(Content {

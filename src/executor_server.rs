@@ -1,7 +1,4 @@
-use std::{
-    net::{SocketAddr, TcpListener},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::{
@@ -12,7 +9,6 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use reqwest::StatusCode;
 use tokio::{signal, sync::mpsc};
 use tracing::{error, info};
 
@@ -82,7 +78,7 @@ impl ExecutorServer {
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
         let addr: SocketAddr = self.executor_config.listen_addr_sock()?;
-        let listener = TcpListener::bind(addr)?;
+        let listener = tokio::net::TcpListener::bind(addr).await?;
         let listen_addr = listener.local_addr()?.to_string();
         let listen_port = listener.local_addr()?.port();
         let advertise_addr = format!("{}:{}", self.executor_config.advertise_if, listen_port);
@@ -122,8 +118,7 @@ impl ExecutorServer {
             error!("unable to send heartbeat: {:?}", err.to_string());
         }
         tokio::spawn(heartbeat(tx.clone(), rx, executor.clone()));
-        axum::Server::from_tcp(listener)?
-            .serve(app.into_make_service())
+        axum::serve(listener, app.into_make_service())
             .with_graceful_shutdown(shutdown_signal(tx.clone()))
             .await?;
         Ok(())
@@ -136,7 +131,7 @@ async fn root() -> &'static str {
 }
 
 #[tracing::instrument]
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn extract(
     extractor_executor: State<Arc<ExtractorExecutor>>,
     Json(query): Json<ExtractRequest>,
@@ -150,14 +145,14 @@ async fn extract(
         Err(err) => {
             error!("unable to extract content: {}", err.to_string());
             Err(IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 err.to_string(),
             ))
         }
     }
 }
 
-#[axum_macros::debug_handler]
+#[axum::debug_handler]
 async fn sync_worker(
     extractor_executor: State<Arc<ExtractorExecutor>>,
 ) -> Result<(), IndexifyAPIError> {
