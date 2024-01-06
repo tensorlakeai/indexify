@@ -46,7 +46,7 @@ index_config:
 # For local development, run `make dev-test-tls-insecure` to generate the
 # required certificates and keys.
 tls:
-  api: true
+  api: false
   ca_file: .dev-tls/ca.crt        # Path to the CA certificate
   cert_file: .dev-tls/server.crt  # Path to the server certificate
   key_file: .dev-tls/server.key   # Path to the server private key
