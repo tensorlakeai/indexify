@@ -192,7 +192,7 @@ RUN pip3 install --no-input indexify_extractor_sdk
             },
             (Some(_version), false) => {
                 image_name = "tensorlake/indexify-extractor-base".to_string();
-                additional_pip_flags = "--index-url https://download.pytorch.org/whl/cpu";
+                additional_pip_flags = "--extra-index-url https://download.pytorch.org/whl/cpu";
             },
             (None, _) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
         }
