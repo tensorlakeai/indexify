@@ -1,50 +1,27 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Result};
-use entity::{
-    data_repository::Entity as DataRepositoryEntity,
-    extraction_event::Entity as ExtractionEventEntity,
-    extractors,
-    index::{Entity as IndexEntity, Model as IndexModel},
-    work::Entity as WorkEntity,
-};
-use mime::Mime;
-use nanoid::nanoid;
+use anyhow::Result;
 use sea_orm::{
-    sea_query::{Expr, OnConflict},
-    ActiveModelTrait,
-    ActiveValue::NotSet,
+    sea_query::OnConflict,
     ColumnTrait,
     ConnectOptions,
-    ConnectionTrait,
     Database,
     DatabaseConnection,
-    DbBackend,
-    DbErr,
     EntityTrait,
     QueryFilter,
     QueryTrait,
     Set,
-    Statement,
-    TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::{
-    entity,
-    entity::{index, work},
-    vectordbs::{self, IndexDistance},
-};
+use crate::entity;
 
 #[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
 pub enum PayloadType {
@@ -141,119 +118,13 @@ impl From<entity::attributes_index::Model> for ExtractedAttributes {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Chunk {
-    pub text: String,
-    pub chunk_id: String,
-    pub content_id: String,
-}
-
-impl Chunk {
-    pub fn new(text: String, content_id: String) -> Self {
-        let mut s = DefaultHasher::new();
-        content_id.hash(&mut s);
-        text.hash(&mut s);
-        let chunk_id = format!("{:x}", s.finish());
-        Self {
-            text,
-            chunk_id,
-            content_id,
-        }
-    }
-}
-
-#[derive(
-    Debug, PartialEq, Eq, Serialize, Clone, Deserialize, EnumString, Display, SmartDefault,
-)]
-pub enum WorkState {
-    #[default]
-    Unknown,
-    Pending,
-    InProgress,
-    Completed,
-    Failed,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Work {
-    pub id: String,
-    pub content_id: String,
-    pub repository_id: String,
-    pub extractor: String,
-    pub extractor_binding: String,
-    pub extractor_params: serde_json::Value,
-    pub work_state: WorkState,
-    pub executor_id: Option<String>,
-}
-
-impl Work {
-    pub fn new(
-        content_id: &str,
-        repository: &str,
-        extractor: &str,
-        extractor_binding: &str,
-        extractor_params: &serde_json::Value,
-        worker_id: Option<&str>,
-    ) -> Self {
-        let mut s = DefaultHasher::new();
-        content_id.hash(&mut s);
-        repository.hash(&mut s);
-        extractor.hash(&mut s);
-        extractor_binding.hash(&mut s);
-        let id = format!("{:x}", s.finish());
-
-        Self {
-            id,
-            content_id: content_id.into(),
-            repository_id: repository.into(),
-            extractor: extractor.into(),
-            extractor_binding: extractor_binding.into(),
-            extractor_params: extractor_params.clone(),
-            work_state: WorkState::Pending,
-            executor_id: worker_id.map(|w| w.into()),
-        }
-    }
-}
-
-impl TryFrom<work::Model> for Work {
-    type Error = anyhow::Error;
-
-    fn try_from(model: work::Model) -> Result<Self, anyhow::Error> {
-        Ok(Self {
-            id: model.id,
-            content_id: model.content_id,
-            repository_id: model.repository_id,
-            extractor: model.extractor,
-            extractor_binding: model.extractor_binding,
-            extractor_params: model.extractor_params,
-            work_state: WorkState::from_str(&model.state).unwrap(),
-            executor_id: model.worker_id,
-        })
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum RepositoryError {
-    #[error(transparent)]
-    DatabaseError(#[from] DbErr),
-
-    #[error(transparent)]
-    VectorDb(#[from] vectordbs::VectorDbError),
-
-    #[error("repository `{0}` not found")]
-    RepositoryNotFound(String),
-
-    #[error("content`{0}` not found")]
-    ContentNotFound(String),
-}
-
 #[derive(Debug)]
 pub struct Repository {
     conn: DatabaseConnection,
 }
 
 impl Repository {
-    pub async fn new(db_url: &str) -> Result<Self, RepositoryError> {
+    pub async fn new(db_url: &str) -> Result<Self> {
         let mut opt = ConnectOptions::new(db_url.to_owned());
         opt.sqlx_logging(false); // Disabling SQLx log;
         info!("connecting to db: {}", db_url);
@@ -271,102 +142,12 @@ impl Repository {
     }
 
     #[tracing::instrument]
-    pub async fn create_index_metadata(
-        &self,
-        repository: &str,
-        extractor_name: &str,
-        index_name: &str,
-        storage_index_name: &str,
-        index_schema: serde_json::Value,
-        index_type: &str,
-    ) -> Result<(), RepositoryError> {
-        let index = entity::index::ActiveModel {
-            name: Set(index_name.into()),
-            vector_index_name: Set(Some(storage_index_name.into())),
-            extractor_name: Set(extractor_name.into()),
-            index_type: Set(index_type.into()),
-            index_schema: Set(index_schema),
-            repository_id: Set(repository.into()),
-        };
-        let insert_result = IndexEntity::insert(index)
-            .on_conflict(
-                OnConflict::column(entity::index::Column::Name)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(&self.conn)
-            .await;
-        if let Err(err) = insert_result {
-            if err != DbErr::RecordNotInserted {
-                return Err(RepositoryError::DatabaseError(err));
-            }
-        }
-        Ok(())
-    }
-
-    #[tracing::instrument]
-    pub async fn create_chunks(
-        &self,
-        chunks: Vec<Chunk>,
-        index_name: &str,
-    ) -> Result<(), RepositoryError> {
-        let chunk_models: Vec<entity::chunked_content::ActiveModel> = chunks
-            .iter()
-            .map(|chunk| entity::chunked_content::ActiveModel {
-                chunk_id: Set(chunk.chunk_id.clone()),
-                content_id: Set(chunk.content_id.clone()),
-                text: Set(chunk.text.clone()),
-                index_name: Set(index_name.into()),
-            })
-            .collect();
-        let result = entity::chunked_content::Entity::insert_many(chunk_models)
-            .on_conflict(
-                OnConflict::column(entity::chunked_content::Column::ChunkId)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(&self.conn)
-            .await;
-        if let Err(err) = result {
-            if err != DbErr::RecordNotInserted {
-                return Err(RepositoryError::DatabaseError(err));
-            }
-        }
-        Ok(())
-    }
-
-    #[tracing::instrument]
-    pub async fn chunk_with_id(&self, id: &str) -> Result<ChunkWithMetadata> {
-        let chunk = entity::chunked_content::Entity::find()
-            .filter(entity::chunked_content::Column::ChunkId.eq(id))
-            .one(&self.conn)
-            .await?
-            .ok_or(anyhow!("chunk id: {} not found", id))?;
-        let content = entity::content::Entity::find()
-            .filter(entity::content::Column::Id.eq(&chunk.content_id))
-            .one(&self.conn)
-            .await?
-            .ok_or(RepositoryError::ContentNotFound(
-                chunk.content_id.to_string(),
-            ))?;
-        Ok(ChunkWithMetadata {
-            chunk_id: chunk.chunk_id,
-            content_id: chunk.content_id,
-            text: chunk.text,
-            metadata: content
-                .metadata
-                .map(|s| serde_json::from_value(s).unwrap())
-                .unwrap_or_default(),
-        })
-    }
-
-    #[tracing::instrument]
     pub async fn add_attributes(
         &self,
         repository: &str,
         index_name: &str,
         extracted_attributes: ExtractedAttributes,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<()> {
         let attribute_index_model = entity::attributes_index::ActiveModel {
             id: Set(extracted_attributes.id.clone()),
             repository_id: Set(repository.into()),
@@ -396,7 +177,7 @@ impl Repository {
         repository: &str,
         index: &str,
         content_id: Option<&String>,
-    ) -> Result<Vec<ExtractedAttributes>, RepositoryError> {
+    ) -> Result<Vec<ExtractedAttributes>> {
         let query = entity::attributes_index::Entity::find()
             .filter(entity::attributes_index::Column::RepositoryId.eq(repository))
             .filter(entity::attributes_index::Column::IndexName.eq(index))

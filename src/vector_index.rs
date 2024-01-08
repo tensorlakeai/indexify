@@ -1,9 +1,6 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use serde_json::json;
-use tonic::client::Grpc;
-use tracing::error;
 
 use crate::{
     api::{self},
@@ -13,7 +10,6 @@ use crate::{
     index::IndexError,
     indexify_coordinator::{self, CreateIndexRequest, Index},
     internal_api::EmbeddingSchema,
-    persistence::Chunk,
     service_client::CoordinatorClient,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };

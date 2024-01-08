@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use axum::{
@@ -9,7 +9,7 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use tokio::{signal, sync::mpsc};
+use tokio::{signal, sync::watch, time::interval};
 use tracing::{error, info};
 
 use crate::{
@@ -19,43 +19,6 @@ use crate::{
     internal_api::{ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
 };
-
-enum TickerMessage {
-    Shutdown,
-    Heartbeat,
-}
-
-async fn heartbeat(
-    tx: mpsc::Sender<TickerMessage>,
-    mut rx: mpsc::Receiver<TickerMessage>,
-    executor: Arc<ExtractorExecutor>,
-) -> Result<()> {
-    info!("starting executor heartbeat");
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-    loop {
-        let message = rx.recv().await;
-        match message {
-            Some(TickerMessage::Shutdown) => {
-                info!("received shutdown signal");
-                break;
-            }
-            Some(TickerMessage::Heartbeat) => {
-                if let Err(err) = executor.heartbeat().await {
-                    error!("unable to sync repo: {}", err.to_string());
-                }
-                interval.tick().await;
-                if let Err(err) = tx.try_send(TickerMessage::Heartbeat) {
-                    error!("unable to send heartbeat: {:?}", err.to_string());
-                }
-            }
-            None => {
-                info!("ticker channel closed");
-                break;
-            }
-        }
-    }
-    Ok(())
-}
 
 pub struct ExecutorServer {
     executor_config: Arc<ExecutorConfig>,
@@ -113,13 +76,29 @@ impl ExecutorServer {
             listen_addr,
             advertise_addr.clone()
         );
-        let (tx, rx) = mpsc::channel(32);
-        if let Err(err) = tx.send(TickerMessage::Heartbeat).await {
-            error!("unable to send heartbeat: {:?}", err.to_string());
-        }
-        tokio::spawn(heartbeat(tx.clone(), rx, executor.clone()));
+        let (tx, rx) = watch::channel::<()>(());
+        tokio::spawn(async move {
+            let mut rx = rx.clone();
+            let mut int = interval(Duration::from_secs(5));
+            int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = rx.changed() => {
+                        info!("shutting down executor server");
+                        break;
+                    },
+                    _ = int.tick() => {
+                        info!("executor server is running");
+                        int.tick().await;
+                    }
+                };
+            }
+        });
         axum::serve(listener, app.into_make_service())
-            .with_graceful_shutdown(shutdown_signal(tx.clone()))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_signal().await;
+                tx.send(()).unwrap()
+            })
             .await?;
         Ok(())
     }
@@ -163,8 +142,7 @@ async fn sync_worker(
     Ok(())
 }
 
-#[tracing::instrument(skip(tx))]
-async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
+async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -184,10 +162,8 @@ async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
 
     tokio::select! {
         _ = ctrl_c => {
-            let _ = tx.try_send(TickerMessage::Shutdown);
         },
         _ = terminate => {
-            let _ = tx.try_send(TickerMessage::Shutdown);
         },
     }
     info!("signal received, shutting down server gracefully");

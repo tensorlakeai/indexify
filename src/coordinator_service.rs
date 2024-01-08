@@ -44,18 +44,14 @@ use crate::{
         RegisterExecutorRequest,
         RegisterExecutorResponse,
     },
-    internal_api::{self, Content},
+    internal_api,
     persistence::Repository,
     server_config::ServerConfig,
-    service_client::CoordinatorClient,
     state,
-    vector_index::VectorIndexManager,
-    vectordbs,
 };
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
-    shared_state: Arc<state::App>,
 }
 
 #[tonic::async_trait]
@@ -305,7 +301,6 @@ impl CoordinatorServer {
     pub async fn run(&self) -> Result<(), anyhow::Error> {
         let svc = CoordinatorServiceServer {
             coordinator: self.coordinator.clone(),
-            shared_state: self.shared_state.clone(),
         };
         let srvr =
             indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);

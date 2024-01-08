@@ -23,7 +23,7 @@ use crate::{
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
-    persistence::{ExtractedAttributes, Repository, RepositoryError},
+    persistence::{ExtractedAttributes, Repository},
     server_config::ServerConfig,
     service_client::CoordinatorClient,
     vector_index::{ScoredText, VectorIndexManager},
@@ -50,7 +50,7 @@ impl DataRepositoryManager {
         attribute_index_manager: Arc<AttributeIndexManager>,
         blob_storage: BlobStorageTS,
         coordinator_client: Arc<CoordinatorClient>,
-    ) -> Result<Self, RepositoryError> {
+    ) -> Result<Self> {
         Ok(Self {
             repository,
             vector_index_manager,

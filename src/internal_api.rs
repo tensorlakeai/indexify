@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    hash::{Hash, Hasher},
-    str::FromStr,
-};
+use std::{collections::HashMap, hash::Hasher, str::FromStr};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -10,21 +6,12 @@ use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 
-use crate::{
-    api,
-    indexify_coordinator,
-    persistence::{self},
-};
+use crate::{api, indexify_coordinator};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingSchema {
     pub dim: usize,
     pub distance: String,
-}
-
-pub struct Index {
-    pub name: String,
-    pub schema: OutputSchema,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,18 +138,6 @@ pub enum TaskState {
     InProgress,
     Completed,
     Failed,
-}
-
-impl From<TaskState> for persistence::WorkState {
-    fn from(work_state: TaskState) -> Self {
-        match work_state {
-            TaskState::Unknown => persistence::WorkState::Unknown,
-            TaskState::Pending => persistence::WorkState::Pending,
-            TaskState::InProgress => persistence::WorkState::InProgress,
-            TaskState::Completed => persistence::WorkState::Completed,
-            TaskState::Failed => persistence::WorkState::Failed,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
