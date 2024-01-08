@@ -139,13 +139,12 @@ impl DataRepositoryManager {
             .get()
             .await?
             .get_repository(req)
-            .await?;
-        let repository = respsonse.into_inner().repository.unwrap();
-        let data_repository = api::DataRepository {
-            name: repository.name,
-            extractor_bindings: Vec::new(),
-        };
-        Ok(data_repository)
+            .await?
+            .into_inner();
+        let repository = respsonse
+            .repository
+            .ok_or(anyhow!("repository not found"))?;
+        repository.try_into()
     }
 
     pub async fn add_extractor_binding(

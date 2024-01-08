@@ -47,6 +47,30 @@ pub struct DataRepository {
     pub extractor_bindings: Vec<ExtractorBinding>,
 }
 
+impl TryFrom<indexify_coordinator::Repository> for DataRepository {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::Repository) -> Result<Self> {
+        let mut extractor_bindings = Vec::new();
+        for binding in value.bindings {
+            extractor_bindings.push(ExtractorBinding {
+                extractor: binding.extractor,
+                name: binding.name,
+                filters: binding
+                    .filters
+                    .into_iter()
+                    .map(|(k, v)| (k, serde_json::from_str(&v).unwrap()))
+                    .collect(),
+                input_params: Some(serde_json::from_str(&binding.input_params)?),
+            });
+        }
+        Ok(Self {
+            name: value.name,
+            extractor_bindings,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct CreateRepository {
     pub name: String,
