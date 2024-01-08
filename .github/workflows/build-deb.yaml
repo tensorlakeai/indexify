@@ -25,7 +25,6 @@ jobs:
         run: cargo install cargo-deb
       - name: Build and Package
         run: cargo deb
-      - uses: actions/checkout@v2
       - name: install reprepro
         run: sudo apt-get update && sudo apt-get install -y reprepro
       - name: Run reprepro
