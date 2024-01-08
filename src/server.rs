@@ -26,7 +26,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
     extractor_router::ExtractorRouter,
-    internal_api::{CreateWork, CreateWorkResponse},
     persistence::Repository,
     server_config::ServerConfig,
     vector_index::VectorIndexManager,
@@ -196,6 +195,10 @@ impl Server {
             .route(
                 "/executors",
                 get(list_executors).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/write_content",
+                post(write_extracted_content).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
@@ -437,23 +440,17 @@ async fn upload_file(
     Ok(())
 }
 
-async fn schedule_extraction(
-    repository: &str,
-    coordinator_addr: &str,
-) -> Result<(), anyhow::Error> {
-    let req = CreateWork {
-        repository_name: repository.into(),
-        content: None,
-    };
-    let _resp = reqwest::Client::new()
-        .post(&format!("http://{}/create_work", coordinator_addr,))
-        .json(&req)
-        .send()
+#[axum::debug_handler]
+async fn write_extracted_content(
+    State(state): State<RepositoryEndpointState>,
+    Json(payload): Json<WriteExtractedContent>,
+) -> Result<Json<()>, IndexifyAPIError> {
+    let _ = state
+        .repository_manager
+        .write_extracted_content(payload)
         .await
-        .map_err(|e| anyhow::anyhow!("failed to send create work request: {}", e))?
-        .json::<CreateWorkResponse>()
-        .await?;
-    Ok(())
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(()))
 }
 
 #[tracing::instrument]
