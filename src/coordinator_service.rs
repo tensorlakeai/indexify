@@ -291,29 +291,9 @@ impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let repository = Arc::new(Repository::new(&config.db_url).await?);
-        let vector_db = vectordbs::create_vectordb(
-            config.index_config.clone(),
-            repository.get_db_conn_clone(),
-        )?;
-        let coodinator_client = Arc::new(
-            CoordinatorClient::new(config.coordinator_lis_addr_sock().unwrap().to_string()).await?,
-        );
-        let vector_index_manager = Arc::new(VectorIndexManager::new(
-            coodinator_client.clone(),
-            vector_db,
-        ));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(
-            repository.clone(),
-            coodinator_client.clone(),
-        ));
         let shared_state = state::App::new(config.clone()).await?;
 
-        let coordinator = Coordinator::new(
-            repository,
-            vector_index_manager,
-            attribute_index_manager,
-            shared_state.clone(),
-        );
+        let coordinator = Coordinator::new(repository, shared_state.clone());
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,

@@ -8,7 +8,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use axum_server::bind;
 use itertools::Itertools;
 use network::Network;
 use openraft::{self, storage::Adaptor, BasicNode};

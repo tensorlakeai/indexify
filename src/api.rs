@@ -16,6 +16,7 @@ use crate::{indexify_coordinator, persistence, vectordbs};
 pub struct ExtractorBinding {
     pub extractor: String,
     pub name: String,
+    #[serde(default)]
     pub filters: HashMap<String, serde_json::Value>,
     pub input_params: Option<serde_json::Value>,
 }
@@ -34,7 +35,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
             input_params: value
                 .input_params
                 .map(|v| v.to_string())
-                .unwrap_or_default(),
+                .unwrap_or("{}".to_string()),
         }
     }
 }

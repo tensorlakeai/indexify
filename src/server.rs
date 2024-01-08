@@ -13,7 +13,7 @@ use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use pyo3::Python;
 use tokio::{signal, sync::Notify};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};

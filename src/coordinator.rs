@@ -6,15 +6,12 @@ use std::{
 
 use anyhow::{anyhow, Ok, Result};
 use jsonschema::JSONSchema;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
-    attribute_index::AttributeIndexManager,
-    extractor::ExtractedEmbeddings,
     indexify_coordinator,
     internal_api::{
         self,
-        Content,
         ContentMetadata,
         ExecutorMetadata,
         ExtractionEventPayload,
@@ -22,36 +19,20 @@ use crate::{
         ExtractorDescription,
         Task,
     },
-    persistence::{self, ExtractedAttributes, Repository},
+    persistence::Repository,
     state::SharedState,
-    vector_index::VectorIndexManager,
 };
 
 pub struct Coordinator {
-    // Extractor Name -> [Executor ID]
-    extractors_table: Arc<RwLock<HashMap<String, Vec<String>>>>,
-
     repository: Arc<Repository>,
-
-    vector_index_manager: Arc<VectorIndexManager>,
-
-    attribute_index_manager: Arc<AttributeIndexManager>,
 
     shared_state: SharedState,
 }
 
 impl Coordinator {
-    pub fn new(
-        repository: Arc<Repository>,
-        vector_index_manager: Arc<VectorIndexManager>,
-        attribute_index_manager: Arc<AttributeIndexManager>,
-        shared_state: SharedState,
-    ) -> Arc<Self> {
+    pub fn new(repository: Arc<Repository>, shared_state: SharedState) -> Arc<Self> {
         let coordinator = Arc::new(Self {
-            extractors_table: Arc::new(RwLock::new(HashMap::new())),
             repository,
-            vector_index_manager,
-            attribute_index_manager,
             shared_state,
         });
         coordinator
@@ -106,15 +87,14 @@ impl Coordinator {
         // work_id -> executor_id
         let mut task_assignments = HashMap::new();
         for task in unallocated_tasks {
-            let extractor_table = self.extractors_table.read().unwrap();
-            let executors = extractor_table.get(&task.extractor).ok_or(anyhow::anyhow!(
-                "no executors for extractor: {}",
-                task.extractor
-            ))?;
+            let executors = self
+                .shared_state
+                .get_executors_for_extractor(&task.extractor)
+                .await?;
             let rand_index = rand::random::<usize>() % executors.len();
             if !executors.is_empty() {
-                let executor_id = executors[rand_index].clone();
-                task_assignments.insert(task.id.clone(), executor_id);
+                let executor_meta = executors[rand_index].clone();
+                task_assignments.insert(task.id.clone(), executor_meta.id.clone());
             }
         }
         info!("finishing work assignment: {:}", task_assignments.len());
@@ -254,27 +234,31 @@ impl Coordinator {
         &self,
         req: indexify_coordinator::CreateContentRequest,
     ) -> Result<String> {
+        let content = req.content.ok_or(anyhow!("no content provided"))?;
         let mut s = DefaultHasher::new();
-        req.content.clone().unwrap().repository.hash(&mut s);
-        req.content.clone().unwrap().file_name.hash(&mut s);
+        content.repository.hash(&mut s);
+        content.file_name.hash(&mut s);
         let id = format!("{:x}", s.finish());
-        let metadata = HashMap::new();
-        if let Some(content) = req.content {
-            let content_metadata = internal_api::ContentMetadata {
-                id: id.clone(),
-                content_type: content.mime.clone(),
-                created_at: content.created_at,
-                storage_url: content.storage_url.clone(),
-                parent_id: "".to_string(),
-                repository: content.repository.clone(),
-                name: content.file_name.clone(),
-                metadata,
-            };
-            let _ = self
-                .shared_state
-                .create_content(&id, content_metadata)
-                .await?;
+        let mut metadata = HashMap::new();
+        for (name, value) in content.labels.iter() {
+            let v: serde_json::Value =
+                serde_json::from_str(value).map_err(|e| anyhow!("unable to parse label: {}", e))?;
+            metadata.insert(name.clone(), v);
         }
+        let content_metadata = internal_api::ContentMetadata {
+            id: id.clone(),
+            content_type: content.mime.clone(),
+            created_at: content.created_at,
+            storage_url: content.storage_url.clone(),
+            parent_id: "".to_string(),
+            repository: content.repository.clone(),
+            name: content.file_name.clone(),
+            metadata,
+        };
+        let _ = self
+            .shared_state
+            .create_content(&id, content_metadata)
+            .await?;
         Ok(id)
     }
 
