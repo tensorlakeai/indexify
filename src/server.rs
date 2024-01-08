@@ -23,12 +23,12 @@ use crate::{
     api::{self, *},
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageBuilder,
+    coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
     extractor_router::ExtractorRouter,
     internal_api::{CreateWork, CreateWorkResponse},
     persistence::Repository,
     server_config::ServerConfig,
-    service_client::{self, CoordinatorClient},
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -114,9 +114,7 @@ impl Server {
             self.config.index_config.clone(),
             repository.get_db_conn_clone(),
         )?;
-        let coordinator_client = Arc::new(
-            service_client::CoordinatorClient::new(self.config.coordinator_addr.clone()).await?,
-        );
+        let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             coordinator_client.clone(),
             vector_db.clone(),
@@ -131,7 +129,6 @@ impl Server {
 
         let repository_manager = Arc::new(
             DataRepositoryManager::new(
-                repository.clone(),
                 vector_index_manager,
                 attribute_index_manager,
                 blob_storage.clone(),

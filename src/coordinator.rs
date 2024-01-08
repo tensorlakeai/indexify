@@ -210,7 +210,7 @@ impl Coordinator {
                     let index_name = format!("{}-{}", binding.name, name);
                     indexes.push(index_name);
                 }
-                internal_api::OutputSchema::Feature(schema) => {
+                internal_api::OutputSchema::Attributes(schema) => {
                     let index_name = format!("{}-{}", binding.name, name);
                     indexes.push(index_name);
                 }

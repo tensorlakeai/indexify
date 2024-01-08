@@ -1,6 +1,7 @@
 use std::{collections::HashMap, hash::Hasher, str::FromStr};
 
 use anyhow::Result;
+use sea_orm::schema;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
@@ -16,8 +17,10 @@ pub struct EmbeddingSchema {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OutputSchema {
+    #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
-    Feature(serde_json::Value),
+    #[serde(rename = "attributes")]
+    Attributes(serde_json::Value),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,20 +75,20 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
 impl From<api::ExtractorDescription> for ExtractorDescription {
     fn from(extractor: api::ExtractorDescription) -> ExtractorDescription {
         let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in extractor.schemas.outputs {
+        for (output_name, embedding_schema) in extractor.outputs {
             match embedding_schema {
-                api::ExtractorOutputSchema::Embedding { dim, distance } => {
-                    let distance_metric = distance.to_string();
+                api::ExtractorOutputSchema::Embedding(embedding_schema) => {
+                    let distance_metric = embedding_schema.distance.to_string();
                     output_schema.insert(
                         output_name,
                         OutputSchema::Embedding(EmbeddingSchema {
-                            dim,
+                            dim: embedding_schema.dim,
                             distance: distance_metric,
                         }),
                     );
                 }
-                api::ExtractorOutputSchema::Attributes { schema } => {
-                    output_schema.insert(output_name, OutputSchema::Feature(schema));
+                api::ExtractorOutputSchema::Attributes(schema) => {
+                    output_schema.insert(output_name, OutputSchema::Attributes(schema));
                 }
             }
         }

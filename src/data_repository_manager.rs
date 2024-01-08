@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::hash_map::DefaultHasher,
     fmt,
     hash::{Hash, Hasher},
     sync::Arc,
@@ -8,29 +8,24 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use mime::Mime;
 use sea_orm::DbConn;
-use tonic::IntoRequest;
 use tracing::info;
-use tracing_core::span::Current;
-use utoipa::openapi::Content;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 use crate::{
-    api,
+    api::{self, EmbeddingSchema},
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageTS,
+    coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
     persistence::{ExtractedAttributes, Repository},
     server_config::ServerConfig,
-    service_client::CoordinatorClient,
     vector_index::{ScoredText, VectorIndexManager},
 };
 
 pub struct DataRepositoryManager {
-    repository: Arc<Repository>,
     vector_index_manager: Arc<VectorIndexManager>,
     attribute_index_manager: Arc<AttributeIndexManager>,
     blob_storage: BlobStorageTS,
@@ -45,14 +40,12 @@ impl fmt::Debug for DataRepositoryManager {
 
 impl DataRepositoryManager {
     pub async fn new(
-        repository: Arc<Repository>,
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<AttributeIndexManager>,
         blob_storage: BlobStorageTS,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
         Ok(Self {
-            repository,
             vector_index_manager,
             attribute_index_manager,
             blob_storage,
@@ -73,7 +66,6 @@ impl DataRepositoryManager {
             coordinator_client.clone(),
         ));
         Self {
-            repository,
             vector_index_manager,
             attribute_index_manager,
             blob_storage,
@@ -86,6 +78,7 @@ impl DataRepositoryManager {
         let _ = self
             .coordinator_client
             .get()
+            .await?
             .create_repository(indexify_coordinator::CreateRepositoryRequest {
                 name: DEFAULT_REPOSITORY_NAME.into(),
                 bindings: Vec::new(),
@@ -97,7 +90,12 @@ impl DataRepositoryManager {
     #[tracing::instrument]
     pub async fn list_repositories(&self) -> Result<Vec<api::DataRepository>> {
         let req = indexify_coordinator::ListRepositoriesRequest {};
-        let response = self.coordinator_client.get().list_repositories(req).await?;
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .list_repositories(req)
+            .await?;
         let repositories = response.into_inner().repositories;
         let data_respoistories = repositories
             .into_iter()
@@ -125,6 +123,7 @@ impl DataRepositoryManager {
         let _resp = self
             .coordinator_client
             .get()
+            .await?
             .create_repository(request)
             .await?;
         Ok(())
@@ -135,7 +134,12 @@ impl DataRepositoryManager {
         let req = indexify_coordinator::GetRepositoryRequest {
             name: name.to_string(),
         };
-        let respsonse = self.coordinator_client.get().get_repository(req).await?;
+        let respsonse = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_repository(req)
+            .await?;
         let repository = respsonse.into_inner().repository.unwrap();
         let data_repository = api::DataRepository {
             name: repository.name,
@@ -160,7 +164,12 @@ impl DataRepositoryManager {
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs() as i64,
         };
-        let response = self.coordinator_client.get().create_binding(req).await?;
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .create_binding(req)
+            .await?;
         Ok(response.into_inner().index_names.clone())
     }
 
@@ -168,7 +177,12 @@ impl DataRepositoryManager {
         let req = indexify_coordinator::ListContentRequest {
             repository: repository.to_string(),
         };
-        let response = self.coordinator_client.get().list_content(req).await?;
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .list_content(req)
+            .await?;
         let content_list = response.into_inner().content_list;
         let mut content = Vec::new();
         for c in content_list {
@@ -231,6 +245,7 @@ impl DataRepositoryManager {
 
             self.coordinator_client
                 .get()
+                .await?
                 .create_content(GrpcHelper::into_req(req))
                 .await
                 .map_err(|e| {
@@ -291,17 +306,22 @@ impl DataRepositoryManager {
         let req = ListIndexesRequest {
             repository: repository.to_string(),
         };
-        let resp = self.coordinator_client.get().list_indexes(req).await?;
+        let resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .list_indexes(req)
+            .await?;
         let indexes = resp
             .into_inner()
             .indexes
             .into_iter()
             .map(|i| api::Index {
                 name: i.name,
-                schema: api::ExtractorOutputSchema::Embedding {
+                schema: api::ExtractorOutputSchema::Embedding(EmbeddingSchema {
                     dim: 384,
                     distance: api::IndexDistance::Cosine,
-                },
+                }),
             })
             .collect();
         Ok(indexes)
@@ -334,8 +354,21 @@ impl DataRepositoryManager {
 
     #[tracing::instrument]
     pub async fn list_extractors(&self) -> Result<Vec<api::ExtractorDescription>> {
-        //let req = indexify_coordinator::ListEx
-        Ok(Vec::new())
+        let req = indexify_coordinator::ListExtractorsRequest {};
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .list_extractors(req)
+            .await?
+            .into_inner();
+
+        let extractors = response
+            .extractors
+            .into_iter()
+            .map(|e| e.try_into())
+            .collect::<Result<Vec<api::ExtractorDescription>>>()?;
+        Ok(extractors)
     }
 
     #[tracing::instrument]

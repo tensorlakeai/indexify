@@ -1,4 +1,8 @@
-use std::{fmt, sync::Arc, time::SystemTime};
+use std::{
+    fmt,
+    sync::{atomic::AtomicBool, Arc},
+    time::SystemTime,
+};
 
 use anyhow::{anyhow, Ok, Result};
 use nanoid::nanoid;
@@ -7,7 +11,9 @@ use tracing::{error, info};
 
 use crate::{
     content_reader::ContentReader,
+    coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
+    indexify_coordinator::{self, RegisterExecutorRequest},
     internal_api::{self, Content, ExecutorInfo, ExtractorDescription, TaskResult, TaskState},
     persistence::Repository,
     server_config::ExecutorConfig,
@@ -30,6 +36,7 @@ pub struct ExtractorExecutor {
     listen_addr: String,
 
     work_store: TaskStore,
+    requires_registration: AtomicBool,
 }
 
 impl fmt::Debug for ExtractorExecutor {
@@ -57,6 +64,7 @@ impl ExtractorExecutor {
             extractor_description,
             listen_addr,
             work_store: TaskStore::new(),
+            requires_registration: AtomicBool::new(true),
         };
         Ok(extractor_executor)
     }
@@ -76,6 +84,7 @@ impl ExtractorExecutor {
             extractor_description,
             listen_addr: "127.0.0.0:9000".to_string(),
             work_store: TaskStore::new(),
+            requires_registration: AtomicBool::new(true),
         })
     }
 
@@ -132,7 +141,29 @@ impl ExtractorExecutor {
         Ok(())
     }
 
-    pub async fn heartbeat(&self) -> Result<()> {
+    pub async fn heartbeat(&self, coordinator_client: Arc<CoordinatorClient>) -> Result<()> {
+        if self
+            .requires_registration
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            let req = RegisterExecutorRequest {
+                executor_id: self.executor_id.clone(),
+                addr: self.listen_addr.clone(),
+                extractor: Some(self.extractor_description.clone().into()),
+            };
+            let _ = coordinator_client
+                .get()
+                .await?
+                .register_executor(req)
+                .await?;
+            self.requires_registration
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            return Ok(());
+        }
+        let req = indexify_coordinator::HeartbeatRequest {
+            executor_id: self.executor_id.clone(),
+        };
+        let _ = coordinator_client.get().await?.heartbeat(req).await?;
         Ok(())
     }
 

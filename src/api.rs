@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -133,17 +134,18 @@ pub struct TextAddRequest {
 pub struct RunExtractorsResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmbeddingSchema {
+    pub dim: usize,
+    pub distance: IndexDistance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display, ToSchema)]
 #[serde(untagged)]
 pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
-    Embedding { dim: usize, distance: IndexDistance },
+    Embedding(EmbeddingSchema),
     #[serde(rename = "attributes")]
-    Attributes { schema: serde_json::Value },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractorSchema {
-    pub outputs: HashMap<String, ExtractorOutputSchema>,
+    Attributes(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -151,7 +153,41 @@ pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
     pub input_params: serde_json::Value,
-    pub schemas: ExtractorSchema,
+    pub outputs: HashMap<String, ExtractorOutputSchema>,
+}
+
+impl From<ExtractorDescription> for indexify_coordinator::Extractor {
+    fn from(value: ExtractorDescription) -> Self {
+        let outputs = value
+            .outputs
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect();
+        Self {
+            name: value.name,
+            description: value.description,
+            input_params: value.input_params.to_string(),
+            outputs,
+        }
+    }
+}
+
+impl TryFrom<indexify_coordinator::Extractor> for ExtractorDescription {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::Extractor) -> Result<Self> {
+        let mut outputs = HashMap::new();
+        for (k, v) in value.outputs.iter() {
+            let v: ExtractorOutputSchema = serde_json::from_str(&v)?;
+            outputs.insert(k.clone(), v);
+        }
+        Ok(Self {
+            name: value.name,
+            description: value.description,
+            input_params: serde_json::from_str(&value.input_params).unwrap(),
+            outputs,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

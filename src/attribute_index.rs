@@ -3,11 +3,11 @@ use std::{fmt, sync::Arc};
 use anyhow::Result;
 
 use crate::{
+    coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{CreateIndexRequest, Index},
     internal_api::ExtractorDescription,
     persistence::{ExtractedAttributes, Repository},
-    service_client::CoordinatorClient,
 };
 
 pub struct AttributeIndexManager {
@@ -47,7 +47,12 @@ impl AttributeIndexManager {
             }),
         };
         let req = GrpcHelper::into_req(index);
-        let _resp = self.coordinator_client.get().create_index(req).await?;
+        let _resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .create_index(req)
+            .await?;
         Ok(index_name.to_string())
     }
 

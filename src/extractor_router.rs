@@ -4,8 +4,8 @@ use anyhow::{anyhow, Result};
 
 use crate::{
     api::Content,
+    coordinator_client::CoordinatorClient,
     internal_api::{self, CoordinateResponse, ExtractResponse},
-    service_client::CoordinatorClient,
 };
 
 pub struct ExtractorRouter {

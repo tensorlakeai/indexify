@@ -14,6 +14,7 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
+    coordinator_client::{self, CoordinatorClient},
     executor::ExtractorExecutor,
     extractor::{extractor_runner, py_extractors, python_path},
     internal_api::{ExtractRequest, ExtractResponse},
@@ -23,6 +24,13 @@ use crate::{
 pub struct ExecutorServer {
     executor_config: Arc<ExecutorConfig>,
     extractor_config_path: String,
+    coordinator_client: Arc<CoordinatorClient>,
+}
+
+#[derive(Debug)]
+pub struct ApiEndpointState {
+    executor: Arc<ExtractorExecutor>,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl ExecutorServer {
@@ -32,10 +40,13 @@ impl ExecutorServer {
     ) -> Result<Self> {
         // Set Python Path
         python_path::set_python_path(extractor_config_path)?;
+        let coordinator_client =
+            Arc::new(CoordinatorClient::new(&executor_config.coordinator_addr));
 
         Ok(Self {
             executor_config,
             extractor_config_path: extractor_config_path.into(),
+            coordinator_client,
         })
     }
 
@@ -58,15 +69,19 @@ impl ExecutorServer {
             )
             .await?,
         );
+        let endpoint_state = Arc::new(ApiEndpointState {
+            executor: executor.clone(),
+            coordinator_client: self.coordinator_client.clone(),
+        });
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())
             .route("/", get(root))
             .route(
                 "/sync_executor",
-                post(sync_worker).with_state(executor.clone()),
+                post(sync_worker).with_state(endpoint_state.clone()),
             )
-            .route("/extract", post(extract).with_state(executor.clone()))
+            .route("/extract", post(extract).with_state(endpoint_state.clone()))
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
             .layer(metrics);
@@ -77,6 +92,7 @@ impl ExecutorServer {
             advertise_addr.clone()
         );
         let (tx, rx) = watch::channel::<()>(());
+        let coordinator_client = self.coordinator_client.clone();
         tokio::spawn(async move {
             let mut rx = rx.clone();
             let mut int = interval(Duration::from_secs(5));
@@ -90,6 +106,9 @@ impl ExecutorServer {
                     _ = int.tick() => {
                         info!("executor server is running");
                         int.tick().await;
+                        if let Err(err) = executor.heartbeat(coordinator_client.clone()).await {
+                            error!("unable to heartbeat: {}", err.to_string());
+                        }
                     }
                 };
             }
@@ -112,10 +131,11 @@ async fn root() -> &'static str {
 #[tracing::instrument]
 #[axum::debug_handler]
 async fn extract(
-    extractor_executor: State<Arc<ExtractorExecutor>>,
+    endpoint_state: State<Arc<ApiEndpointState>>,
     Json(query): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let content = extractor_executor
+    let content = endpoint_state
+        .executor
         .extract(query.content, query.input_params)
         .await;
 
@@ -132,13 +152,14 @@ async fn extract(
 }
 
 #[axum::debug_handler]
-async fn sync_worker(
-    extractor_executor: State<Arc<ExtractorExecutor>>,
-) -> Result<(), IndexifyAPIError> {
-    let extractor_executor = extractor_executor;
-    tokio::spawn(async move {
-        let _ = extractor_executor.heartbeat().await;
-    });
+async fn sync_worker(endpoint_state: State<Arc<ApiEndpointState>>) -> Result<(), IndexifyAPIError> {
+    let _ = endpoint_state
+        .executor
+        .heartbeat(endpoint_state.coordinator_client.clone())
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
     Ok(())
 }
 

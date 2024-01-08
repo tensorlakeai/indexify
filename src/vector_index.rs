@@ -4,13 +4,13 @@ use anyhow::{anyhow, Result};
 
 use crate::{
     api::{self},
+    coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
     grpc_helper::GrpcHelper,
     index::IndexError,
     indexify_coordinator::{self, CreateIndexRequest, Index},
     internal_api::EmbeddingSchema,
-    service_client::CoordinatorClient,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
 
@@ -68,7 +68,12 @@ impl VectorIndexManager {
             }),
         };
         let req = GrpcHelper::into_req(index);
-        let _resp = self.coordinator_client.get().create_index(req).await?;
+        let _resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .create_index(req)
+            .await?;
 
         Ok(vector_index_name.to_string())
     }
@@ -104,6 +109,7 @@ impl VectorIndexManager {
         let index = self
             .coordinator_client
             .get()
+            .await?
             .get_index(req)
             .await?
             .into_inner()
