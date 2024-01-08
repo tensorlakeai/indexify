@@ -26,6 +26,7 @@ jobs:
       - name: Build and Package
         run: cargo deb
   reprepro:
+    needs: debbuild
     runs-on: ubuntu-latest
     name: update-repo
     steps:
