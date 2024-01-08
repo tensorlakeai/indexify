@@ -372,7 +372,7 @@ RUN apt-get update -y && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
-RUN pip3 install --no-input --index-url https://download.pytorch.org/whl/cpu numpy pandas torch
+RUN pip3 install --no-input --extra-index-url https://download.pytorch.org/whl/cpu numpy pandas torch
 
 COPY . /indexify/
 
@@ -415,7 +415,7 @@ RUN apt-get update -y && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
-RUN pip3 install --no-input --index-url https://download.pytorch.org/whl/cpu numpy pandas torch==2.1.2
+RUN pip3 install --no-input --extra-index-url https://download.pytorch.org/whl/cpu numpy pandas torch==2.1.2
 
 COPY . /indexify/
 
