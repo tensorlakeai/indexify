@@ -168,3 +168,4 @@ priority = "optional"
 assets = [
     ["target/release/indexify", "/usr/local/bin/indexify", "755"],
 ]
+depends = "$auto"
