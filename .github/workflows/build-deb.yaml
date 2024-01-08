@@ -1,6 +1,6 @@
 name: Indexify Deb Build
 
-on: pull_request
+on: workflow_dispatch
 
 env:
   CARGO_TERM_COLOR: always
@@ -8,7 +8,7 @@ env:
 jobs:
   debbuild:
     runs-on: ubuntu-latest
-    name: Build Deb
+    name: Build Deb And Push r2 Repo
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust
