@@ -50,8 +50,8 @@ index_config:
 # If relative path is specified, it is relative to the project root directory
 # You should replace the values with your own values
 tls:
-  api: false
-  # ca_file: .dev-tls/ca.crt        # Path to the CA certificate; TODO: support custom CA in client
+  api: true
+  ca_file: .dev-tls/ca.crt        # Path to the CA certificate; TODO: support custom CA in client
   cert_file: .dev-tls/server.crt  # Path to the server certificate
   key_file: .dev-tls/server.key   # Path to the server private key
 
