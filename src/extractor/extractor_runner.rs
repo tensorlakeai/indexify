@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use anyhow::{anyhow, Ok, Result};
 
@@ -32,13 +32,14 @@ impl ExtractorRunner {
 
     pub fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<Content>> {
         let content = Content {
-            source: data,
-            content_type: mime.to_string(),
+            bytes: data,
+            mime: mime.to_string(),
             feature: None,
+            metadata: HashMap::new(),
         };
         let extracted_content = self.extract(vec![content], serde_json::Value::Null)?;
         let extracted_content = extracted_content
-            .get(0)
+            .first()
             .ok_or_else(|| anyhow!("Expected one content item, got none"))?;
         Ok(extracted_content.to_owned())
     }
@@ -48,17 +49,17 @@ impl ExtractorRunner {
             .extractor
             .schemas()
             .map_err(|e| anyhow!("Failed to get extractor schema: {}", e))?;
-        let schemas = extractor_schema
+        let outputs = extractor_schema
             .embedding_schemas
             .into_iter()
             .map(|(name, schema)| {
                 let distance = IndexDistance::from_str(&schema.distance_metric).unwrap();
                 (
                     name,
-                    api::ExtractorOutputSchema::Embedding {
+                    api::ExtractorOutputSchema::Embedding(api::EmbeddingSchema {
                         dim: schema.dim,
                         distance,
-                    },
+                    }),
                 )
             })
             .collect();
@@ -66,7 +67,7 @@ impl ExtractorRunner {
             name: self.config.name.clone(),
             description: self.config.description.clone(),
             input_params: extractor_schema.input_params,
-            schemas: api::ExtractorSchema { outputs: schemas },
+            outputs,
         };
         Ok(extractor_description)
     }

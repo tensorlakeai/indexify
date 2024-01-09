@@ -1,19 +1,21 @@
+use std::{collections::HashMap, sync::Arc};
+
 use anyhow::{anyhow, Result};
 
 use crate::{
     api::Content,
-    internal_api::{self, CoordinateResponse, ExtractResponse},
+    coordinator_client::CoordinatorClient,
+    indexify_coordinator::GetExtractorCoordinatesRequest,
+    internal_api::{self, ExtractResponse},
 };
 
 pub struct ExtractorRouter {
-    coordinator_addr: String,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl ExtractorRouter {
-    pub fn new(coordinator_addr: &str) -> Self {
-        Self {
-            coordinator_addr: coordinator_addr.into(),
-        }
+    pub fn new(coordinator_client: Arc<CoordinatorClient>) -> Self {
+        Self { coordinator_client }
     }
 
     pub async fn extract_content(
@@ -24,30 +26,29 @@ impl ExtractorRouter {
     ) -> Result<Vec<Content>, anyhow::Error> {
         let request = internal_api::ExtractRequest {
             content: internal_api::Content {
-                content_type: content.content_type,
-                source: content.source,
+                mime: content.content_type,
+                bytes: content.bytes,
                 feature: None,
+                metadata: HashMap::new(),
             },
             input_params,
         };
 
-        let coordinate_request = internal_api::CoordinateRequest {
-            extractor_name: extractor_name.to_string(),
+        let req = GetExtractorCoordinatesRequest {
+            extractor: extractor_name.to_string(),
         };
-
-        let coordinate_response = reqwest::Client::new()
-            .post(&format!("http://{}/coordinates", self.coordinator_addr))
-            .json(&coordinate_request)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("unable to get coordinates of extractor: {}", e))?
-            .json::<CoordinateResponse>()
-            .await
-            .map_err(|e| anyhow!("unable to decode coordinate response {}", e))?;
-        let extractor_addr = coordinate_response
-            .content
-            .get(0)
-            .ok_or(anyhow!("no extractor found"))?;
+        let resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_extractor_coordinates(req)
+            .await?
+            .into_inner();
+        let addresses = resp.addrs;
+        if addresses.is_empty() {
+            return Err(anyhow!("no extractor found"));
+        }
+        let extractor_addr = addresses[0].clone();
         let resp = reqwest::Client::new()
             .post(&format!("http://{}/extract", extractor_addr))
             .json(&request)

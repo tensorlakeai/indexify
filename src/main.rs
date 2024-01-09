@@ -12,6 +12,7 @@ pub mod extractor;
 pub mod package;
 pub mod server;
 pub mod server_config;
+pub mod state;
 
 mod api;
 mod attribute_index;
@@ -19,17 +20,21 @@ mod blob_storage;
 mod cmd;
 mod content_reader;
 mod coordinator;
+mod coordinator_client;
 mod data_repository_manager;
 mod entity;
 mod executor;
 mod extractor_router;
+mod grpc_helper;
 mod index;
+mod indexify_coordinator;
+mod indexify_raft;
 mod internal_api;
 mod persistence;
+mod task_store;
 mod test_util;
 mod vector_index;
 mod vectordbs;
-mod work_store;
 
 struct OtelGuard;
 

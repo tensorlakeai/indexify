@@ -54,7 +54,6 @@ pub type ExtractorTS = Arc<dyn Extractor + Sync + Send>;
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct ExtractedEmbeddings {
     pub content_id: String,
-    pub text: String,
     pub embeddings: Vec<f32>,
 }
 

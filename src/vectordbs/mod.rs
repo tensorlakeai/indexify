@@ -44,7 +44,7 @@ pub struct CreateIndexParams {
 
 #[derive(Debug, Default, Clone, FromQueryResult)]
 pub struct SearchResult {
-    pub chunk_id: String,
+    pub content_id: String,
     pub confidence_score: f32,
 }
 

@@ -10,6 +10,7 @@ resolver = "2"
 members = [".", "migration"]
 
 [workspace.dependencies]
+anyerror = "*"
 anyhow = { version = "1" }
 async-trait = "0.1"
 askama = { version = "0.12" }
@@ -27,6 +28,7 @@ jsonschema = "0.17"
 mime = { version = "0.3" }
 mime_guess = { version = "2" }
 nanoid = { version = "0.4" }
+openraft = {version = "0.8.8", features = ["serde"] }
 opensearch = { version = "2" }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.21"
@@ -40,6 +42,8 @@ opentelemetry-stdout = { version = "0.2", features = [
     "metrics",
     "trace",
 ] }
+prost = { version = "0.12" }
+prost-types = { version = "0.12" }
 pyo3 = { version = "0.20", features = ["auto-initialize"] }
 qdrant-client = "1"
 rand = { version = "0.8" }
@@ -66,6 +70,7 @@ serde_json = { version = "1" }
 smart-default = { version = "0.7" }
 strum = { version = "0.25", features = ["derive"] }
 thiserror = "1"
+tonic = { version = "0.10.2", features = ["prost"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tracing = { version = "0.1", features = ["log"] }
@@ -85,6 +90,7 @@ tar = "0.4"
 walkdir = { version = "2" }
 
 [dependencies]
+anyerror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 askama = { workspace = true }
@@ -102,12 +108,15 @@ jsonschema = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
 nanoid = { workspace = true }
+openraft = { workspace = true }
 opensearch = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry-stdout = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
 pyo3 = { workspace = true }
 qdrant-client = { workspace = true }
 rand = { workspace = true }
@@ -122,6 +131,7 @@ serde_json = { workspace = true }
 smart-default = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }
+tonic = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
@@ -155,6 +165,7 @@ vergen = { version = "8", features = [
     "si",
 ] }
 pyo3-build-config = "0.20"
+tonic-build = { version = "0.10.2", features = ["prost"] }
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"

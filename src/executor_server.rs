@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use axum::{
@@ -9,57 +9,28 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use tokio::{signal, sync::mpsc};
+use tokio::{signal, sync::watch, time::interval};
 use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
+    coordinator_client::CoordinatorClient,
     executor::ExtractorExecutor,
     extractor::{extractor_runner, py_extractors, python_path},
     internal_api::{ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
 };
 
-enum TickerMessage {
-    Shutdown,
-    Heartbeat,
-}
-
-async fn heartbeat(
-    tx: mpsc::Sender<TickerMessage>,
-    mut rx: mpsc::Receiver<TickerMessage>,
-    executor: Arc<ExtractorExecutor>,
-) -> Result<()> {
-    info!("starting executor heartbeat");
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-    loop {
-        let message = rx.recv().await;
-        match message {
-            Some(TickerMessage::Shutdown) => {
-                info!("received shutdown signal");
-                break;
-            }
-            Some(TickerMessage::Heartbeat) => {
-                if let Err(err) = executor.sync_repo().await {
-                    error!("unable to sync repo: {}", err.to_string());
-                }
-                interval.tick().await;
-                if let Err(err) = tx.try_send(TickerMessage::Heartbeat) {
-                    error!("unable to send heartbeat: {:?}", err.to_string());
-                }
-            }
-            None => {
-                info!("ticker channel closed");
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
 pub struct ExecutorServer {
     executor_config: Arc<ExecutorConfig>,
     extractor_config_path: String,
+    coordinator_client: Arc<CoordinatorClient>,
+}
+
+#[derive(Debug)]
+pub struct ApiEndpointState {
+    executor: Arc<ExtractorExecutor>,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl ExecutorServer {
@@ -69,10 +40,13 @@ impl ExecutorServer {
     ) -> Result<Self> {
         // Set Python Path
         python_path::set_python_path(extractor_config_path)?;
+        let coordinator_client =
+            Arc::new(CoordinatorClient::new(&executor_config.coordinator_addr));
 
         Ok(Self {
             executor_config,
             extractor_config_path: extractor_config_path.into(),
+            coordinator_client,
         })
     }
 
@@ -95,15 +69,19 @@ impl ExecutorServer {
             )
             .await?,
         );
+        let endpoint_state = Arc::new(ApiEndpointState {
+            executor: executor.clone(),
+            coordinator_client: self.coordinator_client.clone(),
+        });
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())
             .route("/", get(root))
             .route(
                 "/sync_executor",
-                post(sync_worker).with_state(executor.clone()),
+                post(sync_worker).with_state(endpoint_state.clone()),
             )
-            .route("/extract", post(extract).with_state(executor.clone()))
+            .route("/extract", post(extract).with_state(endpoint_state.clone()))
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
             .layer(metrics);
@@ -113,13 +91,33 @@ impl ExecutorServer {
             listen_addr,
             advertise_addr.clone()
         );
-        let (tx, rx) = mpsc::channel(32);
-        if let Err(err) = tx.send(TickerMessage::Heartbeat).await {
-            error!("unable to send heartbeat: {:?}", err.to_string());
-        }
-        tokio::spawn(heartbeat(tx.clone(), rx, executor.clone()));
+        let (tx, rx) = watch::channel::<()>(());
+        let coordinator_client = self.coordinator_client.clone();
+        tokio::spawn(async move {
+            let mut rx = rx.clone();
+            let mut int = interval(Duration::from_secs(5));
+            int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = rx.changed() => {
+                        info!("shutting down executor server");
+                        break;
+                    },
+                    _ = int.tick() => {
+                        info!("executor server is running");
+                        int.tick().await;
+                        if let Err(err) = executor.heartbeat(coordinator_client.clone()).await {
+                            error!("unable to heartbeat: {}", err.to_string());
+                        }
+                    }
+                };
+            }
+        });
         axum::serve(listener, app.into_make_service())
-            .with_graceful_shutdown(shutdown_signal(tx.clone()))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_signal().await;
+                tx.send(()).unwrap()
+            })
             .await?;
         Ok(())
     }
@@ -133,10 +131,11 @@ async fn root() -> &'static str {
 #[tracing::instrument]
 #[axum::debug_handler]
 async fn extract(
-    extractor_executor: State<Arc<ExtractorExecutor>>,
+    endpoint_state: State<Arc<ApiEndpointState>>,
     Json(query): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let content = extractor_executor
+    let content = endpoint_state
+        .executor
         .extract(query.content, query.input_params)
         .await;
 
@@ -153,18 +152,18 @@ async fn extract(
 }
 
 #[axum::debug_handler]
-async fn sync_worker(
-    extractor_executor: State<Arc<ExtractorExecutor>>,
-) -> Result<(), IndexifyAPIError> {
-    let extractor_executor = extractor_executor;
-    tokio::spawn(async move {
-        let _ = extractor_executor.sync_repo().await;
-    });
+async fn sync_worker(endpoint_state: State<Arc<ApiEndpointState>>) -> Result<(), IndexifyAPIError> {
+    let _ = endpoint_state
+        .executor
+        .heartbeat(endpoint_state.coordinator_client.clone())
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
     Ok(())
 }
 
-#[tracing::instrument(skip(tx))]
-async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
+async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -184,10 +183,8 @@ async fn shutdown_signal(tx: mpsc::Sender<TickerMessage>) {
 
     tokio::select! {
         _ = ctrl_c => {
-            let _ = tx.try_send(TickerMessage::Shutdown);
         },
         _ = terminate => {
-            let _ = tx.try_send(TickerMessage::Shutdown);
         },
     }
     info!("signal received, shutting down server gracefully");

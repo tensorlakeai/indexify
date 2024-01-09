@@ -13,20 +13,19 @@ use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use pyo3::Python;
 use tokio::{signal, sync::Notify};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    api::*,
+    api::{self, *},
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageBuilder,
+    coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
     extractor_router::ExtractorRouter,
-    internal_api::{CreateWork, CreateWorkResponse},
-    persistence,
     persistence::Repository,
     server_config::ServerConfig,
     vector_index::VectorIndexManager,
@@ -38,7 +37,7 @@ const DEFAULT_SEARCH_LIMIT: u64 = 5;
 #[derive(Clone, Debug)]
 pub struct RepositoryEndpointState {
     repository_manager: Arc<DataRepositoryManager>,
-    coordinator_addr: String,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 #[derive(OpenApi)]
@@ -52,8 +51,6 @@ pub struct RepositoryEndpointState {
             index_search,
             list_extractors,
             bind_extractor,
-            list_events,
-            add_events,
             attribute_lookup,
             list_executors
         ),
@@ -61,8 +58,8 @@ pub struct RepositoryEndpointState {
             schemas(CreateRepository, CreateRepositoryResponse, IndexDistance,
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
-            , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorFilter, ExtractorBindRequest, ExtractorBindResponse, Executor,
-        ListEventsResponse, EventAddRequest, EventAddResponse, Event, AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
+            , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
+            AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -110,28 +107,31 @@ impl Server {
 
     pub async fn run(&self) -> Result<()> {
         // TLS is set to true if the "tls" field is present in the config
-        let use_tls = self.config.tls.is_some();
+        let use_tls = self.config.tls.as_ref().map(|tls| tls.api).unwrap_or(false);
         let repository = Arc::new(Repository::new(&self.config.db_url).await?);
         let vector_db = vectordbs::create_vectordb(
             self.config.index_config.clone(),
             repository.get_db_conn_clone(),
         )?;
+        let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
         let vector_index_manager = Arc::new(VectorIndexManager::new(
-            repository.clone(),
+            coordinator_client.clone(),
             vector_db.clone(),
-            self.config.coordinator_lis_addr_sock().unwrap().to_string(),
         ));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(repository.clone()));
+        let attribute_index_manager = Arc::new(AttributeIndexManager::new(
+            repository.clone(),
+            coordinator_client.clone(),
+        ));
 
         let blob_storage =
             BlobStorageBuilder::new(Arc::new(self.config.blob_storage.clone())).build()?;
 
         let repository_manager = Arc::new(
             DataRepositoryManager::new(
-                repository.clone(),
                 vector_index_manager,
                 attribute_index_manager,
                 blob_storage.clone(),
+                coordinator_client.clone(),
             )
             .await?,
         );
@@ -143,7 +143,7 @@ impl Server {
         }
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
-            coordinator_addr: self.config.coordinator_lis_addr_sock().unwrap().to_string(),
+            coordinator_client: coordinator_client.clone(),
         };
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
@@ -165,12 +165,12 @@ impl Server {
                 post(add_texts).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/upload_file",
-                post(upload_file).with_state(repository_endpoint_state.clone()),
+                "/repositories/:repository_name/content",
+                get(list_content).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/run_extractors",
-                post(run_extractors).with_state(repository_endpoint_state.clone()),
+                "/repositories/:repository_name/upload_file",
+                post(upload_file).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repositories/:repository_name/search",
@@ -179,14 +179,6 @@ impl Server {
             .route(
                 "/repositories/:repository_name/attributes",
                 get(attribute_lookup).with_state(repository_endpoint_state.clone()),
-            )
-            .route(
-                "/repositories/:repository_name/events",
-                post(add_events).with_state(repository_endpoint_state.clone()),
-            )
-            .route(
-                "/repositories/:repository_name/events",
-                get(list_events).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repositories",
@@ -203,6 +195,10 @@ impl Server {
             .route(
                 "/executors",
                 get(list_executors).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/write_content",
+                post(write_extracted_content).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
@@ -264,21 +260,13 @@ async fn create_repository(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<CreateRepository>,
 ) -> Result<Json<CreateRepositoryResponse>, IndexifyAPIError> {
-    let extractor_bindings = payload
-        .extractor_bindings
-        .clone()
-        .into_iter()
-        .map(|e| into_persistence_extractor_binding(&payload.name, e))
-        .collect();
-    let data_repository = &persistence::DataRepository {
+    let data_repository = api::DataRepository {
         name: payload.name.clone(),
-        extractor_bindings,
-        metadata: payload.metadata.clone(),
-        data_connectors: vec![],
+        extractor_bindings: payload.extractor_bindings.clone(),
     };
     state
         .repository_manager
-        .create(data_repository)
+        .create(&&data_repository)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -368,10 +356,7 @@ async fn bind_extractor(
 ) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
     let index_names = state
         .repository_manager
-        .add_extractor_binding(
-            &repository_name,
-            &into_persistence_extractor_binding(&repository_name, payload.extractor_binding),
-        )
+        .add_extractor_binding(&repository_name, &payload.extractor_binding)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -381,13 +366,6 @@ async fn bind_extractor(
         })?
         .into_iter()
         .collect();
-
-    if let Err(err) =
-        schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await
-    {
-        error!("unable to run extractors: {}", err.to_string());
-    }
-
     Ok(Json(ExtractorBindResponse { index_names }))
 }
 
@@ -408,16 +386,19 @@ async fn add_texts(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
-    let texts = payload
+    let content = payload
         .documents
         .iter()
-        .map(|d| {
-            persistence::ContentPayload::from_text(&repository_name, &d.text, d.metadata.clone())
+        .map(|d| api::Content {
+            content_type: mime::TEXT_PLAIN.to_string(),
+            bytes: d.text.as_bytes().to_vec(),
+            metadata: d.metadata.clone(),
+            feature: None,
         })
         .collect();
     state
         .repository_manager
-        .add_texts(&repository_name, texts)
+        .add_texts(&repository_name, content)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -425,12 +406,19 @@ async fn add_texts(
                 format!("failed to add text: {}", e),
             )
         })?;
-
-    if let Err(err) = schedule_extraction(&repository_name, &state.coordinator_addr.clone()).await {
-        error!("unable to run extractors: {}", err.to_string());
-    }
-
     Ok(Json(TextAdditionResponse::default()))
+}
+
+async fn list_content(
+    Path(repository_name): Path<String>,
+    State(state): State<RepositoryEndpointState>,
+) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
+    let content_list = state
+        .repository_manager
+        .list_content(&repository_name)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(ListContentResponse { content_list }))
 }
 
 #[tracing::instrument]
@@ -462,94 +450,17 @@ async fn upload_file(
     Ok(())
 }
 
-async fn schedule_extraction(
-    repository: &str,
-    coordinator_addr: &str,
-) -> Result<(), anyhow::Error> {
-    let req = CreateWork {
-        repository_name: repository.into(),
-        content: None,
-    };
-    let _resp = reqwest::Client::new()
-        .post(&format!("http://{}/create_work", coordinator_addr,))
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to send create work request: {}", e))?
-        .json::<CreateWorkResponse>()
-        .await?;
-    Ok(())
-}
-
-#[tracing::instrument]
-async fn run_extractors(
-    Path(repository_name): Path<String>,
+#[axum::debug_handler]
+async fn write_extracted_content(
     State(state): State<RepositoryEndpointState>,
-) -> Result<Json<RunExtractorsResponse>, IndexifyAPIError> {
-    schedule_extraction(&repository_name, &state.coordinator_addr.to_string())
+    Json(payload): Json<WriteExtractedContent>,
+) -> Result<Json<()>, IndexifyAPIError> {
+    let _ = state
+        .repository_manager
+        .write_extracted_content(payload)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(RunExtractorsResponse {}))
-}
-
-#[tracing::instrument]
-#[utoipa::path(
-    post,
-    path = "/repositories/{repository_name}/events",
-    request_body =  EventAddRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Events were successfully added to the repository", body = EventAddResponse),
-        (status = BAD_REQUEST, description = "Unable to add event")
-    ),
-)]
-#[axum::debug_handler]
-async fn add_events(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<EventAddRequest>,
-) -> Result<Json<EventAddResponse>, IndexifyAPIError> {
-    let events = payload.events.iter().map(|m| m.clone().into()).collect();
-    state
-        .repository_manager
-        .add_events(&repository_name, events)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if let Err(err) =
-        schedule_extraction(&repository_name, &state.coordinator_addr.to_string()).await
-    {
-        error!("unable to run extractors: {}", err.to_string());
-    }
-
-    Ok(Json(EventAddResponse {}))
-}
-
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/repositories/{repository_name}/events",
-    tag = "indexify",
-    responses(
-        (status = 200, description = "List of Events in a repository", body = ListEventsResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_events(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
-) -> Result<Json<ListEventsResponse>, IndexifyAPIError> {
-    let messages = state
-        .repository_manager
-        .list_events(&repository_name)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .iter()
-        .map(|m| m.to_owned().into())
-        .collect();
-
-    Ok(Json(ListEventsResponse { messages }))
+    Ok(Json(()))
 }
 
 #[tracing::instrument]
@@ -599,7 +510,7 @@ async fn extract_content(
     State(repository_endpoint): State<RepositoryEndpointState>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let extractor_router = ExtractorRouter::new(&repository_endpoint.coordinator_addr);
+    let extractor_router = ExtractorRouter::new(repository_endpoint.coordinator_client.clone());
     let content_list = extractor_router
         .extract_content(&request.name, request.content, request.input_params)
         .await

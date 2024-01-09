@@ -134,7 +134,8 @@ impl Packager {
     }
 
     fn create_docker_file(&self) -> Result<String, Error> {
-        let (image_name, additional_pip_flags) = self.generate_base_image_name_for_matching_modify_dependencies()?;
+        let (image_name, additional_pip_flags) =
+            self.generate_base_image_name_for_matching_modify_dependencies()?;
 
         let system_dependencies = self.config.system_dependencies.join(" ");
         let python_dependencies = self.config.python_dependencies.join(" ");
@@ -162,8 +163,14 @@ RUN pip3 install --no-input indexify_extractor_sdk
     }
 
     // TODO move image strings to config
-    pub fn generate_base_image_name_for_matching_modify_dependencies(&self) -> Result<(String, &'static str), Error> {
-        let pytorch = self.config.python_dependencies.iter().position(|x| x.contains("torch"));
+    pub fn generate_base_image_name_for_matching_modify_dependencies(
+        &self,
+    ) -> Result<(String, &'static str), Error> {
+        let pytorch = self
+            .config
+            .python_dependencies
+            .iter()
+            .position(|x| x.contains("torch"));
         let gpu = self.config.gpu;
 
         let mut pytorch_version = None;
@@ -175,26 +182,30 @@ RUN pip3 install --no-input indexify_extractor_sdk
                 } else {
                     pytorch_version = Option::Some("latest");
                 }
-            },
+            }
             None => {}
         }
 
         let mut additional_pip_flags = "";
-        let image_name:String;
+        let image_name: String;
 
         match (pytorch_version, gpu) {
             (Some(version), true) => {
                 if version == "latest" {
-                    return Err(anyhow!("Please make sure to specify pytorch version and cuda version"));
+                    return Err(anyhow!(
+                        "Please make sure to specify pytorch version and cuda version"
+                    ));
                 } else {
                     image_name = "ubuntu:22.04".to_string();
                 }
-            },
+            }
             (Some(_version), false) => {
                 image_name = "tensorlake/indexify-extractor-base".to_string();
                 additional_pip_flags = "--extra-index-url https://download.pytorch.org/whl/cpu";
-            },
-            (None, _) => { image_name = "tensorlake/indexify-extractor-base".to_string(); },
+            }
+            (None, _) => {
+                image_name = "tensorlake/indexify-extractor-base".to_string();
+            }
         }
 
         info!("Selecting image_name `{}`", image_name);
@@ -330,7 +341,11 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             description: "test_description".into(),
             version: "0.1.0".to_string(),
             gpu: true,
-            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
+            python_dependencies: vec![
+                "numpy".to_string(),
+                "pandas".to_string(),
+                "torch".to_string(),
+            ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
         };
         let packager = Packager {
@@ -351,7 +366,11 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             description: "test_description".into(),
             version: "0.1.0".to_string(),
             gpu: false,
-            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch".to_string()],
+            python_dependencies: vec![
+                "numpy".to_string(),
+                "pandas".to_string(),
+                "torch".to_string(),
+            ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
         };
         let packager = Packager {
@@ -394,7 +413,11 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             description: "test_description".into(),
             version: "0.1.0".to_string(),
             gpu: false,
-            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
+            python_dependencies: vec![
+                "numpy".to_string(),
+                "pandas".to_string(),
+                "torch==2.1.2".to_string(),
+            ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
         };
         let packager = Packager {
@@ -437,7 +460,11 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             description: "test_description".into(),
             version: "0.1.0".to_string(),
             gpu: true,
-            python_dependencies: vec!["numpy".to_string(), "pandas".to_string(), "torch==2.1.2".to_string()],
+            python_dependencies: vec![
+                "numpy".to_string(),
+                "pandas".to_string(),
+                "torch==2.1.2".to_string(),
+            ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
         };
         let packager = Packager {

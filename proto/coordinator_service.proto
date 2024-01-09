@@ -1,0 +1,228 @@
+syntax = "proto3";
+
+
+package indexify_coordinator;
+
+service CoordinatorService {
+    rpc CreateContent(CreateContentRequest) returns (CreateContentResponse) {}
+
+    rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
+
+    rpc CreateBinding(ExtractorBindRequest) returns (ExtractorBindResponse) {}
+
+    rpc ListBindings(ListBindingsRequest) returns (ListBindingsResponse) {}
+
+    rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse) {}
+
+    rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse) {}
+
+    rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse) {}
+
+    rpc ListExtractors(ListExtractorsRequest) returns (ListExtractorsResponse) {}
+
+    rpc RegisterExecutor(RegisterExecutorRequest) returns (RegisterExecutorResponse) {}
+
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+
+    rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
+
+    rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
+
+    rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
+
+    rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
+}
+
+message GetExtractorCoordinatesRequest {
+    string extractor = 2;
+}
+
+message GetExtractorCoordinatesResponse {
+    repeated string addrs = 1;
+}
+
+message ListIndexesRequest {
+    string repository = 1;
+}
+
+message ListIndexesResponse {
+    repeated Index indexes = 1;
+}
+
+message GetIndexRequest {
+    string repository = 1;
+    string name = 2;
+}
+
+message GetIndexResponse {
+    Index index = 1;
+}
+
+message CreateIndexRequest {
+    Index index = 2;
+}
+
+message CreateIndexResponse {
+}
+
+message Index {
+    string name = 1;
+    string repository = 2;
+    string table_name = 3;
+    string schema = 4;
+    string extractor_binding = 5;
+    string extractor = 6;
+}
+
+message Embedding {
+    repeated float embedding = 1;
+}
+
+message Attributes {
+    string attributes = 2;
+}
+
+message Feature {
+    string name = 1;
+    Embedding embedding = 2;
+    Attributes attributes = 3;
+}
+
+message Content {
+    string mime = 2;
+    bytes data = 3;
+    repeated Feature features = 4;
+}
+
+message RegisterExecutorRequest {
+    string executor_id = 1;
+    string addr = 2;
+    Extractor extractor = 3;
+}
+
+message RegisterExecutorResponse {
+    string executor_id = 1;
+}
+
+message HeartbeatRequest {
+    string executor_id = 1;
+}
+
+message HeartbeatResponse {
+    string executor_id = 1;
+    repeated Task tasks = 2;
+}
+
+message Task {
+    string id = 1;
+    string extractor = 2;
+    string repository = 3;
+    ContentMetadata content_metadata = 4;
+    string input_params = 5;
+    string extractor_binding = 6;
+    map<string, string> output_index_mapping = 7;
+}
+
+message ListExtractorsRequest {
+
+}
+
+message ListExtractorsResponse{
+    repeated Extractor extractors = 1;
+}
+
+message Extractor {
+    string name = 1;
+    string description = 2;
+    string input_params = 3;
+    map<string, string> outputs = 4;
+}
+
+message GetRepositoryRequest {
+    string name = 1;
+}
+
+message GetRepositoryResponse {
+    Repository repository = 1;
+}
+
+message ListContentRequest {
+    string repository = 1;
+}
+
+message ListContentResponse {
+    repeated ContentMetadata content_list = 1; 
+}
+
+message ListBindingsRequest {
+    string repository = 1;
+}
+
+message ListBindingsResponse {
+    repeated ExtractorBinding bindings = 1;
+}
+
+message CreateRepositoryRequest {
+    string name = 1;
+    repeated ExtractorBinding bindings = 2;
+}
+
+message CreateRepositoryResponse {
+    string name = 1;
+    int64 created_at = 2;
+}
+
+
+message ListRepositoriesRequest {
+}
+
+message ListRepositoriesResponse {
+    repeated Repository repositories = 1;
+}
+
+message DatRepository {
+    string name = 1;
+    repeated ExtractorBinding bindings = 2;
+}
+
+message ExtractorBinding {
+    string extractor = 1;
+    string name = 2;
+    string input_params = 4;
+    map<string, string> filters = 5;
+}
+
+message ExtractorBindRequest {
+    string repository = 1;
+    ExtractorBinding binding = 3;
+    int64 created_at = 2;
+}
+
+message ExtractorBindResponse {
+    int64 created_at = 3;
+    Extractor extractor = 2;
+}
+
+message ContentMetadata {
+    string id = 1;
+    string file_name = 2;
+    string parent_id = 3;
+    string mime = 4;
+    map<string, string> labels = 5;
+    string storage_url = 6;
+    int64 created_at = 7;
+    string repository = 8;
+}
+
+message CreateContentRequest {
+    ContentMetadata content = 2;
+}
+
+message CreateContentResponse {
+    string id = 1;
+}
+
+message Repository {
+    string name = 1;
+    repeated ExtractorBinding bindings = 2;
+}

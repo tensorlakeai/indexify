@@ -2,10 +2,16 @@ use std::{fmt, sync::Arc};
 
 use anyhow::Result;
 
-use crate::persistence::{ExtractedAttributes, Extractor, Repository};
+use crate::{
+    coordinator_client::CoordinatorClient,
+    grpc_helper::GrpcHelper,
+    indexify_coordinator::{CreateIndexRequest, Index},
+    persistence::{ExtractedAttributes, Repository},
+};
 
 pub struct AttributeIndexManager {
     repository: Arc<Repository>,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl fmt::Debug for AttributeIndexManager {
@@ -15,26 +21,37 @@ impl fmt::Debug for AttributeIndexManager {
 }
 
 impl AttributeIndexManager {
-    pub fn new(repository: Arc<Repository>) -> Self {
-        Self { repository }
+    pub fn new(repository: Arc<Repository>, coordinator_client: Arc<CoordinatorClient>) -> Self {
+        Self {
+            repository,
+            coordinator_client,
+        }
     }
 
     pub async fn create_index(
         &self,
         repository: &str,
         index_name: &str,
-        extractor_config: Extractor,
+        extractor: &str,
+        extractor_binding: &str,
+        schema: serde_json::Value,
     ) -> Result<String> {
-        // TODO: create a new table for the index from a postgres schema
-        self.repository
-            .create_index_metadata(
-                repository,
-                &extractor_config.name,
-                index_name,
-                "structured_store",
-                serde_json::json!(extractor_config.schemas),
-                "json",
-            )
+        let index = CreateIndexRequest {
+            index: Some(Index {
+                name: index_name.to_string(),
+                table_name: "structured_store".to_string(),
+                repository: repository.to_string(),
+                schema: schema.to_string(),
+                extractor: extractor.to_string(),
+                extractor_binding: extractor_binding.to_string(),
+            }),
+        };
+        let req = GrpcHelper::into_req(index);
+        let _resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .create_index(req)
             .await?;
         Ok(index_name.to_string())
     }
