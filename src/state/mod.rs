@@ -322,10 +322,17 @@ impl App {
         Ok(content)
     }
 
-    pub async fn create_binding(&self, binding: ExtractorBinding) -> Result<()> {
+    pub async fn create_binding(
+        &self,
+        binding: ExtractorBinding,
+        extraction_event: ExtractionEvent,
+    ) -> Result<()> {
         let _resp = self
             .raft
-            .client_write(Request::CreateBinding { binding })
+            .client_write(Request::CreateBinding {
+                binding,
+                extraction_event: Some(extraction_event),
+            })
             .await?;
         Ok(())
     }
@@ -433,10 +440,16 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_content(&self, id: &str, content_metadata: ContentMetadata) -> Result<()> {
+    pub async fn create_content(
+        &self,
+        id: &str,
+        content_metadata: ContentMetadata,
+        extraction_event: ExtractionEvent,
+    ) -> Result<()> {
         let req = Request::CreateContent {
             id: id.to_string(),
             content_metadata,
+            extraction_event: Some(extraction_event),
         };
         let _ = self
             .raft

@@ -310,7 +310,7 @@ pub enum ExtractionEventPayload {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExtractionEvent {
     pub id: String,
-    pub repository_id: String,
+    pub repository: String,
     pub payload: ExtractionEventPayload,
     pub created_at: u64,
     pub processed_at: Option<u64>,

@@ -7,8 +7,10 @@ use std::{
     time::SystemTime,
 };
 
+use axum::extract;
 use openraft::{
     async_trait::async_trait,
+    docs::data::extended_membership,
     storage::{LogState, Snapshot},
     BasicNode,
     Entry,
@@ -58,7 +60,6 @@ pub enum Request {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
-
     AddExtractionEvent {
         event: ExtractionEvent,
     },
@@ -68,9 +69,11 @@ pub enum Request {
     CreateContent {
         id: String,
         content_metadata: ContentMetadata,
+        extraction_event: Option<ExtractionEvent>,
     },
     CreateBinding {
         binding: ExtractorBinding,
+        extraction_event: Option<ExtractionEvent>,
     },
     CreateIndex {
         index: Index,
@@ -427,6 +430,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                     Request::CreateContent {
                         id,
                         content_metadata,
+                        extraction_event,
                     } => {
                         sm.content_table
                             .insert(id.clone(), content_metadata.clone());
@@ -434,13 +438,28 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             .entry(content_metadata.repository.clone())
                             .or_default()
                             .insert(id.clone());
+                        if let Some(extraction_event) = extraction_event {
+                            sm.extraction_events
+                                .insert(extraction_event.id.clone(), extraction_event.clone());
+                            sm.unprocessed_extraction_events
+                                .insert(extraction_event.id.clone());
+                        }
                         res.push(Response { value: None })
                     }
-                    Request::CreateBinding { binding } => {
+                    Request::CreateBinding {
+                        binding,
+                        extraction_event,
+                    } => {
                         sm.bindings_table
                             .entry(binding.repository.clone())
                             .or_default()
                             .insert(binding.clone());
+                        if let Some(extraction_event) = extraction_event {
+                            sm.extraction_events
+                                .insert(extraction_event.id.clone(), extraction_event.clone());
+                            sm.unprocessed_extraction_events
+                                .insert(extraction_event.id.clone());
+                        }
                         res.push(Response { value: None })
                     }
                     Request::CreateRepository { name } => {

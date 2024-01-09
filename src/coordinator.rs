@@ -14,6 +14,7 @@ use crate::{
         self,
         ContentMetadata,
         ExecutorMetadata,
+        ExtractionEvent,
         ExtractionEventPayload,
         ExtractorBinding,
         ExtractorDescription,
@@ -21,6 +22,7 @@ use crate::{
         Task,
     },
     state::SharedState,
+    utils::timestamp_secs,
 };
 
 pub struct Coordinator {
@@ -234,7 +236,19 @@ impl Coordinator {
                 errors.join(",")
             ));
         }
-        self.shared_state.create_binding(binding).await?;
+        let extraction_event = ExtractionEvent {
+            id: nanoid::nanoid!(),
+            repository: binding.repository.clone(),
+            payload: ExtractionEventPayload::ExtractorBindingAdded {
+                repository: binding.repository.clone(),
+                binding: binding.clone(),
+            },
+            created_at: timestamp_secs(),
+            processed_at: None,
+        };
+        self.shared_state
+            .create_binding(binding, extraction_event)
+            .await?;
         Ok(extractor)
     }
 
@@ -273,8 +287,17 @@ impl Coordinator {
             name: content.file_name.clone(),
             metadata,
         };
+        let extraction_event = ExtractionEvent {
+            id: nanoid::nanoid!(),
+            repository: content.repository.clone(),
+            payload: ExtractionEventPayload::CreateContent {
+                content: content_metadata.clone(),
+            },
+            created_at: timestamp_secs(),
+            processed_at: None,
+        };
         self.shared_state
-            .create_content(&id, content_metadata)
+            .create_content(&id, content_metadata, extraction_event)
             .await?;
         Ok(id)
     }

@@ -33,6 +33,7 @@ mod internal_api;
 mod persistence;
 mod task_store;
 mod test_util;
+mod utils;
 mod vector_index;
 mod vectordbs;
 
