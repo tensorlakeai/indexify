@@ -1,4 +1,8 @@
-use std::{collections::HashMap, hash::Hasher, str::FromStr};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -7,6 +11,58 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 
 use crate::{api, indexify_coordinator};
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
+pub struct Index {
+    pub repository: String,
+    pub name: String,
+    pub table_name: String,
+    pub schema: String,
+    pub extractor_binding: String,
+    pub extractor: String,
+}
+
+impl Index {
+    pub fn id(&self) -> String {
+        let mut s = DefaultHasher::new();
+        self.repository.hash(&mut s);
+        self.name.hash(&mut s);
+        format!("{:x}", s.finish())
+    }
+}
+
+impl Hash for Index {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.repository.hash(state);
+        self.name.hash(state);
+    }
+}
+
+impl From<Index> for indexify_coordinator::Index {
+    fn from(value: Index) -> Self {
+        Self {
+            name: value.name,
+            table_name: value.table_name,
+            schema: value.schema,
+            extractor: value.extractor,
+            extractor_binding: value.extractor_binding,
+            repository: value.repository,
+        }
+    }
+}
+
+impl From<indexify_coordinator::Index> for Index {
+    fn from(value: indexify_coordinator::Index) -> Self {
+        Self {
+            name: value.name,
+            table_name: value.table_name,
+            schema: value.schema,
+            extractor: value.extractor,
+            extractor_binding: value.extractor_binding,
+            repository: value.repository,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingSchema {
@@ -118,16 +174,6 @@ pub struct ExtractRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractResponse {
     pub content: Vec<Content>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CoordinateRequest {
-    pub extractor_name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CoordinateResponse {
-    pub content: Vec<String>,
 }
 
 #[derive(

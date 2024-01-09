@@ -17,6 +17,7 @@ use crate::{
         ExtractionEventPayload,
         ExtractorBinding,
         ExtractorDescription,
+        Index,
         Task,
     },
     state::SharedState,
@@ -28,9 +29,7 @@ pub struct Coordinator {
 
 impl Coordinator {
     pub fn new(shared_state: SharedState) -> Arc<Self> {
-        Arc::new(Self {
-            shared_state,
-        })
+        Arc::new(Self { shared_state })
     }
 
     pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
@@ -154,9 +153,33 @@ impl Coordinator {
         Ok(tasks)
     }
 
-    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<String>> {
-        // self.shared_state.list_indexes(repository).await
-        Ok(vec![])
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>> {
+        self.shared_state.list_indexes(repository).await
+    }
+
+    pub async fn get_index(&self, repository: &str, name: &str) -> Result<Index> {
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        name.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        self.shared_state.get_index(&id).await
+    }
+
+    pub async fn create_index(&self, repository: &str, index: Index) -> Result<()> {
+        let id = index.id();
+        self.shared_state.create_index(repository, index, id).await
+    }
+
+    pub async fn get_extractor_coordinates(&self, extractor_name: &str) -> Result<Vec<String>> {
+        let executors = self
+            .shared_state
+            .get_executors_for_extractor(extractor_name)
+            .await?;
+        let addresses = executors
+            .iter()
+            .map(|e| e.addr.clone())
+            .collect::<Vec<String>>();
+        Ok(addresses)
     }
 
     pub async fn register_executor(
@@ -197,7 +220,7 @@ impl Coordinator {
                 &binding.name,
                 errors.join(",")
             ));
-        } 
+        }
         self.shared_state.create_binding(binding).await?;
         Ok(extractor)
     }
@@ -237,8 +260,7 @@ impl Coordinator {
             name: content.file_name.clone(),
             metadata,
         };
-        self
-            .shared_state
+        self.shared_state
             .create_content(&id, content_metadata)
             .await?;
         Ok(id)

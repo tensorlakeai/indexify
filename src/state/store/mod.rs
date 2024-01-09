@@ -34,6 +34,7 @@ use crate::internal_api::{
     ExtractionEvent,
     ExtractorBinding,
     ExtractorDescription,
+    Index,
     Task,
 };
 
@@ -70,6 +71,11 @@ pub enum Request {
     },
     CreateBinding {
         binding: ExtractorBinding,
+    },
+    CreateIndex {
+        index: Index,
+        repository: String,
+        id: String,
     },
 }
 
@@ -140,6 +146,10 @@ pub struct StateMachine {
     pub extractors: HashMap<ExtractorName, ExtractorDescription>,
 
     pub repositories: HashSet<String>,
+
+    pub repository_extractors: HashMap<RepositoryId, HashSet<Index>>,
+
+    pub index_table: HashMap<String, Index>,
 }
 
 #[derive(Debug, Default)]
@@ -435,6 +445,18 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                     }
                     Request::CreateRepository { name } => {
                         sm.repositories.insert(name.clone());
+                        res.push(Response { value: None })
+                    }
+                    Request::CreateIndex {
+                        index,
+                        repository,
+                        id,
+                    } => {
+                        sm.repository_extractors
+                            .entry(repository.clone())
+                            .or_default()
+                            .insert(index.clone());
+                        sm.index_table.insert(id.clone(), index.clone());
                         res.push(Response { value: None })
                     }
                 },

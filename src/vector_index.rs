@@ -48,6 +48,7 @@ impl VectorIndexManager {
         repository: &str,
         index_name: &str,
         extractor_name: &str,
+        extractor_binding: &str,
         schema: EmbeddingSchema,
     ) -> Result<String> {
         let vector_index_name = format!("{}-{}", repository, index_name);
@@ -64,6 +65,7 @@ impl VectorIndexManager {
                 table_name: vector_index_name.clone(),
                 repository: repository.to_string(),
                 schema: serde_json::to_value(schema).unwrap().to_string(),
+                extractor_binding: extractor_binding.to_string(),
                 extractor: extractor_name.to_string(),
             }),
         };

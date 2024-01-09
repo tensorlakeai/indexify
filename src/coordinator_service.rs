@@ -23,6 +23,7 @@ use crate::{
         CreateRepositoryResponse,
         ExtractorBindRequest,
         ExtractorBindResponse,
+        GetExtractorCoordinatesRequest,
         GetIndexRequest,
         GetIndexResponse,
         GetRepositoryRequest,
@@ -253,9 +254,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_indexes(&request.repository)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        // let indexes = indexes.into_iter().map(|i|
-        // i.into()).collect::<Vec<indexify_coordinator::Index>>();
-        let indexes = vec![];
+        let indexes = indexes
+            .into_iter()
+            .map(|i| i.into())
+            .collect::<Vec<indexify_coordinator::Index>>();
         Ok(tonic::Response::new(ListIndexesResponse { indexes }))
     }
 
@@ -263,14 +265,46 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: Request<GetIndexRequest>,
     ) -> Result<Response<GetIndexResponse>, Status> {
-        Err(tonic::Status::unimplemented("not implemented"))
+        let request = request.into_inner();
+        let index = self
+            .coordinator
+            .get_index(&request.repository, &request.name)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(GetIndexResponse {
+            index: Some(index.into()),
+        }))
     }
 
     async fn create_index(
         &self,
         request: Request<CreateIndexRequest>,
     ) -> Result<Response<CreateIndexResponse>, Status> {
-        Err(tonic::Status::unimplemented("not implemented"))
+        let request = request.into_inner();
+        let index: internal_api::Index = request.index.unwrap().into();
+        let repository = index.repository.clone();
+        self.coordinator
+            .create_index(&repository, index)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(CreateIndexResponse {}))
+    }
+
+    async fn get_extractor_coordinates(
+        &self,
+        req: Request<GetExtractorCoordinatesRequest>,
+    ) -> Result<Response<indexify_coordinator::GetExtractorCoordinatesResponse>, Status> {
+        let req = req.into_inner();
+        let extractor_coordinates = self
+            .coordinator
+            .get_extractor_coordinates(&req.extractor)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(Response::new(
+            indexify_coordinator::GetExtractorCoordinatesResponse {
+                addrs: extractor_coordinates,
+            },
+        ))
     }
 }
 

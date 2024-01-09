@@ -483,4 +483,41 @@ impl App {
         let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
         Ok(task.clone())
     }
+
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<internal_api::Index>> {
+        let store = self.store.state_machine.read().await;
+        let indexes = store
+            .repository_extractors
+            .get(repository)
+            .cloned()
+            .unwrap_or_default();
+        let indexes = indexes.into_iter().collect_vec();
+        Ok(indexes)
+    }
+
+    pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
+        let store = self.store.state_machine.read().await;
+        let index = store
+            .index_table
+            .get(id)
+            .ok_or(anyhow!("index not found"))?;
+        Ok(index.clone())
+    }
+
+    pub async fn create_index(
+        &self,
+        repository: &str,
+        index: internal_api::Index,
+        id: String,
+    ) -> Result<()> {
+        let _resp = self
+            .raft
+            .client_write(Request::CreateIndex {
+                repository: repository.to_string(),
+                index,
+                id,
+            })
+            .await?;
+        Ok(())
+    }
 }

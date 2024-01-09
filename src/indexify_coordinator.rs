@@ -1,5 +1,17 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetExtractorCoordinatesRequest {
+    #[prost(string, tag = "2")]
+    pub extractor: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetExtractorCoordinatesResponse {
+    #[prost(string, repeated, tag = "1")]
+    pub addrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListIndexesRequest {
     #[prost(string, tag = "1")]
     pub repository: ::prost::alloc::string::String,
@@ -45,6 +57,8 @@ pub struct Index {
     #[prost(string, tag = "4")]
     pub schema: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
+    pub extractor_binding: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
     pub extractor: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -776,6 +790,36 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_extractor_coordinates(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetExtractorCoordinatesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetExtractorCoordinatesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_coordinator.CoordinatorService/GetExtractorCoordinates",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetExtractorCoordinates",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -874,6 +918,13 @@ pub mod coordinator_service_server {
             request: tonic::Request<super::CreateIndexRequest>,
         ) -> std::result::Result<
             tonic::Response<super::CreateIndexResponse>,
+            tonic::Status,
+        >;
+        async fn get_extractor_coordinates(
+            &self,
+            request: tonic::Request<super::GetExtractorCoordinatesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetExtractorCoordinatesResponse>,
             tonic::Status,
         >;
     }
@@ -1559,6 +1610,58 @@ pub mod coordinator_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = CreateIndexSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_coordinator.CoordinatorService/GetExtractorCoordinates" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetExtractorCoordinatesSvc<T: CoordinatorService>(pub Arc<T>);
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetExtractorCoordinatesRequest>
+                    for GetExtractorCoordinatesSvc<T> {
+                        type Response = super::GetExtractorCoordinatesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::GetExtractorCoordinatesRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as CoordinatorService>::get_extractor_coordinates(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetExtractorCoordinatesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

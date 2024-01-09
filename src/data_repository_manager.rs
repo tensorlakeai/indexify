@@ -181,7 +181,13 @@ impl DataRepositoryManager {
                     let index_name = format!("{}-{}", extractor_binding.name, name);
                     let _ = self
                         .vector_index_manager
-                        .create_index(repository, &index_name, &extractor.name, embedding_schema)
+                        .create_index(
+                            repository,
+                            &index_name,
+                            &extractor.name,
+                            &extractor_binding.name,
+                            embedding_schema,
+                        )
                         .await?;
                     index_names.push(index_name);
                 }
@@ -189,7 +195,13 @@ impl DataRepositoryManager {
                     let index_name = format!("{}-{}", extractor_binding.name, name);
                     let _ = self
                         .attribute_index_manager
-                        .create_index(repository, &index_name, &extractor.name, schema)
+                        .create_index(
+                            repository,
+                            &index_name,
+                            &extractor.name,
+                            &extractor_binding.name,
+                            schema,
+                        )
                         .await?;
                     index_names.push(index_name);
                 }

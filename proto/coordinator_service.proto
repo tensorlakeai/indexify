@@ -29,6 +29,16 @@ service CoordinatorService {
     rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
 
     rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
+
+    rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
+}
+
+message GetExtractorCoordinatesRequest {
+    string extractor = 2;
+}
+
+message GetExtractorCoordinatesResponse {
+    repeated string addrs = 1;
 }
 
 message ListIndexesRequest {
@@ -60,7 +70,8 @@ message Index {
     string repository = 2;
     string table_name = 3;
     string schema = 4;
-    string extractor = 5;
+    string extractor_binding = 5;
+    string extractor = 6;
 }
 
 message Embedding {

@@ -33,6 +33,7 @@ impl AttributeIndexManager {
         repository: &str,
         index_name: &str,
         extractor: &str,
+        extractor_binding: &str,
         schema: serde_json::Value,
     ) -> Result<String> {
         let index = CreateIndexRequest {
@@ -42,6 +43,7 @@ impl AttributeIndexManager {
                 repository: repository.to_string(),
                 schema: schema.to_string(),
                 extractor: extractor.to_string(),
+                extractor_binding: extractor_binding.to_string(),
             }),
         };
         let req = GrpcHelper::into_req(index);
