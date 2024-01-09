@@ -100,13 +100,26 @@ impl Coordinator {
         extractor_binding: &ExtractorBinding,
         content_list: Vec<ContentMetadata>,
     ) -> Result<Vec<Task>> {
+        let extractor = self
+            .shared_state
+            .extractor_with_name(&extractor_binding.extractor)
+            .await?;
+        let mut output_mapping: HashMap<String, String> = HashMap::new();
+        for (name, _schema) in &extractor.outputs {
+            output_mapping.insert(name.clone(), format!("{}.{}", extractor_binding.name, name));
+        }
         let mut tasks = Vec::new();
         for content in content_list {
+            let mut hasher = DefaultHasher::new();
+            extractor_binding.name.hash(&mut hasher);
+            extractor_binding.repository.hash(&mut hasher);
+            content.id.hash(&mut hasher);
+            let id = format!("{:x}", hasher.finish());
             let task = Task {
-                id: "".to_string(),
+                id,
                 extractor: extractor_binding.extractor.clone(),
                 extractor_binding: extractor_binding.name.clone(),
-                output_index_mapping: todo!(),
+                output_index_mapping: output_mapping.clone(),
                 repository: extractor_binding.repository.clone(),
                 content_metadata: content.clone(),
                 input_params: extractor_binding.input_params.clone(),

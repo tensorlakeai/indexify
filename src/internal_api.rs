@@ -79,22 +79,17 @@ pub enum OutputSchema {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractorSchema {
-    pub output: HashMap<String, OutputSchema>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
     pub input_params: serde_json::Value,
-    pub schema: ExtractorSchema,
+    pub outputs: HashMap<String, OutputSchema>,
 }
 
 impl From<ExtractorDescription> for indexify_coordinator::Extractor {
     fn from(value: ExtractorDescription) -> Self {
         let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in value.schema.output {
+        for (output_name, embedding_schema) in value.outputs {
             output_schema.insert(
                 output_name,
                 serde_json::to_string(&embedding_schema).unwrap(),
@@ -120,9 +115,7 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
             name: value.name,
             description: value.description,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
-            schema: ExtractorSchema {
-                output: output_schema,
-            },
+            outputs: output_schema,
         }
     }
 }
@@ -151,9 +144,7 @@ impl From<api::ExtractorDescription> for ExtractorDescription {
             name: extractor.name,
             description: extractor.description,
             input_params: extractor.input_params,
-            schema: ExtractorSchema {
-                output: output_schema,
-            },
+            outputs: output_schema,
         }
     }
 }
