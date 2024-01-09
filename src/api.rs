@@ -202,7 +202,7 @@ impl TryFrom<indexify_coordinator::Extractor> for ExtractorDescription {
     fn try_from(value: indexify_coordinator::Extractor) -> Result<Self> {
         let mut outputs = HashMap::new();
         for (k, v) in value.outputs.iter() {
-            let v: ExtractorOutputSchema = serde_json::from_str(&v)?;
+            let v: ExtractorOutputSchema = serde_json::from_str(v)?;
             outputs.insert(k.clone(), v);
         }
         Ok(Self {

@@ -12,8 +12,8 @@ impl ContentReader {
     pub async fn read(&self) -> Result<Vec<u8>, anyhow::Error> {
         let blob_storage_reader =
             BlobStorageBuilder::reader_from_link(&self.content_metadata.storage_url)?;
-        return blob_storage_reader
+        blob_storage_reader
             .get(&self.content_metadata.storage_url)
-            .await;
+            .await
     }
 }

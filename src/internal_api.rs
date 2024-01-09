@@ -251,7 +251,7 @@ impl From<Task> for indexify_coordinator::Task {
             id: value.id,
             extractor: value.extractor,
             repository: value.repository,
-            content_metadata: Some(value.content_metadata.try_into().unwrap()),
+            content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
             extractor_binding: value.extractor_binding,
             output_index_mapping: value.output_index_mapping,
@@ -349,7 +349,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
     fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
         let mut metadata = HashMap::new();
         for (key, value) in value.labels.iter() {
-            metadata.insert(key.to_owned(), serde_json::from_str(&value)?);
+            metadata.insert(key.to_owned(), serde_json::from_str(value)?);
         }
         Ok(Self {
             id: value.id,

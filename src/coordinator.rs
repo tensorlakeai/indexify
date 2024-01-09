@@ -28,10 +28,9 @@ pub struct Coordinator {
 
 impl Coordinator {
     pub fn new(shared_state: SharedState) -> Arc<Self> {
-        let coordinator = Arc::new(Self {
+        Arc::new(Self {
             shared_state,
-        });
-        coordinator
+        })
     }
 
     pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
@@ -133,7 +132,7 @@ impl Coordinator {
     }
 
     pub async fn create_repository(&self, repository: &str) -> Result<()> {
-        let _ = self.shared_state.create_repository(repository).await?;
+        self.shared_state.create_repository(repository).await?;
         Ok(())
     }
 
@@ -199,7 +198,7 @@ impl Coordinator {
                 errors.join(",")
             ));
         } 
-        let _ = self.shared_state.create_binding(binding).await?;
+        self.shared_state.create_binding(binding).await?;
         Ok(extractor)
     }
 
@@ -238,7 +237,7 @@ impl Coordinator {
             name: content.file_name.clone(),
             metadata,
         };
-        let _ = self
+        self
             .shared_state
             .create_content(&id, content_metadata)
             .await?;

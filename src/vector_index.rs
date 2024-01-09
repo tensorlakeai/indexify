@@ -90,7 +90,7 @@ impl VectorIndexManager {
             vector_chunks.push(vector_chunk);
         });
         self.vector_db
-            .add_embedding(&vector_index_name, vector_chunks)
+            .add_embedding(vector_index_name, vector_chunks)
             .await?;
         Ok(())
     }
