@@ -19,20 +19,16 @@ use crate::{
         ExtractorDescription,
         Task,
     },
-    persistence::Repository,
     state::SharedState,
 };
 
 pub struct Coordinator {
-    repository: Arc<Repository>,
-
     shared_state: SharedState,
 }
 
 impl Coordinator {
-    pub fn new(repository: Arc<Repository>, shared_state: SharedState) -> Arc<Self> {
+    pub fn new(shared_state: SharedState) -> Arc<Self> {
         let coordinator = Arc::new(Self {
-            repository,
             shared_state,
         });
         coordinator
@@ -178,8 +174,7 @@ impl Coordinator {
     pub async fn create_binding(
         &self,
         binding: internal_api::ExtractorBinding,
-    ) -> Result<Vec<String>> {
-        let mut indexes = Vec::new();
+    ) -> Result<ExtractorDescription> {
         let extractor = self
             .shared_state
             .extractor_with_name(&binding.extractor)
@@ -203,21 +198,9 @@ impl Coordinator {
                 &binding.name,
                 errors.join(",")
             ));
-        }
-        for (name, output_schema) in &extractor.schema.output {
-            match output_schema {
-                internal_api::OutputSchema::Embedding(embedding_schema) => {
-                    let index_name = format!("{}-{}", binding.name, name);
-                    indexes.push(index_name);
-                }
-                internal_api::OutputSchema::Attributes(schema) => {
-                    let index_name = format!("{}-{}", binding.name, name);
-                    indexes.push(index_name);
-                }
-            }
-        }
+        } 
         let _ = self.shared_state.create_binding(binding).await?;
-        Ok(indexes)
+        Ok(extractor)
     }
 
     #[tracing::instrument(skip(self))]

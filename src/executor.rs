@@ -18,7 +18,7 @@ use crate::{
     internal_api::{self, Content, ExecutorInfo, ExtractorDescription, TaskResult, TaskState},
     persistence::Repository,
     server_config::ExecutorConfig,
-    work_store::TaskStore,
+    task_store::TaskStore,
 };
 
 fn create_executor_id() -> String {

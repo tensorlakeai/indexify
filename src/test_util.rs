@@ -4,21 +4,14 @@ pub mod db_utils {
 
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{Database, DatabaseConnection, DbErr};
-    use serde_json::json;
-    use utoipa_swagger_ui::serve;
 
     use crate::{
-        attribute_index::AttributeIndexManager,
-        coordinator::Coordinator,
         coordinator_service::CoordinatorServer,
         executor::ExtractorExecutor,
         extractor::{extractor_runner, py_extractors},
-        internal_api::ExtractorHeartbeat,
         persistence::Repository,
         server_config::{ExtractorConfig, ServerConfig},
-        state,
-        vector_index::VectorIndexManager,
-        vectordbs::{self, qdrant::QdrantDb, IndexDistance, VectorDBTS},
+        vectordbs::{qdrant::QdrantDb, VectorDBTS},
     };
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";

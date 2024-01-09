@@ -251,10 +251,10 @@ pub struct ExtractorBindRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractorBindResponse {
-    #[prost(string, repeated, tag = "1")]
-    pub index_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(int64, tag = "3")]
     pub created_at: i64,
+    #[prost(message, optional, tag = "2")]
+    pub extractor: ::core::option::Option<Extractor>,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]

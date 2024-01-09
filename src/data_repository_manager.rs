@@ -21,6 +21,7 @@ use crate::{
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
+    internal_api::{self, OutputSchema},
     persistence::{ExtractedAttributes, Repository},
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
@@ -169,8 +170,33 @@ impl DataRepositoryManager {
             .get()
             .await?
             .create_binding(req)
-            .await?;
-        Ok(response.into_inner().index_names.clone())
+            .await?
+            .into_inner();
+        let mut index_names = Vec::new();
+        let extractor = response.extractor.ok_or(anyhow!("extractor not found"))?;
+        for (name, output_schema) in &extractor.outputs {
+            let output_schema: OutputSchema = serde_json::from_str(&output_schema)?;
+            match output_schema {
+                internal_api::OutputSchema::Embedding(embedding_schema) => {
+                    let index_name = format!("{}-{}", extractor_binding.name, name);
+                    let _ = self
+                        .vector_index_manager
+                        .create_index(repository, &index_name, &extractor.name, embedding_schema)
+                        .await?;
+                    index_names.push(index_name);
+                }
+                internal_api::OutputSchema::Attributes(schema) => {
+                    let index_name = format!("{}-{}", extractor_binding.name, name);
+                    let _ = self
+                        .attribute_index_manager
+                        .create_index(repository, &index_name, &extractor.name, schema)
+                        .await?;
+                    index_names.push(index_name);
+                }
+            }
+        }
+
+        Ok(index_names)
     }
 
     pub async fn list_content(&self, repository: &str) -> Result<Vec<api::ContentMetadata>> {

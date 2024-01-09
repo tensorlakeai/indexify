@@ -188,8 +188,8 @@ message ExtractorBindRequest {
 }
 
 message ExtractorBindResponse {
-    repeated string index_names = 1;
     int64 created_at = 3;
+    Extractor extractor = 2;
 }
 
 message ContentMetadata {

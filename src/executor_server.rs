@@ -14,7 +14,7 @@ use tracing::{error, info};
 
 use crate::{
     api::IndexifyAPIError,
-    coordinator_client::{self, CoordinatorClient},
+    coordinator_client::CoordinatorClient,
     executor::ExtractorExecutor,
     extractor::{extractor_runner, py_extractors, python_path},
     internal_api::{ExtractRequest, ExtractResponse},

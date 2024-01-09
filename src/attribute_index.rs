@@ -6,7 +6,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{CreateIndexRequest, Index},
-    internal_api::ExtractorDescription,
     persistence::{ExtractedAttributes, Repository},
 };
 
@@ -33,17 +32,16 @@ impl AttributeIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extractor_config: ExtractorDescription,
+        extractor: &str,
+        schema: serde_json::Value,
     ) -> Result<String> {
         let index = CreateIndexRequest {
             index: Some(Index {
                 name: index_name.to_string(),
                 table_name: "structured_store".to_string(),
                 repository: repository.to_string(),
-                schema: serde_json::to_value(extractor_config.schema)
-                    .unwrap()
-                    .to_string(),
-                extractor: extractor_config.name.to_string(),
+                schema: schema.to_string(),
+                extractor: extractor.to_string(),
             }),
         };
         let req = GrpcHelper::into_req(index);

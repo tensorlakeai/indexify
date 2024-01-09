@@ -31,10 +31,10 @@ mod indexify_coordinator;
 mod indexify_raft;
 mod internal_api;
 mod persistence;
+mod task_store;
 mod test_util;
 mod vector_index;
 mod vectordbs;
-mod work_store;
 
 struct OtelGuard;
 

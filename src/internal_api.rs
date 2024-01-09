@@ -1,7 +1,6 @@
 use std::{collections::HashMap, hash::Hasher, str::FromStr};
 
 use anyhow::Result;
-use sea_orm::schema;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;

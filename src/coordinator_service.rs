@@ -43,7 +43,6 @@ use crate::{
         RegisterExecutorResponse,
     },
     internal_api,
-    persistence::Repository,
     server_config::ServerConfig,
     state,
 };
@@ -112,14 +111,14 @@ impl CoordinatorService for CoordinatorServiceServer {
             filters,
             input_params,
         };
-        let indexes = self
+        let extractor = self
             .coordinator
             .create_binding(extractor)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ExtractorBindResponse {
-            index_names: indexes,
             created_at: 0,
+            extractor: Some(extractor.into()),
         }))
     }
 
@@ -284,10 +283,9 @@ pub struct CoordinatorServer {
 impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
-        let repository = Arc::new(Repository::new(&config.db_url).await?);
         let shared_state = state::App::new(config.clone()).await?;
 
-        let coordinator = Coordinator::new(repository, shared_state.clone());
+        let coordinator = Coordinator::new(shared_state.clone());
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,
