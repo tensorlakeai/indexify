@@ -213,10 +213,21 @@ impl Server {
             shutdown_signal().await;
             notify_clone.notify_waiters();
         });
-
+        
+        let acceptor = match use_tls {
+            true => Some(build_mtls_acceptor(
+                    self.config.tls.as_ref().unwrap(),
+                ).await?),
+            false => None,
+        };
+            
         loop {
+            // clone for loop
             let app = app.clone();
+            let acceptor = acceptor.clone();
             let shutdown_notify = shutdown_notify.clone();
+
+            // pick up the next connection
             let (tcp_stream, remote_addr) = tokio::select! {
                 conn = listener.accept() => conn?,
                 _ = signal_tx.closed() => {
@@ -228,11 +239,8 @@ impl Server {
             
             match use_tls {
                 true => {
-                    let acceptor = build_mtls_acceptor(
-                        self.config.tls.as_ref().unwrap(),
-                    ).await?;
                     tokio::task::spawn(async move {
-                        let acceptor = acceptor.clone();
+                        let acceptor = acceptor.unwrap().clone();
                         let tls_stream = match acceptor.accept(tcp_stream).await {
                             Ok(tls_stream) => tls_stream,
                             Err(err) => {
