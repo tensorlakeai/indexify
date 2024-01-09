@@ -1,61 +1,69 @@
-use rustls::pki_types::{PrivateKeyDer, CertificateDer};
-use rustls::server::{WebPkiClientVerifier, NoClientAuth};
-use rustls::server::danger::ClientCertVerifier;
+use std::{
+    fs,
+    io,
+    io::BufReader,
+    path::{Path, PathBuf},
+    sync::Arc,
+    vec::Vec,
+};
+
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer},
+    server::{danger::ClientCertVerifier, NoClientAuth, WebPkiClientVerifier},
+};
 use tokio_rustls::TlsAcceptor;
-use std::io::BufReader;
-use std::path::{PathBuf, Path};
-use std::{fs, io, vec::Vec};
-use std::sync::Arc;
 
 use crate::server_config::TlsConfig;
 
-/// Creates a Rustls TLS acceptor, supporting mTLS if a root CA certificate file is provided.
-pub async fn build_mtls_acceptor(
-	tls_config: &TlsConfig,
-) -> Result<TlsAcceptor, io::Error>
-{
-	// deconstruct the TlsConfig as cert_file, key_file, ca_file
-	let TlsConfig { api: _, cert_file, key_file, ca_file } = tls_config;
+/// Creates a Rustls TLS acceptor, supporting mTLS if a root CA certificate file
+/// is provided.
+pub async fn build_mtls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, io::Error> {
+    // deconstruct the TlsConfig as cert_file, key_file, ca_file
+    let TlsConfig {
+        api: _,
+        cert_file,
+        key_file,
+        ca_file,
+    } = tls_config;
 
-	let cert_file = TlsConfig::resolve_path(cert_file);
-	let key_file = TlsConfig::resolve_path(key_file);
+    let cert_file = TlsConfig::resolve_path(cert_file);
+    let key_file = TlsConfig::resolve_path(key_file);
 
     // Build TLS configuration.
-    let mut tls_config =
-        {
-            // Load server key pair
-            let (certs, key) = load_keypair(&cert_file, &key_file).unwrap();
+    let mut tls_config = {
+        // Load server key pair
+        let (certs, key) = load_keypair(&cert_file, &key_file).unwrap();
 
-			let client_auth: Arc<dyn ClientCertVerifier> = if ca_file.is_some() {
-				let ca_file = TlsConfig::resolve_path(ca_file.as_ref().unwrap());
-				// Load root CA certificate file used to verify client certificate
-				let rootstore = Arc::new(load_root_store(&ca_file)?);
-	
-				WebPkiClientVerifier::builder(
-					// allow only certificates signed by a trusted CA
-					rootstore
-				).build().map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{}", err)))?
-			} else {
-				Arc::new(NoClientAuth)
-			};
-			let config = rustls::ServerConfig::builder()
-				.with_client_cert_verifier(client_auth)
-				.with_single_cert(certs, key)
-				.map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{}", err)))?;
-            config
+        let client_auth: Arc<dyn ClientCertVerifier> = if ca_file.is_some() {
+            let ca_file = TlsConfig::resolve_path(ca_file.as_ref().unwrap());
+            // Load root CA certificate file used to verify client certificate
+            let rootstore = Arc::new(load_root_store(&ca_file)?);
+
+            WebPkiClientVerifier::builder(
+                // allow only certificates signed by a trusted CA
+                rootstore,
+            )
+            .build()
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{}", err)))?
+        } else {
+            Arc::new(NoClientAuth)
         };
+        let config = rustls::ServerConfig::builder()
+            .with_client_cert_verifier(client_auth)
+            .with_single_cert(certs, key)
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{}", err)))?;
+        config
+    };
 
-	tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-	Ok(TlsAcceptor::from(Arc::new(tls_config)))
+    tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(TlsAcceptor::from(Arc::new(tls_config)))
 }
-
 
 fn load_keypair(
     certfile: &PathBuf,
     keyfile: &PathBuf,
-) -> io::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>
-{
-	// Load and return certificate chain.
+) -> io::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
+    // Load and return certificate chain.
     let certs = load_certs(certfile);
 
     // Load and return a single private key.
@@ -92,14 +100,14 @@ fn load_private_key<P: AsRef<Path>>(filename: P) -> PrivateKeyDer<'static> {
     );
 }
 
-fn load_root_store<P: AsRef<Path>>(filename: P) -> io::Result<rustls::RootCertStore>
-{
-
-	let roots = load_certs(filename);
+fn load_root_store<P: AsRef<Path>>(filename: P) -> io::Result<rustls::RootCertStore> {
+    let roots = load_certs(filename);
     let mut store = rustls::RootCertStore::empty();
-	for root in roots {
-		store.add(root).map_err(|_| io::Error::new(io::ErrorKind::Other, "cannot add root certificate"))?;
-	}
+    for root in roots {
+        store
+            .add(root)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "cannot add root certificate"))?;
+    }
 
     Ok(store)
 }

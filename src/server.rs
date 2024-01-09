@@ -2,19 +2,26 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State, Request},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
     http::StatusCode,
     routing::{get, post},
     Json,
     Router,
 };
-
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use hyper::body::Incoming;
-use hyper_util::{server::conn::auto::Builder, rt::{TokioExecutor, TokioIo}};
+use hyper_util::{
+    rt::{TokioExecutor, TokioIo},
+    server::conn::auto::Builder,
+};
 use pyo3::Python;
-use tokio::{signal, pin, io::{AsyncRead, AsyncWrite}, sync::Notify};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    pin,
+    signal,
+    sync::Notify,
+};
 use tower::Service;
 use tracing::{error, info};
 use utoipa::OpenApi;
@@ -31,8 +38,9 @@ use crate::{
     extractor_router::ExtractorRouter,
     persistence::Repository,
     server_config::ServerConfig,
+    tls::build_mtls_acceptor,
     vector_index::VectorIndexManager,
-    vectordbs, tls::build_mtls_acceptor,
+    vectordbs,
 };
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
@@ -81,7 +89,8 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        // TLS is set to true if the "tls" field is present in the config and the TlsConfig "api" field is set to true
+        // TLS is set to true if the "tls" field is present in the config and the
+        // TlsConfig "api" field is set to true
         let use_tls = self.config.tls.is_some() && self.config.tls.as_ref().unwrap().api;
         match use_tls {
             true => {
@@ -204,7 +213,6 @@ impl Server {
             drop(signal_rx);
         });
 
-
         let listener = tokio::net::TcpListener::bind(&self.addr).await?;
 
         let shutdown_notify = Arc::new(Notify::new());
@@ -213,14 +221,12 @@ impl Server {
             shutdown_signal().await;
             notify_clone.notify_waiters();
         });
-        
+
         let acceptor = match use_tls {
-            true => Some(build_mtls_acceptor(
-                    self.config.tls.as_ref().unwrap(),
-                ).await?),
+            true => Some(build_mtls_acceptor(self.config.tls.as_ref().unwrap()).await?),
             false => None,
         };
-            
+
         loop {
             // clone for loop
             let app = app.clone();
@@ -236,7 +242,7 @@ impl Server {
                 }
             };
             info!("accepted connection from: {}", remote_addr);
-            
+
             match use_tls {
                 true => {
                     tokio::task::spawn(async move {
@@ -248,8 +254,14 @@ impl Server {
                                 return;
                             }
                         };
-                        match Self::handle_connection(Box::new(tls_stream), app.clone(), shutdown_notify).await {
-                            Ok(_) => {},
+                        match Self::handle_connection(
+                            Box::new(tls_stream),
+                            app.clone(),
+                            shutdown_notify,
+                        )
+                        .await
+                        {
+                            Ok(_) => {}
                             Err(err) => {
                                 error!("failed to handle connection: {}", err);
                             }
@@ -258,8 +270,14 @@ impl Server {
                 }
                 false => {
                     tokio::task::spawn(async move {
-                        match Self::handle_connection(Box::new(tcp_stream), app.clone(), shutdown_notify).await {
-                            Ok(_) => {},
+                        match Self::handle_connection(
+                            Box::new(tcp_stream),
+                            app.clone(),
+                            shutdown_notify,
+                        )
+                        .await
+                        {
+                            Ok(_) => {}
                             Err(err) => {
                                 error!("failed to handle connection: {}", err);
                             }
@@ -277,22 +295,22 @@ impl Server {
     ) -> Result<()> {
         let tower_service = app.clone();
         let hyper_service = hyper::service::service_fn(move |request: Request<Incoming>| {
-            // We have to clone `tower_service` because hyper's `Service` uses `&self` whereas
-            // tower's `Service` requires `&mut self`.
+            // We have to clone `tower_service` because hyper's `Service` uses `&self`
+            // whereas tower's `Service` requires `&mut self`.
             //
             // We don't need to call `poll_ready` since `Router` is always ready.
             tower_service.clone().call(request)
         });
-    
+
         let builder = Builder::new(TokioExecutor::new());
         let conn = builder.serve_connection(TokioIo::new(tcp_stream), hyper_service);
-    
+
         pin!(conn);
 
         // TODO: make configurable
         let timeout_duration = 60;
         let timeout = tokio::time::sleep(std::time::Duration::from_secs(timeout_duration));
-    
+
         loop {
             tokio::select! {
                 res = conn.as_mut() => {
@@ -314,8 +332,8 @@ impl Server {
     }
 }
 
-// implement Stream for all types that implement AsyncRead + AsyncWrite + Send + Unpin
-// i.e. TcpStream and TlsStream
+// implement Stream for all types that implement AsyncRead + AsyncWrite + Send +
+// Unpin i.e. TcpStream and TlsStream
 pub trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> Stream for T {}
 
