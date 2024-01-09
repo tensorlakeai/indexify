@@ -36,6 +36,9 @@ push-container:
 entity:
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
+fmt:
+	rustup run nightly cargo fmt
+
 local-dev:
 	docker stop indexify-local-postgres || true
 	docker run --rm -p 5432:5432 --name=indexify-local-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexify -d ankane/pgvector
@@ -72,9 +75,6 @@ shell:
 
 serve-docs:
 	(cd docs && mkdocs serve)
-
-fmt:
-	cargo +nightly fmt
 
 install: build-release
 	install -d $(DESTDIR)$(BINDIR)
