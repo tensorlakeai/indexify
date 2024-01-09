@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
 
@@ -16,74 +16,9 @@ use sea_orm::{
     Set,
 };
 use serde::{Deserialize, Serialize};
-use smart_default::SmartDefault;
-use strum::{Display, EnumString};
-use thiserror::Error;
 use tracing::info;
 
 use crate::entity;
-
-#[derive(Clone, Error, Debug, Display, EnumString, Serialize, Deserialize, SmartDefault)]
-pub enum PayloadType {
-    #[strum(serialize = "embedded_storage")]
-    #[default]
-    EmbeddedStorage,
-
-    #[strum(serialize = "blob_storage_link")]
-    BlobStorageLink,
-}
-
-#[derive(Debug, Clone)]
-pub struct ContentPayload {
-    pub id: String,
-    pub content_type: mime::Mime,
-    pub payload: String,
-    pub payload_type: PayloadType,
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
-impl ContentPayload {
-    pub fn from_text(
-        repository: &str,
-        text: &str,
-        metadata: HashMap<String, serde_json::Value>,
-    ) -> Self {
-        let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
-        text.hash(&mut s);
-        let id = format!("{:x}", s.finish());
-        Self {
-            id,
-            content_type: mime::TEXT_PLAIN,
-            payload: text.into(),
-            payload_type: PayloadType::EmbeddedStorage,
-            metadata,
-        }
-    }
-
-    pub fn from_file(repository: &str, name: &str, path: &str) -> Self {
-        let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
-        name.hash(&mut s);
-        let id = format!("{:x}", s.finish());
-        let mime_type = mime_guess::from_path(name).first_or_octet_stream();
-        Self {
-            id,
-            content_type: mime_type,
-            payload: path.into(),
-            payload_type: PayloadType::BlobStorageLink,
-            metadata: HashMap::new(),
-        }
-    }
-}
-
-pub struct ChunkWithMetadata {
-    pub chunk_id: String,
-    pub content_id: String,
-    pub text: String,
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedAttributes {
     pub id: String,

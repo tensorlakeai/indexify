@@ -6,13 +6,11 @@ use std::{
 };
 
 use anyhow::anyhow;
-use serde_json::json;
 use tokio::signal;
 use tonic::{Request, Response, Status};
 use tracing::{error, info};
 
 use crate::{
-    attribute_index::AttributeIndexManager,
     coordinator::Coordinator,
     indexify_coordinator::{
         self,

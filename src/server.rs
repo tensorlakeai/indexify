@@ -386,9 +386,19 @@ async fn add_texts(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
+    let content = payload
+        .documents
+        .iter()
+        .map(|d| api::Content {
+            content_type: mime::TEXT_PLAIN.to_string(),
+            bytes: d.text.as_bytes().to_vec(),
+            metadata: d.metadata.clone(),
+            feature: None,
+        })
+        .collect();
     state
         .repository_manager
-        .add_texts(&repository_name, payload.documents)
+        .add_texts(&repository_name, content)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(

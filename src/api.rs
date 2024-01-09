@@ -145,7 +145,7 @@ pub struct ExtractorBindResponse {
 pub struct Text {
     pub text: String,
     #[serde(default)]
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -354,8 +354,9 @@ pub struct Feature {
 pub struct Content {
     pub content_type: String,
     #[serde_as(as = "BytesOrString")]
-    pub source: Vec<u8>,
+    pub bytes: Vec<u8>,
     pub feature: Option<Feature>,
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

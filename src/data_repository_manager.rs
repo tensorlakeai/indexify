@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use nanoid::nanoid;
 use sea_orm::DbConn;
 use tracing::info;
 
@@ -206,42 +207,12 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn add_texts(&self, repo_name: &str, texts: Vec<api::Text>) -> Result<()> {
-        let current_ts = SystemTime::now();
-        let current_ts_ms = current_ts
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_millis();
-        let current_ts_secs = current_ts.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
-        for (i, text) in texts.iter().enumerate() {
-            let mut s = DefaultHasher::new();
-            repo_name.hash(&mut s);
-            text.text.hash(&mut s);
-            let id = format!("{:x}", s.finish());
-            let file_name = format!("{}_{}", current_ts_ms, i);
-            let storage_url = self
-                .upload_file(repo_name, &file_name, Bytes::from(text.text.clone()))
-                .await
-                .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
-            let labels = text
-                .metadata
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k, v.to_string()))
-                .collect();
-            let content_metadata = ContentMetadata {
-                id,
-                file_name,
-                storage_url,
-                parent_id: "".to_string(),
-                created_at: current_ts_secs as i64,
-                mime: mime::TEXT_PLAIN.to_string(),
-                repository: repo_name.to_string(),
-                labels,
-            };
+    pub async fn add_texts(&self, repo_name: &str, content_list: Vec<api::Content>) -> Result<()> {
+        for text in content_list {
+            let content_metadata = self.write_content(repo_name, text, None).await?;
             let req = CreateContentRequest {
                 content: Some(content_metadata),
             };
-
             self.coordinator_client
                 .get()
                 .await?
@@ -257,8 +228,40 @@ impl DataRepositoryManager {
         Ok(())
     }
 
-    async fn write_content(&self, content: api::Content) -> Result<ContentMetadata> {
-        Err(anyhow!("not implemented"))
+    async fn write_content(
+        &self,
+        repository: &str,
+        content: api::Content,
+        parent_id: Option<String>,
+    ) -> Result<ContentMetadata> {
+        let current_ts_secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs();
+        let mut s = DefaultHasher::new();
+        repository.hash(&mut s);
+        content.bytes.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        let file_name = nanoid!();
+        let storage_url = self
+            .upload_file(repository, &file_name, Bytes::from(content.bytes.clone()))
+            .await
+            .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
+        let labels = content
+            .metadata
+            .clone()
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect();
+        Ok(ContentMetadata {
+            id,
+            file_name,
+            storage_url,
+            parent_id: parent_id.unwrap_or_default(),
+            created_at: current_ts_secs as i64,
+            mime: mime::TEXT_PLAIN.to_string(),
+            repository: repository.to_string(),
+            labels,
+        })
     }
 
     pub async fn write_extracted_content(
@@ -266,7 +269,13 @@ impl DataRepositoryManager {
         extracted_content: api::WriteExtractedContent,
     ) -> Result<()> {
         for content in extracted_content.content_list {
-            let content_metadata = self.write_content(content.clone()).await?;
+            let content_metadata = self
+                .write_content(
+                    &extracted_content.repository,
+                    content.clone(),
+                    Some(extracted_content.parent_content_id.to_string()),
+                )
+                .await?;
             if let Some(feature) = content.feature.clone() {
                 match feature.feature_type {
                     api::FeatureType::Embedding => {

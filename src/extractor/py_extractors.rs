@@ -63,6 +63,7 @@ impl TryFrom<PyContent> for internal_api::Content {
             mime: mime_type.to_string(),
             bytes: py_content.data,
             feature,
+            metadata: HashMap::new(),
         };
         Ok(extracted_content)
     }
@@ -236,6 +237,7 @@ impl Extractor for PythonExtractor {
                         mime,
                         bytes: data,
                         feature,
+                        metadata: HashMap::new(),
                     });
                 }
                 extracted_content.push(temp);

@@ -117,8 +117,9 @@ impl VectorIndexManager {
             .ok_or(anyhow!("Index not found"))?;
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
-            source: query.as_bytes().into(),
+            bytes: query.as_bytes().into(),
             feature: None,
+            metadata: HashMap::new(),
         };
         let content = self
             .extractor_router

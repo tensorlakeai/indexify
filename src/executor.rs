@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt,
     sync::{atomic::AtomicBool, Arc},
     time::SystemTime,
@@ -177,6 +178,7 @@ impl ExtractorExecutor {
             mime: content_metadata.content_type,
             bytes: data,
             feature: None,
+            metadata: HashMap::new(),
         };
         Ok(extracted_content)
     }

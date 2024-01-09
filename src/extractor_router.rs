@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 
@@ -26,8 +26,9 @@ impl ExtractorRouter {
         let request = internal_api::ExtractRequest {
             content: internal_api::Content {
                 mime: content.content_type,
-                bytes: content.source,
+                bytes: content.bytes,
                 feature: None,
+                metadata: HashMap::new(),
             },
             input_params,
         };

@@ -205,6 +205,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub feature: Option<Feature>,
+    pub metadata: HashMap<String, String>,
 }
 
 impl Content {
@@ -223,12 +224,13 @@ impl From<Content> for api::Content {
     fn from(content: Content) -> Self {
         Self {
             content_type: content.mime,
-            source: content.bytes,
+            bytes: content.bytes,
             feature: content.feature.map(|f| api::Feature {
                 feature_type: f.feature_type.into(),
                 name: f.name,
                 data: f.data,
             }),
+            metadata: content.metadata,
         }
     }
 }

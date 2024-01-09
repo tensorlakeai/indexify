@@ -1,7 +1,7 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use anyhow::{anyhow, Ok, Result};

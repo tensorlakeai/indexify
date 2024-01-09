@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use anyhow::{anyhow, Ok, Result};
 
@@ -35,6 +35,7 @@ impl ExtractorRunner {
             bytes: data,
             mime: mime.to_string(),
             feature: None,
+            metadata: HashMap::new(),
         };
         let extracted_content = self.extract(vec![content], serde_json::Value::Null)?;
         let extracted_content = extracted_content
