@@ -7,14 +7,12 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
-    grpc_helper::GrpcHelper,
-    indexify_coordinator::{self, CreateIndexRequest, Index},
+    indexify_coordinator::Index,
     internal_api::EmbeddingSchema,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
 
 pub struct VectorIndexManager {
-    coordinator_client: Arc<CoordinatorClient>,
     vector_db: VectorDBTS,
     extractor_router: ExtractorRouter,
 }
@@ -36,7 +34,6 @@ impl VectorIndexManager {
     pub fn new(coordinator_client: Arc<CoordinatorClient>, vector_db: VectorDBTS) -> Self {
         let extractor_router = ExtractorRouter::new(coordinator_client.clone());
         Self {
-            coordinator_client,
             vector_db,
             extractor_router,
         }
@@ -46,8 +43,6 @@ impl VectorIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extractor_name: &str,
-        extractor_binding: &str,
         schema: EmbeddingSchema,
     ) -> Result<String> {
         let vector_index_name = format!("{}-{}", repository, index_name);
@@ -57,25 +52,7 @@ impl VectorIndexManager {
             distance: IndexDistance::from_str(schema.distance.as_str())?,
             unique_params: None,
         };
-        self.vector_db.create_index(create_index_params).await?;
-        let index = CreateIndexRequest {
-            index: Some(Index {
-                name: index_name.to_string(),
-                table_name: vector_index_name.clone(),
-                repository: repository.to_string(),
-                schema: serde_json::to_value(schema).unwrap().to_string(),
-                extractor_binding: extractor_binding.to_string(),
-                extractor: extractor_name.to_string(),
-            }),
-        };
-        let req = GrpcHelper::into_req(index);
-        let _resp = self
-            .coordinator_client
-            .get()
-            .await?
-            .create_index(req)
-            .await?;
-
+        self.vector_db.create_index(create_index_params).await?; 
         Ok(vector_index_name.to_string())
     }
 
@@ -98,24 +75,10 @@ impl VectorIndexManager {
 
     pub async fn search(
         &self,
-        repository: &str,
-        index: &str,
+        index: Index,
         query: &str,
         k: usize,
     ) -> Result<Vec<ScoredText>> {
-        let req = indexify_coordinator::GetIndexRequest {
-            repository: repository.to_string(),
-            name: index.to_string(),
-        };
-        let index = self
-            .coordinator_client
-            .get()
-            .await?
-            .get_index(req)
-            .await?
-            .into_inner()
-            .index
-            .ok_or(anyhow!("Index not found"))?;
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
