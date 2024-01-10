@@ -9,20 +9,18 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use nanoid::nanoid;
-use sea_orm::DbConn;
 use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 use crate::{
     api::{self, EmbeddingSchema},
-    attribute_index::AttributeIndexManager,
+    attribute_index::{AttributeIndexManager, ExtractedAttributes},
     blob_storage::BlobStorageTS,
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
-    indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
+    indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest, Index, CreateIndexRequest},
     internal_api::{self, OutputSchema},
-    persistence::{ExtractedAttributes, Repository},
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -56,23 +54,20 @@ impl DataRepositoryManager {
     }
 
     #[allow(dead_code)]
-    pub fn new_with_db(
-        db: DbConn,
+    pub async fn new_with_db(
+        db_addr: &str,
         vector_index_manager: Arc<VectorIndexManager>,
         blob_storage: BlobStorageTS,
         coordinator_client: Arc<CoordinatorClient>,
-    ) -> Self {
-        let repository = Arc::new(Repository::new_with_db(db));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(
-            repository.clone(),
-            coordinator_client.clone(),
-        ));
-        Self {
+    ) -> Result<Self> {
+        let attribute_index_manager =
+            Arc::new(AttributeIndexManager::new(db_addr, coordinator_client.clone()).await?);
+        Ok(Self {
             vector_index_manager,
             attribute_index_manager,
             blob_storage,
             coordinator_client,
-        }
+        })
     }
 
     #[tracing::instrument]
@@ -184,9 +179,17 @@ impl DataRepositoryManager {
                         .create_index(
                             repository,
                             &index_name,
-                            &extractor.name,
+                            embedding_schema.clone(),
+                        )
+                        .await?;
+                    let _ = self
+                        .create_index_metadata(
+                            repository,
+                            &index_name,
+                            &index_name,
+                            serde_json::to_value(embedding_schema)?,
                             &extractor_binding.name,
-                            embedding_schema,
+                            &extractor.name,
                         )
                         .await?;
                     index_names.push(index_name);
@@ -209,6 +212,28 @@ impl DataRepositoryManager {
         }
 
         Ok(index_names)
+    }
+
+    async fn create_index_metadata(&self, repository: &str, index_name: &str, vector_index_name: &str, schema: serde_json::Value, binding: &str, extractor: &str) -> Result<()> {
+        let index = CreateIndexRequest{
+            index: Some(Index{
+                name: index_name.to_string(),
+                table_name: vector_index_name.to_string(),
+                repository: repository.to_string(),
+                schema: serde_json::to_value(schema).unwrap().to_string(),
+                extractor_binding: binding.to_string(),
+                extractor: extractor.to_string(),
+            }),
+        };
+        let req = GrpcHelper::into_req(index);
+        let _resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .create_index(req)
+            .await?;
+        Ok(())
+
     }
 
     pub async fn list_content(&self, repository: &str) -> Result<Vec<api::ContentMetadata>> {
@@ -381,8 +406,21 @@ impl DataRepositoryManager {
         query: &str,
         k: u64,
     ) -> Result<Vec<ScoredText>> {
+        let req = indexify_coordinator::GetIndexRequest {
+            repository: repository.to_string(),
+            name: index_name.to_string(),
+        };
+        let index = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_index(req)
+            .await?
+            .into_inner()
+            .index
+            .ok_or(anyhow!("Index not found"))?;
         self.vector_index_manager
-            .search(repository, index_name, query, k as usize)
+            .search(index, query, k as usize)
             .await
     }
 

@@ -22,17 +22,14 @@ mod content_reader;
 mod coordinator;
 mod coordinator_client;
 mod data_repository_manager;
-mod entity;
 mod executor;
 mod extractor_router;
 mod grpc_helper;
-mod index;
 #[rustfmt::skip]
 mod indexify_coordinator;
 #[rustfmt::skip]
 mod indexify_raft;
 mod internal_api;
-mod persistence;
 mod task_store;
 mod test_util;
 mod tls;

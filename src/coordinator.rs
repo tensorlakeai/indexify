@@ -78,19 +78,17 @@ impl Coordinator {
         // work_id -> executor_id
         let mut task_assignments = HashMap::new();
         for task in unallocated_tasks {
-            println!("DIPTANU task: {:?}", task);
             let executors = self
                 .shared_state
                 .get_executors_for_extractor(&task.extractor)
                 .await?;
-            println!("DIPTANU executors : {:?}", executors);
             if !executors.is_empty() {
                 let rand_index = rand::random::<usize>() % executors.len();
                 let executor_meta = executors[rand_index].clone();
                 task_assignments.insert(task.id.clone(), executor_meta.id.clone());
             }
         }
-        info!("finishing work assignment: {:}", task_assignments.len());
+        info!("finishing work assignment: {:?}", task_assignments);
         Ok(task_assignments)
     }
 
@@ -123,6 +121,7 @@ impl Coordinator {
                 content_metadata: content.clone(),
                 input_params: extractor_binding.input_params.clone(),
             };
+            info!("created task: {:?}", task);
             tasks.push(task);
         }
         Ok(tasks)

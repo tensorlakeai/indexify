@@ -11,7 +11,7 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::{indexify_coordinator, persistence, vectordbs};
+use crate::{attribute_index, indexify_coordinator, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
@@ -259,8 +259,8 @@ pub struct ExtractedAttributes {
     pub extractor_name: String,
 }
 
-impl From<persistence::ExtractedAttributes> for ExtractedAttributes {
-    fn from(value: persistence::ExtractedAttributes) -> Self {
+impl From<attribute_index::ExtractedAttributes> for ExtractedAttributes {
+    fn from(value: attribute_index::ExtractedAttributes) -> Self {
         Self {
             id: value.id,
             content_id: value.content_id,

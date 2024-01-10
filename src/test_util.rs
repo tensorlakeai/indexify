@@ -2,8 +2,6 @@
 pub mod db_utils {
     use std::{collections::HashMap, sync::Arc};
 
-    use migration::{Migrator, MigratorTrait};
-    use sea_orm::{Database, DatabaseConnection, DbErr};
     use serde_json::json;
 
     use crate::{
@@ -11,7 +9,6 @@ pub mod db_utils {
         executor::ExtractorExecutor,
         extractor::{extractor_runner, py_extractors},
         internal_api::{EmbeddingSchema, ExtractorDescription, OutputSchema},
-        persistence::Repository,
         server_config::{ExtractorConfig, ServerConfig},
         vectordbs::{qdrant::QdrantDb, VectorDBTS},
     };
@@ -49,15 +46,12 @@ pub mod db_utils {
         }
     }
 
-    pub async fn create_index_manager(
-        db: DatabaseConnection,
-    ) -> (ExtractorExecutor, CoordinatorServer) {
+    pub async fn create_index_manager() -> (ExtractorExecutor, CoordinatorServer) {
         let index_name = format!("{}/{}", DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR);
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::server_config::QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
         let _ = qdrant.drop_index(index_name).await;
-        let repository = Arc::new(Repository::new_with_db(db.clone()));
         let server_config = Arc::new(ServerConfig::from_path("local_server_config.yaml").unwrap());
         let executor_config = Arc::new(crate::server_config::ExecutorConfig::default());
         let extractor_config = Arc::new(mock_extractor_config());
@@ -67,16 +61,8 @@ pub mod db_utils {
         let extractor_runner =
             extractor_runner::ExtractorRunner::new(Arc::new(extractor), mock_extractor_config());
         let extractor_executor =
-            ExtractorExecutor::new_test(repository.clone(), executor_config, extractor_runner)
-                .unwrap();
+            ExtractorExecutor::new_test(executor_config, extractor_runner).unwrap();
         let coordinator_svr = CoordinatorServer::new(server_config).await.unwrap();
         (extractor_executor, coordinator_svr)
-    }
-
-    pub async fn create_db() -> Result<DatabaseConnection, DbErr> {
-        let db = Database::connect("postgres://postgres:postgres@localhost/indexify_test").await?;
-        Migrator::fresh(&db).await?;
-
-        Ok(db)
     }
 }

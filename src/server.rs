@@ -36,7 +36,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
     extractor_router::ExtractorRouter,
-    persistence::Repository,
     server_config::ServerConfig,
     tls::build_mtls_acceptor,
     vector_index::VectorIndexManager,
@@ -101,20 +100,15 @@ impl Server {
             }
             false => info!("starting indexify server with TLS disabled"),
         }
-        let repository = Arc::new(Repository::new(&self.config.db_url).await?);
-        let vector_db = vectordbs::create_vectordb(
-            self.config.index_config.clone(),
-            repository.get_db_conn_clone(),
-        )?;
+        let vector_db = vectordbs::create_vectordb(self.config.index_config.clone()).await?;
         let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
         let vector_index_manager = Arc::new(VectorIndexManager::new(
             coordinator_client.clone(),
             vector_db.clone(),
         ));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(
-            repository.clone(),
-            coordinator_client.clone(),
-        ));
+        let attribute_index_manager = Arc::new(
+            AttributeIndexManager::new(&self.config.db_url, coordinator_client.clone()).await?,
+        );
 
         let blob_storage =
             BlobStorageBuilder::new(Arc::new(self.config.blob_storage.clone())).build()?;

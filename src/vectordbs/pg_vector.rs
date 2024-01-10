@@ -1,21 +1,11 @@
 use std::fmt;
 
+use anyhow::Result;
 use async_trait::async_trait;
-use itertools::Itertools;
-use sea_orm::{
-    self,
-    query::JsonValue,
-    ConnectionTrait,
-    DbBackend,
-    DbConn,
-    ExecResult,
-    FromQueryResult,
-    Statement,
-};
-use serde_json::Value;
-use tracing::{debug, warn};
+use pgvector::Vector;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
-use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb, VectorDbError};
+use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
 use crate::server_config::PgVectorConfig;
 
 #[derive(Debug, Clone)]
@@ -37,12 +27,16 @@ impl fmt::Display for IndexName {
 #[derive(Debug)]
 pub struct PgVector {
     config: PgVectorConfig,
-    db_conn: DbConn,
+    pool: Pool<Postgres>,
 }
 
 impl PgVector {
-    pub fn new(config: PgVectorConfig, db_conn: DbConn) -> PgVector {
-        Self { config, db_conn }
+    pub async fn new(config: PgVectorConfig) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&config.addr)
+            .await?;
+        Ok(Self { config, pool })
     }
 }
 
@@ -60,7 +54,11 @@ impl VectorDb for PgVector {
 
     /// we create a new table for each index.
     #[tracing::instrument]
-    async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
+    async fn create_index(&self, index: CreateIndexParams) -> Result<()> {
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
+            .execute(&self.pool)
+            .await?;
+
         let index_name = IndexName::new(&index.vectordb_index_name);
         let vector_dim = index.vector_dim;
         let distance_extension = match &index.distance {
@@ -69,136 +67,28 @@ impl VectorDb for PgVector {
             crate::vectordbs::IndexDistance::Dot => "vector_ip_ops",
         };
 
-        let query = r#"CREATE EXTENSION IF NOT EXISTS vector;"#;
-        let _ = self
-            .db_conn
-            .execute(Statement::from_string(
-                DbBackend::Postgres,
-                query.to_string(),
-            ))
-            .await
-            .map_err(|e| {
-                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
-            })?;
-        // the "id" here corresponds to the chunk-id, and is NOT SERIAL
-        let query = format!(
-            r#"CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(chunk_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));"#,
-        );
-        self.db_conn
-            .execute(Statement::from_string(DbBackend::Postgres, query))
-            .await
-            .map_err(|e| {
-                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
-            })?;
+        let query = format!("CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(content_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));",);
 
-        // Create index if dimensions is below 2000. It will be much slower for larger
-        // vectors, we should be explicit about this in the docs
-        // This is a limitation of pg_vector
-        if vector_dim >= 2000 {
-            warn!(
-                "You are trying to index vectors with dimension {}. This will be very slow.",
-                vector_dim
-            );
-        }
-        debug!("Parameters for index {} are: {:?}", index_name, self.config);
-        // IF NOT EXISTS requires an index-name in postgres.
-        // "_{INDEX_TABLE_PREFIX}{index_name}_hnsw" is automatically set as the
-        // index-name
-        let query = format!(
-            r#"
-                    CREATE INDEX IF NOT EXISTS _{INDEX_TABLE_PREFIX}{index_name}_hnsw ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});
-                "#,
+        let _ = sqlx::query(&query).execute(&self.pool).await?;
+        let query = format!("CREATE INDEX IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}_hnsw ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});",
             self.config.m, self.config.efconstruction
         );
-        let _ = self
-            .db_conn
-            .execute(Statement::from_string(DbBackend::Postgres, query))
-            .await
-            .map_err(|e| {
-                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
-            })?;
-
-        let query = format!(r#"SET hnsw.ef_search = {};"#, self.config.efsearch);
-        let _ = self
-            .db_conn
-            .execute(Statement::from_string(
-                DbBackend::Postgres,
-                query.to_string(),
-            ))
-            .await
-            .map_err(|e| {
-                VectorDbError::IndexNotCreated(format!("{:?}: {:?}", index_name.clone(), e))
-            })?;
-
+        let _ = sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
     }
 
     #[tracing::instrument]
-    async fn add_embedding(
-        &self,
-        index: &str,
-        chunks: Vec<VectorChunk>,
-    ) -> Result<(), VectorDbError> {
+    async fn add_embedding(&self, index: &str, chunks: Vec<VectorChunk>) -> Result<()> {
         let index = IndexName::new(index);
-        // Because sea-orm is not super flexible in accepting arrays of tuples, we build
-        // the query somewhat manually. Indexing starts at 1 (with $1) in
-        // Postgres We "unroll" tuples of (chunk_id, embedding).
-        // After the table-name, every second item is the chunk_id.
-        // After the table-name, and with an offset of 1 (because chunk_id is inserted),
-        // every second item is the embedding The final query looks similar to:
-        // INSERT INTO index_table (chunk_id, embedding) VALUES (chunk_id_1,
-        // embedding_1), (chunk_id_2, embedding_2), ..., (chunk_id_n, embedding_n);
-        // |>(1+2*0)=$1 |>(2+2*0)=$2  |>(1+2*1)=$3 |>(2+2*4)=$4       |>(1+2*n)
-        // |>(2+2*n)
-        let value_placeholders = chunks
-            .iter()
-            .enumerate()
-            .map(|(idx, _)| format!("(${}, ${})", 1 + 2 * idx, 2 + 2 * idx))
-            .join(", ");
-        let query = format!(
-            r#"
-                INSERT INTO {INDEX_TABLE_PREFIX}{index} (chunk_id, embedding) VALUES {value_placeholders}
-                ON CONFLICT (chunk_id)
-                DO UPDATE SET embedding = EXCLUDED.embedding;
-            "#
-        );
-        // Due to the limitations of sea-query (we cannot encode tuples, nor can we
-        // encode arrays of arrays) We iteratively build out the query manually
-        let parameters = chunks
-            .into_iter()
-            .flat_map(|chunk| {
-                vec![
-                    sea_orm::Value::String(Some(Box::new(chunk.chunk_id))),
-                    sea_orm::sea_query::Value::Array(
-                        sea_orm::sea_query::ArrayType::Float,
-                        Some(Box::new(
-                            chunk
-                                .embeddings
-                                .into_iter()
-                                .map(|x| sea_orm::Value::Float(Some(x)))
-                                .collect(),
-                        )),
-                    ),
-                ]
-            })
-            .collect::<Vec<sea_orm::Value>>();
-        let exec_res: ExecResult = self
-            .db_conn
-            .execute(Statement::from_sql_and_values(
-                DbBackend::Postgres,
-                query.as_str(),
-                parameters,
-            ))
-            .await
-            .map_err(|e| {
-                VectorDbError::IndexNotWritten(format!("{:?} {:?}", index.to_string(), e))
-            })?;
-        if exec_res.rows_affected() == 0 {
-            return Err(VectorDbError::IndexNotWritten(format!(
-                "{:?} {:?}",
-                index.to_string(),
-                "No rows were inserted".to_string(),
-            )));
+
+        for chunk in chunks {
+            let embedding = Vector::from(chunk.embedding);
+            let query = format!("INSERT INTO {INDEX_TABLE_PREFIX}{index}(content_id, embedding) VALUES ($1, $2) ON CONFLICT (content_id) DO UPDATE SET embedding = $2;",);
+            let _ = sqlx::query(&query)
+                .bind(chunk.content_id)
+                .bind(embedding)
+                .execute(&self.pool)
+                .await?;
         }
         Ok(())
     }
@@ -209,87 +99,54 @@ impl VectorDb for PgVector {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-    ) -> Result<Vec<SearchResult>, VectorDbError> {
+    ) -> Result<Vec<SearchResult>> {
         let index = IndexName::new(&index);
+        let query = format!(
+            "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> $1 LIMIT {k};"
+        );
         // TODO: confidence_score is a distance here, let's make sure that similarity /
         // distance is the same across vectors databases
-        let query = format!(
-            r#"
-            SELECT chunk_id, CAST(embedding <-> ($1)::vector AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> ($1)::vector LIMIT {k};
-        "#
-        );
-        let query_embedding = query_embedding
+        let embedding = Vector::from(query_embedding);
+        let rows = sqlx::query(&query)
+            .bind(embedding)
+            .fetch_all(&self.pool)
+            .await?;
+        let results = rows
             .into_iter()
-            .map(|x| sea_orm::Value::Float(Some(x)))
+            .map(|row| {
+                let content_id: String = row.get(0);
+                let confidence_score: f32 = row.get(1);
+                SearchResult {
+                    content_id,
+                    confidence_score,
+                }
+            })
             .collect();
-        SearchResult::find_by_statement(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            query.as_str(),
-            [sea_orm::sea_query::Value::Array(
-                sea_orm::sea_query::ArrayType::Float,
-                Some(Box::new(query_embedding)),
-            )],
-        ))
-        .all(&self.db_conn)
-        .await
-        .map_err(|e| VectorDbError::IndexNotRead(format!("Search Error {:?}: {:?}", index, e)))
+        Ok(results)
     }
 
     // TODO: Should change index to &str to keep things uniform across functions
     #[tracing::instrument]
-    async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
+    async fn drop_index(&self, index: String) -> Result<()> {
         let index = IndexName::new(&index);
         let query = format!("DROP TABLE IF EXISTS {INDEX_TABLE_PREFIX}{index};");
-        self.db_conn
-            .execute(Statement::from_string(
-                DbBackend::Postgres,
-                query.to_string(),
-            ))
-            .await
-            .map_err(|e| VectorDbError::IndexNotDeleted(index.0, format!("{:?}", e)))?;
+        let _ = sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
     }
 
     #[tracing::instrument]
-    async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
+    async fn num_vectors(&self, index: &str) -> Result<u64> {
         let index = IndexName::new(index);
         let query = format!("SELECT COUNT(*) FROM {INDEX_TABLE_PREFIX}{index};");
-        let response: JsonValue =
-            JsonValue::find_by_statement(Statement::from_string(DbBackend::Postgres, query))
-                .one(&self.db_conn)
-                .await
-                .map_err(|e| {
-                    VectorDbError::IndexNotRead(format!("Num Vectors{:?}: {:?}", index, e))
-                })?
-                .ok_or(VectorDbError::IndexNotRead(
-                    "num_vectors did not run successfully".to_string(),
-                ))?;
-        match response {
-            Value::Object(mut x) => {
-                let x = x.remove("count").ok_or(VectorDbError::IndexNotRead(
-                    "SELECT COUNT(*) did not return a dictionary with key 'count'".to_string(),
-                ))?;
-                match x {
-                    Value::Number(n) => n.as_u64().ok_or(VectorDbError::IndexNotRead(
-                        "COUNT(*) did not return a positive integer".to_string(),
-                    )),
-                    _ => Err(VectorDbError::IndexNotRead(
-                        "COUNT(*) did not return Number".to_string(),
-                    )),
-                }
-            }
-            _ => Err(VectorDbError::IndexNotRead(
-                "SELECT COUNT(*) did not an object".to_string(),
-            )),
-        }
+        let result = sqlx::query(&query).fetch_one(&self.pool).await?;
+        let count: i64 = result.get(0);
+        Ok(count as u64)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-
-    use sea_orm::Database;
 
     use super::CreateIndexParams;
     use crate::{
@@ -303,16 +160,16 @@ mod tests {
         // Create the sea-orm connection, s.t. we can share it with the
         // application-level pool
         let database_url = "postgres://postgres:postgres@localhost/indexify";
-        let db_conn = Database::connect(database_url).await.unwrap();
-        let vector_db: VectorDBTS = Arc::new(PgVector::new(
-            PgVectorConfig {
+        let vector_db: VectorDBTS = Arc::new(
+            PgVector::new(PgVectorConfig {
                 addr: database_url.to_string(),
                 m: 16,
                 efconstruction: 64,
                 efsearch: 40,
-            },
-            db_conn,
-        ));
+            })
+            .await
+            .unwrap(),
+        );
         // Drop index (this is idempotent)
         vector_db.drop_index("hello-index".into()).await.unwrap();
         vector_db
@@ -325,8 +182,8 @@ mod tests {
             .await
             .unwrap();
         let chunk = VectorChunk {
-            chunk_id: "0".into(),
-            embeddings: vec![0., 2.],
+            content_id: "0".into(),
+            embedding: vec![0., 2.],
         };
         vector_db
             .add_embedding("hello-index", vec![chunk])
@@ -347,16 +204,16 @@ mod tests {
         let hash_on = vec!["user_id".to_string(), "url".to_string()];
 
         let database_url = "postgres://postgres:postgres@localhost/indexify";
-        let db_conn = Database::connect(database_url).await.unwrap();
-        let vector_db: VectorDBTS = Arc::new(PgVector::new(
-            PgVectorConfig {
+        let vector_db: VectorDBTS = Arc::new(
+            PgVector::new(PgVectorConfig {
                 addr: database_url.to_string(),
                 m: 16,
                 efconstruction: 64,
                 efsearch: 40,
-            },
-            db_conn,
-        ));
+            })
+            .await
+            .unwrap(),
+        );
 
         vector_db.drop_index(index_name.into()).await.unwrap();
         vector_db
@@ -369,8 +226,8 @@ mod tests {
             .await
             .unwrap();
         let chunk = VectorChunk {
-            chunk_id: "0".into(),
-            embeddings: vec![0., 2.],
+            content_id: "0".into(),
+            embedding: vec![0., 2.],
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])
