@@ -23,8 +23,6 @@ ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 RUN cargo build --release
 
-RUN cargo build --package migration --release
-
 FROM ubuntu:22.04
 
 RUN apt update
@@ -34,8 +32,6 @@ RUN apt install -y libssl-dev python3-dev
 WORKDIR /indexify
 
 COPY --from=builder /indexify-build/target/release/indexify ./
-
-COPY --from=builder /indexify-build/target/release/migration ./
 
 COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
 
