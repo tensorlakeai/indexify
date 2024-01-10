@@ -7,7 +7,8 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
-    indexify_coordinator::Index,
+    grpc_helper::GrpcHelper,
+    indexify_coordinator::{self, CreateIndexRequest, Index},
     internal_api::EmbeddingSchema,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
