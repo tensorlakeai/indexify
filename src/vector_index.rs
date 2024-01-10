@@ -7,7 +7,12 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
+<<<<<<< HEAD
     indexify_coordinator::Index,
+=======
+    grpc_helper::GrpcHelper,
+    indexify_coordinator::{self, CreateIndexRequest, Index},
+>>>>>>> f167db7 (Removing orm)
     internal_api::EmbeddingSchema,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
