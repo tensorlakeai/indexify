@@ -10,7 +10,7 @@ repository = "https://github.com/diptanu/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
-httpx = "^0.24.1"
+httpx = { version = "^0.24.1", extras = ["http2"] }
 
 [tool.poetry.dev-dependencies]
 black = "^22.3.0"

@@ -13,10 +13,19 @@ pip install indexify
 ## Usage
 
 See the [getting started](https://getindexify.com/getting_started/) guide for examples of how to use the client.
+Look at the [sdk-py/examples](examples) directory for more examples.
 
 ## Development
 
-For first time setup, follow the steps [here](https://getindexify.com/develop/).
+Install and run the `poetry` package manager:
+
+```shell
+pip install poetry
+poetry install
+```
+
+More information at [https://python-poetry.org/docs/](https://python-poetry.org/docs/).
+
 
 ### Steps for restarting dev server after updating server code
 
@@ -36,9 +45,4 @@ make local-dev
 
 ### Environment Variables
 
-IndexifyClient uses httpx under the hood, so you can set the following environment variables to configure the client to use https:
-
-- `SSL_CERT_FILE`: path to a file containing the SSL certificate
-- `SSL_CERT_DIR`: path to a directory containing SSL certificates
-
-`httpx` also offers proxy support. More information on supported environment variables can be found [here](https://www.python-httpx.org/environment_variables/).
+IndexifyClient uses httpx under the hood, so there are many environment variables that can be used to configure the client. More information on supported environment variables can be found [here](https://www.python-httpx.org/environment_variables/).

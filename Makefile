@@ -10,36 +10,41 @@ BINDIR = $(PREFIX)/bin
 # Target executable
 TARGET = ./target/release/$(APPLICATION_NAME)
 
-build:
+build: ## Build rust application
 	cargo build
 
-build-release:
+build-release: ## Build rust release
 	cargo build --release
 
-clean:
+clean: ## Clean rust build artifacts
 	cargo clean
 
-build-container:
+build-container: ## Build container
 	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune --force --filter label=stage=builder
 
 
-build-base-extractor:
+build-base-extractor: ## Build base extractor container
 	docker build -f dockerfiles/Dockerfile.extractor_base --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
 
-build-base-extractor-push:
+build-base-extractor-push: ## Build and push base extractor container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.extractor_base --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
 
-push-container:
+push-container: ## Push container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
-entity:
+entity: ## Generate entity
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
-fmt:
+fmt: ## Run rustfmt
 	rustup run nightly cargo fmt
 
-local-dev:
+halp: help
+
+help: ## Show help message for each target
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
+local-dev: ## Run local development environment
 	docker stop indexify-local-postgres || true
 	docker run --rm -p 5432:5432 --name=indexify-local-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexify -d ankane/pgvector
 	timeout 90s bash -c "until docker exec indexify-local-postgres pg_isready ; do sleep 5 ; done"
@@ -52,12 +57,11 @@ local-dev:
 	docker stop indexify-local-opensearch || true
 	docker run --rm -p 9200:9200 -p 9600:9600 --name=indexify-local-opensearch -d -e "discovery.type=single-node" opensearchproject/opensearch:latest
 
-# Used for local development only - referenced by the "tls" field in local_server_config.yaml
-local-dev-tls-insecure:
+local-dev-tls-insecure: ## Generate local development TLS certificates (insecure)
 	@mkdir -p .dev-tls && \
-	openssl req -x509 -newkey rsa:4096 -keyout .dev-tls/ca.key -out .dev-tls/ca.crt -days 365 -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localtestca" && \
-	openssl req -new -newkey rsa:4096 -keyout .dev-tls/server.key -out .dev-tls/server.csr -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localhost" && \
-	openssl x509 -req -in .dev-tls/server.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/server.crt -days 365 && \
+	openssl req -x509 -newkey rsa:4096 -keyout .dev-tls/ca.key -out .dev-tls/ca.crt -days 365 -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localhost" && \
+	openssl req -new -newkey rsa:4096 -keyout .dev-tls/server.key -out .dev-tls/server.csr -nodes -config ./client_cert_config && \
+	openssl x509 -req -in .dev-tls/server.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/server.crt -days 365 -extensions v3_ca -extfile ./client_cert_config && \
 	openssl req -new -nodes -out .dev-tls/client.csr -newkey rsa:2048 -keyout .dev-tls/client.key -config ./client_cert_config && \
 	openssl x509 -req -in .dev-tls/client.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/client.crt -days 365 -extfile ./client_cert_config -extensions v3_ca
 
@@ -67,15 +71,15 @@ test:
 	./run_tests.sh
 
 .PHONY: do_script
-install-py:
+install-py: ## Install python dependencies
 	$(MAKE) -C ${src_py_dir} install_deps.sh
 
-shell:
+shell: ## Run shell in container
 	docker run --net host -v ${current_dir}:/indexify-build/indexify -it ${DOCKER_USERNAME}/indexify-build /bin/bash
 
-serve-docs:
+serve-docs: ## Serve documentation
 	(cd docs && mkdocs serve)
 
-install: build-release
+install: build-release ## Build the application and install it to the system
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(APPLICATION_NAME)
