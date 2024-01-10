@@ -27,14 +27,16 @@ mod executor;
 mod extractor_router;
 mod grpc_helper;
 mod index;
+#[rustfmt::skip]
 mod indexify_coordinator;
+#[rustfmt::skip]
 mod indexify_raft;
 mod internal_api;
 mod persistence;
 mod task_store;
 mod test_util;
-mod utils;
 mod tls;
+mod utils;
 mod vector_index;
 mod vectordbs;
 

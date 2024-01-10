@@ -4,7 +4,6 @@ use std::{
     io::Cursor,
     ops::RangeBounds,
     sync::{Arc, Mutex},
-    time::SystemTime,
 };
 
 use openraft::{
@@ -42,12 +41,14 @@ use crate::internal_api::{
 pub enum Request {
     ExecutorHeartbeat {
         executor_id: String,
+        ts_secs: u64,
     },
 
     RegisterExecutor {
         addr: String,
         executor_id: String,
         extractor: ExtractorDescription,
+        ts_secs: u64,
     },
     CreateRepository {
         name: String,
@@ -63,6 +64,7 @@ pub enum Request {
     },
     MarkExtractionEventProcessed {
         event_id: String,
+        ts_secs: u64,
     },
     CreateContent {
         id: String,
@@ -142,7 +144,7 @@ pub struct StateMachine {
 
     pub bindings_table: HashMap<RepositoryId, HashSet<ExtractorBinding>>,
 
-    pub extractors_table: HashMap<ExtractorName, Vec<ExecutorId>>,
+    pub extractor_executors_table: HashMap<ExtractorName, Vec<ExecutorId>>,
 
     pub extractors: HashMap<ExtractorName, ExtractorDescription>,
 
@@ -356,33 +358,33 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
             match entry.payload {
                 EntryPayload::Blank => res.push(Response { value: None }),
                 EntryPayload::Normal(ref req) => match req {
-                    Request::ExecutorHeartbeat { executor_id } => {
-                        let current_ts = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs();
+                    Request::ExecutorHeartbeat {
+                        executor_id,
+                        ts_secs,
+                    } => {
                         sm.executor_health_checks
-                            .insert(executor_id.clone(), current_ts);
+                            .insert(executor_id.clone(), ts_secs.clone());
                         res.push(Response { value: None })
                     }
                     Request::RegisterExecutor {
                         addr,
                         executor_id,
                         extractor,
+                        ts_secs,
                     } => {
-                        let current_ts = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs();
                         sm.extractors
                             .insert(extractor.name.clone(), extractor.clone());
+                        sm.extractor_executors_table
+                            .entry(extractor.name.clone())
+                            .or_default()
+                            .push(executor_id.clone());
                         let executor_info = ExecutorMetadata {
                             id: executor_id.clone(),
-                            last_seen: current_ts,
+                            last_seen: ts_secs.clone(),
                             addr: addr.clone(),
                             extractor: extractor.clone(),
                         };
-                        sm.executors.insert(executor_info.id.clone(), executor_info);
+                        sm.executors.insert(executor_id.clone(), executor_info);
                         res.push(Response { value: None })
                     }
                     Request::CreateTasks { tasks } => {
@@ -395,9 +397,9 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                     Request::AssignTask { assignments } => {
                         for (task_id, executor_id) in assignments {
                             sm.task_assignments
-                                .entry(task_id.clone())
+                                .entry(executor_id.clone())
                                 .or_default()
-                                .insert(executor_id.clone());
+                                .insert(task_id.clone());
                             sm.unassigned_tasks.remove(task_id);
                         }
                         res.push(Response { value: None })
@@ -407,16 +409,11 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.unprocessed_extraction_events.insert(event.id.clone());
                         res.push(Response { value: None })
                     }
-                    Request::MarkExtractionEventProcessed { event_id } => {
+                    Request::MarkExtractionEventProcessed { event_id, ts_secs } => {
                         sm.unprocessed_extraction_events.retain(|id| id != event_id);
                         let event = sm.extraction_events.get(event_id).map(|event| {
                             let mut event = event.to_owned();
-                            event.processed_at = Some(
-                                SystemTime::now()
-                                    .duration_since(SystemTime::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs(),
-                            );
+                            event.processed_at = Some(ts_secs.clone());
                             event
                         });
                         if let Some(event) = event {

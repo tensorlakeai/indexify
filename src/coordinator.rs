@@ -13,7 +13,6 @@ use crate::{
     internal_api::{
         self,
         ContentMetadata,
-        ExecutorMetadata,
         ExtractionEvent,
         ExtractionEventPayload,
         ExtractorBinding,
@@ -32,10 +31,6 @@ pub struct Coordinator {
 impl Coordinator {
     pub fn new(shared_state: SharedState) -> Arc<Self> {
         Arc::new(Self { shared_state })
-    }
-
-    pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
-        self.shared_state.get_executors().await
     }
 
     #[tracing::instrument(skip(self))]
@@ -83,12 +78,14 @@ impl Coordinator {
         // work_id -> executor_id
         let mut task_assignments = HashMap::new();
         for task in unallocated_tasks {
+            println!("DIPTANU task: {:?}", task);
             let executors = self
                 .shared_state
                 .get_executors_for_extractor(&task.extractor)
                 .await?;
-            let rand_index = rand::random::<usize>() % executors.len();
+            println!("DIPTANU executors : {:?}", executors);
             if !executors.is_empty() {
+                let rand_index = rand::random::<usize>() % executors.len();
                 let executor_meta = executors[rand_index].clone();
                 task_assignments.insert(task.id.clone(), executor_meta.id.clone());
             }
@@ -258,8 +255,10 @@ impl Coordinator {
         self.process_extraction_events().await?;
 
         info!("doing distribution of work");
-        self.distribute_work().await?;
-        Ok(())
+        let task_assignments = self.distribute_work().await?;
+        self.shared_state
+            .commit_task_assignments(task_assignments)
+            .await
     }
 
     pub async fn create_content_metadata(
@@ -301,97 +300,87 @@ impl Coordinator {
             .await?;
         Ok(id)
     }
-
-    pub async fn get_executor(
-        &self,
-        extractor_name: &str,
-    ) -> Result<ExecutorMetadata, anyhow::Error> {
-        let executors = self
-            .shared_state
-            .get_executors_for_extractor(extractor_name)
-            .await?;
-        let rand_index = rand::random::<usize>() % executors.len();
-        let executor = executors.get(rand_index).ok_or(anyhow::anyhow!(
-            "no executor found at index: {}",
-            rand_index
-        ))?;
-        Ok(executor.to_owned())
-    }
 }
 
-//#[cfg(test)]
-//mod tests {
-//    use std::collections::HashMap;
-//
-//    use serde_json::json;
-//
-//    use crate::{
-//        blob_storage::BlobStorageBuilder,
-//        data_repository_manager::DataRepositoryManager,
-//        persistence::{ContentPayload, DataRepository, ExtractorBinding},
-//        test_util::{
-//            self,
-//            db_utils::{DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
-//        },
-//    };
-//
-//    #[tokio::test]
-//    #[tracing_test::traced_test]
-//    async fn test_create_work() -> Result<(), anyhow::Error> {
-//        let db = test_util::db_utils::create_db().await.unwrap();
-//        let (vector_index_manager, extractor_executor, coordinator) =
-//            test_util::db_utils::create_index_manager(db.clone()).await;
-//        let blob_storage =
-//
-// BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).
-// unwrap();        let repository_manager =
-//            DataRepositoryManager::new_with_db(db.clone(),
-// vector_index_manager, blob_storage);
-//
-//        // Create a repository
-//        repository_manager
-//            .create(&DataRepository {
-//                name: DEFAULT_TEST_REPOSITORY.into(),
-//                data_connectors: vec![],
-//                metadata: HashMap::new(),
-//                extractor_bindings: vec![ExtractorBinding::new(
-//                    "test_extractor_binding",
-//                    DEFAULT_TEST_REPOSITORY,
-//                    DEFAULT_TEST_EXTRACTOR.into(),
-//                    vec![],
-//                    serde_json::json!({}),
-//                )],
-//            })
-//            .await?;
-//
-//        repository_manager
-//            .add_texts(
-//                DEFAULT_TEST_REPOSITORY,
-//                vec![
-//                    ContentPayload::from_text(
-//                        DEFAULT_TEST_REPOSITORY,
-//                        "hello",
-//                        HashMap::from([("topic".to_string(), json!("pipe"))]),
-//                    ),
-//                    ContentPayload::from_text(
-//                        DEFAULT_TEST_REPOSITORY,
-//                        "world",
-//                        HashMap::from([("topic".to_string(), json!("baz"))]),
-//                    ),
-//                ],
-//            )
-//            .await?;
-//
-//        // Insert a new worker and then create work
-//        coordinator.process_and_distribute_work().await.unwrap();
-//
-//        let task_list = coordinator
-//            .shared_state
-//            .tasks_for_executor(&extractor_executor.get_executor_info().id)
-//            .await?;
-//
-//        // Check amount of work queued for the worker
-//        assert_eq!(task_list.len(), 2);
-//        Ok(())
-//    }
-//}
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use crate::{
+        indexify_coordinator::{ContentMetadata, CreateContentRequest},
+        internal_api::ExtractorBinding,
+        server_config::ServerConfig,
+        state::App,
+        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+    };
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let shared_state = App::new(config).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        // Add a repository
+        coordinator
+            .create_repository(DEFAULT_TEST_REPOSITORY)
+            .await?;
+
+        // Add content and ensure that we are createing a extraction event
+        let id = coordinator
+            .create_content_metadata(CreateContentRequest {
+                content: Some(ContentMetadata {
+                    id: "test".to_string(),
+                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    parent_id: "test".to_string(),
+                    file_name: "test".to_string(),
+                    mime: "text/plain".to_string(),
+                    created_at: 0,
+                    storage_url: "test".to_string(),
+                    labels: HashMap::new(),
+                }),
+            })
+            .await?;
+        assert_ne!(id, "".to_string());
+
+        let events = shared_state.unprocessed_extraction_events().await?;
+        assert_eq!(events.len(), 1);
+
+        // Run scheduler without any bindings to make sure that the event is processed
+        // and we don't have any tasks
+        coordinator.process_and_distribute_work().await?;
+        let events = shared_state.unprocessed_extraction_events().await?;
+        assert_eq!(events.len(), 0);
+        let tasks = shared_state.unassigned_tasks().await?;
+        assert_eq!(tasks.len(), 0);
+
+        // Add extractors and extractor bindings and ensure that we are creating tasks
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", mock_extractor())
+            .await?;
+        coordinator
+            .create_binding(ExtractorBinding {
+                id: "test-binding-id".to_string(),
+                name: "test".to_string(),
+                extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                input_params: serde_json::json!({}),
+                filters: HashMap::new(),
+            })
+            .await?;
+        assert_eq!(1, shared_state.unprocessed_extraction_events().await?.len());
+        coordinator.process_and_distribute_work().await?;
+        assert_eq!(0, shared_state.unprocessed_extraction_events().await?.len());
+        assert_eq!(
+            1,
+            shared_state
+                .tasks_for_executor("test_executor_id")
+                .await?
+                .len()
+        );
+        assert_eq!(0, shared_state.unassigned_tasks().await?.len());
+
+        Ok(())
+    }
+}

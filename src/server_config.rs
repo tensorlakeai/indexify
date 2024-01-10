@@ -317,7 +317,10 @@ impl Default for ServerConfig {
             },
             tls: None,
             node_id: 0,
-            peers: vec![],
+            peers: vec![ServerPeer {
+                addr: "localhost:8970".into(),
+                node_id: 0,
+            }],
         }
     }
 }

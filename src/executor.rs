@@ -8,7 +8,7 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use nanoid::nanoid;
 use serde_json::json;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     content_reader::ContentReader,

@@ -34,6 +34,7 @@ use crate::{
         Task,
     },
     server_config::ServerConfig,
+    utils::timestamp_secs,
 };
 
 pub mod grpc_server;
@@ -194,13 +195,10 @@ impl App {
     pub async fn mark_extraction_event_processed(&self, event_id: &str) -> Result<()> {
         let req = Request::MarkExtractionEventProcessed {
             event_id: event_id.to_string(),
+            ts_secs: timestamp_secs(),
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
-    }
-
-    pub async fn filter_content_by_metadata(&self) -> Result<Vec<ContentMetadata>> {
-        Ok(vec![])
     }
 
     pub async fn filter_extractor_binding_for_content(
@@ -283,7 +281,7 @@ impl App {
     ) -> Result<Vec<ExecutorMetadata>> {
         let store = self.store.state_machine.read().await;
         let executor_ids = store
-            .extractors_table
+            .extractor_executors_table
             .get(extractor)
             .cloned()
             .unwrap_or(vec![]);
@@ -298,6 +296,7 @@ impl App {
     pub async fn heartbeat(&self, executor_id: &str) -> Result<()> {
         let request = store::Request::ExecutorHeartbeat {
             executor_id: executor_id.to_string(),
+            ts_secs: timestamp_secs(),
         };
         let _response = self
             .raft
@@ -412,6 +411,7 @@ impl App {
                 addr: addr.to_string(),
                 executor_id: executor_id.to_string(),
                 extractor,
+                ts_secs: timestamp_secs(),
             })
             .await?;
         Ok(())
