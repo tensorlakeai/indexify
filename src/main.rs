@@ -22,7 +22,6 @@ mod content_reader;
 mod coordinator;
 mod coordinator_client;
 mod data_repository_manager;
-mod entity;
 mod executor;
 mod extractor_router;
 mod grpc_helper;

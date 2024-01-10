@@ -4,8 +4,6 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-
-use crate::entity;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedAttributes {
     pub id: String,
@@ -25,17 +23,6 @@ impl ExtractedAttributes {
             content_id: content_id.into(),
             attributes,
             extractor_name: extractor_name.into(),
-        }
-    }
-}
-
-impl From<entity::attributes_index::Model> for ExtractedAttributes {
-    fn from(model: entity::attributes_index::Model) -> Self {
-        Self {
-            id: model.id,
-            content_id: model.content_id,
-            attributes: model.data,
-            extractor_name: model.extractor_id,
         }
     }
 }

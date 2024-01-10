@@ -2,8 +2,6 @@
 pub mod db_utils {
     use std::{collections::HashMap, sync::Arc};
 
-    use migration::{Migrator, MigratorTrait};
-    use sea_orm::{Database, DatabaseConnection, DbErr};
     use serde_json::json;
 
     use crate::{
@@ -48,9 +46,7 @@ pub mod db_utils {
         }
     }
 
-    pub async fn create_index_manager(
-        db: DatabaseConnection,
-    ) -> (ExtractorExecutor, CoordinatorServer) {
+    pub async fn create_index_manager() -> (ExtractorExecutor, CoordinatorServer) {
         let index_name = format!("{}/{}", DEFAULT_TEST_REPOSITORY, DEFAULT_TEST_EXTRACTOR);
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(crate::server_config::QdrantConfig {
             addr: "http://localhost:6334".into(),
@@ -68,12 +64,5 @@ pub mod db_utils {
             ExtractorExecutor::new_test(executor_config, extractor_runner).unwrap();
         let coordinator_svr = CoordinatorServer::new(server_config).await.unwrap();
         (extractor_executor, coordinator_svr)
-    }
-
-    pub async fn create_db() -> Result<DatabaseConnection, DbErr> {
-        let db = Database::connect("postgres://postgres:postgres@localhost/indexify_test").await?;
-        Migrator::fresh(&db).await?;
-
-        Ok(db)
     }
 }

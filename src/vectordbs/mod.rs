@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
@@ -41,7 +40,7 @@ pub struct CreateIndexParams {
     pub unique_params: Option<Vec<String>>,
 }
 
-#[derive(Debug, Default, Clone, FromQueryResult)]
+#[derive(Debug, Default, Clone)]
 pub struct SearchResult {
     pub content_id: String,
     pub confidence_score: f32,
