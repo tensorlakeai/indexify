@@ -256,9 +256,7 @@ impl Coordinator {
 
         info!("doing distribution of work");
         let task_assignments = self.distribute_work().await?;
-        self.shared_state
-            .commit_task_assignments(task_assignments)
-            .await
+        self.shared_state.commit_task_assignments(task_assignments).await
     }
 
     pub async fn create_content_metadata(
@@ -304,15 +302,9 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{sync::Arc, collections::HashMap};
 
-    use crate::{
-        indexify_coordinator::{ContentMetadata, CreateContentRequest},
-        internal_api::ExtractorBinding,
-        server_config::ServerConfig,
-        state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
-    };
+    use crate::{state::App, server_config::ServerConfig, indexify_coordinator::{CreateContentRequest, ContentMetadata}, test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY}, internal_api::ExtractorBinding};
 
     #[tokio::test]
     #[tracing_test::traced_test]
@@ -323,62 +315,48 @@ mod tests {
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
         // Add a repository
-        coordinator
-            .create_repository(DEFAULT_TEST_REPOSITORY)
-            .await?;
+        coordinator.create_repository(DEFAULT_TEST_REPOSITORY).await?;
 
         // Add content and ensure that we are createing a extraction event
-        let id = coordinator
-            .create_content_metadata(CreateContentRequest {
-                content: Some(ContentMetadata {
-                    id: "test".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
-                    parent_id: "test".to_string(),
-                    file_name: "test".to_string(),
-                    mime: "text/plain".to_string(),
-                    created_at: 0,
-                    storage_url: "test".to_string(),
-                    labels: HashMap::new(),
-                }),
-            })
-            .await?;
+        let id = coordinator.create_content_metadata(CreateContentRequest {
+            content: Some(ContentMetadata{
+                id: "test".to_string(),
+                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                parent_id: "test".to_string(),
+                file_name: "test".to_string(),
+                mime: "text/plain".to_string(),
+                created_at: 0,
+                storage_url: "test".to_string(),
+                labels: HashMap::new(),
+            }),
+        }).await?;
         assert_ne!(id, "".to_string());
 
         let events = shared_state.unprocessed_extraction_events().await?;
         assert_eq!(events.len(), 1);
 
-        // Run scheduler without any bindings to make sure that the event is processed
-        // and we don't have any tasks
+        // Run scheduler without any bindings to make sure that the event is processed and we don't have any tasks
         coordinator.process_and_distribute_work().await?;
         let events = shared_state.unprocessed_extraction_events().await?;
         assert_eq!(events.len(), 0);
         let tasks = shared_state.unassigned_tasks().await?;
         assert_eq!(tasks.len(), 0);
 
+
         // Add extractors and extractor bindings and ensure that we are creating tasks
-        coordinator
-            .register_executor("localhost:8956", "test_executor_id", mock_extractor())
-            .await?;
-        coordinator
-            .create_binding(ExtractorBinding {
-                id: "test-binding-id".to_string(),
-                name: "test".to_string(),
-                extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
-                input_params: serde_json::json!({}),
-                filters: HashMap::new(),
-            })
-            .await?;
+        coordinator.register_executor("localhost:8956", "test_executor_id", mock_extractor()).await?;
+        coordinator.create_binding(ExtractorBinding {
+            id: "test-binding-id".to_string(),
+            name: "test".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            repository: DEFAULT_TEST_REPOSITORY.to_string(),
+            input_params: serde_json::json!({}),
+            filters: HashMap::new(),
+        }).await?;
         assert_eq!(1, shared_state.unprocessed_extraction_events().await?.len());
         coordinator.process_and_distribute_work().await?;
         assert_eq!(0, shared_state.unprocessed_extraction_events().await?.len());
-        assert_eq!(
-            1,
-            shared_state
-                .tasks_for_executor("test_executor_id")
-                .await?
-                .len()
-        );
+        assert_eq!(1, shared_state.tasks_for_executor("test_executor_id").await?.len());
         assert_eq!(0, shared_state.unassigned_tasks().await?.len());
 
         Ok(())
