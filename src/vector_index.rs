@@ -8,7 +8,6 @@ use crate::{
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
     grpc_helper::GrpcHelper,
-    index::IndexError,
     indexify_coordinator::{self, CreateIndexRequest, Index},
     internal_api::EmbeddingSchema,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
@@ -127,7 +126,7 @@ impl VectorIndexManager {
             .extractor_router
             .extract_content(&index.extractor, content, None)
             .await
-            .map_err(|e| IndexError::QueryEmbedding(e.to_string()))?
+            .map_err(|e| anyhow!("unable to extract embedding: {}", e.to_string()))?
             .pop()
             .ok_or(anyhow!("No content was extracted"))?;
         let features = content

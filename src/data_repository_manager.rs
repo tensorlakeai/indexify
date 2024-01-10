@@ -9,7 +9,6 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use nanoid::nanoid;
-use sea_orm::DbConn;
 use tracing::info;
 
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
@@ -22,7 +21,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
     internal_api::{self, OutputSchema},
-    persistence::{ExtractedAttributes, Repository},
+    persistence::ExtractedAttributes,
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -56,23 +55,20 @@ impl DataRepositoryManager {
     }
 
     #[allow(dead_code)]
-    pub fn new_with_db(
-        db: DbConn,
+    pub async fn new_with_db(
+        db_addr: &str,
         vector_index_manager: Arc<VectorIndexManager>,
         blob_storage: BlobStorageTS,
         coordinator_client: Arc<CoordinatorClient>,
-    ) -> Self {
-        let repository = Arc::new(Repository::new_with_db(db));
-        let attribute_index_manager = Arc::new(AttributeIndexManager::new(
-            repository.clone(),
-            coordinator_client.clone(),
-        ));
-        Self {
+    ) -> Result<Self> {
+        let attribute_index_manager =
+            Arc::new(AttributeIndexManager::new(db_addr, coordinator_client.clone()).await?);
+        Ok(Self {
             vector_index_manager,
             attribute_index_manager,
             blob_storage,
             coordinator_client,
-        }
+        })
     }
 
     #[tracing::instrument]

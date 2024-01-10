@@ -16,7 +16,6 @@ use crate::{
     extractor::extractor_runner::ExtractorRunner,
     indexify_coordinator::{self, RegisterExecutorRequest},
     internal_api::{self, Content, ExecutorInfo, ExtractorDescription, TaskResult, TaskState},
-    persistence::Repository,
     server_config::ExecutorConfig,
     task_store::TaskStore,
 };
@@ -72,7 +71,6 @@ impl ExtractorExecutor {
 
     #[tracing::instrument]
     pub fn new_test(
-        repository: Arc<Repository>,
         executor_config: Arc<ExecutorConfig>,
         extractor_runner: ExtractorRunner,
     ) -> Result<Self> {

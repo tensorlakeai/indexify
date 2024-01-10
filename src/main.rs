@@ -26,7 +26,6 @@ mod entity;
 mod executor;
 mod extractor_router;
 mod grpc_helper;
-mod index;
 #[rustfmt::skip]
 mod indexify_coordinator;
 #[rustfmt::skip]

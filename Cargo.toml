@@ -43,6 +43,7 @@ opentelemetry-stdout = { version = "0.2", features = [
     "metrics",
     "trace",
 ] }
+pgvector = { version = "0.3", features = ["sqlx"] }
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
 pyo3 = { version = "0.20", features = ["auto-initialize"] }
@@ -71,6 +72,7 @@ serde_with = {version="3.4.0"}
 serde_yaml = { version = "0.9" }
 serde_json = { version = "1" }
 smart-default = { version = "0.7" }
+sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-native-tls", "postgres", "macros", "time", "json" ] }
 strum = { version = "0.25", features = ["derive"] }
 thiserror = "1"
 tonic = { version = "0.10.2", features = ["prost"] }
@@ -121,6 +123,7 @@ opentelemetry_sdk = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry-stdout = { workspace = true }
+pgvector = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 pyo3 = { workspace = true }
@@ -137,6 +140,7 @@ serde_with = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 smart-default = { workspace = true }
+sqlx = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }
 tonic = { workspace = true }

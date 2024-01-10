@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use qdrant_client::{
     client::{Payload, QdrantClient, QdrantClientConfig},
@@ -18,7 +19,7 @@ use qdrant_client::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::{CreateIndexParams, VectorDb, VectorDbError};
+use super::{CreateIndexParams, VectorDb};
 use crate::{
     server_config::QdrantConfig,
     vectordbs::{IndexDistance, SearchResult, VectorChunk},
@@ -51,11 +52,10 @@ impl QdrantDb {
         }
     }
 
-    fn create_client(&self) -> Result<QdrantClient, VectorDbError> {
+    fn create_client(&self) -> Result<QdrantClient> {
         let client_config = QdrantClientConfig::from_url(&self.qdrant_config.addr);
-        let client = QdrantClient::new(Some(client_config)).map_err(|e| {
-            VectorDbError::Internal(format!("unable to create a new quadrant index: {}", e))
-        })?;
+        let client = QdrantClient::new(Some(client_config))
+            .map_err(|e| anyhow!("unable to create a new quadrant index: {}", e))?;
         Ok(client)
     }
 
@@ -75,7 +75,7 @@ impl VectorDb for QdrantDb {
     }
 
     #[tracing::instrument]
-    async fn create_index(&self, index: CreateIndexParams) -> Result<(), VectorDbError> {
+    async fn create_index(&self, index: CreateIndexParams) -> Result<()> {
         let result = self
             .create_client()?
             .create_collection(&CreateCollection {
@@ -99,18 +99,14 @@ impl VectorDb for QdrantDb {
         }
         result
             .map(|_| ())
-            .map_err(|e| VectorDbError::IndexNotCreated(e.to_string()))
+            .map_err(|e| anyhow!("unable to create index: {}", e.to_string()))
     }
 
     #[tracing::instrument]
-    async fn add_embedding(
-        &self,
-        index: &str,
-        chunks: Vec<VectorChunk>,
-    ) -> Result<(), VectorDbError> {
+    async fn add_embedding(&self, index: &str, chunks: Vec<VectorChunk>) -> Result<()> {
         let mut points = Vec::<PointStruct>::new();
         for chunk in chunks {
-            let chunk_id = chunk.chunk_id.clone();
+            let chunk_id = chunk.content_id.clone();
             let payload: Payload = json!(QdrantPayload {
                 chunk_id: chunk_id.clone(),
                 metadata: json!(HashMap::<String, String>::new()),
@@ -119,7 +115,7 @@ impl VectorDb for QdrantDb {
             .unwrap();
             points.push(PointStruct::new(
                 hex_to_u64(&chunk_id).unwrap(),
-                chunk.embeddings.clone(),
+                chunk.embedding.clone(),
                 payload,
             ));
         }
@@ -127,7 +123,7 @@ impl VectorDb for QdrantDb {
             .create_client()?
             .upsert_points(&index, None, points, None)
             .await
-            .map_err(|e| VectorDbError::IndexNotCreated(e.to_string()))?;
+            .map_err(|e| anyhow!("unable to add embedding: {}", e.to_string()))?;
         Ok(())
     }
 
@@ -137,7 +133,7 @@ impl VectorDb for QdrantDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-    ) -> Result<Vec<SearchResult>, VectorDbError> {
+    ) -> Result<Vec<SearchResult>> {
         let result = self
             .create_client()?
             .search_points(&SearchPoints {
@@ -150,15 +146,16 @@ impl VectorDb for QdrantDb {
                 ..Default::default()
             })
             .await
-            .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
+            .map_err(|e| anyhow!("unable to read index: {}", e.to_string()))?;
         let mut documents: Vec<SearchResult> = Vec::new();
         for point in result.result {
             let json_value = serde_json::to_value(point.payload)
-                .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
+                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
             let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
-                .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
+                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
+            // TODO similarity score
             documents.push(SearchResult {
-                confidence_score: point.score,
+                confidence_score: 0.0,
                 content_id: qdrant_payload.chunk_id,
             });
         }
@@ -166,27 +163,29 @@ impl VectorDb for QdrantDb {
     }
 
     #[tracing::instrument]
-    async fn drop_index(&self, index: String) -> Result<(), VectorDbError> {
+    async fn drop_index(&self, index: String) -> Result<()> {
         let result = self.create_client()?.delete_collection(index.clone()).await;
         if let Err(err) = result {
             if err.to_string().contains("doesn't exist") {
                 return Ok(());
             }
-            return Err(VectorDbError::IndexNotDeleted(index, err.to_string()));
+            return Err(anyhow!(
+                "unable to drop {}, err: {}",
+                index,
+                err.to_string()
+            ));
         }
         Ok(())
     }
 
     #[tracing::instrument]
-    async fn num_vectors(&self, index: &str) -> Result<u64, VectorDbError> {
+    async fn num_vectors(&self, index: &str) -> Result<u64> {
         let result = self
             .create_client()?
             .collection_info(index)
             .await
-            .map_err(|e| VectorDbError::IndexNotRead(e.to_string()))?;
-        let collection_info = result
-            .result
-            .ok_or(VectorDbError::IndexNotRead("index not found".into()))?;
+            .map_err(|e| anyhow!(e.to_string()))?;
+        let collection_info = result.result.ok_or(anyhow!("index not found: {}", index))?;
         Ok(collection_info.points_count.unwrap_or_default())
     }
 }
@@ -218,8 +217,8 @@ mod tests {
             .await
             .unwrap();
         let chunk = VectorChunk {
-            chunk_id: "0".into(),
-            embeddings: vec![0., 2.],
+            content_id: "0".into(),
+            embedding: vec![0., 2.],
         };
         qdrant
             .add_embedding("hello-index", vec![chunk])
@@ -252,8 +251,8 @@ mod tests {
             .await
             .unwrap();
         let chunk = VectorChunk {
-            chunk_id: "0".into(),
-            embeddings: vec![0., 2.],
+            content_id: "0".into(),
+            embedding: vec![0., 2.],
         };
         qdrant
             .add_embedding(index_name, vec![chunk.clone()])
