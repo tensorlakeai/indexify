@@ -14,6 +14,9 @@ db_url: postgres://postgres:postgres@postgres/indexify
 # to query for executors
 coordinator_addr: 0.0.0.0:8950
 
+## Address on which the coordinator starts the raft server
+raft_port: 8970
+
 # Blob storage configuration for the service. It is used for storing
 # raw data such as PDF, Images and Videos.
 blob_storage:
