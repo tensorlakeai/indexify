@@ -7,10 +7,8 @@ use std::{
     time::SystemTime,
 };
 
-use axum::extract;
 use openraft::{
     async_trait::async_trait,
-    docs::data::extended_membership,
     storage::{LogState, Snapshot},
     BasicNode,
     Entry,
