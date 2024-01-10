@@ -1,0 +1,26 @@
+[ req ]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+req_extensions = req_ext
+
+[ dn ]
+C = US
+ST = TestState
+L = TestLocale
+O = IndexifyOSS
+OU = SomeOrganizationalUnit
+CN = localtestca
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = www.example.com
+DNS.2 = example.com
+
+[ v3_ca ]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+subjectAltName = @alt_names

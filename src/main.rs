@@ -34,6 +34,7 @@ mod persistence;
 mod task_store;
 mod test_util;
 mod utils;
+mod tls;
 mod vector_index;
 mod vectordbs;
 

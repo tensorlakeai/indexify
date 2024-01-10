@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Error, Result};
-use axum_server::tls_rustls::RustlsConfig;
 use figment::{
     providers::{Env, Format, Yaml},
     Figment,
@@ -255,26 +254,16 @@ impl ExecutorConfig {
 #[serde(rename_all = "snake_case")]
 pub struct TlsConfig {
     pub api: bool,
-    cert_file: String,
-    key_file: String,
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: Option<String>,
 }
 
-/// TlsConfig converts to RustlsConfig
 /// If a relative path is provided, it is assumed to be relative to the project
 /// root
 impl TlsConfig {
-    pub async fn into_rustlsconfig(self) -> Result<RustlsConfig> {
-        let cert_file = TlsConfig::resolve_path(&self.cert_file);
-        let key_file = TlsConfig::resolve_path(&self.key_file);
-
-        let config = RustlsConfig::from_pem_file(cert_file, key_file)
-            .await
-            .map_err(|e| anyhow!("Failed to load TLS config: {}", e.to_string()))?;
-        Ok(config)
-    }
-
     // Helper function to resolve paths
-    fn resolve_path(file_path: &str) -> PathBuf {
+    pub fn resolve_path(file_path: &str) -> PathBuf {
         if Path::new(file_path).is_absolute() {
             PathBuf::from(file_path)
         } else {

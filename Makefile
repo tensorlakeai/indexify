@@ -36,6 +36,9 @@ push-container:
 entity:
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
+fmt:
+	rustup run nightly cargo fmt
+
 local-dev:
 	docker stop indexify-local-postgres || true
 	docker run --rm -p 5432:5432 --name=indexify-local-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexify -d ankane/pgvector
@@ -54,7 +57,9 @@ local-dev-tls-insecure:
 	@mkdir -p .dev-tls && \
 	openssl req -x509 -newkey rsa:4096 -keyout .dev-tls/ca.key -out .dev-tls/ca.crt -days 365 -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localtestca" && \
 	openssl req -new -newkey rsa:4096 -keyout .dev-tls/server.key -out .dev-tls/server.csr -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localhost" && \
-	openssl x509 -req -in .dev-tls/server.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/server.crt -days 365
+	openssl x509 -req -in .dev-tls/server.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/server.crt -days 365 && \
+	openssl req -new -nodes -out .dev-tls/client.csr -newkey rsa:2048 -keyout .dev-tls/client.key -config ./client_cert_config && \
+	openssl x509 -req -in .dev-tls/client.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/client.crt -days 365 -extfile ./client_cert_config -extensions v3_ca
 
 .PHONY: local-dev-tls-insecure
 
@@ -70,9 +75,6 @@ shell:
 
 serve-docs:
 	(cd docs && mkdocs serve)
-
-fmt:
-	cargo +nightly fmt
 
 install: build-release
 	install -d $(DESTDIR)$(BINDIR)
