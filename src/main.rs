@@ -30,7 +30,6 @@ mod indexify_coordinator;
 #[rustfmt::skip]
 mod indexify_raft;
 mod internal_api;
-mod persistence;
 mod task_store;
 mod test_util;
 mod tls;

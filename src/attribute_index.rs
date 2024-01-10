@@ -1,15 +1,43 @@
-use std::{fmt, sync::Arc};
+use std::{
+    collections::hash_map::DefaultHasher,
+    fmt,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use crate::{
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{CreateIndexRequest, Index},
-    persistence::ExtractedAttributes,
     utils::timestamp_secs,
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedAttributes {
+    pub id: String,
+    pub content_id: String,
+    pub attributes: serde_json::Value,
+    pub extractor_name: String,
+}
+
+impl ExtractedAttributes {
+    pub fn new(content_id: &str, attributes: serde_json::Value, extractor_name: &str) -> Self {
+        let mut s = DefaultHasher::new();
+        content_id.hash(&mut s);
+        extractor_name.hash(&mut s);
+        let id = format!("{:x}", s.finish());
+        Self {
+            id,
+            content_id: content_id.into(),
+            attributes,
+            extractor_name: extractor_name.into(),
+        }
+    }
+}
 
 pub struct AttributeIndexManager {
     pool: Pool<Postgres>,

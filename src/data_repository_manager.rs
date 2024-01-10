@@ -14,14 +14,13 @@ use tracing::info;
 pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 use crate::{
     api::{self, EmbeddingSchema},
-    attribute_index::AttributeIndexManager,
+    attribute_index::{AttributeIndexManager, ExtractedAttributes},
     blob_storage::BlobStorageTS,
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
     indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest},
     internal_api::{self, OutputSchema},
-    persistence::ExtractedAttributes,
     server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
 };
