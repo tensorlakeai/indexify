@@ -2,7 +2,7 @@
 
 A typical workflow using Indexify involves adding content to a data repository, wait for views such as vector indexes to be updated as extractors run on the content. Once the views are populated, you could retrieve information from the views, via semantic search or read named entities, or see how content is clustered.
 
-![High Level Concept](images/indexify_high_level_abstract.png)
+![High Level Concept](images/System_Architecture_Diagram.png)
 
 ## Extractors
 Extractors extract features such as embedding or any other structured data from content to be made available for retrieval processes. Extractors can also produce more content, that can be consumed by other extractors. 
