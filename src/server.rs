@@ -122,12 +122,6 @@ impl Server {
             )
             .await?,
         );
-        if let Err(err) = repository_manager
-            .create_default_repository(&self.config)
-            .await
-        {
-            panic!("failed to create default repository: {}", err)
-        }
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
             coordinator_client: coordinator_client.clone(),
