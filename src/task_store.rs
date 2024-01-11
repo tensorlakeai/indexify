@@ -4,6 +4,7 @@ use std::{
 };
 
 use tokio::sync::watch;
+use tracing::info;
 
 use crate::internal_api::{Task, TaskResult};
 
@@ -31,6 +32,7 @@ impl TaskStore {
     }
 
     pub fn add(&self, tasks: Vec<Task>) {
+        info!("Adding {} tasks to task store", tasks.len());
         let mut pending = self.pending.write().unwrap();
         for task in tasks {
             pending.insert(task.id.clone(), task);
