@@ -47,6 +47,12 @@ services:
     networks:
       server:
         ipv4_address: 172.21.0.9
+  redis: # (optional) used for caching
+    image: redis
+    networks:
+      server:
+        ipv4_address: 172.21.0.10
+    profiles: ["redis"] # only create a redis service if the "redis" profile is enabled
 
 
 volumes:
