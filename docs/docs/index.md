@@ -8,6 +8,8 @@ Applications leveraging LLMs for autonomous planning or queries necessitate time
 
 Storage is pluggable, we support few different vector stores for embeddings and document stores for structured data.
 
+![High Level Idea](images/Homepage_Diagram.png)
+
 ## Why use Indexify
 
 * **Knowledge Base for LLMs:** Real-time retrieval of knowledge and context from private documents and structured data to improve the accuracy of LLM models.
