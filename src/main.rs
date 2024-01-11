@@ -17,6 +17,7 @@ pub mod state;
 mod api;
 mod attribute_index;
 mod blob_storage;
+mod caching;
 mod cmd;
 mod content_reader;
 mod coordinator;
