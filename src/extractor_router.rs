@@ -13,8 +13,6 @@ pub struct ExtractorRouter {
     coordinator_client: Arc<CoordinatorClient>,
 }
 
-
-
 impl ExtractorRouter {
     pub fn new(coordinator_client: Arc<CoordinatorClient>) -> Self {
         Self { coordinator_client }

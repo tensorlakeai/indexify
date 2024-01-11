@@ -1,13 +1,12 @@
 pub use super::prelude::*;
 
-pub struct RedisCache<K, V>
-{
+pub struct RedisCache<K, V> {
     client: redis::Client,
     _k: std::marker::PhantomData<K>,
     _v: std::marker::PhantomData<V>,
 }
 
-impl <K, V> RedisCache<K, V>
+impl<K, V> RedisCache<K, V>
 where
     K: CacheKey,
     V: CacheValue,
@@ -22,13 +21,13 @@ where
 }
 
 impl From<redis::Client> for RedisCache<String, String> {
-	fn from(client: redis::Client) -> Self {
-		Self::new(client)
-	}
+    fn from(client: redis::Client) -> Self {
+        Self::new(client)
+    }
 }
 
 #[async_trait]
-impl <K, V> Cache<K, V> for RedisCache<K, V>
+impl<K, V> Cache<K, V> for RedisCache<K, V>
 where
     K: CacheKey,
     V: CacheValue,
@@ -44,6 +43,7 @@ where
             Ok(None)
         }
     }
+
     async fn insert(&mut self, key: K, value: V) -> Result<()> {
         let mut conn = self.client.get_async_connection().await?;
         let key = serde_json::to_string(&key)?;
@@ -55,13 +55,11 @@ where
             .await?;
         Ok(())
     }
+
     async fn invalidate(&mut self, key: &K) -> Result<()> {
         let mut conn = self.client.get_async_connection().await?;
         let key = serde_json::to_string(key)?;
-        redis::cmd("DEL")
-            .arg(key)
-            .query_async(&mut conn)
-            .await?;
+        redis::cmd("DEL").arg(key).query_async(&mut conn).await?;
         Ok(())
     }
 }
@@ -75,9 +73,9 @@ where
 
 //     #[tokio::test]
 //     async fn test_redis_cache_with_extractor_types() {
-		
+
 // 		let key = serde_json::Value::String("test".to_string()).to_string();
-		
+
 // 		// use Vec<u8, Global>
 //         let value: Vec<u8> = vec![1, 2, 3, 4, 5];
 // 		let mut cache: RedisCache<String, Vec<u8>>;

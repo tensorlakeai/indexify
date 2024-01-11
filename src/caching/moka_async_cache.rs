@@ -5,7 +5,7 @@ pub struct MokaAsyncCache<K, V> {
 }
 
 #[async_trait]
-impl <K, V> Cache<K, V> for MokaAsyncCache<K, V>
+impl<K, V> Cache<K, V> for MokaAsyncCache<K, V>
 where
     K: CacheKey,
     V: CacheValue,
@@ -13,17 +13,19 @@ where
     async fn get(&self, key: &K) -> Result<Option<V>> {
         Ok(self.cache.get(key).await)
     }
+
     async fn insert(&mut self, key: K, value: V) -> Result<()> {
         self.cache.insert(key, value).await;
         Ok(())
     }
+
     async fn invalidate(&mut self, key: &K) -> Result<()> {
         self.cache.invalidate(key).await;
         Ok(())
     }
 }
 
-impl <K, V> MokaAsyncCache<K, V>
+impl<K, V> MokaAsyncCache<K, V>
 where
     K: CacheKey,
     V: CacheValue,
@@ -33,13 +35,15 @@ where
         Self { cache }
     }
 
-    pub fn new_from_builder(builder: moka::future::CacheBuilder<K, V, moka::future::Cache<K, V>>) -> Self {
+    pub fn new_from_builder(
+        builder: moka::future::CacheBuilder<K, V, moka::future::Cache<K, V>>,
+    ) -> Self {
         let cache = builder.build();
         Self { cache }
     }
 }
 
-impl <K, V> Default for MokaAsyncCache<K, V>
+impl<K, V> Default for MokaAsyncCache<K, V>
 where
     K: CacheKey,
     V: CacheValue,
@@ -51,9 +55,10 @@ where
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
-	use crate::caching::traits::Cache;
     use tokio;
+
+    use super::*;
+    use crate::caching::traits::Cache;
 
     #[tokio::test]
     async fn test_moka_async_cache_with_extractor_types() {
@@ -61,7 +66,7 @@ mod tests {
 
         let key = serde_json::Value::String("test".to_string()).to_string();
 
-		// use Vec<u8, Global>
+        // use Vec<u8, Global>
         let value: Vec<u8> = vec![1, 2, 3, 4, 5];
 
         // Test insert

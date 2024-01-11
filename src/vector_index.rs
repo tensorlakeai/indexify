@@ -52,7 +52,7 @@ impl VectorIndexManager {
             distance: IndexDistance::from_str(schema.distance.as_str())?,
             unique_params: None,
         };
-        self.vector_db.create_index(create_index_params).await?; 
+        self.vector_db.create_index(create_index_params).await?;
         Ok(vector_index_name.to_string())
     }
 
@@ -73,12 +73,7 @@ impl VectorIndexManager {
         Ok(())
     }
 
-    pub async fn search(
-        &self,
-        index: Index,
-        query: &str,
-        k: usize,
-    ) -> Result<Vec<ScoredText>> {
+    pub async fn search(&self, index: Index, query: &str, k: usize) -> Result<Vec<ScoredText>> {
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
