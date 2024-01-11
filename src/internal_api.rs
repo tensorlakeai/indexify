@@ -296,6 +296,23 @@ impl From<Task> for indexify_coordinator::Task {
     }
 }
 
+impl TryFrom<indexify_coordinator::Task> for Task {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::Task) -> Result<Self> {
+        let content_metadata: ContentMetadata = value.content_metadata.unwrap().try_into()?;
+        Ok(Self {
+            id: value.id,
+            extractor: value.extractor,
+            repository: value.repository,
+            content_metadata,
+            input_params: serde_json::from_str(&value.input_params).unwrap(),
+            extractor_binding: value.extractor_binding,
+            output_index_mapping: value.output_index_mapping,
+        })
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Display, Clone)]
 pub enum ExtractionEventPayload {
     ExtractorBindingAdded {

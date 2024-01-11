@@ -5,17 +5,25 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use nanoid::nanoid;
 use serde_json::json;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     content_reader::ContentReader,
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
     indexify_coordinator::{self, RegisterExecutorRequest},
-    internal_api::{self, Content, ExecutorInfo, ExtractorDescription, TaskResult, TaskState},
+    internal_api::{
+        self,
+        Content,
+        ExecutorInfo,
+        ExtractorDescription,
+        Task,
+        TaskResult,
+        TaskState,
+    },
     server_config::ExecutorConfig,
     task_store::TaskStore,
 };
@@ -31,11 +39,11 @@ fn create_executor_id() -> String {
 pub struct ExtractorExecutor {
     executor_config: Arc<ExecutorConfig>,
     executor_id: String,
-    extractor_runner: ExtractorRunner,
+    extractor_runner: Arc<ExtractorRunner>,
     extractor_description: ExtractorDescription,
     listen_addr: String,
 
-    work_store: TaskStore,
+    task_store: Arc<TaskStore>,
     requires_registration: AtomicBool,
 }
 
@@ -54,37 +62,21 @@ impl ExtractorExecutor {
         executor_config: Arc<ExecutorConfig>,
         extractor_runner: ExtractorRunner,
         listen_addr: String,
+        task_store: Arc<TaskStore>,
     ) -> Result<Self> {
         let executor_id = create_executor_id();
         let extractor_description = extractor_runner.info()?.into();
+        let extractor_runner = Arc::new(extractor_runner);
         let extractor_executor = Self {
             executor_config,
             executor_id,
             extractor_runner,
             extractor_description,
             listen_addr,
-            work_store: TaskStore::new(),
+            task_store,
             requires_registration: AtomicBool::new(true),
         };
         Ok(extractor_executor)
-    }
-
-    #[tracing::instrument]
-    pub fn new_test(
-        executor_config: Arc<ExecutorConfig>,
-        extractor_runner: ExtractorRunner,
-    ) -> Result<Self> {
-        let executor_id = create_executor_id();
-        let extractor_description = extractor_runner.info()?.into();
-        Ok(Self {
-            executor_config,
-            executor_id,
-            extractor_runner,
-            extractor_description,
-            listen_addr: "127.0.0.0:9000".to_string(),
-            work_store: TaskStore::new(),
-            requires_registration: AtomicBool::new(true),
-        })
     }
 
     #[tracing::instrument]
@@ -118,11 +110,11 @@ impl ExtractorExecutor {
 
     #[tracing::instrument(skip(self))]
     pub async fn execute_pending_tasks(&self) -> Result<(), anyhow::Error> {
-        let tasks = self.work_store.pending_tasks();
+        let tasks = self.task_store.pending_tasks();
         let mut results = Vec::new();
         for task in tasks {
             info!("performing task: {}", &task.id);
-            let content = self.get_content(task.content_metadata).await?;
+            let content = get_content(task.content_metadata).await?;
             let extracted_content_batch = self
                 .extractor_runner
                 .extract(vec![content], task.input_params.clone())?;
@@ -136,7 +128,7 @@ impl ExtractorExecutor {
                 results.push(work_status);
             }
         }
-        self.work_store.update(results);
+        self.task_store.update(results);
         Ok(())
     }
 
@@ -162,22 +154,39 @@ impl ExtractorExecutor {
         let req = indexify_coordinator::HeartbeatRequest {
             executor_id: self.executor_id.clone(),
         };
-        let _ = coordinator_client.get().await?.heartbeat(req).await?;
+        let resp = coordinator_client
+            .get()
+            .await?
+            .heartbeat(req)
+            .await?
+            .into_inner();
+        let mut tasks = Vec::new();
+        for task in resp.tasks {
+            if self.task_store.has_finished(&task.id) {
+                continue;
+            }
+            let task: Result<Task> = task.try_into();
+            if let Ok(task) = task {
+                tasks.push(task);
+            } else {
+                error!("unable to parse task: {:?}", task);
+            }
+        }
+        if tasks.len() > 0 {
+            self.task_store.add(tasks);
+        }
         Ok(())
     }
+}
 
-    async fn get_content(
-        &self,
-        content_metadata: internal_api::ContentMetadata,
-    ) -> Result<Content, anyhow::Error> {
-        let content_reader = ContentReader::new(content_metadata.clone());
-        let data = content_reader.read().await?;
-        let extracted_content = Content {
-            mime: content_metadata.content_type,
-            bytes: data,
-            feature: None,
-            metadata: HashMap::new(),
-        };
-        Ok(extracted_content)
-    }
+async fn get_content(content_metadata: internal_api::ContentMetadata) -> Result<Content> {
+    let content_reader = ContentReader::new(content_metadata.clone());
+    let data = content_reader.read().await?;
+    let extracted_content = Content {
+        mime: content_metadata.content_type,
+        bytes: data,
+        feature: None,
+        metadata: HashMap::new(),
+    };
+    Ok(extracted_content)
 }

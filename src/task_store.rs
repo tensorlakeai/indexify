@@ -3,18 +3,26 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use tokio::sync::watch;
+
 use crate::internal_api::{Task, TaskResult};
 
+#[derive(Debug)]
 pub struct TaskStore {
     pending: Arc<RwLock<HashMap<String, Task>>>,
     finished: Arc<RwLock<HashMap<String, TaskResult>>>,
+    tx: watch::Sender<()>,
+    rx: watch::Receiver<()>,
 }
 
 impl TaskStore {
     pub fn new() -> Self {
+        let (tx, rx) = watch::channel(());
         Self {
             pending: Arc::new(RwLock::new(HashMap::new())),
             finished: Arc::new(RwLock::new(HashMap::new())),
+            tx,
+            rx,
         }
     }
 
@@ -27,6 +35,7 @@ impl TaskStore {
         for task in tasks {
             pending.insert(task.id.clone(), task);
         }
+        self.tx.send(()).unwrap();
     }
 
     pub fn update(&self, task_results: Vec<TaskResult>) {
@@ -46,5 +55,14 @@ impl TaskStore {
     pub fn finished_tasks(&self) -> Vec<TaskResult> {
         let finished = self.finished.read().unwrap();
         finished.values().cloned().collect()
+    }
+
+    pub fn has_finished(&self, task_id: &str) -> bool {
+        let finished = self.finished.read().unwrap();
+        finished.contains_key(task_id)
+    }
+
+    pub fn get_watcher(&self) -> watch::Receiver<()> {
+        self.rx.clone()
     }
 }

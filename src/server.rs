@@ -15,7 +15,6 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
-use pyo3::Python;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin,
@@ -726,10 +725,8 @@ async fn shutdown_signal() {
 
     tokio::select! {
         _ = ctrl_c => {
-            let _ = Python::with_gil(|py| py.check_signals());
         },
         _ = terminate => {
-            let _ = Python::with_gil(|py| py.check_signals());
         },
     }
     info!("signal received, shutting down server gracefully");
