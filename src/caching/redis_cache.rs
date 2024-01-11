@@ -73,9 +73,9 @@ where
 
 //     #[tokio::test]
 //     async fn test_redis_cache_with_extractor_types() {
-		
+
 // 		let key = serde_json::Value::String("test".to_string()).to_string();
-		
+
 // 		// use Vec<u8, Global>
 //         let value: Vec<u8> = vec![1, 2, 3, 4, 5];
 // 		let mut cache: RedisCache<String, Vec<u8>>;
