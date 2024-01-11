@@ -11,14 +11,13 @@ ST = TestState
 L = TestLocale
 O = IndexifyOSS
 OU = SomeOrganizationalUnit
-CN = localtestca
+CN = localhost
 
 [ req_ext ]
 subjectAltName = @alt_names
 
 [ alt_names ]
-DNS.1 = www.example.com
-DNS.2 = example.com
+DNS.1 = localhost
 
 [ v3_ca ]
 basicConstraints = CA:FALSE
