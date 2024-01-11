@@ -58,7 +58,6 @@ impl VectorDb for PgVector {
         sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
             .execute(&self.pool)
             .await?;
-
         let index_name = IndexName::new(&index.vectordb_index_name);
         let vector_dim = index.vector_dim;
         let distance_extension = match &index.distance {

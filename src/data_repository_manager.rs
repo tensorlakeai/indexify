@@ -11,7 +11,6 @@ use bytes::Bytes;
 use nanoid::nanoid;
 use tracing::info;
 
-pub const DEFAULT_REPOSITORY_NAME: &str = "default";
 use crate::{
     api::{self, EmbeddingSchema},
     attribute_index::{AttributeIndexManager, ExtractedAttributes},
@@ -19,9 +18,15 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
-    indexify_coordinator::{self, ContentMetadata, CreateContentRequest, ListIndexesRequest, Index, CreateIndexRequest},
+    indexify_coordinator::{
+        self,
+        ContentMetadata,
+        CreateContentRequest,
+        CreateIndexRequest,
+        Index,
+        ListIndexesRequest,
+    },
     internal_api::{self, OutputSchema},
-    server_config::ServerConfig,
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -68,20 +73,6 @@ impl DataRepositoryManager {
             blob_storage,
             coordinator_client,
         })
-    }
-
-    #[tracing::instrument]
-    pub async fn create_default_repository(&self, _server_config: &ServerConfig) -> Result<()> {
-        let _ = self
-            .coordinator_client
-            .get()
-            .await?
-            .create_repository(indexify_coordinator::CreateRepositoryRequest {
-                name: DEFAULT_REPOSITORY_NAME.into(),
-                bindings: Vec::new(),
-            })
-            .await?;
-        Ok(())
     }
 
     #[tracing::instrument]
@@ -176,11 +167,7 @@ impl DataRepositoryManager {
                     let index_name = format!("{}-{}", extractor_binding.name, name);
                     let _ = self
                         .vector_index_manager
-                        .create_index(
-                            repository,
-                            &index_name,
-                            embedding_schema.clone(),
-                        )
+                        .create_index(repository, &index_name, embedding_schema.clone())
                         .await?;
                     let _ = self
                         .create_index_metadata(
@@ -214,9 +201,17 @@ impl DataRepositoryManager {
         Ok(index_names)
     }
 
-    async fn create_index_metadata(&self, repository: &str, index_name: &str, vector_index_name: &str, schema: serde_json::Value, binding: &str, extractor: &str) -> Result<()> {
-        let index = CreateIndexRequest{
-            index: Some(Index{
+    async fn create_index_metadata(
+        &self,
+        repository: &str,
+        index_name: &str,
+        vector_index_name: &str,
+        schema: serde_json::Value,
+        binding: &str,
+        extractor: &str,
+    ) -> Result<()> {
+        let index = CreateIndexRequest {
+            index: Some(Index {
                 name: index_name.to_string(),
                 table_name: vector_index_name.to_string(),
                 repository: repository.to_string(),
@@ -233,7 +228,6 @@ impl DataRepositoryManager {
             .create_index(req)
             .await?;
         Ok(())
-
     }
 
     pub async fn list_content(&self, repository: &str) -> Result<Vec<api::ContentMetadata>> {

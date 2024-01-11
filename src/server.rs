@@ -15,7 +15,6 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
-use pyo3::Python;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin,
@@ -122,12 +121,6 @@ impl Server {
             )
             .await?,
         );
-        if let Err(err) = repository_manager
-            .create_default_repository(&self.config)
-            .await
-        {
-            panic!("failed to create default repository: {}", err)
-        }
         let repository_endpoint_state = RepositoryEndpointState {
             repository_manager: repository_manager.clone(),
             coordinator_client: coordinator_client.clone(),
@@ -732,10 +725,8 @@ async fn shutdown_signal() {
 
     tokio::select! {
         _ = ctrl_c => {
-            let _ = Python::with_gil(|py| py.check_signals());
         },
         _ = terminate => {
-            let _ = Python::with_gil(|py| py.check_signals());
         },
     }
     info!("signal received, shutting down server gracefully");

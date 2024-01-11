@@ -9,7 +9,11 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use tokio::{signal, sync::watch, time::interval};
+use tokio::{
+    signal,
+    sync::{watch, watch::Receiver},
+    time::interval,
+};
 use tracing::{error, info};
 
 use crate::{
@@ -19,6 +23,7 @@ use crate::{
     extractor::{extractor_runner, py_extractors, python_path},
     internal_api::{ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
+    task_store::TaskStore,
 };
 
 pub struct ExecutorServer {
@@ -61,11 +66,13 @@ impl ExecutorServer {
             py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.module)?;
         let extractor_runner =
             extractor_runner::ExtractorRunner::new(Arc::new(extractor), extractor_config);
+        let task_store = Arc::new(TaskStore::new());
         let executor = Arc::new(
             ExtractorExecutor::new(
                 self.executor_config.clone(),
                 extractor_runner,
                 advertise_addr.clone(),
+                task_store.clone(),
             )
             .await?,
         );
@@ -91,21 +98,21 @@ impl ExecutorServer {
             listen_addr,
             advertise_addr.clone()
         );
-        let (tx, rx) = watch::channel::<()>(());
+        let (shutdown_tx, shutdown_rx) = watch::channel::<()>(());
         let coordinator_client = self.coordinator_client.clone();
+        run_extractors(task_store.clone(), executor.clone(), shutdown_rx.clone());
         tokio::spawn(async move {
-            let mut rx = rx.clone();
+            let mut shutdown_rx = shutdown_rx.clone();
             let mut int = interval(Duration::from_secs(5));
             int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 tokio::select! {
-                    _ = rx.changed() => {
+                    _ = shutdown_rx.changed() => {
                         info!("shutting down executor server");
                         break;
                     },
                     _ = int.tick() => {
                         info!("executor server is running");
-                        int.tick().await;
                         if let Err(err) = executor.heartbeat(coordinator_client.clone()).await {
                             error!("unable to heartbeat: {}", err.to_string());
                         }
@@ -116,7 +123,7 @@ impl ExecutorServer {
         axum::serve(listener, app.into_make_service())
             .with_graceful_shutdown(async move {
                 let _ = shutdown_signal().await;
-                tx.send(()).unwrap()
+                shutdown_tx.send(()).unwrap()
             })
             .await?;
         Ok(())
@@ -149,6 +156,37 @@ async fn extract(
             ))
         }
     }
+}
+
+fn run_extractors(
+    task_store: Arc<TaskStore>,
+    executor: Arc<ExtractorExecutor>,
+    mut shutdown_rx: Receiver<()>,
+) {
+    let mut watch_rx = task_store.get_watcher().clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    info!("shutting down executor server");
+                    break;
+                },
+                _ = watch_rx.changed() => {
+                    info!("pulling work from task store");
+                    if let Err(err) = executor.execute_pending_tasks().await {
+                        error!("unable to execute pending tasks: {}", err.to_string());
+                    }
+                    let tasks = task_store.finished_tasks();
+                    if tasks.is_empty() {
+                        continue;
+                    }
+
+                    // write extracted data
+                    task_store.clear_completed_work();
+                }
+            };
+        }
+    });
 }
 
 #[axum::debug_handler]
