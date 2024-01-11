@@ -8,7 +8,10 @@ Extractors consume `Content` which contains the raw data and they product a list
 
 ![High Level Concept](../images/Content_AI_Content.png)
 
-Extractors are typically built from a AI model and some additional pre and post processing of content. 
+Extractors are typically built from a AI model and some additional pre and post processing of content.
+### Extractors Currently Available:
+- Embedding Extractors
+  `-ColBERT    - E5    - hash    - jina    - minilm    - mpnet    - scibert    - openai`
 
 ## Running Extractors
 
