@@ -11,15 +11,15 @@ where
     K: CacheKey,
     V: CacheValue,
 {
-    async fn get(&self, _key: &K) -> Result<Option<V>> {
+    async fn get(&self, _key: &K) -> Result<Option<V>, IndexifyCachingError> {
         Ok(None)
     }
 
-    async fn insert(&mut self, _key: K, _value: V) -> Result<()> {
+    async fn insert(&mut self, _key: K, _value: V) -> Result<(), IndexifyCachingError> {
         Ok(())
     }
 
-    async fn invalidate(&mut self, _key: &K) -> Result<()> {
+    async fn invalidate(&mut self, _key: &K) -> Result<(), IndexifyCachingError> {
         Ok(())
     }
 }

@@ -5,6 +5,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
     http::StatusCode,
     routing::{get, post},
+    Extension,
     Json,
     Router,
 };
@@ -32,6 +33,7 @@ use crate::{
     api::{self, *},
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageBuilder,
+    caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
     extractor_router::ExtractorRouter,
@@ -125,6 +127,7 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_client: coordinator_client.clone(),
         };
+        let caches = Caches::new(self.config.cache.clone());
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())
@@ -190,6 +193,7 @@ impl Server {
             )
             .layer(OtelAxumLayer::default())
             .layer(metrics)
+            .layer(Extension(caches))
             .layer(DefaultBodyLimit::disable());
 
         let (signal_tx, signal_rx) = tokio::sync::watch::channel(());
@@ -593,9 +597,12 @@ async fn list_extractors(
 #[axum::debug_handler]
 async fn extract_content(
     State(repository_endpoint): State<RepositoryEndpointState>,
+    Extension(caches): Extension<Caches>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let extractor_router = ExtractorRouter::new(repository_endpoint.coordinator_client.clone());
+    let cache = caches.cache_extract_content.clone();
+    let extractor_router =
+        ExtractorRouter::new(repository_endpoint.coordinator_client.clone()).with_cache(cache);
     let content_list = extractor_router
         .extract_content(&request.name, request.content, request.input_params)
         .await

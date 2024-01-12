@@ -1,7 +1,15 @@
+use std::marker::PhantomData;
+
 pub use super::prelude::*;
 
+type Key = Vec<u8>;
+type Value = Vec<u8>;
+
 pub struct MokaAsyncCache<K, V> {
-    cache: moka::future::Cache<K, V>,
+    cache: moka::future::Cache<Key, Value>,
+
+    _phantom_k: PhantomData<K>,
+    _phantom_v: PhantomData<V>,
 }
 
 #[async_trait]
@@ -10,17 +18,30 @@ where
     K: CacheKey,
     V: CacheValue,
 {
-    async fn get(&self, key: &K) -> Result<Option<V>> {
-        Ok(self.cache.get(key).await)
+    async fn get(&self, key: &K) -> Result<Option<V>, IndexifyCachingError> {
+        let k = key.serialize_to_flexbuffer()?;
+        let result = self.cache.get(&k).await;
+        let result = match result {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+        let r = flexbuffers::Reader::get_root(result.as_slice())?;
+        let value = V::deserialize(r)?;
+        Ok(Some(value))
     }
 
-    async fn insert(&mut self, key: K, value: V) -> Result<()> {
-        self.cache.insert(key, value).await;
+    async fn insert(&mut self, key: K, value: V) -> Result<(), IndexifyCachingError> {
+        let k = key.clone().serialize_to_flexbuffer()?;
+        let v = value.clone().serialize_to_flexbuffer()?;
+
+        self.cache.insert(k, v).await;
         Ok(())
     }
 
-    async fn invalidate(&mut self, key: &K) -> Result<()> {
-        self.cache.invalidate(key).await;
+    async fn invalidate(&mut self, key: &K) -> Result<(), IndexifyCachingError> {
+        let k: Vec<u8> = key.serialize_to_flexbuffer()?;
+
+        self.cache.invalidate(&k).await;
         Ok(())
     }
 }
@@ -32,14 +53,22 @@ where
 {
     pub fn new(max_capacity: u64) -> Self {
         let cache = moka::future::Cache::new(max_capacity);
-        Self { cache }
+        Self {
+            cache,
+            _phantom_k: PhantomData,
+            _phantom_v: PhantomData,
+        }
     }
 
     pub fn new_from_builder(
-        builder: moka::future::CacheBuilder<K, V, moka::future::Cache<K, V>>,
+        builder: moka::future::CacheBuilder<Key, Value, moka::future::Cache<Key, Value>>,
     ) -> Self {
         let cache = builder.build();
-        Self { cache }
+        Self {
+            cache,
+            _phantom_k: PhantomData,
+            _phantom_v: PhantomData,
+        }
     }
 }
 
@@ -55,19 +84,33 @@ where
 }
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
     use tokio;
 
     use super::*;
     use crate::caching::traits::Cache;
 
+    #[derive(Serialize, Deserialize, Clone)]
+    struct TestKey {
+        key: String,
+    }
+
+    #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+    struct TestValue {
+        value: Vec<u8>,
+    }
+
     #[tokio::test]
-    async fn test_moka_async_cache_with_extractor_types() {
-        let mut cache = MokaAsyncCache::<String, Vec<u8>>::new(100);
+    async fn test_moka_async_cache() {
+        let mut cache = MokaAsyncCache::new(100);
 
-        let key = serde_json::Value::String("test".to_string()).to_string();
+        let key = TestKey {
+            key: "test_key".to_string(),
+        };
 
-        // use Vec<u8, Global>
-        let value: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let value: TestValue = TestValue {
+            value: vec![1, 2, 3, 4, 5],
+        };
 
         // Test insert
         cache.insert(key.clone(), value.clone()).await.unwrap();

@@ -58,3 +58,16 @@ node_id: 0
 peers:
   - node_id: 0
     addr: localhost:8950
+
+# Cache configuration. It is used for caching the results
+# of queries to the vector index.
+cache:
+  # Possible values - redis, memory, none
+  # Disabled by default to prevent unexpected behavior in local development
+  backend: none
+
+  redis:
+    addr: redis://localhost:6379
+
+  memory:
+    max_size: 1000000
