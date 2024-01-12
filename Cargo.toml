@@ -21,6 +21,7 @@ bollard = { version = "0.15", features = ["buildkit"] }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 figment = { version = "0.10", features = ["yaml", "env"] }
+flexbuffers = { version = "2.0" }
 hostname = { version = "0.3" }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["service"] }
@@ -97,6 +98,7 @@ bollard = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 figment = { workspace = true }
+flexbuffers = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }

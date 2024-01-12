@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
 
 #[async_trait]
-pub trait Cache<K, V>
+pub trait Cache<K, V>: Send + Sync
 where
     K: CacheKey,
     V: CacheValue,
@@ -22,31 +21,11 @@ where
 /// This requires that the key be cloneable, in order to be placed in the cache
 /// safely.
 pub trait CacheKey:
-    Serialize
-    + DeserializeOwned
-    + Send
-    + Sync
-    + Clone
-    + PartialEq
-    + Eq
-    + std::hash::Hash
-    + std::fmt::Debug
-    + 'static
+    Send + Sync + Serialize + DeserializeOwned + Clone + Cacheable + FlexBufferable + 'static
 {
 }
-impl<T> CacheKey for T where
-    T: Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + Clone
-        + PartialEq
-        + Eq
-        + std::hash::Hash
-        + std::fmt::Debug
-        + 'static
-{
-}
+
+impl<T> CacheKey for T where T: Cacheable {}
 
 /// CacheValue is a trait that must be implemented by all values used in a
 /// cache. Note on use of 'static lifetime - this is required for the following
@@ -56,10 +35,49 @@ impl<T> CacheKey for T where
 /// This requires that the value be cloneable, in order to be placed in the
 /// cache safely.
 pub trait CacheValue:
-    Serialize + DeserializeOwned + Send + Sync + Clone + std::fmt::Debug + 'static
+    Send + Sync + Serialize + DeserializeOwned + Clone + Cacheable + FlexBufferable + 'static
 {
 }
-impl<T> CacheValue for T where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + std::fmt::Debug + 'static
-{
+
+impl<T> CacheValue for T where T: Cacheable {}
+
+pub trait FlexBufferable: Send + Sync + Serialize + DeserializeOwned + Clone + 'static {
+    fn serialize_to_flexbuffer(&self) -> Result<Vec<u8>, anyhow::Error> {
+        let mut s = flexbuffers::FlexbufferSerializer::new();
+        self.serialize(&mut s)?;
+        Ok(s.take_buffer())
+    }
+
+    fn deserialize_from_flexbuffer(bytes: &[u8]) -> Result<Self, anyhow::Error> {
+        let r = flexbuffers::Reader::get_root(bytes)?;
+        let value = Self::deserialize(r)?;
+        Ok(value)
+    }
+}
+
+impl<T> FlexBufferable for T where T: Cacheable {}
+
+pub trait Cacheable: Send + Sync + Serialize + DeserializeOwned + Clone + 'static {}
+impl<T> Cacheable for T where T: Send + Sync + Serialize + DeserializeOwned + Clone + 'static {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    // Test FlexBufferable, which will auto-implement onto TestFlexBufferable
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+    struct TestFlexBufferable {
+        value: String,
+    }
+
+    #[test]
+    fn test_flexbufferable() {
+        let test = TestFlexBufferable {
+            value: "test".to_string(),
+        };
+        let serialized = test.serialize_to_flexbuffer().unwrap();
+        let deserialized = TestFlexBufferable::deserialize_from_flexbuffer(&serialized).unwrap();
+        assert_eq!(test, deserialized);
+    }
 }

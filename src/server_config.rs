@@ -279,6 +279,49 @@ pub struct ServerPeer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedisConfig {
+    pub addr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConfig {
+    pub max_size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerCacheConfig {
+    pub backend: ServerCacheBackend,
+
+    pub redis: Option<RedisConfig>,
+    pub memory: Option<MemoryConfig>,
+}
+
+impl Default for ServerCacheConfig {
+    fn default() -> Self {
+        Self {
+            backend: ServerCacheBackend::default(),
+
+            redis: None,
+            memory: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerCacheBackend {
+    Redis,
+    Memory,
+    None,
+}
+
+impl Default for ServerCacheBackend {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ServerConfig {
     #[serde(default)]
@@ -296,6 +339,8 @@ pub struct ServerConfig {
     pub tls: Option<TlsConfig>,
     pub node_id: u64,
     pub peers: Vec<ServerPeer>,
+    #[serde(default)]
+    pub cache_config: ServerCacheConfig,
 }
 
 impl Default for ServerConfig {
@@ -321,6 +366,7 @@ impl Default for ServerConfig {
                 addr: "localhost:8970".into(),
                 node_id: 0,
             }],
+            cache_config: ServerCacheConfig::default(),
         }
     }
 }

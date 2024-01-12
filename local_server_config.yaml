@@ -58,3 +58,13 @@ node_id: 0
 peers:
   - node_id: 0
     addr: localhost:8950
+
+cache:
+  # Possible values - redis, memory, none
+  backend: memory
+
+  redis:
+    addr: redis://localhost:6379
+
+  memory:
+    max_size: 1000000
