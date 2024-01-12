@@ -18,7 +18,7 @@ where
     K: CacheKey,
     V: CacheValue,
 {
-    async fn get(&self, key: &K) -> Result<Option<V>> {
+    async fn get(&self, key: &K) -> Result<Option<V>, IndexifyCachingError> {
         let k = key.serialize_to_flexbuffer()?;
         let result = self.cache.get(&k).await;
         let result = match result {
@@ -30,7 +30,7 @@ where
         Ok(Some(value))
     }
 
-    async fn insert(&mut self, key: K, value: V) -> Result<()> {
+    async fn insert(&mut self, key: K, value: V) -> Result<(), IndexifyCachingError> {
         let k = key.clone().serialize_to_flexbuffer()?;
         let v = value.clone().serialize_to_flexbuffer()?;
 
@@ -38,7 +38,7 @@ where
         Ok(())
     }
 
-    async fn invalidate(&mut self, key: &K) -> Result<()> {
+    async fn invalidate(&mut self, key: &K) -> Result<(), IndexifyCachingError> {
         let k: Vec<u8> = key.serialize_to_flexbuffer()?;
 
         self.cache.invalidate(&k).await;

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::error;
 
 use crate::{
     api::Content,
@@ -57,11 +57,20 @@ impl ExtractorRouter {
                                               * need to clone the content? */
             input_params: input_params.clone().into(),
         };
-        if let Some(cached) = self.cache.read().await.get(&cache_key).await? {
-            tracing::debug!("found in cache: {:?}", cache_key);
-            return Ok((*cached.content).clone());
+        match self.cache.read().await.get(&cache_key).await {
+            Ok(Some(cached)) => {
+                tracing::debug!("found in cache: {:?}", cache_key);
+                return Ok((*cached.content).clone());
+            }
+            Ok(None) => {
+                tracing::debug!("not found in cache: {:?}", cache_key);
+            }
+            Err(e) => {
+                // Still return OK to the caller, even if something went wrong with the cache
+                // It will show up in the logs
+                error!("unable to get from cache: {:?}. Error: {}", cache_key, e);
+            }
         }
-        tracing::debug!("not found in cache: {:?}", cache_key);
 
         // not found in cache - proceed to extract
         let request = internal_api::ExtractRequest {
@@ -123,10 +132,17 @@ impl ExtractorRouter {
                 content: content_list.clone().into(),
             };
             let mut cache = self.cache.write().await;
-            match cache.insert(cache_key, cache_value).await {
-                Ok(_) => {}
+            match cache.insert(cache_key.clone(), cache_value).await {
+                Ok(_) => {
+                    tracing::debug!("inserted into cache: {:?}", cache_key);
+                }
                 Err(e) => {
-                    warn!("unable to insert into cache: {}", e);
+                    // Still return OK to the caller, even if we can't cache the result
+                    // It will show up in the logs
+                    error!(
+                        "unable to insert into cache result for: {:?}. Error: {}",
+                        cache_key, e
+                    );
                 }
             }
         }

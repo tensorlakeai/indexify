@@ -32,7 +32,7 @@ where
     K: CacheKey,
     V: CacheValue,
 {
-    async fn get(&self, key: &K) -> Result<Option<V>> {
+    async fn get(&self, key: &K) -> Result<Option<V>, IndexifyCachingError> {
         let mut conn = self.client.get_async_connection().await?;
         let key = key.serialize_to_flexbuffer()?;
         let value: Option<Vec<u8>> = redis::cmd("GET").arg(key).query_async(&mut conn).await?;
@@ -44,7 +44,7 @@ where
         }
     }
 
-    async fn insert(&mut self, key: K, value: V) -> Result<()> {
+    async fn insert(&mut self, key: K, value: V) -> Result<(), IndexifyCachingError> {
         let mut conn = self.client.get_async_connection().await?;
         let key: Vec<u8> = key.serialize_to_flexbuffer()?;
         let value: Vec<u8> = value.serialize_to_flexbuffer()?;
@@ -56,7 +56,7 @@ where
         Ok(())
     }
 
-    async fn invalidate(&mut self, key: &K) -> Result<()> {
+    async fn invalidate(&mut self, key: &K) -> Result<(), IndexifyCachingError> {
         let mut conn = self.client.get_async_connection().await?;
         let key = key.serialize_to_flexbuffer()?;
         redis::cmd("DEL").arg(key).query_async(&mut conn).await?;

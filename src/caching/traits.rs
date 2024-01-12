@@ -2,15 +2,17 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
 
+use super::prelude::IndexifyCachingError;
+
 #[async_trait]
 pub trait Cache<K, V>: Send + Sync
 where
     K: CacheKey,
     V: CacheValue,
 {
-    async fn get(&self, key: &K) -> Result<Option<V>, anyhow::Error>;
-    async fn insert(&mut self, key: K, value: V) -> Result<(), anyhow::Error>;
-    async fn invalidate(&mut self, key: &K) -> Result<(), anyhow::Error>;
+    async fn get(&self, key: &K) -> Result<Option<V>, IndexifyCachingError>;
+    async fn insert(&mut self, key: K, value: V) -> Result<(), IndexifyCachingError>;
+    async fn invalidate(&mut self, key: &K) -> Result<(), IndexifyCachingError>;
 }
 
 /// CacheKey is a trait that must be implemented by all keys used in a cache.
@@ -42,15 +44,30 @@ pub trait CacheValue:
 impl<T> CacheValue for T where T: Cacheable {}
 
 pub trait FlexBufferable: Send + Sync + Serialize + DeserializeOwned + Clone + 'static {
-    fn serialize_to_flexbuffer(&self) -> Result<Vec<u8>, anyhow::Error> {
+    fn serialize_to_flexbuffer(&self) -> Result<Vec<u8>, IndexifyCachingError> {
         let mut s = flexbuffers::FlexbufferSerializer::new();
-        self.serialize(&mut s)?;
+        self.serialize(&mut s).map_err(|e| {
+            IndexifyCachingError::SerializationError(format!(
+                "Could not map object to FlexBuffer serializer: {}",
+                e
+            ))
+        })?;
         Ok(s.take_buffer())
     }
 
-    fn deserialize_from_flexbuffer(bytes: &[u8]) -> Result<Self, anyhow::Error> {
-        let r = flexbuffers::Reader::get_root(bytes)?;
-        let value = Self::deserialize(r)?;
+    fn deserialize_from_flexbuffer(bytes: &[u8]) -> Result<Self, IndexifyCachingError> {
+        let r = flexbuffers::Reader::get_root(bytes).map_err(|e| {
+            IndexifyCachingError::DeserializationError(format!(
+                "Couldn't read a FlexBuffer bytestream from the cache: {}",
+                e
+            ))
+        })?;
+        let value = Self::deserialize(r).map_err(|e| {
+            IndexifyCachingError::DeserializationError(format!(
+                "Deserializer would not deserialize using FlexBuffer: {}",
+                e
+            ))
+        })?;
         Ok(value)
     }
 }
