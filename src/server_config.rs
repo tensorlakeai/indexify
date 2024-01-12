@@ -278,21 +278,36 @@ pub struct ServerPeer {
     pub node_id: u64,
 }
 
+/// RedisConfig is a struct that contains the configuration for the redis cache
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RedisConfig {
+    /// addr is the address of the redis server. i.e. "redis://localhost:6379"
     pub addr: String,
 }
 
+/// MemoryConfig is a struct that contains the configuration for the memory
+/// cache
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
+    /// max_size is the maximum number of items to store in the cache.
     pub max_size: usize,
 }
 
+/// ServerCacheConfig is a struct that contains the configuration for the
+/// server-side cache. It is a wrapper around configuration for the different
+/// cache backends supported by the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerCacheConfig {
+    /// backend is the cache backend to use. See ServerCacheBackend for the
+    /// different options.
     pub backend: ServerCacheBackend,
 
+    /// redis is the configuration for the redis cache backend. It is required
+    /// if the backend is set to Redis.
     pub redis: Option<RedisConfig>,
+
+    /// memory is the configuration for the memory cache backend. It is required
+    /// if the backend is set to Memory.
     pub memory: Option<MemoryConfig>,
 }
 
@@ -307,11 +322,20 @@ impl Default for ServerCacheConfig {
     }
 }
 
+/// ServerCacheBackend is an enum that represents the different cache backends
+/// supported by the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerCacheBackend {
+    /// Redis is a cache backend that uses Redis as the underlying cache
+    /// implementation.
     Redis,
+
+    /// Memory is a cache backend that uses an in-memory cache as the underlying
+    /// cache implementation.
     Memory,
+
+    /// None is a cache backend that does not use any caching.
     None,
 }
 
@@ -339,8 +363,9 @@ pub struct ServerConfig {
     pub tls: Option<TlsConfig>,
     pub node_id: u64,
     pub peers: Vec<ServerPeer>,
+    /// cache is the configuration for the server-side cache.
     #[serde(default)]
-    pub cache_config: ServerCacheConfig,
+    pub cache: ServerCacheConfig,
 }
 
 impl Default for ServerConfig {
@@ -366,7 +391,7 @@ impl Default for ServerConfig {
                 addr: "localhost:8970".into(),
                 node_id: 0,
             }],
-            cache_config: ServerCacheConfig::default(),
+            cache: ServerCacheConfig::default(),
         }
     }
 }

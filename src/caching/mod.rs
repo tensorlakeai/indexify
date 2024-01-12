@@ -1,3 +1,4 @@
+pub mod caches_extension;
 pub mod moka_async_cache;
 pub mod noop_cache;
 mod prelude;

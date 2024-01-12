@@ -62,8 +62,9 @@ impl<T> Cacheable for T where T: Send + Sync + Serialize + DeserializeOwned + Cl
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde::{Deserialize, Serialize};
+
+    use super::*;
 
     // Test FlexBufferable, which will auto-implement onto TestFlexBufferable
     #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

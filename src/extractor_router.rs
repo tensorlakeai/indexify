@@ -7,16 +7,13 @@ use tracing::warn;
 
 use crate::{
     api::Content,
-    caching::{
-        Cache,
-        NoOpCache,
-    },
+    caching::{Cache, NoOpCache},
     coordinator_client::CoordinatorClient,
     indexify_coordinator::GetExtractorCoordinatesRequest,
     internal_api::{self, ExtractResponse},
 };
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ExtractContentCacheKey {
     content: Arc<Content>,
     input_params: Arc<Option<serde_json::Value>>,
@@ -61,8 +58,10 @@ impl ExtractorRouter {
             input_params: input_params.clone().into(),
         };
         if let Some(cached) = self.cache.read().await.get(&cache_key).await? {
+            tracing::debug!("found in cache: {:?}", cache_key);
             return Ok((*cached.content).clone());
         }
+        tracing::debug!("not found in cache: {:?}", cache_key);
 
         // not found in cache - proceed to extract
         let request = internal_api::ExtractRequest {

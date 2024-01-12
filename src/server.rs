@@ -20,7 +20,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin,
     signal,
-    sync::{Notify, RwLock},
+    sync::Notify,
 };
 use tower::Service;
 use tracing::{error, info};
@@ -33,17 +33,11 @@ use crate::{
     api::{self, *},
     attribute_index::AttributeIndexManager,
     blob_storage::BlobStorageBuilder,
-    caching::{
-        redis_cache::{CacheKey, CacheValue},
-        Cache,
-        MokaAsyncCache,
-        NoOpCache,
-        RedisCache,
-    },
+    caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
-    extractor_router::{ExtractContentCacheKey, ExtractContentCacheValue, ExtractorRouter},
-    server_config::{ServerCacheBackend, ServerCacheConfig, ServerConfig},
+    extractor_router::ExtractorRouter,
+    server_config::ServerConfig,
     tls::build_mtls_acceptor,
     vector_index::VectorIndexManager,
     vectordbs,
@@ -83,52 +77,6 @@ pub struct RepositoryEndpointState {
         )
     )]
 struct ApiDoc;
-
-#[derive(Clone)]
-pub struct Caches {
-    pub cache_extract_content:
-        Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractContentCacheValue>>>>,
-}
-
-impl Caches {
-    fn new(cache_config: ServerCacheConfig) -> Self {
-        Self {
-            cache_extract_content: Self::create_cache(cache_config).unwrap(),
-        }
-    }
-
-    fn create_cache<K, V>(
-        cache_config: ServerCacheConfig,
-    ) -> Result<Arc<RwLock<Box<dyn Cache<K, V>>>>>
-    where
-        K: CacheKey,
-        V: CacheValue,
-    {
-        match cache_config.backend {
-            ServerCacheBackend::None => Ok(Arc::new(RwLock::new(Box::new(NoOpCache::new())))),
-            ServerCacheBackend::Memory => {
-                if let Some(memory_config) = cache_config.memory {
-                    let cache = MokaAsyncCache::new(memory_config.max_size as u64);
-                    Ok(Arc::new(RwLock::new(Box::new(cache))))
-                } else {
-                    tracing::warn!("memory config not provided. Using default config");
-                    let cache = MokaAsyncCache::default();
-                    Ok(Arc::new(RwLock::new(Box::new(cache))))
-                }
-            }
-            ServerCacheBackend::Redis => {
-                if let Some(redis_config) = cache_config.redis {
-                    let client = redis::Client::open(redis_config.addr)?;
-                    let cache = RedisCache::new(client);
-                    Ok(Arc::new(RwLock::new(Box::new(cache))))
-                } else {
-                    // TODO: Is a panic the right thing to do here? We could log an error, but it would be easy to miss
-                    panic!("redis chosen as cache backend, but no redis config provided. Check your server config")
-                }
-            }
-        }
-    }
-}
 
 pub struct Server {
     addr: SocketAddr,
@@ -179,7 +127,7 @@ impl Server {
             repository_manager: repository_manager.clone(),
             coordinator_client: coordinator_client.clone(),
         };
-        let caches = Caches::new(self.config.cache_config.clone());
+        let caches = Caches::new(self.config.cache.clone());
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())

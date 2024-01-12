@@ -1,4 +1,4 @@
-pub use super::prelude::*;
+use super::prelude::*;
 
 pub struct RedisCache<K, V> {
     client: redis::Client,
