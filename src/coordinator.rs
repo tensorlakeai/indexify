@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Ok, Result};
 use jsonschema::JSONSchema;
+use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
@@ -36,6 +37,7 @@ impl Coordinator {
     #[tracing::instrument(skip(self))]
     pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
         let events = self.shared_state.unprocessed_extraction_events().await?;
+        info!("processing {} extraction events", events.len());
         for event in &events {
             info!("processing extraction event: {}", event.id);
             let mut tasks = Vec::new();
@@ -63,6 +65,7 @@ impl Coordinator {
                     }
                 }
             };
+            info!("created {} tasks", tasks.len());
             self.shared_state.create_tasks(tasks).await?;
             self.shared_state
                 .mark_extraction_event_processed(&event.id)
@@ -298,6 +301,10 @@ impl Coordinator {
             .create_content(&id, content_metadata, extraction_event)
             .await?;
         Ok(id)
+    }
+
+    pub fn get_leader_change_watcher(&self) -> Receiver<bool> {
+        self.shared_state.leader_change_rx.clone()
     }
 }
 

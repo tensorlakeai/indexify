@@ -2,6 +2,7 @@
 #![deny(unused_qualifications)]
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     io::Cursor,
     sync::Arc,
@@ -13,7 +14,10 @@ use network::Network;
 use openraft::{self, storage::Adaptor, BasicNode};
 use store::{Request, Response, Store};
 use tokio::{
-    sync::{watch, Mutex},
+    sync::{
+        watch::{self, Receiver, Sender},
+        Mutex,
+    },
     task::JoinHandle,
 };
 use tracing::{error, info};
@@ -80,8 +84,9 @@ pub struct App {
     pub addr: String,
     pub raft: Raft,
     nodes: BTreeMap<NodeId, BasicNode>,
-    shutdown_rx: watch::Receiver<()>,
-    shutdown_tx: watch::Sender<()>,
+    shutdown_rx: Receiver<()>,
+    shutdown_tx: Sender<()>,
+    pub leader_change_rx: Receiver<bool>,
     join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
     pub store: Arc<Store>,
     pub config: Arc<openraft::Config>,
@@ -124,6 +129,8 @@ impl App {
 
         let addr = server_config.raft_addr_sock().unwrap();
         let raft_servr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
+        let (leader_change_tx, leader_change_rx) =
+            tokio::sync::watch::channel::<bool>(false);
 
         let app = Arc::new(App {
             id: server_config.node_id,
@@ -134,13 +141,24 @@ impl App {
             raft,
             shutdown_rx: rx,
             shutdown_tx: tx,
+            leader_change_rx,
             join_handles: Mutex::new(vec![]),
             nodes,
             store,
             config,
         });
 
+        let raft_clone = app.raft.clone();
+        let node_id_clone = app.id.clone();
+
         let mut rx = app.shutdown_rx.clone();
+        let shutdown_rx = app.shutdown_rx.clone();
+        // Start for leadership changes
+        tokio::spawn(async move {
+            let _ =
+                watch_for_leader_change(raft_clone, node_id_clone, leader_change_tx, shutdown_rx)
+                    .await;
+        });
 
         let grpc_svc = tonic::transport::Server::builder().add_service(raft_servr);
         let h = tokio::spawn(async move {
@@ -532,5 +550,48 @@ impl App {
             })
             .await?;
         Ok(())
+    }
+}
+
+async fn watch_for_leader_change(
+    raft: Raft,
+    node_id: NodeId,
+    leader_change_tx: Sender<bool>,
+    mut shutdown_rx: Receiver<()>,
+) -> Result<()> {
+    let mut rx = raft.metrics();
+    let prev_server_state = RefCell::new(openraft::ServerState::Learner);
+
+    loop {
+        tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("shutting down leader change watcher");
+                        return Ok(());
+                    }
+                    _ = rx.changed() => {
+                        let server_state = rx.borrow_and_update().state.clone();
+                        let mut prev_srvr_state = prev_server_state.borrow_mut();
+                        if !(prev_srvr_state).eq(&server_state) {
+                            info!("raft change metrics prev {:?} current {:?}", prev_srvr_state, server_state);
+                            // If the prev state was leader and the current state is non leader send a
+                            // change notification to indicate that we lost leadership
+
+                            if prev_srvr_state.is_leader() && !server_state.is_leader() {
+                                info!("node {} lost leadership", node_id);
+                            leader_change_tx.send(false.into()).unwrap();
+                            }
+                            // If the prev state was not leader and current state is leader send a change
+                            // notification to indicate that we won leadership
+
+                            if !prev_srvr_state.is_leader() && server_state.is_leader() {
+                                info!("node {} became leader ", node_id);
+                                leader_change_tx.send(true.into()).unwrap();
+                            }
+
+                            // finally replace the previous state with the new state
+                            *prev_srvr_state = server_state;
+                        }
+                    }
+                }
     }
 }
