@@ -2,11 +2,14 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     net::SocketAddr,
-    sync::Arc,
+    sync::{atomic::{AtomicBool, Ordering}, Arc},
 };
 
-use anyhow::anyhow;
-use tokio::signal;
+use anyhow::{anyhow, Result};
+use tokio::{
+    signal,
+    sync::watch::{self, Receiver, Sender},
+};
 use tonic::{Request, Response, Status};
 use tracing::{error, info};
 
@@ -339,10 +342,16 @@ impl CoordinatorServer {
             .initialize_raft()
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
+        let leader_change_watcher = self.coordinator.get_leader_change_watcher();
+        let coordinator_clone = self.coordinator.clone();
+        tokio::spawn(async move {
+            let _ = run_scheduler(shutdown_rx, leader_change_watcher, coordinator_clone).await;
+        });
         tonic::transport::Server::builder()
             .add_service(srvr)
             .serve_with_shutdown(self.addr, async move {
-                let _ = shutdown_signal().await;
+                let _ = shutdown_signal(shutdown_tx).await;
                 let res = shared_state.stop().await;
                 if let Err(err) = res {
                     error!("error stopping server: {:?}", err);
@@ -353,8 +362,39 @@ impl CoordinatorServer {
     }
 }
 
+async fn run_scheduler(
+    mut shutdown_rx: Receiver<()>,
+    mut leader_changed: Receiver<bool>,
+    coordinator: Arc<Coordinator>,
+) -> Result<()> {
+    let mut interval =
+    tokio::time::interval(tokio::time::Duration::from_secs(5));
+    let is_leader = AtomicBool::new(false);
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                if is_leader.load(Ordering::Relaxed) {
+                   if let Err(err) = coordinator.process_and_distribute_work().await {
+                          error!("error processing and distributing work: {:?}", err);
+                   }
+                }
+            },
+            _ = shutdown_rx.changed() => {
+                info!("scheduler shutting down");
+                break;
+            }
+            _ = leader_changed.changed() => {
+                let leader_state = *leader_changed.borrow_and_update();
+                info!("leader changed detected: {:?}", leader_state);
+                is_leader.store(leader_state, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tracing::instrument]
-async fn shutdown_signal() {
+async fn shutdown_signal(shutdown_tx: Sender<()>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -378,5 +418,6 @@ async fn shutdown_signal() {
         _ = terminate => {
         },
     }
+    shutdown_tx.send(()).unwrap();
     info!("signal received, shutting down server gracefully");
 }
