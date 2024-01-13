@@ -2,7 +2,10 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     net::SocketAddr,
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::{anyhow, Result};
@@ -96,13 +99,12 @@ impl CoordinatorService for CoordinatorServiceServer {
         request.repository.hash(&mut s);
         request.binding.unwrap().name.hash(&mut s);
         let id = s.finish().to_string();
-        let input_params = serde_json::from_str(&extractor_binding.input_params).map_err(|e| {
-            tonic::Status::aborted(format!("unable to parse input_params: {}", e.to_string()))
-        })?;
+        let input_params = serde_json::from_str(&extractor_binding.input_params)
+            .map_err(|e| tonic::Status::aborted(format!("unable to parse input_params: {}", e)))?;
         let mut filters = HashMap::new();
         for filter in extractor_binding.filters {
             let value = serde_json::from_str(&filter.1).map_err(|e| {
-                tonic::Status::aborted(format!("unable to parse filter value: {}", e.to_string()))
+                tonic::Status::aborted(format!("unable to parse filter value: {}", e))
             })?;
             filters.insert(filter.0, value);
         }
@@ -338,7 +340,7 @@ impl CoordinatorServer {
         let srvr =
             indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);
         let shared_state = self.shared_state.clone();
-        let _ = shared_state
+        shared_state
             .initialize_raft()
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
@@ -367,8 +369,7 @@ async fn run_scheduler(
     mut leader_changed: Receiver<bool>,
     coordinator: Arc<Coordinator>,
 ) -> Result<()> {
-    let mut interval =
-    tokio::time::interval(tokio::time::Duration::from_secs(5));
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
     let is_leader = AtomicBool::new(false);
     loop {
         tokio::select! {

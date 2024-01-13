@@ -191,7 +191,7 @@ fn run_extractors(
 
 #[axum::debug_handler]
 async fn sync_worker(endpoint_state: State<Arc<ApiEndpointState>>) -> Result<(), IndexifyAPIError> {
-    let _ = endpoint_state
+    endpoint_state
         .executor
         .heartbeat(endpoint_state.coordinator_client.clone())
         .await

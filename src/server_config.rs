@@ -296,7 +296,7 @@ pub struct MemoryConfig {
 /// ServerCacheConfig is a struct that contains the configuration for the
 /// server-side cache. It is a wrapper around configuration for the different
 /// cache backends supported by the server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerCacheConfig {
     /// backend is the cache backend to use. See ServerCacheBackend for the
     /// different options.
@@ -309,17 +309,6 @@ pub struct ServerCacheConfig {
     /// memory is the configuration for the memory cache backend. It is required
     /// if the backend is set to Memory.
     pub memory: Option<MemoryConfig>,
-}
-
-impl Default for ServerCacheConfig {
-    fn default() -> Self {
-        Self {
-            backend: ServerCacheBackend::default(),
-
-            redis: None,
-            memory: None,
-        }
-    }
 }
 
 /// ServerCacheBackend is an enum that represents the different cache backends

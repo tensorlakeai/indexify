@@ -90,7 +90,7 @@ impl AttributeIndexManager {
             content_id TEXT,
             created_at BIGINT,
         );";
-        let _ = sqlx::query(&query).execute(&self.pool).await?;
+        let _ = sqlx::query(query).execute(&self.pool).await?;
         let req = GrpcHelper::into_req(index);
         let _resp = self
             .coordinator_client

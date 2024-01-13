@@ -26,6 +26,12 @@ pub struct Network {
     raft_client: Arc<RaftClient>,
 }
 
+impl Default for Network {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Network {
     pub fn new() -> Self {
         Self {

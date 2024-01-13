@@ -47,7 +47,7 @@ pub trait FlexBufferable: Send + Sync + Serialize + DeserializeOwned + Clone + '
     fn serialize_to_flexbuffer(&self) -> Result<Vec<u8>, IndexifyCachingError> {
         let mut s = flexbuffers::FlexbufferSerializer::new();
         self.serialize(&mut s).map_err(|e| {
-            IndexifyCachingError::SerializationError(format!(
+            IndexifyCachingError::Serialization(format!(
                 "Could not map object to FlexBuffer serializer: {}",
                 e
             ))
@@ -57,13 +57,13 @@ pub trait FlexBufferable: Send + Sync + Serialize + DeserializeOwned + Clone + '
 
     fn deserialize_from_flexbuffer(bytes: &[u8]) -> Result<Self, IndexifyCachingError> {
         let r = flexbuffers::Reader::get_root(bytes).map_err(|e| {
-            IndexifyCachingError::DeserializationError(format!(
+            IndexifyCachingError::Deserialization(format!(
                 "Couldn't read a FlexBuffer bytestream from the cache: {}",
                 e
             ))
         })?;
         let value = Self::deserialize(r).map_err(|e| {
-            IndexifyCachingError::DeserializationError(format!(
+            IndexifyCachingError::Deserialization(format!(
                 "Deserializer would not deserialize using FlexBuffer: {}",
                 e
             ))

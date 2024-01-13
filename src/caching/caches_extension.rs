@@ -11,6 +11,8 @@ use crate::{
     server_config::{ServerCacheBackend, ServerCacheConfig},
 };
 
+pub type CacheTS<K, V> = Arc<RwLock<Box<dyn Cache<K, V>>>>;
+
 #[derive(Clone)]
 pub struct Caches {
     pub cache_extract_content:
@@ -24,9 +26,7 @@ impl Caches {
         }
     }
 
-    fn create_cache<K, V>(
-        cache_config: ServerCacheConfig,
-    ) -> Result<Arc<RwLock<Box<dyn Cache<K, V>>>>>
+    fn create_cache<K, V>(cache_config: ServerCacheConfig) -> Result<CacheTS<K, V>>
     where
         K: CacheKey,
         V: CacheValue,

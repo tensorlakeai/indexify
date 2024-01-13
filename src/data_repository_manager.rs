@@ -169,16 +169,15 @@ impl DataRepositoryManager {
                         .vector_index_manager
                         .create_index(repository, &index_name, embedding_schema.clone())
                         .await?;
-                    let _ = self
-                        .create_index_metadata(
-                            repository,
-                            &index_name,
-                            &index_name,
-                            serde_json::to_value(embedding_schema)?,
-                            &extractor_binding.name,
-                            &extractor.name,
-                        )
-                        .await?;
+                    self.create_index_metadata(
+                        repository,
+                        &index_name,
+                        &index_name,
+                        serde_json::to_value(embedding_schema)?,
+                        &extractor_binding.name,
+                        &extractor.name,
+                    )
+                    .await?;
                     index_names.push(index_name);
                 }
                 internal_api::OutputSchema::Attributes(schema) => {

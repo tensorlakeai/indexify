@@ -37,7 +37,7 @@ pub async fn build_mtls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, 
         let client_auth: Arc<dyn ClientCertVerifier> = if ca_file.is_some() {
             let ca_file = TlsConfig::resolve_path(ca_file.as_ref().unwrap());
             // Load root CA certificate file used to verify client certificate
-            let rootstore = Arc::new(load_root_store(&ca_file)?);
+            let rootstore = Arc::new(load_root_store(ca_file)?);
 
             WebPkiClientVerifier::builder(
                 // allow only certificates signed by a trusted CA
@@ -48,11 +48,11 @@ pub async fn build_mtls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, 
         } else {
             Arc::new(NoClientAuth)
         };
-        let config = rustls::ServerConfig::builder()
+
+        rustls::ServerConfig::builder()
             .with_client_cert_verifier(client_auth)
             .with_single_cert(certs, key)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{}", err)))?;
-        config
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{}", err)))?
     };
 
     tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];

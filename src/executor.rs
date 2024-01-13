@@ -172,7 +172,7 @@ impl ExtractorExecutor {
                 error!("unable to parse task: {:?}", task);
             }
         }
-        if tasks.len() > 0 {
+        if !tasks.is_empty() {
             self.task_store.add(tasks);
         }
         Ok(())

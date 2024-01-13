@@ -363,7 +363,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         ts_secs,
                     } => {
                         sm.executor_health_checks
-                            .insert(executor_id.clone(), ts_secs.clone());
+                            .insert(executor_id.clone(), *ts_secs);
                         res.push(Response { value: None })
                     }
                     Request::RegisterExecutor {
@@ -380,7 +380,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             .push(executor_id.clone());
                         let executor_info = ExecutorMetadata {
                             id: executor_id.clone(),
-                            last_seen: ts_secs.clone(),
+                            last_seen: *ts_secs,
                             addr: addr.clone(),
                             extractor: extractor.clone(),
                         };
@@ -413,7 +413,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.unprocessed_extraction_events.retain(|id| id != event_id);
                         let event = sm.extraction_events.get(event_id).map(|event| {
                             let mut event = event.to_owned();
-                            event.processed_at = Some(ts_secs.clone());
+                            event.processed_at = Some(*ts_secs);
                             event
                         });
                         if let Some(event) = event {

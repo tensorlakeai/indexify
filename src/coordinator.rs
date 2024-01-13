@@ -105,7 +105,7 @@ impl Coordinator {
             .extractor_with_name(&extractor_binding.extractor)
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
-        for (name, _schema) in &extractor.outputs {
+        for name in extractor.outputs.keys() {
             output_mapping.insert(name.clone(), format!("{}.{}", extractor_binding.name, name));
         }
         let mut tasks = Vec::new();

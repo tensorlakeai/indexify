@@ -302,24 +302,23 @@ impl Server {
         let timeout_duration = 60;
         let timeout = tokio::time::sleep(std::time::Duration::from_secs(timeout_duration));
 
-        loop {
-            tokio::select! {
-                res = conn.as_mut() => {
-                    match res {
-                        Ok(_) => break Ok(()),
-                        Err(e) => return Err(anyhow::anyhow!("failed to serve connection: {}", e)),
-                    }
-                }
-                _ = timeout => {
-                    info!("connection timed out after {} seconds", timeout_duration);
-                    break Ok(());
-                }
-                _ = notify_shutdown.notified() => {
-                    info!("graceful shutdown signal received. Shutting down connection");
-                    break Ok(()); // graceful shutdown
+        let res = tokio::select! {
+            res = conn.as_mut() => {
+                match res {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(anyhow::anyhow!("failed to serve connection: {}", e)),
                 }
             }
-        }
+            _ = timeout => {
+                info!("connection timed out after {} seconds", timeout_duration);
+                Ok(())
+            }
+            _ = notify_shutdown.notified() => {
+                info!("graceful shutdown signal received. Shutting down connection");
+                Ok(()) // graceful shutdown
+            }
+        };
+        res.map_err(|e| anyhow::anyhow!("failed to serve connection: {}", e))
     }
 }
 
@@ -355,7 +354,7 @@ async fn create_repository(
     };
     state
         .repository_manager
-        .create(&&data_repository)
+        .create(&data_repository)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -389,7 +388,7 @@ async fn list_repositories(
                 format!("failed to list repositories: {}", e),
             )
         })?;
-    let data_repos = repositories.into_iter().map(|r| r.into()).collect();
+    let data_repos = repositories.into_iter().collect();
     Ok(Json(ListRepositoriesResponse {
         repositories: data_repos,
     }))
@@ -421,7 +420,7 @@ async fn get_repository(
             )
         })?;
     Ok(Json(GetRepositoryResponse {
-        repository: data_repo.into(),
+        repository: data_repo,
     }))
 }
 
@@ -544,7 +543,7 @@ async fn write_extracted_content(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<WriteExtractedContent>,
 ) -> Result<Json<()>, IndexifyAPIError> {
-    let _ = state
+    state
         .repository_manager
         .write_extracted_content(payload)
         .await
@@ -589,7 +588,6 @@ async fn list_extractors(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .into_iter()
-        .map(|e| e.into())
         .collect();
     Ok(Json(ListExtractorsResponse { extractors }))
 }
@@ -638,7 +636,6 @@ async fn list_indexes(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .into_iter()
-        .map(|i| i.into())
         .collect();
     Ok(Json(ListIndexesResponse { indexes }))
 }

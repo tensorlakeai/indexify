@@ -10,6 +10,12 @@ pub struct RaftClient {
     clients: Arc<Mutex<HashMap<String, RaftApiClient<Channel>>>>,
 }
 
+impl Default for RaftClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RaftClient {
     pub fn new() -> Self {
         Self {

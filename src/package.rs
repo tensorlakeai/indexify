@@ -174,16 +174,13 @@ RUN pip3 install --no-input indexify_extractor_sdk
         let gpu = self.config.gpu;
 
         let mut pytorch_version = None;
-        match pytorch {
-            Some(pos) => {
-                let dep_string = &self.config.python_dependencies[pos];
-                if dep_string.contains("==") {
-                    pytorch_version = Option::Some(dep_string.split("==").collect::<Vec<_>>()[1]);
-                } else {
-                    pytorch_version = Option::Some("latest");
-                }
+        if let Some(pos) = pytorch {
+            let dep_string = &self.config.python_dependencies[pos];
+            if dep_string.contains("==") {
+                pytorch_version = Option::Some(dep_string.split("==").collect::<Vec<_>>()[1]);
+            } else {
+                pytorch_version = Option::Some("latest");
             }
-            None => {}
         }
 
         let mut additional_pip_flags = "";
