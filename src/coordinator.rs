@@ -207,14 +207,15 @@ impl Coordinator {
             .await
     }
 
+    pub async fn get_extractor(&self, extractor_name: &str) -> Result<ExtractorDescription> {
+        self.shared_state.extractor_with_name(extractor_name).await
+    }
+
     pub async fn create_binding(
         &self,
         binding: internal_api::ExtractorBinding,
-    ) -> Result<ExtractorDescription> {
-        let extractor = self
-            .shared_state
-            .extractor_with_name(&binding.extractor)
-            .await?;
+        extractor: ExtractorDescription,
+    ) -> Result<()> {
         let input_params_schema = JSONSchema::compile(&extractor.input_params).map_err(|e| {
             anyhow!(
                 "unable to compile json schema for input params: {:?}, error: {:?}",
@@ -248,7 +249,7 @@ impl Coordinator {
         self.shared_state
             .create_binding(binding, extraction_event)
             .await?;
-        Ok(extractor)
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
@@ -366,14 +367,19 @@ mod tests {
             .register_executor("localhost:8956", "test_executor_id", mock_extractor())
             .await?;
         coordinator
-            .create_binding(ExtractorBinding {
-                id: "test-binding-id".to_string(),
-                name: "test".to_string(),
-                extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
-                input_params: serde_json::json!({}),
-                filters: HashMap::new(),
-            })
+            .create_binding(
+                ExtractorBinding {
+                    id: "test-binding-id".to_string(),
+                    name: "test".to_string(),
+                    extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    input_params: serde_json::json!({}),
+                    filters: HashMap::new(),
+                    output_index_name_mapping: HashMap::new(),
+                    index_name_table_mapping: HashMap::new(),
+                },
+                mock_extractor(),
+            )
             .await?;
         assert_eq!(1, shared_state.unprocessed_extraction_events().await?.len());
         coordinator.process_and_distribute_work().await?;

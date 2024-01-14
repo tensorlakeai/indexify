@@ -18,6 +18,9 @@ pub struct Args {
     /// address of the indexify server
     #[arg(long)]
     coordinator_addr: String,
+
+    #[arg(long)]
+    ingestion_addr: String,
 }
 
 impl Args {
@@ -25,6 +28,7 @@ impl Args {
         let Self {
             advertise_addr,
             coordinator_addr,
+            ingestion_addr,
         } = self;
 
         info!("starting indexify executor, version: {}", crate::VERSION);
@@ -32,7 +36,8 @@ impl Args {
             ExecutorConfig::default()
                 .with_advertise_addr(advertise_addr)
                 .expect("unable to use the provided advertise address")
-                .with_coordinator_addr(coordinator_addr),
+                .with_coordinator_addr(coordinator_addr)
+                .with_ingestion_addr(ingestion_addr),
         );
         ExecutorServer::new(&extractor_config_path, executor_config)
             .await

@@ -269,6 +269,16 @@ pub struct ExtractorBindResponse {
     pub created_at: i64,
     #[prost(message, optional, tag = "2")]
     pub extractor: ::core::option::Option<Extractor>,
+    #[prost(map = "string, string", tag = "4")]
+    pub index_name_table_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(map = "string, string", tag = "5")]
+    pub output_index_name_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]

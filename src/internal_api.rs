@@ -341,6 +341,14 @@ pub struct ExtractorBinding {
     pub extractor: String,
     pub filters: HashMap<String, serde_json::Value>,
     pub input_params: serde_json::Value,
+
+    // Output name of the extractor to index name where the
+    // ouput is written to
+    pub output_index_name_mapping: HashMap<String, String>,
+
+    // Index name to the underlying table name of the index
+    // in storage system
+    pub index_name_table_mapping: HashMap<String, String>,
 }
 
 impl std::hash::Hash for ExtractorBinding {
@@ -437,15 +445,6 @@ pub struct ExtractorHeartbeat {
 pub struct ExtractorHeartbeatResponse {
     pub content_to_process: Vec<Task>,
 }
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct WriteRequest {
-    pub task_statuses: Vec<TaskResult>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct WriteResponse {}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskResult {
     pub task_id: String,

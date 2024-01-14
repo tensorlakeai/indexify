@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use tracing::info;
 
 use crate::{
     api::{self},
@@ -39,21 +40,16 @@ impl VectorIndexManager {
         }
     }
 
-    pub async fn create_index(
-        &self,
-        repository: &str,
-        index_name: &str,
-        schema: EmbeddingSchema,
-    ) -> Result<String> {
-        let vector_index_name = format!("{}-{}", repository, index_name);
+    pub async fn create_index(&self, index_name: &str, schema: EmbeddingSchema) -> Result<String> {
         let create_index_params = CreateIndexParams {
-            vectordb_index_name: vector_index_name.clone(),
+            vectordb_index_name: index_name.to_string(),
             vector_dim: schema.dim as u64,
             distance: IndexDistance::from_str(schema.distance.as_str())?,
             unique_params: None,
         };
+        info!("Creating index: {:?}", create_index_params);
         self.vector_db.create_index(create_index_params).await?;
-        Ok(vector_index_name.to_string())
+        Ok(index_name.to_string())
     }
 
     pub async fn add_embedding(
@@ -61,6 +57,7 @@ impl VectorIndexManager {
         vector_index_name: &str,
         embeddings: Vec<ExtractedEmbeddings>,
     ) -> Result<()> {
+        info!("Adding embeddings to index: {}", vector_index_name);
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
             let vector_chunk =

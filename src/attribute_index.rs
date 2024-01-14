@@ -70,11 +70,10 @@ impl AttributeIndexManager {
         extractor_binding: &str,
         schema: serde_json::Value,
     ) -> Result<String> {
-        let table_name = format!("structured_store_{repository}_{index_name}");
         let index = CreateIndexRequest {
             index: Some(Index {
                 name: index_name.to_string(),
-                table_name,
+                table_name: index_name.to_string(),
                 repository: repository.to_string(),
                 schema: schema.to_string(),
                 extractor: extractor.to_string(),
