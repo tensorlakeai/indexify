@@ -102,7 +102,9 @@ impl App {
             ..Default::default()
         };
 
-        let config = Arc::new(raft_config.validate().unwrap());
+        let config = Arc::new(raft_config.validate().map_err(|e| {
+            anyhow!("invalid raft config: {}", e.to_string())
+        })?);
         let store = Arc::new(Store::default());
         let (log_store, state_machine) = Adaptor::new(store.clone());
         let network = Network::new();
@@ -115,7 +117,7 @@ impl App {
             state_machine,
         )
         .await
-        .unwrap();
+        .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
         let mut nodes = BTreeMap::new();
         for peer in &server_config.peers {
@@ -128,7 +130,12 @@ impl App {
         }
         let (tx, rx) = watch::channel::<()>(());
 
-        let addr = server_config.raft_addr_sock().unwrap();
+        let addr = server_config.raft_addr_sock().map_err(|e| {
+            anyhow!(
+                "unable to create raft address : {}",
+                e.to_string()
+            )
+        })?;
         let raft_servr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
@@ -136,7 +143,7 @@ impl App {
             id: server_config.node_id,
             addr: server_config
                 .coordinator_lis_addr_sock()
-                .unwrap()
+                .map_err(|e| anyhow!("unable to get coordinator address : {}", e.to_string()))?
                 .to_string(),
             raft,
             shutdown_rx: rx,
@@ -149,14 +156,13 @@ impl App {
         });
 
         let raft_clone = app.raft.clone();
-        let node_id_clone = app.id;
 
         let mut rx = app.shutdown_rx.clone();
         let shutdown_rx = app.shutdown_rx.clone();
         // Start for leadership changes
         tokio::spawn(async move {
             let _ =
-                watch_for_leader_change(raft_clone, node_id_clone, leader_change_tx, shutdown_rx)
+                watch_for_leader_change(raft_clone, leader_change_tx, shutdown_rx)
                     .await;
         });
 
@@ -595,7 +601,6 @@ impl App {
 
 async fn watch_for_leader_change(
     raft: Raft,
-    node_id: NodeId,
     leader_change_tx: Sender<bool>,
     mut shutdown_rx: Receiver<()>,
 ) -> Result<()> {
@@ -613,22 +618,8 @@ async fn watch_for_leader_change(
                 let mut prev_srvr_state = prev_server_state.borrow_mut();
                 if !(prev_srvr_state).eq(&server_state) {
                     info!("raft change metrics prev {:?} current {:?}", prev_srvr_state, server_state);
-                    // If the prev state was leader and the current state is non leader send a
-                    // change notification to indicate that we lost leadership
-
-                    if prev_srvr_state.is_leader() && !server_state.is_leader() {
-                        info!("node {} lost leadership", node_id);
-                    leader_change_tx.send(false).unwrap();
-                    }
-                    // If the prev state was not leader and current state is leader send a change
-                    // notification to indicate that we won leadership
-
-                    if !prev_srvr_state.is_leader() && server_state.is_leader() {
-                        info!("node {} became leader ", node_id);
-                        leader_change_tx.send(true).unwrap();
-                    }
-
-                    // finally replace the previous state with the new state
+                    leader_change_tx.send(server_state.is_leader().into()).unwrap();
+                    // replace the previous state with the new state
                     *prev_srvr_state = server_state;
                 }
             }
