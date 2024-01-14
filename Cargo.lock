@@ -1921,6 +1921,7 @@ dependencies = [
  "axum 0.7.3",
  "axum-otel-metrics",
  "axum-tracing-opentelemetry",
+ "base64",
  "bollard",
  "bytes",
  "clap",

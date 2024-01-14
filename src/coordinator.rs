@@ -234,6 +234,15 @@ impl Coordinator {
             .await
     }
 
+    pub async fn get_content_metadata(
+        &self,
+        content_ids: Vec<String>,
+    ) -> Result<Vec<ContentMetadata>> {
+        self.shared_state
+            .get_content_metadata_batch(content_ids)
+            .await
+    }
+
     pub async fn get_extractor(&self, extractor_name: &str) -> Result<ExtractorDescription> {
         self.shared_state.extractor_with_name(extractor_name).await
     }

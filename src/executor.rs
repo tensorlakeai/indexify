@@ -11,7 +11,7 @@ use serde_json::json;
 use tracing::{error, info};
 
 use crate::{
-    content_reader::ContentReader,
+    blob_storage::BlobStorageBuilder,
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
     indexify_coordinator::{self, RegisterExecutorRequest},
@@ -181,8 +181,10 @@ impl ExtractorExecutor {
 }
 
 async fn get_content(content_metadata: internal_api::ContentMetadata) -> Result<Content> {
-    let content_reader = ContentReader::new(content_metadata.clone());
-    let data = content_reader.read().await?;
+    let blog_storage_reader = BlobStorageBuilder::reader_from_link(&content_metadata.storage_url)?;
+    let data = blog_storage_reader
+        .get(&content_metadata.storage_url)
+        .await?;
     let extracted_content = Content {
         mime: content_metadata.content_type,
         bytes: data,

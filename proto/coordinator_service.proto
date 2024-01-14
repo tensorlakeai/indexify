@@ -6,6 +6,8 @@ package indexify_coordinator;
 service CoordinatorService {
     rpc CreateContent(CreateContentRequest) returns (CreateContentResponse) {}
 
+    rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
+
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
 
     rpc CreateBinding(ExtractorBindRequest) returns (ExtractorBindResponse) {}
@@ -33,6 +35,14 @@ service CoordinatorService {
     rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
 
     rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse) {}
+}
+
+message GetContentMetadataRequest {
+    repeated string content_list = 1;
+}
+
+message GetContentMetadataResponse {
+    repeated ContentMetadata content_list = 1;
 }
 
 enum TaskOutcome {

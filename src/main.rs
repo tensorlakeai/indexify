@@ -19,7 +19,6 @@ mod attribute_index;
 mod blob_storage;
 mod caching;
 mod cmd;
-mod content_reader;
 mod coordinator;
 mod coordinator_client;
 mod data_repository_manager;

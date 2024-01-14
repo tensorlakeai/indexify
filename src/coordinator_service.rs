@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use itertools::Itertools;
 use tokio::{
     signal,
     sync::watch::{self, Receiver, Sender},
@@ -29,6 +30,7 @@ use crate::{
         CreateRepositoryResponse,
         ExtractorBindRequest,
         ExtractorBindResponse,
+        GetContentMetadataRequest,
         GetExtractorCoordinatesRequest,
         GetIndexRequest,
         GetIndexResponse,
@@ -346,6 +348,27 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(Response::new(
             indexify_coordinator::GetExtractorCoordinatesResponse {
                 addrs: extractor_coordinates,
+            },
+        ))
+    }
+
+    async fn get_content_metadata(
+        &self,
+        req: Request<GetContentMetadataRequest>,
+    ) -> Result<Response<indexify_coordinator::GetContentMetadataResponse>, Status> {
+        let req = req.into_inner();
+        let content_metadata_list = self
+            .coordinator
+            .get_content_metadata(req.content_list)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let content_metadata = content_metadata_list
+            .iter()
+            .map(|c| c.clone().into())
+            .collect_vec();
+        Ok(Response::new(
+            indexify_coordinator::GetContentMetadataResponse {
+                content_list: content_metadata,
             },
         ))
     }

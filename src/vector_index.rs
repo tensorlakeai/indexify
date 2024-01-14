@@ -1,14 +1,17 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
+use itertools::Itertools;
 use tracing::info;
 
 use crate::{
     api::{self},
+    blob_storage::BlobStorageBuilder,
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
-    indexify_coordinator::Index,
+    indexify_coordinator::{self, Index},
     internal_api::EmbeddingSchema,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
@@ -16,6 +19,7 @@ use crate::{
 pub struct VectorIndexManager {
     vector_db: VectorDBTS,
     extractor_router: ExtractorRouter,
+    coordinator_client: Arc<CoordinatorClient>,
 }
 
 impl fmt::Debug for VectorIndexManager {
@@ -37,6 +41,7 @@ impl VectorIndexManager {
         Self {
             vector_db,
             extractor_router,
+            coordinator_client: coordinator_client.clone(),
         }
     }
 
@@ -77,6 +82,7 @@ impl VectorIndexManager {
             feature: None,
             metadata: HashMap::new(),
         };
+        info!("Extracting searching from index {:?}", index);
         let content = self
             .extractor_router
             .extract_content(&index.extractor, content, None)
@@ -90,15 +96,53 @@ impl VectorIndexManager {
             .ok_or(anyhow!("No features were extracted"))?;
         let embedding: Vec<f32> =
             serde_json::from_value(features.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
-        let results = self
+        let search_result = self
             .vector_db
             .search(index.table_name, embedding, k as u64)
             .await?;
+        let content_ids = search_result
+            .iter()
+            .map(|r| r.content_id.clone())
+            .collect_vec();
+        let req = indexify_coordinator::GetContentMetadataRequest {
+            content_list: content_ids.clone(),
+        };
+        let content_metadata_list = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_content_metadata(req)
+            .await?
+            .into_inner();
+        if &content_ids.len() != &content_metadata_list.content_list.len() {
+            return Err(anyhow!(
+                "Unable to get metadata for all content ids: {:?}, retreived content ids: {:?}",
+                &content_ids,
+                content_metadata_list.content_list,
+            ));
+        }
+        let mut content_id_to_blob = HashMap::new();
+        for content in content_metadata_list.content_list {
+            let reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
+            let data = reader.get(&content.storage_url).await?;
+            let text = match content.mime.as_str() {
+                "text/plain" => String::from_utf8(data)?,
+                "application/json" => {
+                    let json: serde_json::Value = serde_json::from_slice(&data)?;
+                    json.to_string()
+                }
+                _ => general_purpose::STANDARD.encode(&data),
+            };
+            content_id_to_blob.insert(content.id, text);
+        }
         let mut index_search_results = Vec::new();
-        for result in results {
-            let chunk = "dummy text".to_string();
+        for result in search_result {
+            let chunk = content_id_to_blob.get(&result.content_id);
+            if chunk.is_none() {
+                continue;
+            }
             let search_result = ScoredText {
-                text: chunk,
+                text: chunk.unwrap().to_string(),
                 content_id: result.content_id.clone(),
                 metadata: HashMap::new(),
                 confidence_score: result.confidence_score,

@@ -175,7 +175,7 @@ impl DataRepositoryManager {
                     self.create_index_metadata(
                         repository,
                         index_name,
-                        index_name,
+                        &table_name,
                         serde_json::to_value(embedding_schema)?,
                         &extractor_binding.name,
                         &extractor.name,
@@ -204,7 +204,7 @@ impl DataRepositoryManager {
         &self,
         repository: &str,
         index_name: &str,
-        vector_index_name: &str,
+        table_name: &str,
         schema: serde_json::Value,
         binding: &str,
         extractor: &str,
@@ -212,7 +212,7 @@ impl DataRepositoryManager {
         let index = CreateIndexRequest {
             index: Some(Index {
                 name: index_name.to_string(),
-                table_name: vector_index_name.to_string(),
+                table_name: table_name.to_string(),
                 repository: repository.to_string(),
                 schema: serde_json::to_value(schema).unwrap().to_string(),
                 extractor_binding: binding.to_string(),
@@ -293,11 +293,13 @@ impl DataRepositoryManager {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
+        let file_name = nanoid!();
         let mut s = DefaultHasher::new();
         repository.hash(&mut s);
         content.bytes.hash(&mut s);
+        file_name.hash(&mut s);
+        parent_id.hash(&mut s);
         let id = format!("{:x}", s.finish());
-        let file_name = nanoid!();
         let storage_url = self
             .upload_file(repository, &file_name, Bytes::from(content.bytes.clone()))
             .await

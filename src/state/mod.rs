@@ -499,6 +499,21 @@ impl App {
         Ok(content_metadata.clone())
     }
 
+    pub async fn get_content_metadata_batch(
+        &self,
+        content_ids: Vec<String>,
+    ) -> Result<Vec<ContentMetadata>> {
+        let store = self.store.state_machine.read().await;
+        let mut content_metadata_list = Vec::new();
+        for content_id in content_ids {
+            let content_metadata = store.content_table.get(&content_id);
+            if let Some(content_metadata) = content_metadata {
+                content_metadata_list.push(content_metadata.clone());
+            }
+        }
+        Ok(content_metadata_list)
+    }
+
     pub async fn create_tasks(&self, tasks: Vec<Task>) -> Result<()> {
         let _resp = self
             .raft
