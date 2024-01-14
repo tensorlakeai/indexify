@@ -27,6 +27,7 @@ impl BlobStorage for DiskStorage {
         let path = format!("{}/{}", self.base_dir, key);
         let mut file = File::create(&path).await?;
         file.write_all(&data).await?;
+        let path = format!("file://{}", path);
         Ok(path)
     }
 

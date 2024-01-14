@@ -543,11 +543,18 @@ async fn write_extracted_content(
     State(state): State<RepositoryEndpointState>,
     Json(payload): Json<WriteExtractedContent>,
 ) -> Result<Json<()>, IndexifyAPIError> {
-    state
+    let result = state
         .repository_manager
         .write_extracted_content(payload)
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await;
+    if let Err(err) = &result {
+        info!("failed to write extracted content: {:?}", err);
+        return Err(IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            err.to_string(),
+        ));
+    }
+
     Ok(Json(()))
 }
 

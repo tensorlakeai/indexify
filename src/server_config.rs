@@ -198,6 +198,8 @@ pub struct ExecutorConfig {
     pub listen_port: u64,
     #[serde(default)]
     pub coordinator_addr: String,
+    #[serde(default)]
+    pub ingestion_api_addr: String,
 }
 
 impl Default for ExecutorConfig {
@@ -207,6 +209,7 @@ impl Default for ExecutorConfig {
             advertise_if: NetworkAddress::default(),
             listen_port: default_executor_port(),
             coordinator_addr: format!("localhost:{}", default_coordinator_port()),
+            ingestion_api_addr: format!("localhost:{}", default_server_port()),
         }
     }
 }
@@ -246,6 +249,11 @@ impl ExecutorConfig {
 
     pub fn with_coordinator_addr(mut self, addr: String) -> Self {
         self.coordinator_addr = addr;
+        self
+    }
+
+    pub fn with_ingestion_addr(mut self, addr: String) -> Self {
+        self.ingestion_api_addr = addr;
         self
     }
 }

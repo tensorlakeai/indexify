@@ -48,10 +48,13 @@ use crate::{
         ListRepositoriesResponse,
         RegisterExecutorRequest,
         RegisterExecutorResponse,
+        UpdateTaskRequest,
+        UpdateTaskResponse,
     },
     internal_api,
     server_config::ServerConfig,
     state,
+    utils::timestamp_secs,
 };
 
 pub struct CoordinatorServiceServer {
@@ -109,22 +112,43 @@ impl CoordinatorService for CoordinatorServiceServer {
             filters.insert(filter.0, value);
         }
 
-        let extractor = internal_api::ExtractorBinding {
+        let extractor = self
+            .coordinator
+            .get_extractor(&extractor_binding.extractor)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let mut index_name_table_mapping = HashMap::new();
+        let mut output_index_name_mapping = HashMap::new();
+        for output_name in extractor.outputs.keys() {
+            let index_name = format!("{}.{}", extractor_binding.name, output_name);
+            let index_table_name = format!(
+                "{}.{}.{}",
+                request.repository, extractor_binding.name, output_name
+            );
+            index_name_table_mapping.insert(index_name.clone(), index_table_name.clone());
+            output_index_name_mapping.insert(output_name.clone(), index_name.clone());
+        }
+
+        let extractor_binding = internal_api::ExtractorBinding {
             id,
             extractor: extractor_binding.extractor,
             name: extractor_binding.name,
             repository: request.repository,
             filters,
             input_params,
+            output_index_name_mapping: output_index_name_mapping.clone(),
+            index_name_table_mapping: index_name_table_mapping.clone(),
         };
-        let extractor = self
+        let _ = self
             .coordinator
-            .create_binding(extractor)
+            .create_binding(extractor_binding, extractor.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ExtractorBindResponse {
-            created_at: 0,
+            created_at: timestamp_secs() as i64,
             extractor: Some(extractor.into()),
+            index_name_table_mapping,
+            output_index_name_mapping,
         }))
     }
 
@@ -247,6 +271,20 @@ impl CoordinatorService for CoordinatorServiceServer {
             executor_id: "".to_string(),
             tasks,
         }))
+    }
+
+    async fn update_task(
+        &self,
+        request: tonic::Request<UpdateTaskRequest>,
+    ) -> Result<tonic::Response<UpdateTaskResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let outcome: internal_api::TaskOutcome = request.outcome().into();
+        let _ = self
+            .coordinator
+            .update_task(&request.task_id, &request.executor_id, outcome)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(UpdateTaskResponse {}))
     }
 
     async fn list_indexes(

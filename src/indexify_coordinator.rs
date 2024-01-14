@@ -1,5 +1,18 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateTaskRequest {
+    #[prost(string, tag = "1")]
+    pub executor_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub task_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "TaskOutcome", tag = "3")]
+    pub outcome: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateTaskResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetExtractorCoordinatesRequest {
     #[prost(string, tag = "2")]
     pub extractor: ::prost::alloc::string::String,
@@ -143,6 +156,8 @@ pub struct Task {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    #[prost(enumeration = "TaskOutcome", tag = "8")]
+    pub outcome: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -269,6 +284,16 @@ pub struct ExtractorBindResponse {
     pub created_at: i64,
     #[prost(message, optional, tag = "2")]
     pub extractor: ::core::option::Option<Extractor>,
+    #[prost(map = "string, string", tag = "4")]
+    pub index_name_table_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(map = "string, string", tag = "5")]
+    pub output_index_name_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -314,6 +339,35 @@ pub struct Repository {
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
     pub bindings: ::prost::alloc::vec::Vec<ExtractorBinding>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum TaskOutcome {
+    Unknown = 0,
+    Failed = 1,
+    Success = 2,
+}
+impl TaskOutcome {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            TaskOutcome::Unknown => "UNKNOWN",
+            TaskOutcome::Failed => "FAILED",
+            TaskOutcome::Success => "SUCCESS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNKNOWN" => Some(Self::Unknown),
+            "FAILED" => Some(Self::Failed),
+            "SUCCESS" => Some(Self::Success),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod coordinator_service_client {
@@ -820,6 +874,36 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn update_task(
+            &mut self,
+            request: impl tonic::IntoRequest<super::UpdateTaskRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::UpdateTaskResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_coordinator.CoordinatorService/UpdateTask",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "UpdateTask",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -925,6 +1009,13 @@ pub mod coordinator_service_server {
             request: tonic::Request<super::GetExtractorCoordinatesRequest>,
         ) -> std::result::Result<
             tonic::Response<super::GetExtractorCoordinatesResponse>,
+            tonic::Status,
+        >;
+        async fn update_task(
+            &self,
+            request: tonic::Request<super::UpdateTaskRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::UpdateTaskResponse>,
             tonic::Status,
         >;
     }
@@ -1662,6 +1753,53 @@ pub mod coordinator_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = GetExtractorCoordinatesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_coordinator.CoordinatorService/UpdateTask" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateTaskSvc<T: CoordinatorService>(pub Arc<T>);
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::UpdateTaskRequest>
+                    for UpdateTaskSvc<T> {
+                        type Response = super::UpdateTaskResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::UpdateTaskRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as CoordinatorService>::update_task(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = UpdateTaskSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use axum::{
@@ -17,11 +17,11 @@ use tokio::{
 use tracing::{error, info};
 
 use crate::{
-    api::IndexifyAPIError,
+    api::{IndexifyAPIError, WriteExtractedContent},
     coordinator_client::CoordinatorClient,
     executor::ExtractorExecutor,
     extractor::{extractor_runner, py_extractors, python_path},
-    internal_api::{ExtractRequest, ExtractResponse},
+    internal_api::{Content, ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
     task_store::TaskStore,
 };
@@ -100,7 +100,12 @@ impl ExecutorServer {
         );
         let (shutdown_tx, shutdown_rx) = watch::channel::<()>(());
         let coordinator_client = self.coordinator_client.clone();
-        run_extractors(task_store.clone(), executor.clone(), shutdown_rx.clone());
+        run_extractors(
+            task_store.clone(),
+            executor.clone(),
+            self.executor_config.ingestion_api_addr.clone(),
+            shutdown_rx.clone(),
+        );
         tokio::spawn(async move {
             let mut shutdown_rx = shutdown_rx.clone();
             let mut int = interval(Duration::from_secs(5));
@@ -112,7 +117,6 @@ impl ExecutorServer {
                         break;
                     },
                     _ = int.tick() => {
-                        info!("executor server is running");
                         if let Err(err) = executor.heartbeat(coordinator_client.clone()).await {
                             error!("unable to heartbeat: {}", err.to_string());
                         }
@@ -161,9 +165,11 @@ async fn extract(
 fn run_extractors(
     task_store: Arc<TaskStore>,
     executor: Arc<ExtractorExecutor>,
+    ingestion_addr: String,
     mut shutdown_rx: Receiver<()>,
 ) {
     let mut watch_rx = task_store.get_watcher().clone();
+    let ingestion_api = format!("http://{}/write_content", ingestion_addr);
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -176,13 +182,46 @@ fn run_extractors(
                     if let Err(err) = executor.execute_pending_tasks().await {
                         error!("unable to execute pending tasks: {}", err.to_string());
                     }
-                    let tasks = task_store.finished_tasks();
-                    if tasks.is_empty() {
+                    let task_results = task_store.finished_tasks();
+                    if task_results.is_empty() {
                         continue;
                     }
 
                     // write extracted data
-                    task_store.clear_completed_work();
+                    for task_result in task_results {
+                        let task = task_store.get_task(&task_result.task_id);
+                        if task.is_none() {
+                            error!("unable to find task: {}", task_result.task_id);
+                            continue;
+                        }
+                        let task = task.unwrap();
+                        let content_by_index = split_content_list_by_index_names(task_result.extracted_content.clone(), task.output_index_table_mapping.clone());
+                        for (index_name, content_list) in content_by_index {
+                            let req = WriteExtractedContent{
+                                parent_content_id: task.content_metadata.id.clone(),
+                                task_id: task.id.clone(),
+                                repository: task.repository.clone(),
+                                content_list: content_list.clone(),
+                                index_name: Some(index_name.clone()),
+                                executor_id: executor.executor_id.clone(),
+                                task_outcome: task_result.outcome.clone(),
+                            };
+                            let write_result = reqwest::Client::new()
+                            .post(&ingestion_api)
+                            .json(&req)
+                            .send()
+                            .await;
+                            if let Err(err) = write_result {
+                                error!("unable to write extracted content: {}", err.to_string());
+                                continue;
+                            }
+                            if let Err(err) = write_result {
+                                error!("unable to write extracted content: {}", err.to_string());
+                                continue;
+                            }
+                            task_store.clear_completed_task(&task.id);
+                        }
+                    }
                 }
             };
         }
@@ -226,4 +265,23 @@ async fn shutdown_signal() {
         },
     }
     info!("signal received, shutting down server gracefully");
+}
+
+fn split_content_list_by_index_names(
+    content_list: Vec<Content>,
+    index_mapping: HashMap<String, String>,
+) -> HashMap<String, Vec<Content>> {
+    let mut content_map: HashMap<String, Vec<Content>> = HashMap::new();
+    for content in content_list {
+        if let Some(feature) = &content.feature {
+            let index_name = index_mapping.get(&feature.name).unwrap();
+            content_map
+                .entry(index_name.clone())
+                .or_default()
+                .push(content);
+        } else {
+            content_map.entry("".to_string()).or_default().push(content);
+        }
+    }
+    content_map
 }

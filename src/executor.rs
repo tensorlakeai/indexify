@@ -15,15 +15,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
     indexify_coordinator::{self, RegisterExecutorRequest},
-    internal_api::{
-        self,
-        Content,
-        ExecutorInfo,
-        ExtractorDescription,
-        Task,
-        TaskResult,
-        TaskState,
-    },
+    internal_api::{self, Content, ExecutorInfo, ExtractorDescription, Task, TaskResult},
     server_config::ExecutorConfig,
     task_store::TaskStore,
 };
@@ -38,7 +30,7 @@ fn create_executor_id() -> String {
 
 pub struct ExtractorExecutor {
     executor_config: Arc<ExecutorConfig>,
-    executor_id: String,
+    pub executor_id: String,
     extractor_runner: Arc<ExtractorRunner>,
     extractor_description: ExtractorDescription,
     listen_addr: String,
@@ -117,12 +109,21 @@ impl ExtractorExecutor {
             let content = get_content(task.content_metadata).await?;
             let extracted_content_batch = self
                 .extractor_runner
-                .extract(vec![content], task.input_params.clone())?;
-
-            for extracted_content_list in extracted_content_batch {
+                .extract(vec![content], task.input_params.clone());
+            if let Err(_err) = &extracted_content_batch {
                 let work_status = TaskResult {
                     task_id: task.id.clone(),
-                    status: TaskState::Completed,
+                    outcome: internal_api::TaskOutcome::Failed,
+                    extracted_content: Vec::new(),
+                };
+                results.push(work_status);
+                continue;
+            }
+
+            for extracted_content_list in extracted_content_batch.unwrap() {
+                let work_status = TaskResult {
+                    task_id: task.id.clone(),
+                    outcome: internal_api::TaskOutcome::Success,
                     extracted_content: extracted_content_list,
                 };
                 results.push(work_status);

@@ -9,7 +9,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use nanoid::nanoid;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     api::{self, EmbeddingSchema},
@@ -25,6 +25,7 @@ use crate::{
         CreateIndexRequest,
         Index,
         ListIndexesRequest,
+        UpdateTaskRequest,
     },
     internal_api::{self, OutputSchema},
     vector_index::{ScoredText, VectorIndexManager},
@@ -162,37 +163,36 @@ impl DataRepositoryManager {
         let extractor = response.extractor.ok_or(anyhow!("extractor not found"))?;
         for (name, output_schema) in &extractor.outputs {
             let output_schema: OutputSchema = serde_json::from_str(output_schema)?;
+            let index_name = response.output_index_name_mapping.get(name).unwrap();
+            let table_name = response.index_name_table_mapping.get(index_name).unwrap();
+            index_names.push(index_name.clone());
             match output_schema {
                 internal_api::OutputSchema::Embedding(embedding_schema) => {
-                    let index_name = format!("{}-{}", extractor_binding.name, name);
                     let _ = self
                         .vector_index_manager
-                        .create_index(repository, &index_name, embedding_schema.clone())
+                        .create_index(table_name, embedding_schema.clone())
                         .await?;
                     self.create_index_metadata(
                         repository,
-                        &index_name,
-                        &index_name,
+                        index_name,
+                        index_name,
                         serde_json::to_value(embedding_schema)?,
                         &extractor_binding.name,
                         &extractor.name,
                     )
                     .await?;
-                    index_names.push(index_name);
                 }
                 internal_api::OutputSchema::Attributes(schema) => {
-                    let index_name = format!("{}-{}", extractor_binding.name, name);
                     let _ = self
                         .attribute_index_manager
                         .create_index(
                             repository,
-                            &index_name,
+                            table_name,
                             &extractor.name,
                             &extractor_binding.name,
                             schema,
                         )
                         .await?;
-                    index_names.push(index_name);
                 }
             }
         }
@@ -324,7 +324,9 @@ impl DataRepositoryManager {
         &self,
         extracted_content: api::WriteExtractedContent,
     ) -> Result<()> {
+        let index_name = extracted_content.index_name.clone();
         for content in extracted_content.content_list {
+            let content: api::Content = content.into();
             let content_metadata = self
                 .write_content(
                     &extracted_content.repository,
@@ -332,6 +334,9 @@ impl DataRepositoryManager {
                     Some(extracted_content.parent_content_id.to_string()),
                 )
                 .await?;
+            if index_name.as_ref().is_none() {
+                continue;
+            }
             if let Some(feature) = content.feature.clone() {
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
@@ -341,7 +346,7 @@ impl DataRepositoryManager {
                             embeddings: emebedding,
                         };
                         self.vector_index_manager
-                            .add_embedding(&extracted_content.index_name, vec![embeddings])
+                            .add_embedding(&index_name.clone().unwrap(), vec![embeddings])
                             .await?;
                     }
                     api::FeatureType::Metadata => {
@@ -353,7 +358,7 @@ impl DataRepositoryManager {
                         self.attribute_index_manager
                             .add_index(
                                 &extracted_content.repository,
-                                &extracted_content.index_name,
+                                &index_name.clone().unwrap(),
                                 extracted_attributes,
                             )
                             .await?;
@@ -361,6 +366,18 @@ impl DataRepositoryManager {
                     _ => {}
                 }
             }
+        }
+
+        let outcome: indexify_coordinator::TaskOutcome = extracted_content.task_outcome.into();
+
+        let req = UpdateTaskRequest {
+            executor_id: extracted_content.executor_id,
+            task_id: extracted_content.task_id,
+            outcome: outcome as i32,
+        };
+        let res = self.coordinator_client.get().await?.update_task(req).await;
+        if let Err(err) = res {
+            error!("unable to update task: {}", err.to_string());
         }
         Ok(())
     }
