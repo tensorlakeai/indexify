@@ -106,7 +106,15 @@ impl Coordinator {
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            output_mapping.insert(name.clone(), format!("{}.{}", extractor_binding.name, name));
+            let index_name = extractor_binding
+                .output_index_name_mapping
+                .get(name)
+                .unwrap();
+            let table_name = extractor_binding
+                .index_name_table_mapping
+                .get(index_name)
+                .unwrap();
+            output_mapping.insert(name.clone(), table_name.clone());
         }
         let mut tasks = Vec::new();
         for content in content_list {
@@ -119,10 +127,11 @@ impl Coordinator {
                 id,
                 extractor: extractor_binding.extractor.clone(),
                 extractor_binding: extractor_binding.name.clone(),
-                output_index_mapping: output_mapping.clone(),
+                output_index_table_mapping: output_mapping.clone(),
                 repository: extractor_binding.repository.clone(),
                 content_metadata: content.clone(),
                 input_params: extractor_binding.input_params.clone(),
+                outcome: internal_api::TaskOutcome::Unknown,
             };
             info!("created task: {:?}", task);
             tasks.push(task);
@@ -142,6 +151,24 @@ impl Coordinator {
         repository: &str,
     ) -> Result<Vec<internal_api::ExtractorBinding>> {
         self.shared_state.list_bindings(repository).await
+    }
+
+    pub async fn update_task(
+        &self,
+        task_id: &str,
+        executor_id: &str,
+        outcome: internal_api::TaskOutcome,
+    ) -> Result<()> {
+        info!(
+            "updating task: {}, executor_id: {}, outcome: {:?}",
+            task_id, executor_id, outcome
+        );
+        let mut task = self.shared_state.task_with_id(task_id).await?;
+        task.outcome = outcome;
+        self.shared_state
+            .update_task(task, Some(executor_id.to_string()))
+            .await?;
+        Ok(())
     }
 
     pub async fn create_repository(&self, repository: &str) -> Result<()> {

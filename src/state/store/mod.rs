@@ -80,6 +80,11 @@ pub enum Request {
         repository: String,
         id: String,
     },
+    UpdateTask {
+        task: Task,
+        mark_finished: bool,
+        executor_id: Option<String>,
+    },
 }
 
 /**
@@ -471,6 +476,23 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             .or_default()
                             .insert(index.clone());
                         sm.index_table.insert(id.clone(), index.clone());
+                        res.push(Response { value: None })
+                    }
+                    Request::UpdateTask {
+                        task,
+                        mark_finished,
+                        executor_id,
+                    } => {
+                        sm.tasks.insert(task.id.clone(), task.clone());
+                        if *mark_finished {
+                            sm.unassigned_tasks.remove(&task.id);
+                            if let Some(executor_id) = executor_id {
+                                sm.task_assignments
+                                    .entry(executor_id.clone())
+                                    .or_default()
+                                    .remove(&task.id);
+                            }
+                        }
                         res.push(Response { value: None })
                     }
                 },

@@ -117,7 +117,6 @@ impl ExecutorServer {
                         break;
                     },
                     _ = int.tick() => {
-                        info!("executor server is running");
                         if let Err(err) = executor.heartbeat(coordinator_client.clone()).await {
                             error!("unable to heartbeat: {}", err.to_string());
                         }
@@ -196,7 +195,7 @@ fn run_extractors(
                             continue;
                         }
                         let task = task.unwrap();
-                        let content_by_index = split_content_list_by_index_names(task_result.extracted_content.clone(), task.output_index_mapping.clone());
+                        let content_by_index = split_content_list_by_index_names(task_result.extracted_content.clone(), task.output_index_table_mapping.clone());
                         for (index_name, content_list) in content_by_index {
                             let req = WriteExtractedContent{
                                 parent_content_id: task.content_metadata.id.clone(),
@@ -204,6 +203,8 @@ fn run_extractors(
                                 repository: task.repository.clone(),
                                 content_list: content_list.clone(),
                                 index_name: Some(index_name.clone()),
+                                executor_id: executor.executor_id.clone(),
+                                task_outcome: task_result.outcome.clone(),
                             };
                             let write_result = reqwest::Client::new()
                             .post(&ingestion_api)
@@ -279,10 +280,7 @@ fn split_content_list_by_index_names(
                 .or_default()
                 .push(content);
         } else {
-            content_map
-                .entry("".to_string())
-                .or_default()
-                .push(content);
+            content_map.entry("".to_string()).or_default().push(content);
         }
     }
     content_map

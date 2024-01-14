@@ -48,6 +48,8 @@ use crate::{
         ListRepositoriesResponse,
         RegisterExecutorRequest,
         RegisterExecutorResponse,
+        UpdateTaskRequest,
+        UpdateTaskResponse,
     },
     internal_api,
     server_config::ServerConfig,
@@ -269,6 +271,20 @@ impl CoordinatorService for CoordinatorServiceServer {
             executor_id: "".to_string(),
             tasks,
         }))
+    }
+
+    async fn update_task(
+        &self,
+        request: tonic::Request<UpdateTaskRequest>,
+    ) -> Result<tonic::Response<UpdateTaskResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let outcome: internal_api::TaskOutcome = request.outcome().into();
+        let _ = self
+            .coordinator
+            .update_task(&request.task_id, &request.executor_id, outcome)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(UpdateTaskResponse {}))
     }
 
     async fn list_indexes(

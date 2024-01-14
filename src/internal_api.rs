@@ -271,19 +271,48 @@ impl From<Content> for api::Content {
     }
 }
 
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+pub enum TaskOutcome {
+    Unknown,
+    Success,
+    Failed,
+}
+
+impl From<indexify_coordinator::TaskOutcome> for TaskOutcome {
+    fn from(value: indexify_coordinator::TaskOutcome) -> Self {
+        match value {
+            indexify_coordinator::TaskOutcome::Unknown => TaskOutcome::Unknown,
+            indexify_coordinator::TaskOutcome::Success => TaskOutcome::Success,
+            indexify_coordinator::TaskOutcome::Failed => TaskOutcome::Failed,
+        }
+    }
+}
+
+impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
+    fn from(value: TaskOutcome) -> Self {
+        match value {
+            TaskOutcome::Unknown => indexify_coordinator::TaskOutcome::Unknown,
+            TaskOutcome::Success => indexify_coordinator::TaskOutcome::Success,
+            TaskOutcome::Failed => indexify_coordinator::TaskOutcome::Failed,
+        }
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct Task {
     pub id: String,
     pub extractor: String,
     pub extractor_binding: String,
-    pub output_index_mapping: HashMap<String, String>,
+    pub output_index_table_mapping: HashMap<String, String>,
     pub repository: String,
     pub content_metadata: ContentMetadata,
     pub input_params: serde_json::Value,
+    pub outcome: TaskOutcome,
 }
 
 impl From<Task> for indexify_coordinator::Task {
     fn from(value: Task) -> Self {
+        let outcome: indexify_coordinator::TaskOutcome = value.outcome.into();
         Self {
             id: value.id,
             extractor: value.extractor,
@@ -291,7 +320,8 @@ impl From<Task> for indexify_coordinator::Task {
             content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
             extractor_binding: value.extractor_binding,
-            output_index_mapping: value.output_index_mapping,
+            output_index_mapping: value.output_index_table_mapping,
+            outcome: outcome as i32,
         }
     }
 }
@@ -301,6 +331,8 @@ impl TryFrom<indexify_coordinator::Task> for Task {
 
     fn try_from(value: indexify_coordinator::Task) -> Result<Self> {
         let content_metadata: ContentMetadata = value.content_metadata.unwrap().try_into()?;
+        let outcome: TaskOutcome =
+            indexify_coordinator::TaskOutcome::try_from(value.outcome)?.into();
         Ok(Self {
             id: value.id,
             extractor: value.extractor,
@@ -308,7 +340,8 @@ impl TryFrom<indexify_coordinator::Task> for Task {
             content_metadata,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
             extractor_binding: value.extractor_binding,
-            output_index_mapping: value.output_index_mapping,
+            output_index_table_mapping: value.output_index_mapping,
+            outcome,
         })
     }
 }
@@ -448,7 +481,7 @@ pub struct ExtractorHeartbeatResponse {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskResult {
     pub task_id: String,
-    pub status: TaskState,
+    pub outcome: TaskOutcome,
     pub extracted_content: Vec<Content>,
 }
 

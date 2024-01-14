@@ -36,6 +36,7 @@ use crate::{
         ExtractorBinding,
         ExtractorDescription,
         Task,
+        TaskOutcome,
     },
     server_config::ServerConfig,
     utils::timestamp_secs,
@@ -348,6 +349,19 @@ impl App {
             .client_write(Request::CreateBinding {
                 binding,
                 extraction_event: Some(extraction_event),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_task(&self, task: Task, executor_id: Option<String>) -> Result<()> {
+        let mark_finished = task.outcome != TaskOutcome::Unknown;
+        let _resp = self
+            .raft
+            .client_write(Request::UpdateTask {
+                task,
+                mark_finished,
+                executor_id,
             })
             .await?;
         Ok(())

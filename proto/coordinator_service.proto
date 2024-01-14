@@ -31,6 +31,23 @@ service CoordinatorService {
     rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
 
     rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
+
+    rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse) {}
+}
+
+enum TaskOutcome {
+    UNKNOWN = 0;
+    FAILED = 1;
+    SUCCESS = 2;
+}
+
+message UpdateTaskRequest {
+    string executor_id = 1;
+    string task_id = 2;
+    TaskOutcome outcome = 3;
+}
+
+message UpdateTaskResponse {
 }
 
 message GetExtractorCoordinatesRequest {
@@ -121,6 +138,7 @@ message Task {
     string input_params = 5;
     string extractor_binding = 6;
     map<string, string> output_index_mapping = 7;
+    TaskOutcome outcome = 8;
 }
 
 message ListExtractorsRequest {

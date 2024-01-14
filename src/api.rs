@@ -11,7 +11,12 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::{attribute_index, indexify_coordinator, internal_api, vectordbs};
+use crate::{
+    attribute_index,
+    indexify_coordinator,
+    internal_api::{self, TaskOutcome},
+    vectordbs,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
@@ -378,4 +383,6 @@ pub struct WriteExtractedContent {
     pub repository: String,
     pub index_name: Option<String>,
     pub parent_content_id: String,
+    pub executor_id: String,
+    pub task_outcome: TaskOutcome,
 }

@@ -9,7 +9,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use nanoid::nanoid;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     api::{self, EmbeddingSchema},
@@ -25,6 +25,7 @@ use crate::{
         CreateIndexRequest,
         Index,
         ListIndexesRequest,
+        UpdateTaskRequest,
     },
     internal_api::{self, OutputSchema},
     vector_index::{ScoredText, VectorIndexManager},
@@ -365,6 +366,18 @@ impl DataRepositoryManager {
                     _ => {}
                 }
             }
+        }
+
+        let outcome: indexify_coordinator::TaskOutcome = extracted_content.task_outcome.into();
+
+        let req = UpdateTaskRequest {
+            executor_id: extracted_content.executor_id,
+            task_id: extracted_content.task_id,
+            outcome: outcome as i32,
+        };
+        let res = self.coordinator_client.get().await?.update_task(req).await;
+        if let Err(err) = res {
+            error!("unable to update task: {}", err.to_string());
         }
         Ok(())
     }
