@@ -19,6 +19,9 @@ build-release: ## Build rust release
 clean: ## Clean rust build artifacts
 	cargo clean
 
+build-base-builder-multistage:
+	docker buildx build -f dockerfiles/Dockerfile.builder --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/builder .
+
 build-container: ## Build container
 	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune --force --filter label=stage=builder
@@ -27,10 +30,10 @@ build-container: ## Build container
 build-base-extractor: ## Build base extractor container
 	docker build -f dockerfiles/Dockerfile.extractor_base --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
 
-build-base-extractor-push: ## Build and push base extractor container to docker hub
+build-base-extractor-push: build-base-builder-multistage ## Build and push base extractor container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.extractor_base --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
 
-push-container: ## Push container to docker hub
+push-container: build-base-builder-multistage ## Push container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 entity: ## Generate entity
