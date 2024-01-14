@@ -238,7 +238,7 @@ impl App {
             }
             for (name, value) in &binding.filters {
                 let is_mach = content_metadata
-                    .metadata
+                    .labels
                     .get(name)
                     .map(|v| v == value)
                     .unwrap_or(false);
@@ -277,7 +277,7 @@ impl App {
             }
             let is_match = &binding.filters.iter().all(|(name, value)| {
                 content
-                    .metadata
+                    .labels
                     .get(name)
                     .map(|v| v == value)
                     .unwrap_or(false)

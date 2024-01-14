@@ -31,7 +31,7 @@ impl fmt::Debug for VectorIndexManager {
 pub struct ScoredText {
     pub text: String,
     pub content_id: String,
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
     pub confidence_score: f32,
 }
 
@@ -80,7 +80,7 @@ impl VectorIndexManager {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
             feature: None,
-            metadata: HashMap::new(),
+            labels: HashMap::new(),
         };
         info!("Extracting searching from index {:?}", index);
         let content = self
@@ -144,7 +144,7 @@ impl VectorIndexManager {
             let search_result = ScoredText {
                 text: chunk.unwrap().to_string(),
                 content_id: result.content_id.clone(),
-                metadata: HashMap::new(),
+                labels: HashMap::new(),
                 confidence_score: result.confidence_score,
             };
             index_search_results.push(search_result);

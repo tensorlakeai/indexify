@@ -57,7 +57,7 @@ impl Args {
                     mime: "text/plain".to_string(),
                     bytes: text.as_bytes().to_vec(),
                     feature: None,
-                    metadata: HashMap::new(),
+                    labels: HashMap::new(),
                 }),
                 (None, Some(file_path)) => {
                     let data = std::fs::read(&file_path)
@@ -70,7 +70,7 @@ impl Args {
                         mime: mime_type.to_string(),
                         bytes: data,
                         feature: None,
-                        metadata: HashMap::new(),
+                        labels: HashMap::new(),
                     })
                 }
                 _ => Err(anyhow!("either text or file path must be provided")),

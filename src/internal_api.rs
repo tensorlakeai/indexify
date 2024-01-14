@@ -218,22 +218,6 @@ pub struct Feature {
     pub data: serde_json::Value,
 }
 
-impl Feature {
-    pub fn embedding(&self) -> Option<Vec<f32>> {
-        match self.feature_type {
-            FeatureType::Embedding => serde_json::from_value(self.data.clone()).ok(),
-            _ => None,
-        }
-    }
-
-    pub fn metadata(&self) -> Option<serde_json::Value> {
-        match self.feature_type {
-            FeatureType::Metadata | FeatureType::NamedEntity => Some(self.data.clone()),
-            _ => None,
-        }
-    }
-}
-
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Content {
@@ -241,7 +225,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub feature: Option<Feature>,
-    pub metadata: HashMap<String, String>,
+    pub labels: HashMap<String, String>,
 }
 
 impl Content {
@@ -266,7 +250,7 @@ impl From<Content> for api::Content {
                 name: f.name,
                 data: f.data,
             }),
-            metadata: content.metadata,
+            labels: content.labels,
         }
     }
 }
@@ -372,7 +356,7 @@ pub struct ExtractorBinding {
     pub name: String,
     pub repository: String,
     pub extractor: String,
-    pub filters: HashMap<String, serde_json::Value>,
+    pub filters: HashMap<String, String>,
     pub input_params: serde_json::Value,
 
     // Output name of the extractor to index name where the
@@ -419,7 +403,7 @@ pub struct ContentMetadata {
     pub repository: String,
     pub name: String,
     pub content_type: String,
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
     pub storage_url: String,
     pub created_at: i64,
     pub source: String,
@@ -427,16 +411,12 @@ pub struct ContentMetadata {
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
-        let mut labels = HashMap::new();
-        for (key, value) in value.metadata.iter() {
-            labels.insert(key.to_owned(), serde_json::to_string(value).unwrap());
-        }
         Self {
             id: value.id,
             parent_id: value.parent_id,
             file_name: value.name,
             mime: value.content_type,
-            labels,
+            labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             repository: value.repository,
@@ -449,16 +429,12 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
-        let mut metadata = HashMap::new();
-        for (key, value) in value.labels.iter() {
-            metadata.insert(key.to_owned(), serde_json::from_str(value)?);
-        }
         Ok(Self {
             id: value.id,
             parent_id: value.parent_id,
             name: value.file_name,
             content_type: value.mime,
-            metadata,
+            labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             repository: value.repository,

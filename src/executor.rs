@@ -189,7 +189,7 @@ async fn get_content(content_metadata: internal_api::ContentMetadata) -> Result<
         mime: content_metadata.content_type,
         bytes: data,
         feature: None,
-        metadata: HashMap::new(),
+        labels: HashMap::new(),
     };
     Ok(extracted_content)
 }

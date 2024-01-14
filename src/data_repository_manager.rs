@@ -256,7 +256,7 @@ impl DataRepositoryManager {
                 created_at: c.created_at,
                 content_type: c.mime,
                 repository: c.repository,
-                metadata,
+                labels: metadata,
                 source: c.source,
             })
         }
@@ -311,7 +311,7 @@ impl DataRepositoryManager {
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
         let labels = content
-            .metadata
+            .labels
             .clone()
             .into_iter()
             .map(|(k, v)| (k, v.to_string()))

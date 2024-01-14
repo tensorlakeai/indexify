@@ -479,7 +479,7 @@ async fn add_texts(
         .map(|d| api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: d.text.as_bytes().to_vec(),
-            metadata: d.metadata.clone(),
+            labels: d.labels.clone(),
             feature: None,
         })
         .collect();
@@ -676,7 +676,7 @@ async fn index_search(
         .map(|text| DocumentFragment {
             content_id: text.content_id.clone(),
             text: text.text.clone(),
-            metadata: text.metadata.clone(),
+            labels: text.labels.clone(),
             confidence_score: text.confidence_score,
         })
         .collect();

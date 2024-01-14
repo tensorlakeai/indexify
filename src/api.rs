@@ -83,7 +83,7 @@ impl TryFrom<indexify_coordinator::Repository> for DataRepository {
 pub struct CreateRepository {
     pub name: String,
     pub extractor_bindings: Vec<ExtractorBinding>,
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -153,7 +153,7 @@ pub struct ExtractorBindResponse {
 pub struct Text {
     pub text: String,
     #[serde(default)]
-    pub metadata: HashMap<String, String>,
+    pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -294,7 +294,7 @@ pub struct DocumentFragment {
     pub content_id: String,
     pub text: String,
     pub confidence_score: f32,
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
@@ -333,7 +333,7 @@ pub struct ContentMetadata {
     pub repository: String,
     pub name: String,
     pub content_type: String,
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
     pub storage_url: String,
     pub created_at: i64,
     pub source: String,
@@ -365,7 +365,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub feature: Option<Feature>,
-    pub metadata: HashMap<String, String>,
+    pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

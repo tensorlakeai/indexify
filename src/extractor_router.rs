@@ -78,7 +78,7 @@ impl ExtractorRouter {
                 mime: content.content_type,
                 bytes: content.bytes,
                 feature: None,
-                metadata: HashMap::new(),
+                labels: HashMap::new(),
             },
             input_params,
         };
