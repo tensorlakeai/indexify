@@ -25,6 +25,7 @@ pub struct ExtractorBinding {
     #[serde(default)]
     pub filters: HashMap<String, serde_json::Value>,
     pub input_params: Option<serde_json::Value>,
+    pub content_source: Option<String>,
 }
 
 impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
@@ -42,6 +43,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
                 .input_params
                 .map(|v| v.to_string())
                 .unwrap_or("{}".to_string()),
+            content_source: value.content_source.unwrap_or("ingestion".to_string()),
         }
     }
 }
@@ -67,6 +69,7 @@ impl TryFrom<indexify_coordinator::Repository> for DataRepository {
                     .map(|(k, v)| (k, serde_json::from_str(&v).unwrap()))
                     .collect(),
                 input_params: Some(serde_json::from_str(&binding.input_params)?),
+                content_source: Some(binding.content_source),
             });
         }
         Ok(Self {
@@ -333,6 +336,7 @@ pub struct ContentMetadata {
     pub metadata: HashMap<String, serde_json::Value>,
     pub storage_url: String,
     pub created_at: i64,
+    pub source: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, EnumString)]
@@ -385,4 +389,5 @@ pub struct WriteExtractedContent {
     pub parent_content_id: String,
     pub executor_id: String,
     pub task_outcome: TaskOutcome,
+    pub extractor_binding: String,
 }

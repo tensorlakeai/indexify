@@ -69,9 +69,15 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<CreateContentRequest>,
     ) -> Result<tonic::Response<CreateContentResponse>, tonic::Status> {
-        let id = self
+        let content_meta = request
+            .into_inner()
+            .content
+            .ok_or(tonic::Status::aborted("content is missing"))?;
+        let id = content_meta.id.clone();
+        let content_list = vec![content_meta];
+        let _ = self
             .coordinator
-            .create_content_metadata(request.into_inner())
+            .create_content_metadata(content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateContentResponse { id }))
@@ -140,6 +146,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             input_params,
             output_index_name_mapping: output_index_name_mapping.clone(),
             index_name_table_mapping: index_name_table_mapping.clone(),
+            content_source: extractor_binding.content_source,
         };
         let _ = self
             .coordinator
@@ -283,7 +290,12 @@ impl CoordinatorService for CoordinatorServiceServer {
         let outcome: internal_api::TaskOutcome = request.outcome().into();
         let _ = self
             .coordinator
-            .update_task(&request.task_id, &request.executor_id, outcome)
+            .update_task(
+                &request.task_id,
+                &request.executor_id,
+                outcome,
+                request.content_list,
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(UpdateTaskResponse {}))

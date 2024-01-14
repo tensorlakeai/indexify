@@ -55,6 +55,7 @@ message UpdateTaskRequest {
     string executor_id = 1;
     string task_id = 2;
     TaskOutcome outcome = 3;
+    repeated ContentMetadata content_list = 4;
 }
 
 message UpdateTaskResponse {
@@ -218,6 +219,7 @@ message ExtractorBinding {
     string name = 2;
     string input_params = 4;
     map<string, string> filters = 5;
+    string content_source = 6;
 }
 
 message ExtractorBindRequest {
@@ -242,6 +244,7 @@ message ContentMetadata {
     string storage_url = 6;
     int64 created_at = 7;
     string repository = 8;
+    string source = 9;
 }
 
 message CreateContentRequest {

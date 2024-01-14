@@ -382,6 +382,10 @@ pub struct ExtractorBinding {
     // Index name to the underlying table name of the index
     // in storage system
     pub index_name_table_mapping: HashMap<String, String>,
+
+    // The source of the content - ingestion, name of some extractor binding
+    // which produces the content by invoking an extractor
+    pub content_source: String,
 }
 
 impl std::hash::Hash for ExtractorBinding {
@@ -403,6 +407,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
             name: value.name,
             filters,
             input_params: value.input_params.to_string(),
+            content_source: value.content_source,
         }
     }
 }
@@ -417,6 +422,7 @@ pub struct ContentMetadata {
     pub metadata: HashMap<String, serde_json::Value>,
     pub storage_url: String,
     pub created_at: i64,
+    pub source: String,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -434,6 +440,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             storage_url: value.storage_url,
             created_at: value.created_at,
             repository: value.repository,
+            source: value.source,
         }
     }
 }
@@ -455,6 +462,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             storage_url: value.storage_url,
             created_at: value.created_at,
             repository: value.repository,
+            source: value.source,
         })
     }
 }

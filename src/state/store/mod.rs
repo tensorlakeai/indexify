@@ -67,9 +67,8 @@ pub enum Request {
         ts_secs: u64,
     },
     CreateContent {
-        id: String,
-        content_metadata: ContentMetadata,
-        extraction_event: Option<ExtractionEvent>,
+        content_metadata: Vec<ContentMetadata>,
+        extraction_events: Vec<ExtractionEvent>,
     },
     CreateBinding {
         binding: ExtractorBinding,
@@ -84,6 +83,8 @@ pub enum Request {
         task: Task,
         mark_finished: bool,
         executor_id: Option<String>,
+        content_metadata: Vec<ContentMetadata>,
+        extraction_events: Vec<ExtractionEvent>,
     },
 }
 
@@ -428,21 +429,19 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         res.push(Response { value: None })
                     }
                     Request::CreateContent {
-                        id,
                         content_metadata,
-                        extraction_event,
+                        extraction_events,
                     } => {
-                        sm.content_table
-                            .insert(id.clone(), content_metadata.clone());
-                        sm.content_repository_table
-                            .entry(content_metadata.repository.clone())
-                            .or_default()
-                            .insert(id.clone());
-                        if let Some(extraction_event) = extraction_event {
-                            sm.extraction_events
-                                .insert(extraction_event.id.clone(), extraction_event.clone());
-                            sm.unprocessed_extraction_events
-                                .insert(extraction_event.id.clone());
+                        for content in content_metadata {
+                            sm.content_table.insert(content.id.clone(), content.clone());
+                            sm.content_repository_table
+                                .entry(content.repository.clone())
+                                .or_default()
+                                .insert(content.id.clone());
+                        }
+                        for event in extraction_events {
+                            sm.extraction_events.insert(event.id.clone(), event.clone());
+                            sm.unprocessed_extraction_events.insert(event.id.clone());
                         }
                         res.push(Response { value: None })
                     }
@@ -482,6 +481,8 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         task,
                         mark_finished,
                         executor_id,
+                        content_metadata,
+                        extraction_events,
                     } => {
                         sm.tasks.insert(task.id.clone(), task.clone());
                         if *mark_finished {
@@ -492,6 +493,17 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                                     .or_default()
                                     .remove(&task.id);
                             }
+                        }
+                        for content in content_metadata {
+                            sm.content_table.insert(content.id.clone(), content.clone());
+                            sm.content_repository_table
+                                .entry(content.repository.clone())
+                                .or_default()
+                                .insert(content.id.clone());
+                        }
+                        for event in extraction_events {
+                            sm.extraction_events.insert(event.id.clone(), event.clone());
+                            sm.unprocessed_extraction_events.insert(event.id.clone());
                         }
                         res.push(Response { value: None })
                     }

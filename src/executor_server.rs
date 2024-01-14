@@ -205,6 +205,7 @@ fn run_extractors(
                                 index_name: Some(index_name.clone()),
                                 executor_id: executor.executor_id.clone(),
                                 task_outcome: task_result.outcome.clone(),
+                                extractor_binding: task.extractor_binding.clone(),
                             };
                             let write_result = reqwest::Client::new()
                             .post(&ingestion_api)

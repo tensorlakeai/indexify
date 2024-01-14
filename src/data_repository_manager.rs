@@ -175,7 +175,7 @@ impl DataRepositoryManager {
                     self.create_index_metadata(
                         repository,
                         index_name,
-                        &table_name,
+                        table_name,
                         serde_json::to_value(embedding_schema)?,
                         &extractor_binding.name,
                         &extractor.name,
@@ -257,6 +257,7 @@ impl DataRepositoryManager {
                 content_type: c.mime,
                 repository: c.repository,
                 metadata,
+                source: c.source,
             })
         }
         Ok(content)
@@ -265,7 +266,9 @@ impl DataRepositoryManager {
     #[tracing::instrument]
     pub async fn add_texts(&self, repo_name: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
-            let content_metadata = self.write_content(repo_name, text, None).await?;
+            let content_metadata = self
+                .write_content(repo_name, text, None, "ingestion")
+                .await?;
             let req = CreateContentRequest {
                 content: Some(content_metadata),
             };
@@ -289,6 +292,7 @@ impl DataRepositoryManager {
         repository: &str,
         content: api::Content,
         parent_id: Option<String>,
+        source: &str,
     ) -> Result<ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -298,7 +302,9 @@ impl DataRepositoryManager {
         repository.hash(&mut s);
         content.bytes.hash(&mut s);
         file_name.hash(&mut s);
-        parent_id.hash(&mut s);
+        if let Some(parent_id) = &parent_id {
+            parent_id.hash(&mut s);
+        }
         let id = format!("{:x}", s.finish());
         let storage_url = self
             .upload_file(repository, &file_name, Bytes::from(content.bytes.clone()))
@@ -319,6 +325,7 @@ impl DataRepositoryManager {
             mime: mime::TEXT_PLAIN.to_string(),
             repository: repository.to_string(),
             labels,
+            source: source.to_string(),
         })
     }
 
@@ -327,6 +334,7 @@ impl DataRepositoryManager {
         extracted_content: api::WriteExtractedContent,
     ) -> Result<()> {
         let index_name = extracted_content.index_name.clone();
+        let mut new_content_metadata = Vec::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
             let content_metadata = self
@@ -334,8 +342,10 @@ impl DataRepositoryManager {
                     &extracted_content.repository,
                     content.clone(),
                     Some(extracted_content.parent_content_id.to_string()),
+                    &extracted_content.extractor_binding,
                 )
                 .await?;
+            new_content_metadata.push(content_metadata.clone());
             if index_name.as_ref().is_none() {
                 continue;
             }
@@ -376,6 +386,7 @@ impl DataRepositoryManager {
             executor_id: extracted_content.executor_id,
             task_id: extracted_content.task_id,
             outcome: outcome as i32,
+            content_list: new_content_metadata,
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {

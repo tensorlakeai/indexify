@@ -158,15 +158,23 @@ impl Coordinator {
         task_id: &str,
         executor_id: &str,
         outcome: internal_api::TaskOutcome,
+        content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
         info!(
             "updating task: {}, executor_id: {}, outcome: {:?}",
             task_id, executor_id, outcome
         );
         let mut task = self.shared_state.task_with_id(task_id).await?;
+        let (content_meta_list, extraction_events) =
+            content_request_to_content_metadata(content_list)?;
         task.outcome = outcome;
         self.shared_state
-            .update_task(task, Some(executor_id.to_string()))
+            .update_task(
+                task,
+                Some(executor_id.to_string()),
+                content_meta_list,
+                extraction_events,
+            )
             .await?;
         Ok(())
     }
@@ -302,42 +310,14 @@ impl Coordinator {
 
     pub async fn create_content_metadata(
         &self,
-        req: indexify_coordinator::CreateContentRequest,
-    ) -> Result<String> {
-        let content = req.content.ok_or(anyhow!("no content provided"))?;
-        let mut s = DefaultHasher::new();
-        content.repository.hash(&mut s);
-        content.file_name.hash(&mut s);
-        let id = format!("{:x}", s.finish());
-        let mut metadata = HashMap::new();
-        for (name, value) in content.labels.iter() {
-            let v: serde_json::Value =
-                serde_json::from_str(value).map_err(|e| anyhow!("unable to parse label: {}", e))?;
-            metadata.insert(name.clone(), v);
-        }
-        let content_metadata = internal_api::ContentMetadata {
-            id: id.clone(),
-            content_type: content.mime.clone(),
-            created_at: content.created_at,
-            storage_url: content.storage_url.clone(),
-            parent_id: "".to_string(),
-            repository: content.repository.clone(),
-            name: content.file_name.clone(),
-            metadata,
-        };
-        let extraction_event = ExtractionEvent {
-            id: nanoid::nanoid!(),
-            repository: content.repository.clone(),
-            payload: ExtractionEventPayload::CreateContent {
-                content: content_metadata.clone(),
-            },
-            created_at: timestamp_secs(),
-            processed_at: None,
-        };
+        content_list: Vec<indexify_coordinator::ContentMetadata>,
+    ) -> Result<()> {
+        let (content_meta_list, extraction_events) =
+            content_request_to_content_metadata(content_list)?;
         self.shared_state
-            .create_content(&id, content_metadata, extraction_event)
+            .create_content_batch(content_meta_list, extraction_events)
             .await?;
-        Ok(id)
+        Ok(())
     }
 
     pub fn get_leader_change_watcher(&self) -> Receiver<bool> {
@@ -345,12 +325,33 @@ impl Coordinator {
     }
 }
 
+fn content_request_to_content_metadata(
+    content_list: Vec<indexify_coordinator::ContentMetadata>,
+) -> Result<(Vec<ContentMetadata>, Vec<ExtractionEvent>)> {
+    let mut content_meta_list = Vec::new();
+    let mut extraction_events = Vec::new();
+    for content in content_list {
+        let repository = content.repository.clone();
+        let c: internal_api::ContentMetadata = content.try_into()?;
+        content_meta_list.push(c.clone());
+        let extraction_event = ExtractionEvent {
+            id: nanoid::nanoid!(),
+            repository,
+            payload: ExtractionEventPayload::CreateContent { content: c },
+            created_at: timestamp_secs(),
+            processed_at: None,
+        };
+        extraction_events.push(extraction_event);
+    }
+    Ok((content_meta_list, extraction_events))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use crate::{
-        indexify_coordinator::{ContentMetadata, CreateContentRequest},
+        indexify_coordinator::ContentMetadata,
         internal_api::ExtractorBinding,
         server_config::ServerConfig,
         state::App,
@@ -371,21 +372,19 @@ mod tests {
             .await?;
 
         // Add content and ensure that we are createing a extraction event
-        let id = coordinator
-            .create_content_metadata(CreateContentRequest {
-                content: Some(ContentMetadata {
-                    id: "test".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
-                    parent_id: "test".to_string(),
-                    file_name: "test".to_string(),
-                    mime: "text/plain".to_string(),
-                    created_at: 0,
-                    storage_url: "test".to_string(),
-                    labels: HashMap::new(),
-                }),
-            })
+        coordinator
+            .create_content_metadata(vec![ContentMetadata {
+                id: "test".to_string(),
+                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                parent_id: "".to_string(),
+                file_name: "test".to_string(),
+                mime: "text/plain".to_string(),
+                created_at: 0,
+                storage_url: "test".to_string(),
+                labels: HashMap::new(),
+                source: "ingestion".to_string(),
+            }])
             .await?;
-        assert_ne!(id, "".to_string());
 
         let events = shared_state.unprocessed_extraction_events().await?;
         assert_eq!(events.len(), 1);
@@ -411,8 +410,15 @@ mod tests {
                     repository: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::new(),
-                    index_name_table_mapping: HashMap::new(),
+                    output_index_name_mapping: HashMap::from([(
+                        "test_output".to_string(),
+                        "test.test_output".to_string(),
+                    )]),
+                    index_name_table_mapping: HashMap::from([(
+                        "test.test_output".to_string(),
+                        "test_repository.test.test_output".to_string(),
+                    )]),
+                    content_source: "ingestion".to_string(),
                 },
                 mock_extractor(),
             )
@@ -429,6 +435,30 @@ mod tests {
         );
         assert_eq!(0, shared_state.unassigned_tasks().await?.len());
 
+        // Add a content with a different source and ensure we don't create a task
+        coordinator
+            .create_content_metadata(vec![ContentMetadata {
+                id: "test2".to_string(),
+                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                parent_id: "test".to_string(),
+                file_name: "test2".to_string(),
+                mime: "text/plain".to_string(),
+                created_at: 0,
+                storage_url: "test2".to_string(),
+                labels: HashMap::new(),
+                source: "some_extractor_produced_this".to_string(),
+            }])
+            .await?;
+        coordinator.process_and_distribute_work().await?;
+        assert_eq!(0, shared_state.unprocessed_extraction_events().await?.len());
+        assert_eq!(
+            1,
+            shared_state
+                .tasks_for_executor("test_executor_id")
+                .await?
+                .len()
+        );
+        assert_eq!(0, shared_state.unassigned_tasks().await?.len());
         Ok(())
     }
 }

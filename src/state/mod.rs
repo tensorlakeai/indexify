@@ -233,6 +233,9 @@ impl App {
         };
         let mut matched_bindings = Vec::new();
         for binding in &bindings {
+            if binding.content_source != content_metadata.source {
+                continue;
+            }
             for (name, value) in &binding.filters {
                 let is_mach = content_metadata
                     .metadata
@@ -269,6 +272,9 @@ impl App {
         };
         let mut matched_content_list = Vec::new();
         for content in content_list {
+            if content.source != binding.content_source {
+                continue;
+            }
             let is_match = &binding.filters.iter().all(|(name, value)| {
                 content
                     .metadata
@@ -354,7 +360,13 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_task(&self, task: Task, executor_id: Option<String>) -> Result<()> {
+    pub async fn update_task(
+        &self,
+        task: Task,
+        executor_id: Option<String>,
+        content_meta_list: Vec<ContentMetadata>,
+        extraction_events: Vec<ExtractionEvent>,
+    ) -> Result<()> {
         let mark_finished = task.outcome != TaskOutcome::Unknown;
         let _resp = self
             .raft
@@ -362,6 +374,8 @@ impl App {
                 task,
                 mark_finished,
                 executor_id,
+                content_metadata: content_meta_list,
+                extraction_events,
             })
             .await?;
         Ok(())
@@ -471,16 +485,14 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_content(
+    pub async fn create_content_batch(
         &self,
-        id: &str,
-        content_metadata: ContentMetadata,
-        extraction_event: ExtractionEvent,
+        content_metadata: Vec<ContentMetadata>,
+        extraction_events: Vec<ExtractionEvent>,
     ) -> Result<()> {
         let req = Request::CreateContent {
-            id: id.to_string(),
             content_metadata,
-            extraction_event: Some(extraction_event),
+            extraction_events,
         };
         let _ = self
             .raft

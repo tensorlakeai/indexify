@@ -114,7 +114,7 @@ impl VectorIndexManager {
             .get_content_metadata(req)
             .await?
             .into_inner();
-        if &content_ids.len() != &content_metadata_list.content_list.len() {
+        if content_ids.len() != content_metadata_list.content_list.len() {
             return Err(anyhow!(
                 "Unable to get metadata for all content ids: {:?}, retreived content ids: {:?}",
                 &content_ids,
