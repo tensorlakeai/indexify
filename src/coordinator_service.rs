@@ -105,6 +105,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn create_binding(
         &self,
         request: tonic::Request<ExtractorBindRequest>,
@@ -166,6 +167,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_bindings(
         &self,
         request: tonic::Request<ListBindingsRequest>,
@@ -184,6 +186,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListBindingsResponse { bindings }))
     }
 
+    #[autometrics]
     async fn create_repository(
         &self,
         request: tonic::Request<CreateRepositoryRequest>,
@@ -199,6 +202,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_repositories(
         &self,
         _request: tonic::Request<ListRepositoriesRequest>,
@@ -217,6 +221,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn get_repository(
         &self,
         request: tonic::Request<GetRepositoryRequest>,
@@ -233,6 +238,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_extractors(
         &self,
         _request: tonic::Request<ListExtractorsRequest>,
@@ -249,6 +255,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
     }
 
+    #[autometrics]
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,
@@ -267,6 +274,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn heartbeat(
         &self,
         request: tonic::Request<HeartbeatRequest>,
@@ -287,6 +295,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn update_task(
         &self,
         request: tonic::Request<UpdateTaskRequest>,
@@ -306,6 +315,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(UpdateTaskResponse {}))
     }
 
+    #[autometrics]
     async fn list_indexes(
         &self,
         request: Request<ListIndexesRequest>,
@@ -323,6 +333,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListIndexesResponse { indexes }))
     }
 
+    #[autometrics]
     async fn get_index(
         &self,
         request: Request<GetIndexRequest>,
@@ -338,6 +349,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn create_index(
         &self,
         request: Request<CreateIndexRequest>,
@@ -352,6 +364,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(CreateIndexResponse {}))
     }
 
+    #[autometrics]
     async fn get_extractor_coordinates(
         &self,
         req: Request<GetExtractorCoordinatesRequest>,
@@ -369,6 +382,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         ))
     }
 
+    #[autometrics]
     async fn get_content_metadata(
         &self,
         req: Request<GetContentMetadataRequest>,
