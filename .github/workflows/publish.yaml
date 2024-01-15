@@ -90,16 +90,16 @@ jobs:
           path: tmp/release/
       - name: Name Artifacts
         run: |
-          mv tmp/release/indexify-windows-amd64.exe tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          mv tmp/release/indexify-darwin-arm64 tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          mv tmp/release/indexify-linux-amd64 tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+          mv tmp/release/indexify-windows-amd64.exe indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          mv tmp/release/indexify-darwin-arm64 indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          mv tmp/release/indexify-linux-amd64 indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-            tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-            tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+            indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+            indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+            indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
           tag_name: "v${{ needs.extract-version.outputs.version }}"
           prerelease: ${{ github.event.inputs.prerelease }}
           body: ${{ github.event.inputs.release_message }}
