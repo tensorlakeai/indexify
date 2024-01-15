@@ -28,7 +28,7 @@ impl CoordinatorClient {
 
         let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr))
             .await
-            .map_err(|e| anyhow!("unable to connect to raft: {}", e))?;
+            .map_err(|e| anyhow!("unable to connect to coordinator: {} at addr {}", e, self.addr))?;
         clients.insert(self.addr.to_string(), client.clone());
         Ok(client)
     }

@@ -136,7 +136,9 @@ impl App {
                 e.to_string()
             )
         })?;
-        let raft_servr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
+
+        info!("starting raft server at {}", addr.to_string());
+        let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
         let app = Arc::new(App {
@@ -166,7 +168,7 @@ impl App {
                     .await;
         });
 
-        let grpc_svc = tonic::transport::Server::builder().add_service(raft_servr);
+        let grpc_svc = tonic::transport::Server::builder().add_service(raft_srvr);
         let h = tokio::spawn(async move {
             grpc_svc
                 .serve_with_shutdown(addr, async move {

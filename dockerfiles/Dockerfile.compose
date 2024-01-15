@@ -9,7 +9,7 @@ WORKDIR /indexify
 
 COPY --from=builder /indexify-build/target/release/indexify ./
 
-COPY --from=builder /indexify-build/sample_config.yaml ./config/indexify.yaml
+COPY sample_config.yaml ./config/indexify.yaml
 
 COPY ./scripts/docker_compose_start.sh .
 

@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
+use tracing::{error, info};
 
 use crate::indexify_raft::raft_api_client::RaftApiClient;
 
@@ -29,9 +30,11 @@ impl RaftClient {
             return Ok(client.clone());
         }
 
+        info!("connecting to raft at {}", addr);
+
         let client = RaftApiClient::connect(format!("http://{}", addr))
             .await
-            .map_err(|e| anyhow!("unable to connect to raft: {}", e))?;
+            .map_err(|e| anyhow!("unable to connect to raft: {} at addr {}", e, addr))?;
         clients.insert(addr.to_string(), client.clone());
         Ok(client)
     }

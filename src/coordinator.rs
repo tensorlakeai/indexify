@@ -298,10 +298,8 @@ impl Coordinator {
 
     #[tracing::instrument(skip(self))]
     pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
-        info!("received work request, processing extraction events");
         self.process_extraction_events().await?;
 
-        info!("doing distribution of work");
         let task_assignments = self.distribute_work().await?;
         self.shared_state
             .commit_task_assignments(task_assignments)

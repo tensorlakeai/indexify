@@ -14,7 +14,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres/indexify
       - INDEXIFY_DB_URL=postgres://postgres:postgres@postgres/indexify
-      - INDEXIFY_COORDINATOR_ADDR=http://localhost:8950
+      - INDEXIFY_COORDINATOR_ADDR=localhost:8950
       - INDEXIFY_INDEX_CONFIG.QDRANT_CONFIG.ADDR=http://qdrant:6334
     depends_on:
       - qdrant
@@ -43,7 +43,7 @@ services:
         ipv4_address: 172.21.0.5
   embedding-extractor:
     image: tensorlake/minilm-l6-extractor
-    command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950"]
+    command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
     networks:
       server:
         ipv4_address: 172.21.0.9

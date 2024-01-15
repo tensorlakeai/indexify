@@ -23,6 +23,7 @@ build-base-builder-multistage:
 	docker buildx build -f dockerfiles/Dockerfile.builder --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/builder .
 
 build-container: ## Build container
+	docker build -f dockerfiles/Dockerfile.builder --tag ${DOCKER_USERNAME}/builder .
 	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune --force --filter label=stage=builder
 
