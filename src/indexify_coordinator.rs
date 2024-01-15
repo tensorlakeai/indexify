@@ -774,9 +774,9 @@ pub mod coordinator_service_client {
         }
         pub async fn heartbeat(
             &mut self,
-            request: impl tonic::IntoRequest<super::HeartbeatRequest>,
+            request: impl tonic::IntoStreamingRequest<Message = super::HeartbeatRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::HeartbeatResponse>,
+            tonic::Response<tonic::codec::Streaming<super::HeartbeatResponse>>,
             tonic::Status,
         > {
             self.inner
@@ -792,7 +792,7 @@ pub mod coordinator_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/Heartbeat",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
@@ -800,7 +800,7 @@ pub mod coordinator_service_client {
                         "Heartbeat",
                     ),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.streaming(req, path, codec).await
         }
         pub async fn list_indexes(
             &mut self,
@@ -1031,13 +1031,16 @@ pub mod coordinator_service_server {
             tonic::Response<super::RegisterExecutorResponse>,
             tonic::Status,
         >;
+        /// Server streaming response type for the Heartbeat method.
+        type HeartbeatStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::HeartbeatResponse, tonic::Status>,
+            >
+            + Send
+            + 'static;
         async fn heartbeat(
             &self,
-            request: tonic::Request<super::HeartbeatRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::HeartbeatResponse>,
-            tonic::Status,
-        >;
+            request: tonic::Request<tonic::Streaming<super::HeartbeatRequest>>,
+        ) -> std::result::Result<tonic::Response<Self::HeartbeatStream>, tonic::Status>;
         async fn list_indexes(
             &self,
             request: tonic::Request<super::ListIndexesRequest>,
@@ -1640,16 +1643,19 @@ pub mod coordinator_service_server {
                     struct HeartbeatSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::HeartbeatRequest>
+                    > tonic::server::StreamingService<super::HeartbeatRequest>
                     for HeartbeatSvc<T> {
                         type Response = super::HeartbeatResponse;
+                        type ResponseStream = T::HeartbeatStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::HeartbeatRequest>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::HeartbeatRequest>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -1676,7 +1682,7 @@ pub mod coordinator_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

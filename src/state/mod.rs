@@ -102,9 +102,11 @@ impl App {
             ..Default::default()
         };
 
-        let config = Arc::new(raft_config.validate().map_err(|e| {
-            anyhow!("invalid raft config: {}", e.to_string())
-        })?);
+        let config = Arc::new(
+            raft_config
+                .validate()
+                .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
+        );
         let store = Arc::new(Store::default());
         let (log_store, state_machine) = Adaptor::new(store.clone());
         let network = Network::new();
@@ -130,12 +132,9 @@ impl App {
         }
         let (tx, rx) = watch::channel::<()>(());
 
-        let addr = server_config.raft_addr_sock().map_err(|e| {
-            anyhow!(
-                "unable to create raft address : {}",
-                e.to_string()
-            )
-        })?;
+        let addr = server_config
+            .raft_addr_sock()
+            .map_err(|e| anyhow!("unable to create raft address : {}", e.to_string()))?;
 
         info!("starting raft server at {}", addr.to_string());
         let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
@@ -163,9 +162,7 @@ impl App {
         let shutdown_rx = app.shutdown_rx.clone();
         // Start for leadership changes
         tokio::spawn(async move {
-            let _ =
-                watch_for_leader_change(raft_clone, leader_change_tx, shutdown_rx)
-                    .await;
+            let _ = watch_for_leader_change(raft_clone, leader_change_tx, shutdown_rx).await;
         });
 
         let grpc_svc = tonic::transport::Server::builder().add_service(raft_srvr);
@@ -620,7 +617,7 @@ async fn watch_for_leader_change(
                 let mut prev_srvr_state = prev_server_state.borrow_mut();
                 if !(prev_srvr_state).eq(&server_state) {
                     info!("raft change metrics prev {:?} current {:?}", prev_srvr_state, server_state);
-                    leader_change_tx.send(server_state.is_leader().into()).unwrap();
+                    leader_change_tx.send(server_state.is_leader()).unwrap();
                     // replace the previous state with the new state
                     *prev_srvr_state = server_state;
                 }

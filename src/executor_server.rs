@@ -1,4 +1,9 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
 use anyhow::Result;
 use axum::{
@@ -19,8 +24,9 @@ use tracing::{error, info};
 use crate::{
     api::{IndexifyAPIError, WriteExtractedContent},
     coordinator_client::CoordinatorClient,
-    executor::ExtractorExecutor,
+    executor::{heartbeat, ExtractorExecutor},
     extractor::{extractor_runner, py_extractors, python_path},
+    indexify_coordinator::HeartbeatRequest,
     internal_api::{Content, ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
     task_store::TaskStore,
@@ -44,7 +50,7 @@ impl ExecutorServer {
         executor_config: Arc<ExecutorConfig>,
     ) -> Result<Self> {
         // Set Python Path
-        python_path::set_python_path(extractor_config_path)?;
+        //python_path::set_python_path(extractor_config_path)?;
         let coordinator_client =
             Arc::new(CoordinatorClient::new(&executor_config.coordinator_addr));
 
@@ -99,17 +105,22 @@ impl ExecutorServer {
             advertise_addr.clone()
         );
         let (shutdown_tx, shutdown_rx) = watch::channel::<()>(());
-        let coordinator_client = self.coordinator_client.clone();
+        let (heartbeat_tx, heartbeat_rx) = watch::channel::<HeartbeatRequest>(HeartbeatRequest {
+            executor_id: executor.executor_id.clone(),
+        });
         run_extractors(
             task_store.clone(),
             executor.clone(),
             self.executor_config.ingestion_api_addr.clone(),
             shutdown_rx.clone(),
         );
+        let coordinator_client = self.coordinator_client.clone();
+        let coordinator_addr = self.executor_config.coordinator_addr.clone();
         tokio::spawn(async move {
             let mut shutdown_rx = shutdown_rx.clone();
             let mut int = interval(Duration::from_secs(5));
             int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let has_registered = Arc::new(AtomicBool::new(false));
             loop {
                 tokio::select! {
                     _ = shutdown_rx.changed() => {
@@ -117,10 +128,29 @@ impl ExecutorServer {
                         break;
                     },
                     _ = int.tick() => {
-                        if let Err(err) = executor.heartbeat(coordinator_client.clone()).await {
-                            error!("unable to heartbeat: {}", err.to_string());
+                        if !has_registered.load(std::sync::atomic::Ordering::Relaxed) {
+                            info!("registering executor with coordinator at address {}", coordinator_addr);
+                            if let Err(err) = executor.register(coordinator_client.clone()).await {
+                                error!("unable to register : {}", err.to_string());
+                                continue;
+                            }
+                            has_registered.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let task_store = task_store.clone();
+                            let coordinator_client = coordinator_client.clone();
+                            let heartbeat_rx = heartbeat_rx.clone();
+                            let has_registered = has_registered.clone();
+                            tokio::spawn(async move {
+                                if let Err(err) = heartbeat(task_store, coordinator_client, heartbeat_rx.clone()).await {
+                                    error!("unable to send heartbeat: {}", err.to_string());
+                                }
+                                has_registered.store(false, std::sync::atomic::Ordering::SeqCst);
+                            });
                         }
-                    }
+                        if let Err(_)=  heartbeat_tx.send(HeartbeatRequest{executor_id: executor.executor_id.clone()}){
+                            error!("heartbeat channel closed, so we will try registering again");
+                            has_registered.store(false, std::sync::atomic::Ordering::SeqCst);
+                            }
+                        }
                 };
             }
         });
@@ -233,7 +263,7 @@ fn run_extractors(
 async fn sync_worker(endpoint_state: State<Arc<ApiEndpointState>>) -> Result<(), IndexifyAPIError> {
     endpoint_state
         .executor
-        .heartbeat(endpoint_state.coordinator_client.clone())
+        .register(endpoint_state.coordinator_client.clone())
         .await
         .map_err(|e| {
             IndexifyAPIError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())

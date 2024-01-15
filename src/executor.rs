@@ -1,20 +1,22 @@
 use std::{
     collections::HashMap,
     fmt,
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
     time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
 use nanoid::nanoid;
 use serde_json::json;
+use tokio::sync::watch;
+use tokio_stream::{wrappers::WatchStream, StreamExt};
 use tracing::{error, info};
 
 use crate::{
     blob_storage::BlobStorageBuilder,
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
-    indexify_coordinator::{self, RegisterExecutorRequest},
+    indexify_coordinator::{HeartbeatRequest, RegisterExecutorRequest},
     internal_api::{self, Content, ExecutorInfo, ExtractorDescription, Task, TaskResult},
     server_config::ExecutorConfig,
     task_store::TaskStore,
@@ -36,7 +38,6 @@ pub struct ExtractorExecutor {
     listen_addr: String,
 
     task_store: Arc<TaskStore>,
-    requires_registration: AtomicBool,
 }
 
 impl fmt::Debug for ExtractorExecutor {
@@ -66,7 +67,6 @@ impl ExtractorExecutor {
             extractor_description,
             listen_addr,
             task_store,
-            requires_registration: AtomicBool::new(true),
         };
         Ok(extractor_executor)
     }
@@ -133,49 +133,18 @@ impl ExtractorExecutor {
         Ok(())
     }
 
-    pub async fn heartbeat(&self, coordinator_client: Arc<CoordinatorClient>) -> Result<()> {
-        if self
-            .requires_registration
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            let req = RegisterExecutorRequest {
-                executor_id: self.executor_id.clone(),
-                addr: self.listen_addr.clone(),
-                extractor: Some(self.extractor_description.clone().into()),
-            };
-            let _ = coordinator_client
-                .get()
-                .await?
-                .register_executor(req)
-                .await?;
-            self.requires_registration
-                .store(false, std::sync::atomic::Ordering::Relaxed);
-            return Ok(());
-        }
-        let req = indexify_coordinator::HeartbeatRequest {
+    pub async fn register(&self, coordinator_client: Arc<CoordinatorClient>) -> Result<()> {
+        let req = RegisterExecutorRequest {
             executor_id: self.executor_id.clone(),
+            addr: self.listen_addr.clone(),
+            extractor: Some(self.extractor_description.clone().into()),
         };
-        let resp = coordinator_client
+        let _resp = coordinator_client
             .get()
             .await?
-            .heartbeat(req)
-            .await?
-            .into_inner();
-        let mut tasks = Vec::new();
-        for task in resp.tasks {
-            if self.task_store.has_finished(&task.id) {
-                continue;
-            }
-            let task: Result<Task> = task.try_into();
-            if let Ok(task) = task {
-                tasks.push(task);
-            } else {
-                error!("unable to parse task: {:?}", task);
-            }
-        }
-        if !tasks.is_empty() {
-            self.task_store.add(tasks);
-        }
+            .register_executor(req)
+            .await
+            .map_err(|e| anyhow!("unable to register executor: {:?}", e))?;
         Ok(())
     }
 }
@@ -192,4 +161,42 @@ async fn get_content(content_metadata: internal_api::ContentMetadata) -> Result<
         labels: HashMap::new(),
     };
     Ok(extracted_content)
+}
+
+pub async fn heartbeat(
+    task_store: Arc<TaskStore>,
+    coordinator_client: Arc<CoordinatorClient>,
+    heartbeat_rx: watch::Receiver<HeartbeatRequest>,
+) -> Result<()> {
+    let req_stream = WatchStream::new(heartbeat_rx);
+    let response = coordinator_client
+        .get()
+        .await?
+        .heartbeat(req_stream)
+        .await?;
+    let mut resp_stream = response.into_inner();
+    info!("starting heartbeat");
+    while let Some(recieved) = resp_stream.next().await {
+        if let Err(err) = recieved {
+            error!("unable to recieve heartbeat: {:?}", err);
+            break;
+        }
+        let hb_resp = recieved.map_err(|e| anyhow!("error recieving heartbeat: {:?}", e))?;
+        let mut tasks = Vec::new();
+        for task in hb_resp.tasks {
+            if task_store.has_finished(&task.id) {
+                continue;
+            }
+            let task: Result<Task> = task.try_into();
+            if let Ok(task) = task {
+                tasks.push(task);
+            } else {
+                error!("unable to parse task: {:?}", task);
+            }
+        }
+        if !tasks.is_empty() {
+            task_store.add(tasks);
+        }
+    }
+    Ok(())
 }
