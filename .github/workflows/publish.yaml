@@ -25,8 +25,7 @@ jobs:
       - run: rustup toolchain install nightly
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
-      - run: apt install protobuf-compiler protobuf-compiler-grpc
-      - run: cargo check --release
+      - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
@@ -36,19 +35,18 @@ jobs:
 
   build-macos-package:
     name: Build macOS Package
-    runs-on: macos-latest-xlarge
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup toolchain install nightly
-      - run: rustup component add rustfmt --toolchain nightly
+      - run: rustup toolchain install nightly --component rustfmt
+      - run: rustup target add aarch64-apple-darwin
       - run: cargo +nightly fmt --check
       - run: brew install protobuf
-      - run: cargo check --release
-      - run: cargo build --release
+      - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-darwin-arm64
-          path: target/release/indexify
+          path: target/aarch64-apple-darwin/release/indexify
           if-no-files-found: error
 
   build-windows-package:
@@ -60,7 +58,6 @@ jobs:
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
       - run: choco install protoc
-      - run: cargo check --release
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
