@@ -25,6 +25,7 @@ jobs:
       - run: rustup toolchain install nightly
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
+      - run: apt install protobuf-compiler protobuf-compiler-grpc
       - run: cargo check --release
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
@@ -35,12 +36,13 @@ jobs:
 
   build-macos-package:
     name: Build macOS Package
-    runs-on: macos-latest
+    runs-on: macos-latest-xlarge
     steps:
       - uses: actions/checkout@v3
       - run: rustup toolchain install nightly
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
+      - run: brew install protobuf
       - run: cargo check --release
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
@@ -57,6 +59,7 @@ jobs:
       - run: rustup toolchain install nightly
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
+      - run: choco install protoc
       - run: cargo check --release
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
