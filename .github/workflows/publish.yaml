@@ -86,21 +86,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: mkdir -p /tmp/release
-      - name: Download Windows Artifact
-        uses: actions/download-artifact@v1
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: indexify-windows-amd64.exe
-          path: release/indexify-windows-amd64.exe
-      - name: Download macOS Artifact
-        uses: actions/download-artifact@v1
-        with:
-          name: indexify-darwin-arm64
-          path: release/indexify-darwin-arm64
-      - name: Download Linux Artifact
-        uses: actions/download-artifact@v1
-        with:
-          name: indexify-linux-arm64
-          path: release/indexify-linux-arm64
+          path: /tmp/release/
+      - name: Name Artifacts
+        run: |
+          mv /tmp/release/indexify-windows-amd64.exe /tmp/release/indexify-${{ needs.extract_version.outputs.version }}-windows-amd64.exe
+          mv /tmp/release/indexify-darwin-arm64 /tmp/release/indexify-${{ needs.extract_version.outputs.version }}-darwin-arm64
+          mv /tmp/release/indexify-linux-amd64 /tmp/release/indexify-${{ needs.extract_version.outputs.version }}-linux-amd64
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
