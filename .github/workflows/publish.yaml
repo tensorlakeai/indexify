@@ -104,25 +104,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload Windows Binary
         uses: actions/upload-release-asset@v1
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-        asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-        asset_content_type: application/octet-stream
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload Linux Binary
         uses: actions/upload-release-asset@v1
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-        asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-        asset_content_type: application/octet-stream
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+          asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload macOS Binary
         uses: actions/upload-release-asset@v1
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-        asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-        asset_content_type: application/octet-stream
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
