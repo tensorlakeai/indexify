@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::indexify_raft::raft_api_client::RaftApiClient;
 
