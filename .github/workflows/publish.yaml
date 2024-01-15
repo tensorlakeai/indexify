@@ -83,26 +83,46 @@ jobs:
       - extract-version
     steps:
       - uses: actions/checkout@v3
-      - run: mkdir -p tmp/release
+      - run: mkdir -p /tmp/release
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: tmp/release/
+          path: /tmp/release/
       - name: Name Artifacts
         run: |
-          mv tmp/release/indexify-windows-amd64.exe indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          mv tmp/release/indexify-darwin-arm64 indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          mv tmp/release/indexify-linux-amd64 indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          ls -la
-      - name: Publish Release
-        uses: softprops/action-gh-release@v1
+          mv /tmp/release/indexify-windows-amd64.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          mv /tmp/release/indexify-darwin-arm64 /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          mv /tmp/release/indexify-linux-amd64 /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
         with:
-          files: |
-            indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-            indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-            indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
           tag_name: "v${{ needs.extract-version.outputs.version }}"
           prerelease: ${{ github.event.inputs.prerelease }}
           body: ${{ github.event.inputs.release_message }}
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Windows Binary
+        uses: actions/upload-release-asset@v1
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+        asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+        asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux Binary
+        uses: actions/upload-release-asset@v1
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+        asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+        asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload macOS Binary
+        uses: actions/upload-release-asset@v1
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+        asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+        asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
