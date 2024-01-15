@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - run: rustup toolchain install nightly
     - run: cargo +nightly fmt --check
     - run: cargo check --release
     - run: cargo build --release
@@ -36,6 +37,7 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v3
+    - run: rustup toolchain install nightly
     - run: cargo +nightly fmt --check
     - run: cargo check --release
     - run: cargo build --release
@@ -50,6 +52,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v3
+    - run: rustup toolchain install nightly
     - run: cargo +nightly fmt --check
     - run: cargo check --release
     - run: cargo build --release
@@ -63,7 +66,7 @@ jobs:
     name: Extract Version Number
     runs-on: ubuntu-latest
     outputs:
-      build_id: ${{ steps.version_extraction.outputs.version }}
+      version: ${{ steps.version_extraction.outputs.version }}
     steps:
     - uses: actions/checkout@v3
     - id: version_extraction
