@@ -90,7 +90,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/release/indexify-windows-amd64.exe
+          path: /tmp/release/
       - run: unzip /tmp/release/indexify-windows-amd64.exe -d /tmp/release/windows
       - run: unzip /tmp/release/indexify-darwin-arm64 -d /tmp/release/darwin
       - run: unzip /tmp/release/indexify-linux-amd64 -d /tmp/release/linux
