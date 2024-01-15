@@ -21,46 +21,46 @@ jobs:
     name: Build Linux Package
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - run: rustup toolchain install nightly
-    - run: cargo +nightly fmt --check
-    - run: cargo check --release
-    - run: cargo build --release
-    - uses: actions/upload-artifact@v4
-      with:
-        name: indexify-linux-amd64
-        path: target/release/indexify
-        if-no-files-found: error
+      - uses: actions/checkout@v3
+      - run: rustup toolchain install nightly
+      - run: cargo +nightly fmt --check
+      - run: cargo check --release
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-linux-amd64
+          path: target/release/indexify
+          if-no-files-found: error
 
   build-macos-package:
     name: Build macOS Package
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v3
-    - run: rustup toolchain install nightly
-    - run: cargo +nightly fmt --check
-    - run: cargo check --release
-    - run: cargo build --release
-    - uses: actions/upload-artifact@v4
-      with:
-        name: indexify-darwin-arm64
-        path: target/release/indexify
-        if-no-files-found: error
+      - uses: actions/checkout@v3
+      - run: rustup toolchain install nightly
+      - run: cargo +nightly fmt --check
+      - run: cargo check --release
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-darwin-arm64
+          path: target/release/indexify
+          if-no-files-found: error
 
   build-windows-package:
     name: Build Windows Package
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
-    - run: rustup toolchain install nightly
-    - run: cargo +nightly fmt --check
-    - run: cargo check --release
-    - run: cargo build --release
-    - uses: actions/upload-artifact@v4
-      with:
-        name: indexify-windows-amd64.exe
-        path: target/release/indexify.exe
-        if-no-files-found: error
+      - uses: actions/checkout@v3
+      - run: rustup toolchain install nightly
+      - run: cargo +nightly fmt --check
+      - run: cargo check --release
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-windows-amd64.exe
+          path: target/release/indexify.exe
+          if-no-files-found: error
 
   extract-version:
     name: Extract Version Number
@@ -68,42 +68,42 @@ jobs:
     outputs:
       version: ${{ steps.version_extraction.outputs.version }}
     steps:
-    - uses: actions/checkout@v3
-    - id: version_extraction
-      run: cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify") | .version' | xargs > "$GITHUB_OUTPUT"
-  
+      - uses: actions/checkout@v3
+      - id: version_extraction
+        run: echo "version=$(cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify") | .version' | xargs)" > $GITHUB_OUTPUT
+
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs:
-    - build-linux-package
-    - build-windows-package
-    - build-macos-package
-    - extract-version
+      - build-linux-package
+      - build-windows-package
+      - build-macos-package
+      - extract-version
     steps:
-    - uses: actions/checkout@v3
-    - run: mkdir -p /tmp/release
-    - name: Download Windows Artifact
-      uses: actions/download-artifact@v1
-      with:
-        name: indexify-windows-amd64.exe
-        path: release/indexify-windows-amd64.exe
-    - name: Download macOS Artifact
-      uses: actions/download-artifact@v1
-      with:
-        name: indexify-darwin-arm64
-        path: release/indexify-darwin-arm64
-    - name: Download Linux Artifact
-      uses: actions/download-artifact@v1
-      with:
-        name: indexify-linux-arm64
-        path: release/indexify-linux-arm64
-    - name: Publish Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: /tmp/release/*
-        tag_name: "v${{ needs.extract_version.outputs.version }}"
-        prerelease: ${{ github.event.inputs.prerelease }}
-        body: ${{ github.event.inputs.release_message }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - run: mkdir -p /tmp/release
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v1
+        with:
+          name: indexify-windows-amd64.exe
+          path: release/indexify-windows-amd64.exe
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v1
+        with:
+          name: indexify-darwin-arm64
+          path: release/indexify-darwin-arm64
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v1
+        with:
+          name: indexify-linux-arm64
+          path: release/indexify-linux-arm64
+      - name: Publish Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: /tmp/release/*
+          tag_name: "v${{ needs.extract_version.outputs.version }}"
+          prerelease: ${{ github.event.inputs.prerelease }}
+          body: ${{ github.event.inputs.release_message }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
