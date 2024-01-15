@@ -96,7 +96,10 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
-          files: /tmp/release/*
+          files: |
+            /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+            /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+            /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
           tag_name: "v${{ needs.extract-version.outputs.version }}"
           prerelease: ${{ github.event.inputs.prerelease }}
           body: ${{ github.event.inputs.release_message }}
