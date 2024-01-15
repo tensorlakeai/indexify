@@ -16,6 +16,8 @@ coordinator_addr: 0.0.0.0:8950
 
 raft_port: 8970
 
+coordinator_metrics_port: 8980
+
 # Blob storage configuration for the service. It is used for storing
 # raw data such as PDF, Images and Videos.
 blob_storage:

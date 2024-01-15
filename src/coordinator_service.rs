@@ -105,6 +105,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn create_binding(
         &self,
         request: tonic::Request<ExtractorBindRequest>,
@@ -166,6 +167,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_bindings(
         &self,
         request: tonic::Request<ListBindingsRequest>,
@@ -184,6 +186,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListBindingsResponse { bindings }))
     }
 
+    #[autometrics]
     async fn create_repository(
         &self,
         request: tonic::Request<CreateRepositoryRequest>,
@@ -199,6 +202,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_repositories(
         &self,
         _request: tonic::Request<ListRepositoriesRequest>,
@@ -217,6 +221,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn get_repository(
         &self,
         request: tonic::Request<GetRepositoryRequest>,
@@ -233,6 +238,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_extractors(
         &self,
         _request: tonic::Request<ListExtractorsRequest>,
@@ -249,6 +255,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
     }
 
+    #[autometrics]
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,
@@ -267,6 +274,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn heartbeat(
         &self,
         request: tonic::Request<HeartbeatRequest>,
@@ -287,6 +295,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn update_task(
         &self,
         request: tonic::Request<UpdateTaskRequest>,
@@ -306,6 +315,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(UpdateTaskResponse {}))
     }
 
+    #[autometrics]
     async fn list_indexes(
         &self,
         request: Request<ListIndexesRequest>,
@@ -323,6 +333,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListIndexesResponse { indexes }))
     }
 
+    #[autometrics]
     async fn get_index(
         &self,
         request: Request<GetIndexRequest>,
@@ -338,6 +349,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn create_index(
         &self,
         request: Request<CreateIndexRequest>,
@@ -352,6 +364,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(CreateIndexResponse {}))
     }
 
+    #[autometrics]
     async fn get_extractor_coordinates(
         &self,
         req: Request<GetExtractorCoordinatesRequest>,
@@ -369,6 +382,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         ))
     }
 
+    #[autometrics]
     async fn get_content_metadata(
         &self,
         req: Request<GetContentMetadataRequest>,
@@ -393,6 +407,7 @@ impl CoordinatorService for CoordinatorServiceServer {
 
 pub struct CoordinatorServer {
     addr: SocketAddr,
+    metrics_addr: SocketAddr,
     coordinator: Arc<Coordinator>,
     shared_state: Arc<state::App>,
 }
@@ -401,11 +416,14 @@ impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let shared_state = state::App::new(config.clone()).await?;
+        let metrics_addr: SocketAddr = config.coordinator_metrics_addr_sock()?;
 
         let coordinator = Coordinator::new(shared_state.clone());
         info!("coordinator listening on: {}", addr.to_string());
+        info!("coordinator metrics on: {}", metrics_addr.to_string());
         Ok(Self {
             addr,
+            metrics_addr,
             coordinator,
             shared_state,
         })
@@ -451,7 +469,7 @@ impl CoordinatorServer {
             .route("/", get(|| async { "hello world" } ))
             .route("/metrics", get(|| async { prometheus_exporter::encode_to_string().unwrap_or("Cannot export metrics".to_string()) } ));
 
-        let listener = tokio::net::TcpListener::bind("0.0.0.0:8087").await.unwrap();
+        let listener = tokio::net::TcpListener::bind(self.metrics_addr).await.unwrap();
         axum::serve(listener, app).await?;
 
         Ok(())

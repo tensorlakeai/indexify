@@ -54,8 +54,8 @@ impl AttributeIndexManager {
     pub async fn new(db_addr: &str, coordinator_client: Arc<CoordinatorClient>) -> Result<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect(db_addr)
-            .await?;
+            .connect_lazy(db_addr)?;
+
         Ok(Self {
             pool,
             coordinator_client,

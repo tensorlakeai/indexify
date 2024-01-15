@@ -25,6 +25,10 @@ fn default_coordinator_port() -> u64 {
     8950
 }
 
+fn default_coordinator_metrics_port() -> u64 {
+    8980
+}
+
 fn default_raft_port() -> u64 {
     8970
 }
@@ -351,6 +355,7 @@ pub struct ServerConfig {
     pub listen_port: u64,
     #[serde(default = "default_coordinator_port")]
     pub coordinator_port: u64,
+    pub coordinator_metrics_port: u64,
     pub raft_port: u64,
     pub index_config: VectorIndexConfig,
     pub db_url: String,
@@ -371,6 +376,7 @@ impl Default for ServerConfig {
             listen_if: "0.0.0.0".into(),
             listen_port: default_server_port(),
             coordinator_port: default_coordinator_port(),
+            coordinator_metrics_port: default_coordinator_metrics_port(),
             raft_port: default_raft_port(),
             index_config: VectorIndexConfig::default(),
             db_url: "postgres://postgres:postgres@localhost/indexify".into(),
@@ -422,6 +428,12 @@ impl ServerConfig {
         let addr = format!("{}:{}", self.listen_if, self.coordinator_port);
         addr.parse().map_err(|e: AddrParseError| {
             anyhow!("Failed to parse listen address {} :{}", addr, e.to_string())
+        })
+    }
+    pub fn coordinator_metrics_addr_sock(&self) -> Result<SocketAddr> {
+        let addr = format!("{}:{}", self.listen_if, self.coordinator_metrics_port);
+        addr.parse().map_err(|e: AddrParseError| {
+            anyhow!("Failed to parse coordinator metrics address {} :{}", addr, e.to_string())
         })
     }
 
