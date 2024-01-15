@@ -26,9 +26,10 @@ jobs:
     - run: cargo check --release
     - run: cargo build --release
     - uses: actions/upload-artifact@v4
-      name: indexify-linux-amd64
-      path: target/release/indexify
-      if-no-files-found: error
+      with:
+        name: indexify-linux-amd64
+        path: target/release/indexify
+        if-no-files-found: error
 
   build-macos-package:
     name: Build macOS Package
@@ -39,9 +40,10 @@ jobs:
     - run: cargo check --release
     - run: cargo build --release
     - uses: actions/upload-artifact@v4
-      name: indexify-darwin-arm64
-      path: target/release/indexify
-      if-no-files-found: error
+      with:
+        name: indexify-darwin-arm64
+        path: target/release/indexify
+        if-no-files-found: error
 
   build-windows-package:
     name: Build Windows Package
@@ -52,9 +54,10 @@ jobs:
     - run: cargo check --release
     - run: cargo build --release
     - uses: actions/upload-artifact@v4
-      name: indexify-windows-amd64.exe
-      path: target/release/indexify.exe
-      if-no-files-found: error
+      with:
+        name: indexify-windows-amd64.exe
+        path: target/release/indexify.exe
+        if-no-files-found: error
 
   extract-version:
     name: Extract Version Number
