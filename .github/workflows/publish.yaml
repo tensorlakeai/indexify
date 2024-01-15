@@ -22,7 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
+      - run: rustup toolchain install nightly
+      - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
       - run: cargo check --release
       - run: cargo build --release
@@ -37,7 +38,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
+      - run: rustup toolchain install nightly
+      - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
       - run: cargo check --release
       - run: cargo build --release
@@ -52,7 +54,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
+      - run: rustup toolchain install nightly
+      - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
       - run: cargo check --release
       - run: cargo build --release
