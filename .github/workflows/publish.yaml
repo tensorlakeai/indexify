@@ -26,7 +26,8 @@ jobs:
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
       - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
-      - run: cargo build --release
+      # - run: cargo build --release
+      - run: echo "test" > target/release/indexify
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-linux-amd64
@@ -42,7 +43,8 @@ jobs:
       - run: rustup target add aarch64-apple-darwin
       - run: cargo +nightly fmt --check
       - run: brew install protobuf
-      - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
+      # - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
+      - run: echo "test" > target/aarch64-apple-darwin/release/indexify
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-darwin-arm64
@@ -58,7 +60,8 @@ jobs:
       - run: rustup component add rustfmt --toolchain nightly
       - run: cargo +nightly fmt --check
       - run: choco install protoc
-      - run: cargo build --release
+      # - run: cargo build --release
+      - run: echo "test" > target/release/indexify.exe
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-windows-amd64.exe
@@ -92,6 +95,7 @@ jobs:
           path: /tmp/release/
       - name: Name Artifacts
         run: |
+          ls -la /tmp/release
           mv /tmp/release/indexify-windows-amd64.exe /tmp/release/indexify-${{ needs.extract_version.outputs.version }}-windows-amd64.exe
           mv /tmp/release/indexify-darwin-arm64 /tmp/release/indexify-${{ needs.extract_version.outputs.version }}-darwin-arm64
           mv /tmp/release/indexify-linux-amd64 /tmp/release/indexify-${{ needs.extract_version.outputs.version }}-linux-amd64
