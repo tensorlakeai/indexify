@@ -24,7 +24,7 @@ service CoordinatorService {
 
     rpc RegisterExecutor(RegisterExecutorRequest) returns (RegisterExecutorResponse) {}
 
-    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+    rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
 
     rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
 

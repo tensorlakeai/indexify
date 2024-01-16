@@ -1,7 +1,9 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
+    io::ErrorKind,
     net::SocketAddr,
+    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -12,10 +14,15 @@ use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use tokio::{
     signal,
-    sync::watch::{self, Receiver, Sender},
+    sync::{
+        mpsc,
+        watch::{self, Receiver, Sender},
+    },
 };
-use tonic::{Request, Response, Status};
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
+use utoipa::openapi::info;
 
 use crate::{
     coordinator::Coordinator,
@@ -56,8 +63,10 @@ use crate::{
     internal_api,
     server_config::ServerConfig,
     state,
-    utils::timestamp_secs,
+    utils::{match_for_io_error, timestamp_secs},
 };
+
+type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
@@ -65,6 +74,8 @@ pub struct CoordinatorServiceServer {
 
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
+    type HeartbeatStream = HBResponseStream;
+
     async fn create_content(
         &self,
         request: tonic::Request<CreateContentRequest>,
@@ -264,22 +275,59 @@ impl CoordinatorService for CoordinatorServiceServer {
 
     async fn heartbeat(
         &self,
-        request: tonic::Request<HeartbeatRequest>,
-    ) -> Result<tonic::Response<HeartbeatResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let tasks = self
-            .coordinator
-            .heartbeat(&request.executor_id)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let tasks = tasks
-            .into_iter()
-            .map(|t| t.into())
-            .collect::<Vec<indexify_coordinator::Task>>();
-        Ok(tonic::Response::new(HeartbeatResponse {
-            executor_id: "".to_string(),
-            tasks,
-        }))
+        request: tonic::Request<Streaming<HeartbeatRequest>>,
+    ) -> Result<tonic::Response<Self::HeartbeatStream>, tonic::Status> {
+        let mut in_stream = request.into_inner();
+        let (tx, rx) = mpsc::channel(4);
+        let coordinator = self.coordinator.clone();
+        tokio::spawn(async move {
+            while let Some(result) = in_stream.next().await {
+                match result {
+                    Ok(req) => {
+                        let executor_id = req.executor_id;
+                        let tasks = coordinator.heartbeat(&executor_id).await;
+                        if let Err(err) = &tasks {
+                            if let Err(err) =
+                                tx.send(Err(tonic::Status::internal(err.to_string()))).await
+                            {
+                                error!(
+                                    "error sending error message in heartbeat response: {:?}",
+                                    err
+                                );
+                                continue;
+                            }
+                        }
+                        let tasks = tasks
+                            .unwrap()
+                            .into_iter()
+                            .map(|t| t.into())
+                            .collect::<Vec<indexify_coordinator::Task>>();
+                        let resp = HeartbeatResponse { executor_id, tasks };
+                        if let Err(err) = tx.send(Ok(resp)).await {
+                            error!("error sending heartbeat response: {:?}", err);
+                        }
+                    }
+                    Err(err) => {
+                        info!("error recieving heartbeat request: {:?}", err);
+                        if let Some(io_err) = match_for_io_error(&err) {
+                            if io_err.kind() == ErrorKind::BrokenPipe {
+                                break;
+                            }
+                        }
+
+                        match tx.send(Err(err)).await {
+                            Ok(_) => (),
+                            Err(_err) => break, // response was droped
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+        let out_stream = ReceiverStream::new(rx);
+        Ok(tonic::Response::new(
+            Box::pin(out_stream) as HBResponseStream
+        ))
     }
 
     async fn update_task(

@@ -1928,6 +1928,7 @@ dependencies = [
  "figment",
  "flate2",
  "flexbuffers",
+ "h2 0.4.1",
  "hostname",
  "hyper 1.1.0",
  "hyper-util",
@@ -4676,6 +4677,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
