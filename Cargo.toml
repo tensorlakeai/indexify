@@ -157,6 +157,7 @@ local-ip-address = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 walkdir = { workspace = true }
+autometrics = { version = "1.0.0", features = ["prometheus-exporter"] }
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }

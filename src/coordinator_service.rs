@@ -10,6 +10,9 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
+use autometrics::{autometrics, prometheus_exporter};
+use axum::Router;
+use axum::routing::get;
 use tokio::{
     signal,
     sync::watch::{self, Receiver, Sender},
@@ -65,6 +68,7 @@ pub struct CoordinatorServiceServer {
 
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
+    #[autometrics]
     async fn create_content(
         &self,
         request: tonic::Request<CreateContentRequest>,
@@ -83,6 +87,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(CreateContentResponse { id }))
     }
 
+    #[autometrics]
     async fn list_content(
         &self,
         request: tonic::Request<ListContentRequest>,
@@ -100,6 +105,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn create_binding(
         &self,
         request: tonic::Request<ExtractorBindRequest>,
@@ -161,6 +167,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_bindings(
         &self,
         request: tonic::Request<ListBindingsRequest>,
@@ -179,6 +186,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListBindingsResponse { bindings }))
     }
 
+    #[autometrics]
     async fn create_repository(
         &self,
         request: tonic::Request<CreateRepositoryRequest>,
@@ -194,6 +202,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_repositories(
         &self,
         _request: tonic::Request<ListRepositoriesRequest>,
@@ -212,6 +221,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn get_repository(
         &self,
         request: tonic::Request<GetRepositoryRequest>,
@@ -228,6 +238,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn list_extractors(
         &self,
         _request: tonic::Request<ListExtractorsRequest>,
@@ -244,6 +255,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
     }
 
+    #[autometrics]
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,
@@ -262,6 +274,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn heartbeat(
         &self,
         request: tonic::Request<HeartbeatRequest>,
@@ -282,6 +295,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn update_task(
         &self,
         request: tonic::Request<UpdateTaskRequest>,
@@ -301,6 +315,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(UpdateTaskResponse {}))
     }
 
+    #[autometrics]
     async fn list_indexes(
         &self,
         request: Request<ListIndexesRequest>,
@@ -318,6 +333,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListIndexesResponse { indexes }))
     }
 
+    #[autometrics]
     async fn get_index(
         &self,
         request: Request<GetIndexRequest>,
@@ -333,6 +349,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    #[autometrics]
     async fn create_index(
         &self,
         request: Request<CreateIndexRequest>,
@@ -347,6 +364,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(CreateIndexResponse {}))
     }
 
+    #[autometrics]
     async fn get_extractor_coordinates(
         &self,
         req: Request<GetExtractorCoordinatesRequest>,
@@ -364,6 +382,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         ))
     }
 
+    #[autometrics]
     async fn get_content_metadata(
         &self,
         req: Request<GetContentMetadataRequest>,
@@ -410,29 +429,45 @@ impl CoordinatorServer {
         let svc = CoordinatorServiceServer {
             coordinator: self.coordinator.clone(),
         };
-        let srvr =
+        // metrics exporter setup via autometrics
+        prometheus_exporter::init();
+
+        // Setup grpc server
+        let coordinator_service =
             indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);
+
         let shared_state = self.shared_state.clone();
         shared_state
             .initialize_raft()
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
+
         let (shutdown_tx, shutdown_rx) = watch::channel(());
+
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();
         let coordinator_clone = self.coordinator.clone();
         tokio::spawn(async move {
             let _ = run_scheduler(shutdown_rx, leader_change_watcher, coordinator_clone).await;
         });
-        tonic::transport::Server::builder()
-            .add_service(srvr)
+
+        tokio::spawn(tonic::transport::Server::builder()
+            .add_service(coordinator_service)
             .serve_with_shutdown(self.addr, async move {
                 let _ = shutdown_signal(shutdown_tx).await;
                 let res = shared_state.stop().await;
                 if let Err(err) = res {
                     error!("error stopping server: {:?}", err);
                 }
-            })
-            .await?;
+            }));
+
+        // setup http server
+        let app = Router::new()
+            .route("/", get(|| async { "hello world" } ))
+            .route("/metrics", get(|| async { prometheus_exporter::encode_to_string().unwrap_or("Cannot export metrics".to_string()) } ));
+
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:8087").await.unwrap();
+        axum::serve(listener, app).await?;
+
         Ok(())
     }
 }
