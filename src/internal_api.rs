@@ -467,6 +467,27 @@ pub struct TaskResult {
     pub task_id: String,
     pub outcome: TaskOutcome,
     pub extracted_content: Vec<Content>,
+    pub error_msg: Option<String>,
+}
+
+impl TaskResult {
+    pub fn failed(task_id: &str, msg: Option<String>) -> Self {
+        Self {
+            task_id: task_id.to_string(),
+            outcome: TaskOutcome::Failed,
+            extracted_content: Vec::new(),
+            error_msg: msg,
+        }
+    }
+
+    pub fn success(task_id: &str, extracted_content: Vec<Content>) -> Self {
+        Self {
+            task_id: task_id.to_string(),
+            outcome: TaskOutcome::Success,
+            extracted_content,
+            error_msg: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

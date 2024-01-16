@@ -101,27 +101,24 @@ impl ExtractorExecutor {
         let mut results = Vec::new();
         for task in tasks {
             info!("performing task: {}", &task.id);
-            let content = get_content(task.content_metadata).await?;
+            let content = get_content(task.content_metadata).await;
+            if let Err(err) = &content {
+                info!("failed to get content: {}", err);
+                results.push(TaskResult::failed(&task.id, Some(err.to_string())));
+                continue;
+            }
+            let content = content.unwrap();
             let extracted_content_batch = self
                 .extractor_runner
                 .extract(vec![content], task.input_params.clone());
-            if let Err(_err) = &extracted_content_batch {
-                let work_status = TaskResult {
-                    task_id: task.id.clone(),
-                    outcome: internal_api::TaskOutcome::Failed,
-                    extracted_content: Vec::new(),
-                };
-                results.push(work_status);
+            if let Err(err) = &extracted_content_batch {
+                info!("failed to extract content: {}", err);
+                results.push(TaskResult::failed(&task.id, Some(err.to_string())));
                 continue;
             }
 
             for extracted_content_list in extracted_content_batch.unwrap() {
-                let work_status = TaskResult {
-                    task_id: task.id.clone(),
-                    outcome: internal_api::TaskOutcome::Success,
-                    extracted_content: extracted_content_list,
-                };
-                results.push(work_status);
+                results.push(TaskResult::success(&task.id, extracted_content_list));
             }
         }
         self.task_store.update(results);
