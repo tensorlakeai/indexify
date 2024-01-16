@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    fmt,
-    sync::Arc,
-    time::SystemTime,
-};
+use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
 
 use anyhow::{anyhow, Result};
 use nanoid::nanoid;

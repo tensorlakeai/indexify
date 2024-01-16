@@ -22,7 +22,6 @@ use tokio::{
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
-use utoipa::openapi::info;
 
 use crate::{
     coordinator::Coordinator,

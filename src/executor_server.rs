@@ -50,7 +50,7 @@ impl ExecutorServer {
         executor_config: Arc<ExecutorConfig>,
     ) -> Result<Self> {
         // Set Python Path
-        //python_path::set_python_path(extractor_config_path)?;
+        python_path::set_python_path(extractor_config_path)?;
         let coordinator_client =
             Arc::new(CoordinatorClient::new(&executor_config.coordinator_addr));
 
@@ -146,7 +146,7 @@ impl ExecutorServer {
                                 has_registered.store(false, std::sync::atomic::Ordering::SeqCst);
                             });
                         }
-                        if let Err(_)=  heartbeat_tx.send(HeartbeatRequest{executor_id: executor.executor_id.clone()}){
+                        if heartbeat_tx.send(HeartbeatRequest{executor_id: executor.executor_id.clone()}).is_err(){
                             error!("heartbeat channel closed, so we will try registering again");
                             has_registered.store(false, std::sync::atomic::Ordering::SeqCst);
                             }

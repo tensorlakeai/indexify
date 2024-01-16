@@ -1,6 +1,7 @@
 use std::{env, path::PathBuf, process::Command};
 
 use anyhow::anyhow;
+use tracing::info;
 
 pub fn set_python_path(path: &str) -> Result<(), anyhow::Error> {
     let path = PathBuf::from(path);
@@ -41,6 +42,7 @@ pub fn set_python_path(path: &str) -> Result<(), anyhow::Error> {
         }
     }
     let new_python_path = format!("{}:{}:{}", python_path, parent_path, site_packages);
+    info!("PYTHONPATH set to: {}", &new_python_path);
     env::set_var("PYTHONPATH", new_python_path);
     Ok(())
 }
