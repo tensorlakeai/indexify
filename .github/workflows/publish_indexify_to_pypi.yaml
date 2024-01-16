@@ -1,0 +1,29 @@
+name: Publish Python SDK
+
+on: workflow_dispatch
+
+jobs:
+  publish-to-pypi:
+    name: Publish Python SDK
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version_extraction.outputs.version }}
+    environment:
+      name: pypi
+      url: https://pypi.org/p/indexify
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install tomlq
+      - id: version_extraction
+        run: echo "version=$(tomlq tool.poetry.version -f sdk-py/pyproject.toml)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install pypa/build
+        run: cd sdk-py && python3 -m pip install build --user && python3 -m build && cd ..
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk-py/dist/

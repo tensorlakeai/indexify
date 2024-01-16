@@ -1,4 +1,4 @@
-name: Publish Binaries
+name: Publish Indexify Binaries
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ jobs:
     name: Build Linux Package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
@@ -39,7 +39,7 @@ jobs:
     name: Build macOS Package
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
       - run: rustup target add aarch64-apple-darwin
       - run: cargo +nightly fmt --check
@@ -55,7 +55,7 @@ jobs:
     name: Build Windows Package
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: choco install protoc
@@ -72,7 +72,7 @@ jobs:
     outputs:
       version: ${{ steps.version_extraction.outputs.version }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - id: version_extraction
         run: echo "version=$(cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify") | .version' | xargs)" >> "$GITHUB_OUTPUT"
 
@@ -85,7 +85,7 @@ jobs:
       - build-macos-package
       - extract-version
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: mkdir -p /tmp/release
       - name: Download Artifacts
         uses: actions/download-artifact@v4
