@@ -6,8 +6,6 @@ jobs:
   publish-to-pypi:
     name: Publish Python SDK
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version_extraction.outputs.version }}
     environment:
       name: pypi
       url: https://pypi.org/p/indexify
@@ -17,9 +15,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.9"
       - name: Install pypa/build
-        run: cd sdk-py && python3 -m pip install build --user && python3 -m build && cd ..
+        run: cd sdk-py && python3 -m pip install poetry --user && python3 -m poetry build && cd ..
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
