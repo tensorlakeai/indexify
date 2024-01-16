@@ -15,9 +15,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install tomlq
-      - id: version_extraction
-        run: echo "version=$(tomlq tool.poetry.version -f sdk-py/pyproject.toml)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
