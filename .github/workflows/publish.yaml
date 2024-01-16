@@ -90,15 +90,12 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: tmp/release/
-      - run: unzip tmp/release/indexify-windows-amd64.exe -d tmp/release/windows
-      - run: unzip tmp/release/indexify-darwin-arm64 -d tmp/release/darwin
-      - run: unzip tmp/release/indexify-linux-amd64 -d tmp/release/linux
+          path: /tmp/release/
       - name: Name Artifacts
         run: |
-          mv tmp/release/windows/indexify.exe tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          mv tmp/release/darwin/indexify tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          mv tmp/release/linux/indexify tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+          mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -112,7 +109,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           asset_content_type: application/octet-stream
         env:
@@ -121,7 +118,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
           asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
           asset_content_type: application/octet-stream
         env:
@@ -130,7 +127,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           asset_content_type: application/octet-stream
         env:
