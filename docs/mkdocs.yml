@@ -1,9 +1,9 @@
-site_name: Indexify
+site_name: ""
 
-repo_url: https://github.com/diptanu/indexify
+repo_url: https://github.com/tensorlakeai/indexify
 repo_name: diptanu/indexify
 edit_uri: edit/main/docs/docs
-copyright: Copyright &copy; 2023 Indexify
+copyright: Copyright &copy; 2024 Tensorlake
 
 markdown_extensions:
   - def_list

@@ -1,4 +1,4 @@
-# Indexify
+![Indexify](./docs/docs/images/Indexify_Logo_Wordmark.png)
 
 ![Tests](https://github.com/diptanu/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 
