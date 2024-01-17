@@ -31,16 +31,16 @@ spec:
         app: qdrant
     spec:
       containers:
-      - name: qdrant
-        image: qdrant/qdrant:v1.1.3
-        ports:
-        - containerPort: 6333
-        - containerPort: 6334
-        volumeMounts:
-        - name: qdrant-volume
-          mountPath: /qdrant/storage
-          subPath: qdrant
+        - name: qdrant
+          image: qdrant/qdrant:v1.1.3
+          ports:
+            - containerPort: 6333
+            - containerPort: 6334
+          volumeMounts:
+            - name: qdrant-volume
+              mountPath: /qdrant/storage
+              subPath: qdrant
       volumes:
-      - name: qdrant-volume
-        persistentVolumeClaim:
-          claimName: qdrant-pvc
+        - name: qdrant-volume
+          persistentVolumeClaim:
+            claimName: qdrant-pvc
