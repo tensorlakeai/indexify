@@ -76,3 +76,6 @@ cache:
 
   memory:
     max_size: 1000000
+
+sled:
+  path: /tmp/indexify-sled

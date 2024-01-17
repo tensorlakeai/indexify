@@ -11,8 +11,13 @@ use std::{
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use network::Network;
-use openraft::{self, storage::Adaptor, BasicNode};
-use store::{Request, Response, Store};
+use openraft::{
+    self,
+    error::{InitializeError, RaftError},
+    storage::Adaptor,
+    BasicNode,
+};
+use store::{Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
@@ -20,7 +25,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use self::{
     grpc_server::RaftGrpcServer,
@@ -39,6 +44,7 @@ use crate::{
         TaskOutcome,
     },
     server_config::ServerConfig,
+    state::store::Store,
     utils::timestamp_secs,
 };
 
@@ -107,7 +113,7 @@ impl App {
                 .validate()
                 .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
         );
-        let store = Arc::new(Store::new());
+        let store = Arc::new(Store::new(server_config.sled.clone()).await);
         let (log_store, state_machine) = Adaptor::new(store.clone());
         let network = Network::new();
 
@@ -181,11 +187,26 @@ impl App {
     }
 
     pub async fn initialize_raft(&self) -> Result<()> {
-        self.raft
-            .initialize(self.nodes.clone())
-            .await
-            .map_err(|e| anyhow!("unable to initialize raft: {}", e))?;
-        Ok(())
+        let res = match self.raft.initialize(self.nodes.clone()).await {
+            // .map_err(|e| anyhow!("unable to initialize raft: {}", e)) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // match the type of the initialize error. if it's NotAllowed, ignore it.
+                // this means that the node is already initialized.
+                let res = match e.clone() {
+                    RaftError::APIError(inner_e) => match inner_e {
+                        InitializeError::NotAllowed(_) => {
+                            warn!("cluster is already initialized: {}", e);
+                            Ok(())
+                        }
+                        _ => Err(anyhow!("unable to initialize raft: {}", e)),
+                    },
+                    _ => Err(anyhow!("unable to initialize raft: {}", e)),
+                };
+                res
+            }
+        }?;
+        Ok(res)
     }
 
     pub fn get_state_change_watcher(&self) -> Receiver<StateChange> {

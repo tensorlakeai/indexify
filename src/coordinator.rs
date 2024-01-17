@@ -360,9 +360,9 @@ mod tests {
     use crate::{
         indexify_coordinator::ContentMetadata,
         internal_api::ExtractorBinding,
-        server_config::ServerConfig,
+        server_config::{ServerConfig, ServerPeer, SledConfig},
         state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY}, /* coordinator_service::CoordinatorServer, */
     };
 
     #[tokio::test]
@@ -468,4 +468,76 @@ mod tests {
         assert_eq!(0, shared_state.unassigned_tasks().await?.len());
         Ok(())
     }
+
+    // // mark this test to skip
+    // #[tokio::test]
+    // #[tracing_test::traced_test]
+    // #[ignore]
+    // async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
+    //     // create a random str for the data dirs
+    //     let append = nanoid::nanoid!();
+    //     // run multiple coordinators at multiple ports
+    //     let ports = vec![8950, 8951];
+    //     let mut config_list = Vec::new();
+    //     let sled_data_dirs = vec![
+    //         format!("/tmp/indexify/raft/{}/0", append),
+    //         format!("/tmp/indexify/raft/{}/1", append),
+    //     ];
+
+    //     // iterate over the ports and data dirs to create the configs
+    //     for (i, port) in ports.iter().enumerate() {
+    //         let node_id: u64 = i.try_into().unwrap();
+    //         let config = ServerConfig {
+    //             node_id,
+    //             coordinator_port: *port,
+    //             raft_port: *port,
+    //             peers: ports
+    //                 .iter()
+    //                 .enumerate()
+    //                 .filter(|(j, _)| *j != i)
+    //                 .map(|(_, p)| ServerPeer {
+    //                     node_id: (*p).try_into().unwrap(),
+    //                     addr: format!("localhost:{}", p),
+    //                 })
+    //                 .collect(),
+    //             sled: SledConfig {
+    //                 path: Some(sled_data_dirs[i].clone()),
+    //             },
+    //             ..Default::default()
+    //         };
+    //         config_list.push(Arc::new(config));
+    //     }
+
+    //     let mut coordinators = Vec::new();
+
+    //     for config in config_list {
+    //         let app = CoordinatorServer::new(config.clone())
+    //             .await
+    //             .expect("failed to create coordinator server");
+    //         coordinators.push(app);
+    //     }
+
+    //     // run all the coordinators in tokio
+    //     let mut handles = Vec::new();
+    //     // only start the first two
+    //     for (i, coordinator) in coordinators
+    //     .into_iter().enumerate().take(2) {
+    //         let ports = ports.clone();
+    //         let handle = tokio::spawn(async move {
+    //             coordinator.run().await.expect(format!("failed to run
+    // coordinator: {} at port {}", i, ports.clone()[i]).as_str());
+    //             Ok::<(), anyhow::Error>(())
+    //         });
+    //         handles.push(handle);
+
+    //         // wait a few seconds for the coordinator to start
+    //         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    //     }
+
+    //     for handle in handles {
+    //         handle.await?;
+    //     }
+
+    //     Ok(())
+    // }
 }
