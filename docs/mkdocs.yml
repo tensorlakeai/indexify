@@ -40,6 +40,7 @@ plugins:
 
 theme:
   name: material
+  logo: ./images/Indexify_Logo_Wordmark_Dark.png
   icon:
     repo: fontawesome/brands/github
     edit: material/pencil 
