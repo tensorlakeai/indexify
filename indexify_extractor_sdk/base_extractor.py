@@ -4,14 +4,14 @@ import json
 from importlib import import_module
 from typing import get_type_hints
 
-from pydantic import BaseModel, Json
+from pydantic import BaseModel, Json, Field
 
 class EmbeddingSchema(BaseModel):
     distance_metric: str
     dim: int
 
 class ExtractorSchema(BaseModel):
-    features: dict[str, Union[EmbeddingSchema, Json]]
+    features: dict[str, Union[EmbeddingSchema, Json]] = Field(default_factory=dict)
 
 class InternalExtractorSchema(BaseModel):
     embedding_schemas: dict[str, EmbeddingSchema]
@@ -95,10 +95,11 @@ def extractor_schema(module_name: str, class_name: str) -> InternalExtractorSche
     param_cls = get_type_hints(cls.extract).get("params", None)
     schema: ExtractorSchema = cls.schemas()
     embedding_schemas = {}
-    for k,v in schema.features.items():
-        if isinstance(v, EmbeddingSchema):
-            embedding_schemas[k] = v
-            continue
+    if schema is not None:
+        for k,v in schema.features.items():
+            if isinstance(v, EmbeddingSchema):
+                embedding_schemas[k] = v
+                continue
     json_schema = param_cls.model_json_schema() if param_cls else {}
     json_schema['additionalProperties'] = False
     return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=json.dumps(json_schema))
