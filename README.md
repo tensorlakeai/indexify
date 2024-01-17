@@ -1,6 +1,6 @@
 ![Indexify](./docs/docs/images/Indexify_Logo_Wordmark.png)
 
-![Tests](https://github.com/diptanu/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
+![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 
 Indexify is a reactive structured extraction engine for un-structured data.
 

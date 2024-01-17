@@ -1,7 +1,7 @@
 site_name: ""
 
 repo_url: https://github.com/tensorlakeai/indexify
-repo_name: diptanu/indexify
+repo_name: tensorlakeai/indexify
 edit_uri: edit/main/docs/docs
 copyright: Copyright &copy; 2024 Tensorlake
 

@@ -5,8 +5,8 @@ description = "Python Client for Indexify"
 authors = ["Diptanu Gon Choudhury <diptanuc@gmail.com>", "Vijay Parthasarathy <vijay2win@gmail.com>"]
 license = "Apache 2.0"
 readme = "README.md"
-homepage = "https://github.com/diptanu/indexify"
-repository = "https://github.com/diptanu/indexify"
+homepage = "https://github.com/tensorlakeai/indexify"
+repository = "https://github.com/tensorlakeai/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
