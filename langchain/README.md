@@ -25,11 +25,11 @@ repository.add_documents(
     [
         Document(
             text="Indexify is amazing!",
-            metadata={"url": "https://github.com/diptanu/indexify"},
+            metadata={"url": "https://github.com/tensorlakeai/indexify"},
         ),
         Document(
             text="Indexify is also a retrieval service for LLM agents!",
-            metadata={"url": "https://github.com/diptanu/indexify"},
+            metadata={"url": "https://github.com/tensorlakeai/indexify"},
         )
     ]
 )

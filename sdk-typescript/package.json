@@ -5,7 +5,7 @@
   "main": "lib/main/index.js",
   "typings": "lib/main/index.d.ts",
   "module": "lib/module/index.js",
-  "repository": "https://github.com/diptanu/indexify.git",
+  "repository": "https://github.com/tensorlakeai/indexify.git",
   "author": "Diptanu Choudhury",
   "license": "Apache-2.0",
   "keywords": [
