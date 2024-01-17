@@ -23,7 +23,7 @@ services:
       server:
         ipv4_address: 172.21.0.2
     volumes:
-      - data: /tmp/indexify-blob-storage
+      - data:/tmp/indexify-blob-storage
   qdrant:
     image: qdrant/qdrant:v1.4.1
     restart: always
@@ -50,7 +50,7 @@ services:
       server:
         ipv4_address: 172.21.0.9
     volumes:
-      - data: /tmp/indexify-blob-storage
+      - data:/tmp/indexify-blob-storage
   redis: # (optional) used for caching
     image: redis
     networks:
