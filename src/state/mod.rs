@@ -24,7 +24,7 @@ use tracing::{error, info};
 
 use self::{
     grpc_server::RaftGrpcServer,
-    store::{ExecutorId, TaskId},
+    store::{ExecutorId, StateChange, TaskId},
 };
 use crate::{
     indexify_raft::raft_api_server::RaftApiServer,
@@ -107,7 +107,7 @@ impl App {
                 .validate()
                 .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
         );
-        let store = Arc::new(Store::default());
+        let store = Arc::new(Store::new());
         let (log_store, state_machine) = Adaptor::new(store.clone());
         let network = Network::new();
 
@@ -186,6 +186,10 @@ impl App {
             .await
             .map_err(|e| anyhow!("unable to initialize raft: {}", e))?;
         Ok(())
+    }
+
+    pub fn get_state_change_watcher(&self) -> Receiver<StateChange> {
+        self.store.state_change_rx.clone()
     }
 
     pub async fn stop(&self) -> Result<()> {
