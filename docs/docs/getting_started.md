@@ -4,7 +4,7 @@ Indexify is very easy to get started with Docker Compose.
 
 ### Clone the Repository
 ```shell
-git clone https://github.com/diptanu/indexify.git
+git clone https://github.com/tensorlakeai/indexify.git
 ```
 
 ### Start the Service using Docker Compose
