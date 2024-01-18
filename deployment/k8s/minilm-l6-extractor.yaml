@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minilm-l6-extractor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minilm-l6-extractor
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: minilm-l6-extractor
+    spec:
+      containers:
+        - name: minilm-l6-extractor
+          command: ["./indexify"]
+          args:
+            - extractor
+            - start
+            - --coordinator-addr
+            - coordinator-service.default.svc.cluster.local:8950
+            - --ingestion-addr
+            - indexify-service.default.svc.cluster.local:8900
+            - -c
+            - indexify.yaml
+          image: tensorlake/minilm-l6-extractor
+      restartPolicy: Always

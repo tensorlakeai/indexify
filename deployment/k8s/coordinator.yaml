@@ -1,38 +1,38 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: indexify-service
+  name: coordinator-service
 spec:
   selector:
-    app: indexify
+    app: coordinator
   ports:
-    - name: indexify-http-port
+    - name: coordinator-http-port
       protocol: TCP
-      port: 8900
-      targetPort: 8900
-  type: LoadBalancer
+      port: 8950
+      targetPort: 8950
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: indexify
+  name: coordinator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: indexify
+      app: coordinator
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        app: indexify
+        app: coordinator
     spec:
       containers:
-        - name: indexify
+        - name: coordinator
           command: ["./indexify"]
           args:
-            - server
+            - coordinator
             - --config-path
             - ./config/indexify.yaml
           image: tensorlake/indexify
@@ -40,9 +40,6 @@ spec:
             - mountPath: /indexify/config
               name: config
               readOnly: true
-          env:
-            - name: DATABASE_URL
-              value: postgres://postgres:postgres@postgres-service.default.svc.cluster.local/indexify
       restartPolicy: Always
       volumes:
         - name: config

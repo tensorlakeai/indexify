@@ -27,6 +27,7 @@ blob_storage:
   disk:
     path: /tmp/indexify-blob-storage
 
+
   #backend: s3
   #s3:
   #  bucket: indexifydata
@@ -41,10 +42,10 @@ blob_storage:
 # The qdrant_config parameter specifies the configuration for the Qdrant
 # service.
 index_config:
+  # Possible values: Qdrant, PgEmbedding
   index_store: Qdrant
   qdrant_config:
     addr: "http://qdrant:6334"
-
 # # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
 # - index_store: PgEmbedding
 #   pg_vector_config:
@@ -57,9 +58,9 @@ index_config:
 # You should replace the values with your own values
 tls:
   api: false
-  ca_file: .dev-tls/ca.crt        # Path to the CA certificate; TODO: support custom CA in client
-  cert_file: .dev-tls/server.crt  # Path to the server certificate
-  key_file: .dev-tls/server.key   # Path to the server private key
+  ca_file: .dev-tls/ca.crt # Path to the CA certificate; TODO: support custom CA in client
+  cert_file: .dev-tls/server.crt # Path to the server certificate
+  key_file: .dev-tls/server.key # Path to the server private key
 
 node_id: 0
 peers:

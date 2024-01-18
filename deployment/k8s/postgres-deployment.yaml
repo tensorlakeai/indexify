@@ -19,37 +19,35 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgres 
+      app: postgres
   template:
     metadata:
       labels:
         app: postgres
     spec:
       containers:
-      - name: postgres
-        image: postgres
-        env:
-        - name: PGDATA
-          value: /var/lib/postgresql/data/
-        - name: POSTGRES_USER
-          valueFrom:
-            secretKeyRef:
-              name: indexify-secrets
-              key: postgres_user
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: indexify-secrets
-              key: postgres_password
-        - name: POSTGRES_DB
-          value: indexify
-        ports:
-        - containerPort: 5432
-        volumeMounts:
-        - mountPath: /var/lib/postgresql/data
-          name: postgres-volume
-          subPath: pgdata
+        - name: postgres
+          image: postgres
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: indexify-secrets
+                  key: postgres_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: indexify-secrets
+                  key: postgres_password
+            - name: POSTGRES_DB
+              value: indexify
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgres-volume
+              subPath: pgdata
       volumes:
-      - name: postgres-volume
-        persistentVolumeClaim:
-          claimName: postgres-pvc
+        - name: postgres-volume
+          persistentVolumeClaim:
+            claimName: postgres-pvc
