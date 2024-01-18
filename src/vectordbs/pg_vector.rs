@@ -35,8 +35,7 @@ impl PgVector {
     pub async fn new(config: PgVectorConfig) -> Result<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect(&config.addr)
-            .await?;
+            .connect_lazy(&config.addr)?;
         Ok(Self { config, pool })
     }
 }
@@ -197,12 +196,12 @@ mod tests {
             embedding: vec![0., 2.],
         };
         vector_db
-            .add_embedding("hello-index", vec![chunk])
+            .add_embedding(index_name, vec![chunk])
             .await
             .unwrap();
 
         let results = vector_db
-            .search("hello-index".into(), vec![10., 8.], 1)
+            .search(index_name.into(), vec![10., 8.], 1)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
