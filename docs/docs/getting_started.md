@@ -60,6 +60,21 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     ])
     ```
 
+#### You could upload files to Indexify also
+=== "curl"
+    ```
+    curl -v http://localhost:8900/repositories/default/upload_file \
+    -F files=kd.txt
+    ```
+
+#### Look at the metadata of the content which has been ingested 
+Sometimes you might want to read all the metadata of the content for use in another application or debugging.
+=== "curl"
+    ```
+    curl -v http://localhost:8900/repositories/default/content
+
+    ```
+
 ### Using extractors
 
 Extractors are used to extract information from the documents in our repository. The extracted information can be structured (entities, keywords, etc.) or unstructured (embeddings) in nature, and is stored in an index for retrieval. 

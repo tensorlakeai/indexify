@@ -18,7 +18,7 @@ pub type BlobStorageReaderTS = Arc<dyn BlobStorageReader + Sync + Send>;
 #[async_trait]
 pub trait BlobStorage {
     async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error>;
-    fn delete(&self, key: &str) -> Result<()>;
+    async fn delete(&self, key: &str) -> Result<()>;
 }
 
 #[async_trait]

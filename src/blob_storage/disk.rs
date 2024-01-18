@@ -32,7 +32,7 @@ impl BlobStorage for DiskStorage {
     }
 
     #[tracing::instrument(skip(self))]
-    fn delete(&self, key: &str) -> Result<(), anyhow::Error> {
+    async fn delete(&self, key: &str) -> Result<(), anyhow::Error> {
         let path = format!("{}/{}", self.base_dir, key);
         std::fs::remove_file(path)?;
         Ok(())

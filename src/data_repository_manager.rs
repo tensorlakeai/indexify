@@ -1,5 +1,5 @@
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash, Hasher},
     sync::Arc,
@@ -267,7 +267,7 @@ impl DataRepositoryManager {
     pub async fn add_texts(&self, repo_name: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
             let content_metadata = self
-                .write_content(repo_name, text, None, "ingestion")
+                .write_content(repo_name, text, None, None, "ingestion")
                 .await?;
             let req = CreateContentRequest {
                 content: Some(content_metadata),
@@ -287,27 +287,59 @@ impl DataRepositoryManager {
         Ok(())
     }
 
+    #[tracing::instrument]
+    pub async fn upload_file(&self, repository: &str, data: Bytes, name: &str) -> Result<()> {
+        let content = api::Content {
+            content_type: mime::TEXT_PLAIN.to_string(),
+            bytes: data.to_vec(),
+            labels: HashMap::new(),
+            feature: None,
+        };
+        let content_metadata = self
+            .write_content(repository, content, Some(name), None, "ingestion")
+            .await
+            .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
+        let req = CreateContentRequest {
+            content: Some(content_metadata),
+        };
+        self.coordinator_client
+            .get()
+            .await?
+            .create_content(GrpcHelper::into_req(req))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to write content metadata to coordinator {}",
+                    e.to_string()
+                )
+            })?;
+        Ok(())
+    }
+
     async fn write_content(
         &self,
         repository: &str,
         content: api::Content,
+        file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
     ) -> Result<ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
-        let file_name = nanoid!();
         let mut s = DefaultHasher::new();
         repository.hash(&mut s);
         content.bytes.hash(&mut s);
-        file_name.hash(&mut s);
+        if let Some(f) = file_name {
+            f.hash(&mut s);
+        }
+        let file_name = file_name.map(|f| f.to_string()).unwrap_or(nanoid!());
         if let Some(parent_id) = &parent_id {
             parent_id.hash(&mut s);
         }
         let id = format!("{:x}", s.finish());
         let storage_url = self
-            .upload_file(repository, &file_name, Bytes::from(content.bytes.clone()))
+            .write_to_blob_store(repository, &file_name, Bytes::from(content.bytes.clone()))
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
         let labels = content
@@ -341,6 +373,7 @@ impl DataRepositoryManager {
                 .write_content(
                     &extracted_content.repository,
                     content.clone(),
+                    None,
                     Some(extracted_content.parent_content_id.to_string()),
                     &extracted_content.extractor_binding,
                 )
@@ -479,7 +512,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn upload_file(
+    async fn write_to_blob_store(
         &self,
         repository: &str,
         name: &str,

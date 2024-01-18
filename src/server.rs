@@ -519,13 +519,13 @@ async fn upload_file(
         let name = file.file_name().unwrap().to_string();
         let data = file.bytes().await.unwrap();
         info!(
-            "writing to blog store, file name = {:?}, data = {:?}",
+            "writing to blob store, file name = {:?}, data = {:?}",
             name,
             data.len()
         );
         state
             .repository_manager
-            .upload_file(&repository_name, &name, data)
+            .upload_file(&repository_name, data, &name)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
