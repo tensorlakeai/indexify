@@ -7,7 +7,7 @@ env:
 
 jobs:
   build-base-extractor:
-    runs-on: ubuntu-latest
+    runs-on: image-builder
     steps:
       - uses: actions/checkout@v3
       - name: Set up QEMU
