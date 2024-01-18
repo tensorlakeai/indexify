@@ -27,6 +27,4 @@ spec:
             - -c
             - indexify.yaml
           image: tensorlake/minilm-l6-extractor
-          ports:
-            - containerPort: 8900
       restartPolicy: Always

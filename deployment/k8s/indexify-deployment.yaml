@@ -36,8 +36,6 @@ spec:
             - --config-path
             - ./config/indexify.yaml
           image: tensorlake/indexify
-          ports:
-            - containerPort: 8900
           volumeMounts:
             - mountPath: /indexify/config
               name: config

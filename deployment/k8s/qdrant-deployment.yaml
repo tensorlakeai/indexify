@@ -33,9 +33,6 @@ spec:
       containers:
         - name: qdrant
           image: qdrant/qdrant:v1.1.3
-          ports:
-            - containerPort: 6333
-            - containerPort: 6334
           volumeMounts:
             - name: qdrant-volume
               mountPath: /qdrant/storage
