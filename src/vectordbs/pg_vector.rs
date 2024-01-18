@@ -1,9 +1,10 @@
 use std::fmt;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
+use tracing::info;
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
 use crate::server_config::PgVectorConfig;
@@ -14,6 +15,7 @@ pub struct IndexName(String);
 impl IndexName {
     pub fn new(index_name: &str) -> IndexName {
         let name = index_name.replace('-', "_");
+        let name = name.replace(".", "_");
         Self(name)
     }
 }
@@ -55,9 +57,13 @@ impl VectorDb for PgVector {
     /// we create a new table for each index.
     #[tracing::instrument]
     async fn create_index(&self, index: CreateIndexParams) -> Result<()> {
-        sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
+        if let Err(err) = sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
             .execute(&self.pool)
-            .await?;
+            .await
+        {
+            tracing::error!("Failed to create vector extension: {}", err);
+            return Err(anyhow!("Failed to create vector extension {}", err));
+        }
         let index_name = IndexName::new(&index.vectordb_index_name);
         let vector_dim = index.vector_dim;
         let distance_extension = match &index.distance {
@@ -68,11 +74,17 @@ impl VectorDb for PgVector {
 
         let query = format!("CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(content_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));",);
 
-        let _ = sqlx::query(&query).execute(&self.pool).await?;
+        if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
+            tracing::error!("Failed to create table: {}, query: {}", err, query);
+            return Err(anyhow!("Failed to create table {}", err));
+        }
         let query = format!("CREATE INDEX IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}_hnsw ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});",
             self.config.m, self.config.efconstruction
         );
-        let _ = sqlx::query(&query).execute(&self.pool).await?;
+        if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
+            tracing::error!("Failed to create index: {}, query: {}", err, query);
+            return Err(anyhow!("Failed to create index {}", err));
+        }
         Ok(())
     }
 
@@ -158,6 +170,7 @@ mod tests {
     async fn test_search_basic() {
         // Create the sea-orm connection, s.t. we can share it with the
         // application-level pool
+        let index_name = "index_default.minil6.embedding";
         let database_url = "postgres://postgres:postgres@localhost/indexify";
         let vector_db: VectorDBTS = Arc::new(
             PgVector::new(PgVectorConfig {
@@ -170,10 +183,10 @@ mod tests {
             .unwrap(),
         );
         // Drop index (this is idempotent)
-        vector_db.drop_index("hello-index".into()).await.unwrap();
+        vector_db.drop_index(index_name.into()).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
-                vectordb_index_name: "hello-index".into(),
+                vectordb_index_name: index_name.to_string(),
                 vector_dim: 2,
                 distance: IndexDistance::Cosine,
                 unique_params: None,
@@ -199,7 +212,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_insertion_idempotent() {
-        let index_name = "idempotent-index";
+        let index_name = "index_default.minil6.embedding";
         let hash_on = vec!["user_id".to_string(), "url".to_string()];
 
         let database_url = "postgres://postgres:postgres@localhost/indexify";
