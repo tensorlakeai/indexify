@@ -124,7 +124,7 @@ impl VectorIndexManager {
         let mut content_id_to_blob = HashMap::new();
         for content in content_metadata_list.content_list {
             let reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
-            let data = reader.get(&content.storage_url).await?;
+            let data = reader.get().await?;
             let text = match content.mime.as_str() {
                 "text/plain" => String::from_utf8(data)?,
                 "application/json" => {

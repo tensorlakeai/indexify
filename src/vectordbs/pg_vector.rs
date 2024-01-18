@@ -4,7 +4,6 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
-use tracing::info;
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
 use crate::server_config::PgVectorConfig;
@@ -15,7 +14,7 @@ pub struct IndexName(String);
 impl IndexName {
     pub fn new(index_name: &str) -> IndexName {
         let name = index_name.replace('-', "_");
-        let name = name.replace(".", "_");
+        let name = name.replace('.', "_");
         Self(name)
     }
 }

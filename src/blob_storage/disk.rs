@@ -39,13 +39,21 @@ impl BlobStorage for DiskStorage {
     }
 }
 
-pub struct DiskStorageReader {}
+pub struct DiskStorageReader {
+    path: String,
+}
+
+impl DiskStorageReader {
+    pub fn new(path: String) -> Self {
+        Self { path }
+    }
+}
 
 #[async_trait]
 impl BlobStorageReader for DiskStorageReader {
     #[tracing::instrument(skip(self))]
-    async fn get(&self, path: &str) -> Result<Vec<u8>, anyhow::Error> {
-        let path = path.strip_prefix("file://").unwrap_or(path);
+    async fn get(&self) -> Result<Vec<u8>, anyhow::Error> {
+        let path = self.path.strip_prefix("file://").unwrap_or(&self.path);
         let mut file = File::open(path).await?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).await?;

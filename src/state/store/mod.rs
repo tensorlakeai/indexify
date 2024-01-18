@@ -6,7 +6,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
