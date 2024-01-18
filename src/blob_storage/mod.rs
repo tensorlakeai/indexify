@@ -3,8 +3,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
-use object_store::{aws::AmazonS3Builder, parse_url};
-use url::Url;
+use object_store::aws::AmazonS3Builder;
 
 use self::s3::{S3Reader, S3Storage};
 use crate::server_config::BlobStorageConfig;
