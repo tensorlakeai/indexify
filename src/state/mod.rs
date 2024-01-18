@@ -213,7 +213,10 @@ impl App {
         let store = self.store.state_machine.read().await;
         let mut events = vec![];
         for event_id in store.unprocessed_extraction_events.iter() {
-            let event = store.extraction_events.get(event_id).unwrap();
+            let event = store.extraction_events.get(event_id).ok_or(anyhow!(
+                "internal error: unprocessed event {} not found in events table",
+                event_id
+            ))?;
             events.push(event.clone());
         }
         Ok(events)
@@ -274,7 +277,10 @@ impl App {
                 .unwrap_or_default();
             let mut content_meta_list = Vec::new();
             for content_id in content_list {
-                let content_metadata = store.content_table.get(&content_id).unwrap();
+                let content_metadata = store
+                    .content_table
+                    .get(&content_id)
+                    .ok_or(anyhow!("internal error: content {} not found", content_id))?;
                 content_meta_list.push(content_metadata.clone());
             }
             content_meta_list
@@ -302,7 +308,10 @@ impl App {
         let store = self.store.state_machine.read().await;
         let mut tasks = vec![];
         for task_id in store.unassigned_tasks.iter() {
-            let task = store.tasks.get(task_id).unwrap();
+            let task = store
+                .tasks
+                .get(task_id)
+                .ok_or(anyhow!("internal error: task {} not found", task_id))?;
             tasks.push(task.clone());
         }
         Ok(tasks)
@@ -320,7 +329,10 @@ impl App {
             .unwrap_or(vec![]);
         let mut executors = Vec::new();
         for executor_id in executor_ids {
-            let executor = store.executors.get(&executor_id).unwrap();
+            let executor = store.executors.get(&executor_id).ok_or(anyhow!(
+                "internal error: executor id {} not found",
+                executor_id
+            ))?;
             executors.push(executor.clone());
         }
         Ok(executors)
@@ -348,7 +360,10 @@ impl App {
             .unwrap_or_default();
         let mut content = Vec::new();
         for content_id in content_ids {
-            let content_metadata = store.content_table.get(&content_id).unwrap();
+            let content_metadata = store
+                .content_table
+                .get(&content_id)
+                .ok_or(anyhow!("internal error: content {} not found", content_id))?;
             content.push(content_metadata.clone());
         }
         Ok(content)

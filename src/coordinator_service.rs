@@ -463,7 +463,7 @@ impl CoordinatorServer {
         shared_state
             .initialize_raft()
             .await
-            .map_err(|e| anyhow!(e.to_string()))?;
+            .map_err(|e| anyhow!("unable to initialize shared state: {}", e.to_string()))?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();
         let coordinator_clone = self.coordinator.clone();
@@ -486,7 +486,14 @@ impl CoordinatorServer {
                     error!("error stopping server: {:?}", err);
                 }
             })
-            .await?;
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to start grpc server: {} addr: {}",
+                    e.to_string(),
+                    self.addr
+                )
+            })?;
         Ok(())
     }
 }
