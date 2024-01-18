@@ -6,12 +6,16 @@ use object_store::{aws::AmazonS3, ObjectStore};
 use super::{BlobStorage, BlobStorageReader};
 
 pub struct S3Storage {
+    bucket: String,
     client: AmazonS3,
 }
 
 impl S3Storage {
-    pub fn new(client: AmazonS3) -> Self {
-        S3Storage { client }
+    pub fn new(bucket: &str, client: AmazonS3) -> Self {
+        S3Storage {
+            bucket: bucket.to_string(),
+            client,
+        }
     }
 }
 
@@ -19,7 +23,7 @@ impl S3Storage {
 impl BlobStorage for S3Storage {
     async fn put(&self, key: &str, data: Bytes) -> Result<String> {
         self.client.put(&key.into(), data).await?;
-        Ok(key.to_string())
+        Ok(format!("s3://{}/{}", self.bucket, key))
     }
 
     fn delete(&self, key: &str) -> Result<()> {
@@ -28,14 +32,28 @@ impl BlobStorage for S3Storage {
     }
 }
 
+pub struct S3Reader {
+    client: AmazonS3,
+    key: String,
+}
+
+impl S3Reader {
+    pub fn new(client: AmazonS3, key: &str) -> Self {
+        S3Reader {
+            client,
+            key: key.to_string(),
+        }
+    }
+}
+
 #[async_trait]
-impl BlobStorageReader for S3Storage {
-    async fn get(&self, key: &str) -> Result<Vec<u8>> {
-        let data = self.client.get(&key.into()).await?;
+impl BlobStorageReader for S3Reader {
+    async fn get(&self) -> Result<Vec<u8>> {
+        let data = self.client.get(&self.key.clone().as_str().into()).await?;
         let data = data
             .bytes()
             .await
-            .map_err(|e| anyhow!("Failed to read bytes from key: {}, {}", key, e))?;
+            .map_err(|e| anyhow!("Failed to read bytes from key: {}, {}", self.key, e))?;
         Ok(data.to_vec())
     }
 }

@@ -143,9 +143,7 @@ impl ExtractorExecutor {
 
 async fn get_content(content_metadata: internal_api::ContentMetadata) -> Result<Content> {
     let blog_storage_reader = BlobStorageBuilder::reader_from_link(&content_metadata.storage_url)?;
-    let data = blog_storage_reader
-        .get(&content_metadata.storage_url)
-        .await?;
+    let data = blog_storage_reader.get().await?;
     let extracted_content = Content {
         mime: content_metadata.content_type,
         bytes: data,
