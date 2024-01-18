@@ -61,7 +61,7 @@ use crate::{
     },
     internal_api,
     server_config::ServerConfig,
-    state,
+    state::{self, store::StateChange},
     utils::{match_for_io_error, timestamp_secs},
 };
 
@@ -467,8 +467,15 @@ impl CoordinatorServer {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();
         let coordinator_clone = self.coordinator.clone();
+        let state_watcher_rx = self.coordinator.get_state_watcher();
         tokio::spawn(async move {
-            let _ = run_scheduler(shutdown_rx, leader_change_watcher, coordinator_clone).await;
+            let _ = run_scheduler(
+                shutdown_rx,
+                leader_change_watcher,
+                state_watcher_rx,
+                coordinator_clone,
+            )
+            .await;
         });
         tonic::transport::Server::builder()
             .add_service(srvr)
@@ -487,14 +494,20 @@ impl CoordinatorServer {
 async fn run_scheduler(
     mut shutdown_rx: Receiver<()>,
     mut leader_changed: Receiver<bool>,
+    mut state_watcher_rx: Receiver<StateChange>,
     coordinator: Arc<Coordinator>,
 ) -> Result<()> {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+    //let mut interval =
+    // tokio::time::interval(tokio::time::Duration::from_secs(5));
     let is_leader = AtomicBool::new(false);
+
+    // Throw away the first value since it's garbage
+    _ = state_watcher_rx.changed().await;
     loop {
         tokio::select! {
-            _ = interval.tick() => {
+            _ = state_watcher_rx.changed() => {
                 if is_leader.load(Ordering::Relaxed) {
+                    let _state_change = state_watcher_rx.borrow_and_update().clone();
                    if let Err(err) = coordinator.process_and_distribute_work().await {
                           error!("error processing and distributing work: {:?}", err);
                    }

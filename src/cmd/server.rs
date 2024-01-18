@@ -29,7 +29,7 @@ impl Args {
 
         info!("starting indexify server, version: {}", crate::VERSION);
         let config = ServerConfig::from_path(&config_path)
-            .unwrap_or_else(|_| panic!("failed to load config: {}", config_path));
+            .unwrap_or_else(|e| panic!("failed to load config: {}, error: {:?}", config_path, e));
 
         debug!("Server config is: {:?}", config);
         let server =

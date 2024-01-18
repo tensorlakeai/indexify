@@ -21,7 +21,7 @@ use crate::{
         Index,
         Task,
     },
-    state::SharedState,
+    state::{store::StateChange, SharedState},
     utils::timestamp_secs,
 };
 
@@ -304,6 +304,10 @@ impl Coordinator {
         self.shared_state
             .commit_task_assignments(task_assignments)
             .await
+    }
+
+    pub fn get_state_watcher(&self) -> Receiver<StateChange> {
+        self.shared_state.get_state_change_watcher()
     }
 
     pub async fn create_content_metadata(

@@ -116,6 +116,18 @@ pub type ExecutorId = String;
 pub type ExtractionEventId = String;
 pub type ExtractorName = String;
 
+#[derive(Clone)]
+pub enum ChangeType {
+    NewContent,
+    NewBinding,
+}
+
+#[derive(Clone)]
+pub struct StateChange {
+    pub id: String,
+    pub change_type: ChangeType,
+}
+
 /**
  * Here defines a state machine of the raft, this state represents a copy of
  * the data between each node. Note that we are using `serde` to serialize
@@ -161,7 +173,6 @@ pub struct StateMachine {
     pub index_table: HashMap<String, Index>,
 }
 
-#[derive(Debug, Default)]
 pub struct Store {
     last_purged_log_id: RwLock<Option<LogId<NodeId>>>,
 
@@ -177,6 +188,34 @@ pub struct Store {
     snapshot_idx: Arc<Mutex<u64>>,
 
     current_snapshot: RwLock<Option<StoredSnapshot>>,
+
+    pub state_change_tx: tokio::sync::watch::Sender<StateChange>,
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Store {
+    pub fn new() -> Self {
+        let (tx, rx) = tokio::sync::watch::channel(StateChange {
+            id: "".to_string(),
+            change_type: ChangeType::NewContent,
+        });
+        Self {
+            last_purged_log_id: RwLock::new(None),
+            log: RwLock::new(BTreeMap::new()),
+            state_machine: RwLock::new(StateMachine::default()),
+            vote: RwLock::new(None),
+            snapshot_idx: Arc::new(Mutex::new(0)),
+            current_snapshot: RwLock::new(None),
+            state_change_tx: tx,
+            state_change_rx: rx,
+        }
+    }
 }
 
 #[async_trait]
@@ -356,6 +395,8 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
 
         let mut sm = self.state_machine.write().await;
 
+        let mut change_events: Vec<StateChange> = Vec::new();
+
         for entry in entries {
             tracing::debug!(%entry.log_id, "replicate to sm");
 
@@ -438,6 +479,10 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                                 .entry(content.repository.clone())
                                 .or_default()
                                 .insert(content.id.clone());
+                            change_events.push(StateChange {
+                                id: content.id.clone(),
+                                change_type: ChangeType::NewContent,
+                            });
                         }
                         for event in extraction_events {
                             sm.extraction_events.insert(event.id.clone(), event.clone());
@@ -453,6 +498,10 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             .entry(binding.repository.clone())
                             .or_default()
                             .insert(binding.clone());
+                        change_events.push(StateChange {
+                            id: binding.id.clone(),
+                            change_type: ChangeType::NewBinding,
+                        });
                         if let Some(extraction_event) = extraction_event {
                             sm.extraction_events
                                 .insert(extraction_event.id.clone(), extraction_event.clone());
@@ -513,6 +562,12 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                     res.push(Response { value: None })
                 }
             };
+        }
+
+        for change_event in change_events {
+            if let Err(err) = self.state_change_tx.send(change_event) {
+                tracing::error!("error sending state change event: {}", err);
+            }
         }
         Ok(res)
     }

@@ -27,6 +27,12 @@ blob_storage:
   disk:
     path: /tmp/indexify-blob-storage
 
+
+  #backend: s3
+  #s3:
+  #  bucket: indexifydata
+  #  region: us-east-1
+
 # Vector index configuration for the service. The index_store parameter
 # specifies the type of index to use. Currently, only Qdrant is supported.
 #
