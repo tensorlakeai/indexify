@@ -2,6 +2,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash, Hasher},
+    path::Path,
     sync::Arc,
     time::SystemTime,
 };
@@ -287,10 +288,16 @@ impl DataRepositoryManager {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self, data))]
     pub async fn upload_file(&self, repository: &str, data: Bytes, name: &str) -> Result<()> {
+        let ext = Path::new(name)
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
         let content = api::Content {
-            content_type: mime::TEXT_PLAIN.to_string(),
+            content_type: content_mime.to_string(),
             bytes: data.to_vec(),
             labels: HashMap::new(),
             feature: None,
@@ -354,7 +361,7 @@ impl DataRepositoryManager {
             storage_url,
             parent_id: parent_id.unwrap_or_default(),
             created_at: current_ts_secs as i64,
-            mime: mime::TEXT_PLAIN.to_string(),
+            mime: content.content_type,
             repository: repository.to_string(),
             labels,
             source: source.to_string(),

@@ -27,13 +27,11 @@ impl BlobStorage for S3Storage {
     }
 
     async fn delete(&self, key: &str) -> Result<()> {
-        let _ = self.client.delete(&key.into()).await.map_err(|e| {
-            anyhow!(
-                "Failed to delete key: {}, error: {}",
-                key,
-                e.to_string()
-            )
-        })?;
+        let _ = self
+            .client
+            .delete(&key.into())
+            .await
+            .map_err(|e| anyhow!("Failed to delete key: {}, error: {}", key, e.to_string()))?;
         Ok(())
     }
 }
