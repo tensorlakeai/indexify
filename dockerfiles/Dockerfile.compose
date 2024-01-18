@@ -3,7 +3,9 @@ FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y libssl-dev python3-dev
+RUN apt install -y libssl-dev python3-dev ca-certificates
+
+RUN update-ca-certificates
 
 WORKDIR /indexify
 
