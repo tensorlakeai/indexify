@@ -622,12 +622,6 @@ impl StateMachine {
                     )?;
                 }
                 tx.insert(
-                    "executor_health_checks",
-                    self.executor_health_checks
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "executor_health_checks".to_string()))?,
-                )?;
-                tx.insert(
                     "executors",
                     self.executors
                         .to_saveable_value()

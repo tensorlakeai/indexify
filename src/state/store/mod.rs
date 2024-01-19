@@ -148,6 +148,7 @@ pub struct StateChange {
  * - have SledStoreable implemented
  * - have a test in ./impl_sledstoreable.rs
  * - be handled in the StateMachine::try_from_sled_tree fn
+ * - be handled in the StateMachine::try_save_to_sled_tree fn
  *
  * TODO: make the StateMachine migrate-able
  */
@@ -863,4 +864,21 @@ fn get_current_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
     StoreErrorKind::ReadSnapshot
         .build_with_source("get current snapshot failed", e)
         .into()
+}
+
+#[cfg(test)]
+mod test_state_machine_snapshot {
+    use super::*;
+    use super::impl_sledstoreable::SledStoreableTestFactory;
+    use insta;
+
+    #[test]
+    fn test_state_machine_snapshot() {
+        // if this test fails, it means the Schema of StateMachine has changed. It is imperative to ensure the new StateMachine is
+        //   compatible with the old one. This can be done by running raft against the old state machine db
+        let sm = StateMachine::spawn_instance_for_store_test();
+        insta::with_settings!({sort_maps => true}, {
+            insta::assert_ron_snapshot!(sm);
+        });
+    }
 }

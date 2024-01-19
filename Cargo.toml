@@ -170,6 +170,7 @@ tar = { workspace = true }
 walkdir = { workspace = true }
 
 [dev-dependencies]
+insta = { version = "1.34.0", features = ["ron"] }
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
 
 [build-dependencies]
