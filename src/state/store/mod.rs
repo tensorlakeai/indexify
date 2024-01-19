@@ -143,6 +143,13 @@ pub struct StateChange {
  * the `data`, which has a implementation to be serialized. Note that for
  * this test we set both the key and value as String, but you could set any
  * type of value that has the serialization impl.
+ *
+ * IMPORTANT: All fields of StateMachine must:
+ * - have SledStoreable implemented
+ * - have a test in ./impl_sledstoreable.rs
+ * - be handled in the StateMachine::try_from_sled_tree fn
+ *
+ * TODO: make the StateMachine migrate-able
  */
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
 pub struct StateMachine {
@@ -177,10 +184,6 @@ pub struct StateMachine {
     pub repository_extractors: HashMap<RepositoryId, HashSet<Index>>,
 
     pub index_table: HashMap<String, Index>,
-    // IMPORTANT: Adding a field here? You need to also update the
-    // StateMachine::try_from_sled_tree block so that the field is
-    // properly initialized from the sled database.
-    // TODO: replace with a procedural macro
 }
 
 #[async_trait]

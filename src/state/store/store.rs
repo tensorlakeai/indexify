@@ -391,17 +391,6 @@ impl StateMachine {
                                 )
                             })?;
                 }
-                "executor_health_checks" => {
-                    state_machine.executor_health_checks =
-                        HashMap::<ExecutorId, u64>::load_from_sled_value(value).map_err(|e| {
-                            err_kind.build_with_tree_and_key(
-                                "failed to load executor_health_checks",
-                                e.into(),
-                                SledStoreTree::StateMachine,
-                                key.clone(),
-                            )
-                        })?;
-                }
                 "executors" => {
                     state_machine.executors =
                         HashMap::<ExecutorId, ExecutorMetadata>::load_from_sled_value(value)
@@ -511,7 +500,7 @@ impl StateMachine {
                 }
                 "extractor_executors_table" => {
                     state_machine.extractor_executors_table =
-                        HashMap::<ExtractorName, Vec<ExecutorId>>::load_from_sled_value(value)
+                        HashMap::<ExtractorName, HashSet<ExecutorId>>::load_from_sled_value(value)
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load extractor_executors_table",
