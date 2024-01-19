@@ -36,13 +36,13 @@ pub struct ScoredText {
 }
 
 impl VectorIndexManager {
-    pub fn new(coordinator_client: Arc<CoordinatorClient>, vector_db: VectorDBTS) -> Self {
-        let extractor_router = ExtractorRouter::new(coordinator_client.clone());
-        Self {
+    pub fn new(coordinator_client: Arc<CoordinatorClient>, vector_db: VectorDBTS) -> Result<Self> {
+        let extractor_router = ExtractorRouter::new(coordinator_client.clone())?;
+        Ok(Self {
             vector_db,
             extractor_router,
             coordinator_client: coordinator_client.clone(),
-        }
+        })
     }
 
     pub async fn create_index(&self, index_name: &str, schema: EmbeddingSchema) -> Result<String> {

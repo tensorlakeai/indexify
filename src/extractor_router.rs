@@ -13,6 +13,8 @@ use crate::{
     internal_api::{self, ExtractResponse},
 };
 
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ExtractContentCacheKey {
     content: Arc<Content>,
@@ -27,14 +29,20 @@ pub struct ExtractContentCacheValue {
 pub struct ExtractorRouter {
     coordinator_client: Arc<CoordinatorClient>,
     cache: Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractContentCacheValue>>>>,
+    client: reqwest::Client,
 }
 
 impl ExtractorRouter {
-    pub fn new(coordinator_client: Arc<CoordinatorClient>) -> Self {
-        Self {
+    pub fn new(coordinator_client: Arc<CoordinatorClient>) -> Result<Self> {
+        let request_client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .map_err(|e| anyhow!("unable to create request client: {}", e))?;
+        Ok(Self {
             coordinator_client,
             cache: Arc::new(RwLock::new(Box::new(NoOpCache::new()))),
-        }
+            client: request_client,
+        })
     }
 
     pub fn with_cache(
@@ -98,7 +106,8 @@ impl ExtractorRouter {
             return Err(anyhow!("no extractor found"));
         }
         let extractor_addr = addresses[0].clone();
-        let resp = reqwest::Client::new()
+        let resp = self
+            .client
             .post(&format!("http://{}/extract", extractor_addr))
             .json(&request)
             .send()
