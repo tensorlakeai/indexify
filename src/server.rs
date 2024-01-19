@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
     http::StatusCode,
@@ -105,10 +105,10 @@ impl Server {
             BlobStorageBuilder::new(Arc::new(self.config.blob_storage.clone())).build()?;
         let vector_db = vectordbs::create_vectordb(self.config.index_config.clone()).await?;
         let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
-        let vector_index_manager = Arc::new(VectorIndexManager::new(
-            coordinator_client.clone(),
-            vector_db.clone(),
-        ));
+        let vector_index_manager = Arc::new(
+            VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
+                .map_err(|e| anyhow!("unable to create vector index {}", e))?,
+        );
         let attribute_index_manager = Arc::new(
             AttributeIndexManager::new(&self.config.db_url, coordinator_client.clone()).await?,
         );
@@ -605,8 +605,9 @@ async fn extract_content(
     Json(request): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
     let cache = caches.cache_extract_content.clone();
-    let extractor_router =
-        ExtractorRouter::new(repository_endpoint.coordinator_client.clone()).with_cache(cache);
+    let extractor_router = ExtractorRouter::new(repository_endpoint.coordinator_client.clone())
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .with_cache(cache);
     let content_list = extractor_router
         .extract_content(&request.name, request.content, request.input_params)
         .await
