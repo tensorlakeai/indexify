@@ -166,12 +166,12 @@ pub async fn heartbeat(
         .await?;
     let mut resp_stream = response.into_inner();
     info!("starting heartbeat");
-    while let Some(recieved) = resp_stream.next().await {
-        if let Err(err) = recieved {
-            error!("unable to recieve heartbeat: {:?}", err);
+    while let Some(received) = resp_stream.next().await {
+        if let Err(err) = received {
+            error!("unable to receive heartbeat: {:?}", err);
             break;
         }
-        let hb_resp = recieved.map_err(|e| anyhow!("error recieving heartbeat: {:?}", e))?;
+        let hb_resp = received.map_err(|e| anyhow!("error receiving heartbeat: {:?}", e))?;
         let mut tasks = Vec::new();
         for task in hb_resp.tasks {
             if task_store.has_finished(&task.id) {
