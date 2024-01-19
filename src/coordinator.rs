@@ -197,9 +197,14 @@ impl Coordinator {
     }
 
     pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<Task>> {
-        self.shared_state.heartbeat(executor_id).await?;
         let tasks = self.shared_state.tasks_for_executor(executor_id).await?;
         Ok(tasks)
+    }
+
+    pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
+        info!("removing executor: {}", executor_id);
+        self.shared_state.remove_executor(executor_id).await?;
+        Ok(())
     }
 
     pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>> {

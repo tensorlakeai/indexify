@@ -24,5 +24,7 @@ impl<T> Deref for DropReceiver<T> {
 }
 
 impl<T> Drop for DropReceiver<T> {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        tracing::info!("Dropping DropReceiver");
+    }
 }

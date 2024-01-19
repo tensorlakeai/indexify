@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    io::ErrorKind,
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -63,7 +62,7 @@ use crate::{
     server_config::ServerConfig,
     state::{self, store::StateChange},
     tonic_streamer::DropReceiver,
-    utils::{match_for_io_error, timestamp_secs},
+    utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -282,17 +281,22 @@ impl CoordinatorService for CoordinatorServiceServer {
         let rx = DropReceiver { inner: rx };
         let coordinator = self.coordinator.clone();
         tokio::spawn(async move {
+            let mut executor_id = String::new();
             while let Some(result) = in_stream.next().await {
                 match result {
                     Ok(req) => {
-                        let executor_id = req.executor_id;
+                        executor_id = req.executor_id;
                         let tasks = coordinator.heartbeat(&executor_id).await;
                         if let Err(err) = &tasks {
                             if let Err(err) =
                                 tx.send(Err(tonic::Status::internal(err.to_string()))).await
                             {
+                                info!("heartbeats stopped, removing executor: {}", executor_id);
+                                if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                                    error!("error removing executor: {}", err);
+                                }
                                 error!(
-                                    "error sending error message in heartbeat response: {:?}",
+                                    "error sending error message in heartbeat response: {}",
                                     err
                                 );
                                 return;
@@ -304,22 +308,18 @@ impl CoordinatorService for CoordinatorServiceServer {
                             .into_iter()
                             .map(|t| t.into())
                             .collect::<Vec<indexify_coordinator::Task>>();
-                        let resp = HeartbeatResponse { executor_id, tasks };
+                        let resp = HeartbeatResponse {
+                            executor_id: executor_id.clone(),
+                            tasks,
+                        };
                         if let Err(err) = tx.send(Ok(resp)).await {
                             error!("error sending heartbeat response: {:?}", err);
                         }
                     }
                     Err(err) => {
-                        info!("error recieving heartbeat request: {:?}", err);
-                        if let Some(io_err) = match_for_io_error(&err) {
-                            if io_err.kind() == ErrorKind::BrokenPipe {
-                                break;
-                            }
-                        }
-
-                        match tx.send(Err(err)).await {
-                            Ok(_) => (),
-                            Err(_err) => break, // response was droped
+                        info!("error receiving heartbeat request: {:?}", err);
+                        if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                            error!("error removing executor: {}", err);
                         }
                         break;
                     }

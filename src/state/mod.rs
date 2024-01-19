@@ -3,7 +3,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     io::Cursor,
     sync::Arc,
 };
@@ -326,7 +326,7 @@ impl App {
             .extractor_executors_table
             .get(extractor)
             .cloned()
-            .unwrap_or(vec![]);
+            .unwrap_or(HashSet::new());
         let mut executors = Vec::new();
         for executor_id in executor_ids {
             let executor = store.executors.get(&executor_id).ok_or(anyhow!(
@@ -336,19 +336,6 @@ impl App {
             executors.push(executor.clone());
         }
         Ok(executors)
-    }
-
-    pub async fn heartbeat(&self, executor_id: &str) -> Result<()> {
-        let request = store::Request::ExecutorHeartbeat {
-            executor_id: executor_id.to_string(),
-            ts_secs: timestamp_secs(),
-        };
-        let _response = self
-            .raft
-            .client_write(request)
-            .await
-            .map_err(|e| anyhow!("unable to write heartbeat to raft {}", e.to_string()))?;
-        Ok(())
     }
 
     pub async fn list_content(&self, repository: &str) -> Result<Vec<ContentMetadata>> {
@@ -367,6 +354,17 @@ impl App {
             content.push(content_metadata.clone());
         }
         Ok(content)
+    }
+
+    pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
+        let _resp = self
+            .raft
+            .client_write(Request::RemoveExecutor {
+                executor_id: executor_id.to_string(),
+            })
+            .await
+            .map_err(|e| anyhow!("unable to remove executor {}", e))?;
+        Ok(())
     }
 
     pub async fn create_binding(
