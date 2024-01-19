@@ -131,21 +131,21 @@ impl SledStoreable for HashSet<String> {}
 impl SledStoreable for HashMap<RepositoryId, HashSet<Index>> {}
 impl SledStoreable for HashMap<String, Index> {}
 impl SledStoreable for StateMachine {
-	// can't use bincode: contains JSON Value
-	// can't use flexbuffers: contains BTreeMap
-	// use serde_json
-	fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-		let serialized_data = serde_json::to_vec(self)?;
-		Ok(serialized_data.into())
-	}
+    // can't use bincode: contains JSON Value
+    // can't use flexbuffers: contains BTreeMap
+    // use serde_json
+    fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
+        let serialized_data = serde_json::to_vec(self)?;
+        Ok(serialized_data.into())
+    }
 
-	fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
-	where
-		Self: Sized,
-	{
-		let deserialized_data = serde_json::from_slice(&raw_value)?;
-		Ok(deserialized_data)
-	}
+    fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
+    where
+        Self: Sized,
+    {
+        let deserialized_data = serde_json::from_slice(&raw_value)?;
+        Ok(deserialized_data)
+    }
 }
 impl SledStoreable for SnapshotMeta<u64, BasicNode> {
     fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
@@ -164,26 +164,34 @@ impl SledStoreable for SnapshotMeta<u64, BasicNode> {
 
 // factories
 impl SledStoreableTestFactory for StateMachine {
-	fn spawn_instance_for_store_test() -> Self {
-		StateMachine {
-			last_applied_log: Some(LogId::spawn_instance_for_store_test()),
-			last_membership: StoredMembership::spawn_instance_for_store_test(),
-			executors: HashMap::<ExecutorId, ExecutorMetadata>::spawn_instance_for_store_test(),
-			tasks: HashMap::<TaskId, Task>::spawn_instance_for_store_test(),
-			unassigned_tasks: HashSet::<TaskId>::spawn_instance_for_store_test(),
-			task_assignments: HashMap::<ExecutorId, HashSet<TaskId>>::spawn_instance_for_store_test(),
-			extraction_events: HashMap::<ExtractionEventId, ExtractionEvent>::spawn_instance_for_store_test(),
-			unprocessed_extraction_events: HashSet::<ExtractionEventId>::spawn_instance_for_store_test(),
-			content_table: HashMap::<ContentId, ContentMetadata>::spawn_instance_for_store_test(),
-			content_repository_table: HashMap::<RepositoryId, HashSet<ContentId>>::spawn_instance_for_store_test(),
-			bindings_table: HashMap::<RepositoryId, HashSet<ExtractorBinding>>::spawn_instance_for_store_test(),
-			extractor_executors_table: HashMap::<ExtractorName, HashSet<ExecutorId>>::spawn_instance_for_store_test(),
-			extractors: HashMap::<ExtractorName, ExtractorDescription>::spawn_instance_for_store_test(),
-			repositories: HashSet::<String>::spawn_instance_for_store_test(),
-			repository_extractors: HashMap::<RepositoryId, HashSet<Index>>::spawn_instance_for_store_test(),
-			index_table: HashMap::<String, Index>::spawn_instance_for_store_test(),
-		}
-	}
+    fn spawn_instance_for_store_test() -> Self {
+        StateMachine {
+            last_applied_log: Some(LogId::spawn_instance_for_store_test()),
+            last_membership: StoredMembership::spawn_instance_for_store_test(),
+            executors: HashMap::<ExecutorId, ExecutorMetadata>::spawn_instance_for_store_test(),
+            tasks: HashMap::<TaskId, Task>::spawn_instance_for_store_test(),
+            unassigned_tasks: HashSet::<TaskId>::spawn_instance_for_store_test(),
+            task_assignments: HashMap::<ExecutorId, HashSet<TaskId>>::spawn_instance_for_store_test(
+            ),
+            extraction_events:
+                HashMap::<ExtractionEventId, ExtractionEvent>::spawn_instance_for_store_test(),
+            unprocessed_extraction_events:
+                HashSet::<ExtractionEventId>::spawn_instance_for_store_test(),
+            content_table: HashMap::<ContentId, ContentMetadata>::spawn_instance_for_store_test(),
+            content_repository_table:
+                HashMap::<RepositoryId, HashSet<ContentId>>::spawn_instance_for_store_test(),
+            bindings_table:
+                HashMap::<RepositoryId, HashSet<ExtractorBinding>>::spawn_instance_for_store_test(),
+            extractor_executors_table:
+                HashMap::<ExtractorName, HashSet<ExecutorId>>::spawn_instance_for_store_test(),
+            extractors:
+                HashMap::<ExtractorName, ExtractorDescription>::spawn_instance_for_store_test(),
+            repositories: HashSet::<String>::spawn_instance_for_store_test(),
+            repository_extractors:
+                HashMap::<RepositoryId, HashSet<Index>>::spawn_instance_for_store_test(),
+            index_table: HashMap::<String, Index>::spawn_instance_for_store_test(),
+        }
+    }
 }
 
 impl SledStoreableTestFactory for LogId<NodeId> {
@@ -535,10 +543,10 @@ macro_rules! test_sled_storeable {
 
                 // Deserialize
                 let deserialized = <$type>::load_from_sled_value(serialized.into());
-				match deserialized {
-					Ok(deserialized) => assert_eq!(instance, deserialized),
-					Err(e) => panic!("Error deserializing: {}", e),
-				}
+                match deserialized {
+                    Ok(deserialized) => assert_eq!(instance, deserialized),
+                    Err(e) => panic!("Error deserializing: {}", e),
+                }
             }
         }
     };

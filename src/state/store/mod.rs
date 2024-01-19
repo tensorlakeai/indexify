@@ -868,14 +868,15 @@ fn get_current_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
 
 #[cfg(test)]
 mod test_state_machine_snapshot {
-    use super::*;
-    use super::impl_sledstoreable::SledStoreableTestFactory;
     use insta;
+
+    use super::{impl_sledstoreable::SledStoreableTestFactory, *};
 
     #[test]
     fn test_state_machine_snapshot() {
-        // if this test fails, it means the Schema of StateMachine has changed. It is imperative to ensure the new StateMachine is
-        //   compatible with the old one. This can be done by running raft against the old state machine db
+        // if this test fails, it means the Schema of StateMachine has changed. It is
+        // imperative to ensure the new StateMachine is   compatible with the
+        // old one. This can be done by running raft against the old state machine db
         let sm = StateMachine::spawn_instance_for_store_test();
         insta::with_settings!({sort_maps => true}, {
             insta::assert_ron_snapshot!(sm);
