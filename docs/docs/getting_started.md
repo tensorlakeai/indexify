@@ -13,6 +13,10 @@ docker compose up
 ```
 This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and storing embedding. We also start a basic embedding extractor which can chunk text and extract embedding from the chunks. Later, we will add another extractor to the mix and demonstrate how easy it is to add new capabilities to Indexify by adding a new extractor.
 
+### Downloading binaries directly
+
+If you prefer to download the indexify binaries and use the binary directly, you can find them on our GitHub releases [here](https://github.com/tensorlakeai/indexify/releases/latest).
+
 That's it! Let's explore some structured extraction capabilities on documents and retrieval APIs.
 
 ### Install the client libraries (Optional)

@@ -70,7 +70,6 @@ theme:
 
 extra:
   generator: false
-  homepage: https://github.com/tensorlakeai/indexify/releases/latest
   social:
     - icon: fontawesome/brands/discord
       link: https://discord.gg/mrXrq3DmV8
