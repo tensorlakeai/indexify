@@ -39,11 +39,6 @@ use crate::internal_api::{
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
-    ExecutorHeartbeat {
-        executor_id: String,
-        ts_secs: u64,
-    },
-
     RegisterExecutor {
         addr: String,
         executor_id: String,
@@ -85,6 +80,9 @@ pub enum Request {
         executor_id: Option<String>,
         content_metadata: Vec<ContentMetadata>,
         extraction_events: Vec<ExtractionEvent>,
+    },
+    RemoveExecutor {
+        executor_id: String,
     },
 }
 
@@ -141,9 +139,6 @@ pub struct StateMachine {
 
     pub last_membership: StoredMembership<NodeId, BasicNode>,
 
-    // Executor ID -> Last Seen Timestamp
-    pub executor_health_checks: HashMap<ExecutorId, u64>,
-
     pub executors: HashMap<ExecutorId, ExecutorMetadata>,
 
     pub tasks: HashMap<TaskId, Task>,
@@ -162,7 +157,7 @@ pub struct StateMachine {
 
     pub bindings_table: HashMap<RepositoryId, HashSet<ExtractorBinding>>,
 
-    pub extractor_executors_table: HashMap<ExtractorName, Vec<ExecutorId>>,
+    pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     pub extractors: HashMap<ExtractorName, ExtractorDescription>,
 
@@ -405,14 +400,6 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
             match entry.payload {
                 EntryPayload::Blank => res.push(Response { value: None }),
                 EntryPayload::Normal(ref req) => match req {
-                    Request::ExecutorHeartbeat {
-                        executor_id,
-                        ts_secs,
-                    } => {
-                        sm.executor_health_checks
-                            .insert(executor_id.clone(), *ts_secs);
-                        res.push(Response { value: None })
-                    }
                     Request::RegisterExecutor {
                         addr,
                         executor_id,
@@ -424,7 +411,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.extractor_executors_table
                             .entry(extractor.name.clone())
                             .or_default()
-                            .push(executor_id.clone());
+                            .insert(executor_id.clone());
                         let executor_info = ExecutorMetadata {
                             id: executor_id.clone(),
                             last_seen: *ts_secs,
@@ -432,6 +419,19 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             extractor: extractor.clone(),
                         };
                         sm.executors.insert(executor_id.clone(), executor_info);
+                        res.push(Response { value: None })
+                    }
+                    Request::RemoveExecutor { executor_id } => {
+                        // Remove this from the executors table
+                        let executor_meta = sm.executors.remove(executor_id);
+                        // Remove this from the extractor -> executors table
+                        if let Some(executor_meta) = executor_meta {
+                            let executors = sm
+                                .extractor_executors_table
+                                .entry(executor_meta.extractor.name.clone())
+                                .or_default();
+                            executors.remove(executor_meta.extractor.name.as_str());
+                        }
                         res.push(Response { value: None })
                     }
                     Request::CreateTasks { tasks } => {
