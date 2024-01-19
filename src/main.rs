@@ -33,6 +33,7 @@ mod internal_api;
 mod task_store;
 mod test_util;
 mod tls;
+mod tonic_streamer;
 mod utils;
 mod vector_index;
 mod vectordbs;

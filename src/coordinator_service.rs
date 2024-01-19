@@ -19,7 +19,7 @@ use tokio::{
         watch::{self, Receiver, Sender},
     },
 };
-use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
@@ -62,6 +62,7 @@ use crate::{
     internal_api,
     server_config::ServerConfig,
     state::{self, store::StateChange},
+    tonic_streamer::DropReceiver,
     utils::{match_for_io_error, timestamp_secs},
 };
 
@@ -278,6 +279,7 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<Self::HeartbeatStream>, tonic::Status> {
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
+        let rx = DropReceiver { inner: rx };
         let coordinator = self.coordinator.clone();
         tokio::spawn(async move {
             while let Some(result) = in_stream.next().await {
@@ -293,8 +295,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                                     "error sending error message in heartbeat response: {:?}",
                                     err
                                 );
-                                continue;
+                                return;
                             }
+                            continue;
                         }
                         let tasks = tasks
                             .unwrap()
@@ -323,10 +326,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 }
             }
         });
-        let out_stream = ReceiverStream::new(rx);
-        Ok(tonic::Response::new(
-            Box::pin(out_stream) as HBResponseStream
-        ))
+        Ok(tonic::Response::new(Box::pin(rx) as HBResponseStream))
     }
 
     async fn update_task(
