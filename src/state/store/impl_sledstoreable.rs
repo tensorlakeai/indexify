@@ -130,7 +130,23 @@ impl SledStoreable for HashMap<ExtractorName, ExtractorDescription> {}
 impl SledStoreable for HashSet<String> {}
 impl SledStoreable for HashMap<RepositoryId, HashSet<Index>> {}
 impl SledStoreable for HashMap<String, Index> {}
-impl SledStoreable for StateMachine {}
+impl SledStoreable for StateMachine {
+	// can't use bincode: contains JSON Value
+	// can't use flexbuffers: contains BTreeMap
+	// use serde_json
+	fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
+		let serialized_data = serde_json::to_vec(self)?;
+		Ok(serialized_data.into())
+	}
+
+	fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
+	where
+		Self: Sized,
+	{
+		let deserialized_data = serde_json::from_slice(&raw_value)?;
+		Ok(deserialized_data)
+	}
+}
 impl SledStoreable for SnapshotMeta<u64, BasicNode> {
     fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
         let serialized_data = bincode::serialize(self)?;
@@ -518,8 +534,11 @@ macro_rules! test_sled_storeable {
                 assert_eq!(serialized, retrieved);
 
                 // Deserialize
-                let deserialized = <$type>::load_from_sled_value(serialized.into()).unwrap();
-                assert_eq!(instance, deserialized);
+                let deserialized = <$type>::load_from_sled_value(serialized.into());
+				match deserialized {
+					Ok(deserialized) => assert_eq!(instance, deserialized),
+					Err(e) => panic!("Error deserializing: {}", e),
+				}
             }
         }
     };
