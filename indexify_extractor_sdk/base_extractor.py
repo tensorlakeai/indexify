@@ -78,17 +78,6 @@ class ExtractorWrapper:
             content_list.append(Content(content_type=c.content_type, data=bytes(c.data)))
         return self._instance.extract(content_list, param_instance)
 
-    def schemas(self) -> InternalExtractorSchema:
-        schema: ExtractorSchema = self._cls.schemas()
-        embedding_schemas = {}
-        for k,v in schema.features.items():
-            if isinstance(v, EmbeddingSchema):
-                embedding_schemas[k] = v
-                continue
-        json_schema = self._param_cls.model_json_schema() if self._param_cls else {}
-        json_schema['additionalProperties'] = False
-        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=json.dumps(json_schema))
-    
 def extractor_schema(module_name: str, class_name: str) -> InternalExtractorSchema:
     module = import_module(module_name)
     cls = getattr(module, class_name)
