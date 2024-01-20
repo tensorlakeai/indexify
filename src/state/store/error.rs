@@ -33,7 +33,7 @@ pub enum StoreErrorKind {
 
 impl StoreErrorKind {
     pub fn build_with_source(&self, msg: impl Into<String>, source: Box<dyn Error>) -> StoreError {
-        StoreError::new(self.clone(), msg).with_source(source)
+        StoreError::new(*self, msg).with_source(source)
     }
 
     pub fn build_with_tree(
@@ -42,7 +42,7 @@ impl StoreErrorKind {
         source: Box<dyn Error>,
         tree: SledStoreTree,
     ) -> StoreError {
-        StoreError::new(self.clone(), msg)
+        StoreError::new(*self, msg)
             .with_source(source)
             .with_tree(tree)
     }
@@ -54,7 +54,7 @@ impl StoreErrorKind {
         tree: SledStoreTree,
         key: impl Into<String>,
     ) -> StoreError {
-        StoreError::new(self.clone(), msg)
+        StoreError::new(*self, msg)
             .with_source(source)
             .with_tree(tree)
             .with_key(key)

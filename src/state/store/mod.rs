@@ -267,7 +267,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<Store> {
         let state_machine = self.state_machine.read().await;
         let storeable_state_machine = state_machine
             .to_saveable_value()
-            .map_err(|e| build_snapshot_err(e.into()))?;
+            .map_err(build_snapshot_err)?;
 
         let last_applied_log = self
             .get_last_applied_log()
@@ -356,7 +356,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
         let keys: Vec<LogKey> = logs_tree
             .range(LogKey::from_log_id(&log_id).to_raw_log_key()..)
             .map(|res| res.expect("Failed to read log entry").0)
-            .map(|log_key| LogKey::from(log_key))
+            .map(LogKey::from)
             .collect::<Vec<_>>();
 
         // delete all keys greater than the given log id
@@ -407,7 +407,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
         let key = StoreKey::LastPurgedLogId.to_string();
         let value = log_id
             .to_saveable_value()
-            .map_err(|e| purge_logs_upto_err(e.into()))?;
+            .map_err(purge_logs_upto_err)?;
         store_tree
             .insert(key, value)
             .map_err(|e| purge_logs_upto_err(e.into()))?;

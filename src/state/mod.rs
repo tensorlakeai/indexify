@@ -187,13 +187,14 @@ impl App {
     }
 
     pub async fn initialize_raft(&self) -> Result<()> {
-        let res = match self.raft.initialize(self.nodes.clone()).await {
+        match self.raft.initialize(self.nodes.clone()).await {
             // .map_err(|e| anyhow!("unable to initialize raft: {}", e)) {
             Ok(_) => Ok(()),
             Err(e) => {
                 // match the type of the initialize error. if it's NotAllowed, ignore it.
                 // this means that the node is already initialized.
-                let res = match e.clone() {
+                
+                match e.clone() {
                     RaftError::APIError(inner_e) => match inner_e {
                         InitializeError::NotAllowed(_) => {
                             warn!("cluster is already initialized: {}", e);
@@ -202,11 +203,9 @@ impl App {
                         _ => Err(anyhow!("unable to initialize raft: {}", e)),
                     },
                     _ => Err(anyhow!("unable to initialize raft: {}", e)),
-                };
-                res
+                }
             }
-        }?;
-        Ok(res)
+        }
     }
 
     pub fn get_state_change_watcher(&self) -> Receiver<StateChange> {
