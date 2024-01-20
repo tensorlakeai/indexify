@@ -33,36 +33,36 @@ use crate::internal_api::{
 
 pub trait SledStoreable: Serialize + for<'de> Deserialize<'de> + SledStoreableTestFactory {
     fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-		let serialized_data = simd_json::serde::to_string(self)?;
+        let serialized_data = simd_json::serde::to_string(self)?;
 
-		Ok(serialized_data.as_str().into())
+        Ok(serialized_data.as_str().into())
     }
     fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
     where
         Self: Sized,
     {
-		// using simd_json
-		// convert IVec to String
-		let mut raw_value = raw_value.to_vec();
-		let raw_value_slice = raw_value.as_mut_slice();
-		let raw_value_str: &mut str = std::str::from_utf8_mut(raw_value_slice).map_err(|e| {
-			sled::Error::Io(std::io::Error::new(
-				std::io::ErrorKind::Other,
-				format!("Couldn't read a JSON bytestream from the cache: {}", e),
-			))
-		})?;
+        // using simd_json
+        // convert IVec to String
+        let mut raw_value = raw_value.to_vec();
+        let raw_value_slice = raw_value.as_mut_slice();
+        let raw_value_str: &mut str = std::str::from_utf8_mut(raw_value_slice).map_err(|e| {
+            sled::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Couldn't read a JSON bytestream from the cache: {}", e),
+            ))
+        })?;
 
-		let value: Self;
-		// simd-json is inherently unsafe. See: https://github.com/simd-lite/simd-json#safety
-		unsafe {
-			value = simd_json::serde::from_str(raw_value_str).map_err(|e| {
-				sled::Error::Io(std::io::Error::new(
-					std::io::ErrorKind::Other,
-					format!("Couldn't read a JSON bytestream from the cache: {}", e),
-				))
-			})?;
-		}
-		Ok(value)
+        let value: Self;
+        // simd-json is inherently unsafe. See: https://github.com/simd-lite/simd-json#safety
+        unsafe {
+            value = simd_json::serde::from_str(raw_value_str).map_err(|e| {
+                sled::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Couldn't read a JSON bytestream from the cache: {}", e),
+                ))
+            })?;
+        }
+        Ok(value)
     }
 }
 

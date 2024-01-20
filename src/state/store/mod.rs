@@ -35,7 +35,6 @@ use openraft::{
 use serde::{Deserialize, Serialize};
 pub use store::Store;
 use store::*;
-use tracing::info;
 
 use super::{NodeId, TypeConfig};
 use crate::internal_api::{
