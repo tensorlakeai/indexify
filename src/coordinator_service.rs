@@ -12,6 +12,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use tokio::{
+    select,
     signal,
     sync::{
         mpsc,
@@ -69,6 +70,7 @@ type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Stat
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
+    shutdown_rx: Receiver<()>,
 }
 
 #[tonic::async_trait]
@@ -280,48 +282,58 @@ impl CoordinatorService for CoordinatorServiceServer {
         let (tx, rx) = mpsc::channel(4);
         let rx = DropReceiver { inner: rx };
         let coordinator = self.coordinator.clone();
+        let mut shutdown_rx = self.shutdown_rx.clone();
         tokio::spawn(async move {
             let mut executor_id = String::new();
-            while let Some(result) = in_stream.next().await {
-                match result {
-                    Ok(req) => {
-                        executor_id = req.executor_id;
+            loop {
+                select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("shutting down server, stopping heartbeats from executor: {}", executor_id);
+                        return;
+                    }
+                    frame = in_stream.next() => {
+                        // Ensure the frame has something
+                        if frame.as_ref().is_none() {
+                            break;
+                        }
+                        if let Err(err) = frame.as_ref().unwrap() {
+                            info!("error receiving heartbeat request: {:?}", err);
+                            if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                                error!("error removing executor: {}", err);
+                            }
+                            break;
+                        }
+                        executor_id = frame.unwrap().unwrap().executor_id.clone();
                         let tasks = coordinator.heartbeat(&executor_id).await;
-                        if let Err(err) = &tasks {
-                            if let Err(err) =
-                                tx.send(Err(tonic::Status::internal(err.to_string()))).await
-                            {
-                                info!("heartbeats stopped, removing executor: {}", executor_id);
-                                if let Err(err) = coordinator.remove_executor(&executor_id).await {
-                                    error!("error removing executor: {}", err);
+                            if let Err(err) = &tasks {
+                                if let Err(err) =
+                                    tx.send(Err(tonic::Status::internal(err.to_string()))).await
+                                {
+                                    info!("heartbeats stopped, removing executor: {}", executor_id);
+                                    if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                                        error!("error removing executor: {}", err);
+                                    }
+                                    error!(
+                                        "error sending error message in heartbeat response: {}",
+                                        err
+                                    );
+                                    return;
                                 }
-                                error!(
-                                    "error sending error message in heartbeat response: {}",
-                                    err
-                                );
+                                continue;
+                            }
+                            let tasks = tasks
+                                .unwrap()
+                                .into_iter()
+                                .map(|t| t.into())
+                                .collect::<Vec<indexify_coordinator::Task>>();
+                            let resp = HeartbeatResponse {
+                                executor_id: executor_id.clone(),
+                                tasks,
+                            };
+                            if let Err(err) = tx.send(Ok(resp)).await {
+                                error!("error sending heartbeat response: {:?}", err);
                                 return;
                             }
-                            continue;
-                        }
-                        let tasks = tasks
-                            .unwrap()
-                            .into_iter()
-                            .map(|t| t.into())
-                            .collect::<Vec<indexify_coordinator::Task>>();
-                        let resp = HeartbeatResponse {
-                            executor_id: executor_id.clone(),
-                            tasks,
-                        };
-                        if let Err(err) = tx.send(Ok(resp)).await {
-                            error!("error sending heartbeat response: {:?}", err);
-                        }
-                    }
-                    Err(err) => {
-                        info!("error receiving heartbeat request: {:?}", err);
-                        if let Err(err) = coordinator.remove_executor(&executor_id).await {
-                            error!("error removing executor: {}", err);
-                        }
-                        break;
                     }
                 }
             }
@@ -454,8 +466,10 @@ impl CoordinatorServer {
     }
 
     pub async fn run(&self) -> Result<(), anyhow::Error> {
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
         let svc = CoordinatorServiceServer {
             coordinator: self.coordinator.clone(),
+            shutdown_rx: shutdown_rx.clone(),
         };
         let srvr =
             indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);
@@ -464,7 +478,6 @@ impl CoordinatorServer {
             .initialize_raft()
             .await
             .map_err(|e| anyhow!("unable to initialize shared state: {}", e.to_string()))?;
-        let (shutdown_tx, shutdown_rx) = watch::channel(());
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();
         let coordinator_clone = self.coordinator.clone();
         let state_watcher_rx = self.coordinator.get_state_watcher();

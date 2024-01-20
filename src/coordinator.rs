@@ -360,7 +360,7 @@ mod tests {
     use crate::{
         indexify_coordinator::ContentMetadata,
         internal_api::ExtractorBinding,
-        server_config::{ServerConfig, ServerPeer, SledConfig},
+        server_config::ServerConfig,
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY}, /* coordinator_service::CoordinatorServer, */
     };
