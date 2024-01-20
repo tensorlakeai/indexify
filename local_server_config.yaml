@@ -76,3 +76,7 @@ cache:
 
   memory:
     max_size: 1000000
+
+sled:
+  # provide a path to the sled storage
+  path: /tmp/indexify-sled

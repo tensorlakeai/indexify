@@ -64,13 +64,13 @@ impl From<indexify_coordinator::Index> for Index {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EmbeddingSchema {
     pub dim: usize,
     pub distance: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputSchema {
     #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
@@ -78,7 +78,7 @@ pub enum OutputSchema {
     Attributes(serde_json::Value),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
@@ -282,7 +282,7 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
 pub struct Task {
     pub id: String,
     pub extractor: String,
@@ -330,7 +330,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Display, Clone)]
+#[derive(Serialize, Debug, Deserialize, Display, Clone, PartialEq)]
 pub enum ExtractionEventPayload {
     ExtractorBindingAdded {
         repository: String,
@@ -341,7 +341,7 @@ pub enum ExtractionEventPayload {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ExtractionEvent {
     pub id: String,
     pub repository: String,
@@ -396,7 +396,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
@@ -443,7 +443,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExecutorMetadata {
     pub id: String,
     pub last_seen: u64,
