@@ -6,7 +6,6 @@ use tracing_subscriber::{
     Layer,
 };
 
-pub mod coordinator_service;
 pub mod executor_server;
 pub mod extractor;
 pub mod package;
@@ -19,7 +18,6 @@ mod attribute_index;
 mod blob_storage;
 mod caching;
 mod cmd;
-mod coordinator;
 mod coordinator_client;
 mod data_repository_manager;
 mod executor;

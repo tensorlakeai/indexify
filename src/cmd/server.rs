@@ -3,12 +3,7 @@ use std::sync::Arc;
 use clap::Args as ClapArgs;
 
 use super::GlobalArgs;
-use crate::{
-    coordinator_service::CoordinatorServer,
-    prelude::*,
-    server,
-    server_config::ServerConfig,
-};
+use crate::{prelude::*, server, server_config::ServerConfig};
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
@@ -32,23 +27,24 @@ impl Args {
             .unwrap_or_else(|e| panic!("failed to load config: {}, error: {:?}", config_path, e));
 
         debug!("Server config is: {:?}", config);
-        let server =
-            server::Server::new(Arc::new(config.clone())).expect("failed to create server");
+        server::Server::new(Arc::new(config.clone()), dev_mode)
+            .expect("failed to create server")
+            .run()
+            .await
+            .expect("unable to run server")
 
-        let server_handle = tokio::spawn(async move {
-            server.run().await.unwrap();
-        });
-        if dev_mode {
-            let coordinator = CoordinatorServer::new(Arc::new(config.clone()))
-                .await
-                .expect("failed to create coordinator server");
-            let coordinator_handle = tokio::spawn(async move {
-                coordinator.run().await.unwrap();
-            });
-            tokio::try_join!(server_handle, coordinator_handle)
-                .expect("failed to run server or coordinator server");
-        } else {
-            server_handle.await.expect("failed to run server");
-        }
+        // if dev_mode {
+        //     let coordinator =
+        // CoordinatorServer::new(Arc::new(config.clone()))
+        //         .await
+        //         .expect("failed to create coordinator server");
+        //     let coordinator_handle = tokio::spawn(async move {
+        //         coordinator.run().await.unwrap();
+        //     });
+        //     tokio::try_join!(server_handle, coordinator_handle)
+        //         .expect("failed to run server or coordinator server");
+        // } else {
+        //     server_handle.await.expect("failed to run server");
+        // }
     }
 }

@@ -360,7 +360,7 @@ mod tests {
     use crate::{
         indexify_coordinator::ContentMetadata,
         internal_api::ExtractorBinding,
-        server_config::{ServerConfig, ServerPeer, SledConfig},
+        server_config::ServerConfig,
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY}, /* coordinator_service::CoordinatorServer, */
     };
@@ -371,7 +371,7 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let coordinator = super::Coordinator::new(shared_state.clone());
 
         // Add a repository
         coordinator

@@ -7,7 +7,7 @@ build = "build.rs"
 resolver = "2"
 
 [workspace]
-members = ["."] 
+members = ["."]
 
 [workspace.dependencies]
 anyerror = "*"
@@ -36,7 +36,7 @@ mime = { version = "0.3" }
 mime_guess = { version = "2" }
 moka = { version = "0.12", features = ["default", "future"] }
 nanoid = { version = "0.4" }
-openraft = {version = "0.8.8", features = ["serde"] }
+openraft = { version = "0.8.8", features = ["serde"] }
 opensearch = { version = "2" }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.21"
@@ -57,38 +57,54 @@ prost-types = { version = "0.12" }
 pyo3 = { version = "0.20", features = ["auto-initialize"] }
 qdrant-client = "1"
 rand = { version = "0.8" }
-redis = { version = "0.24", features = ["async-std-rustls-comp", "default", "cluster", "cluster-async"] }
+redis = { version = "0.24", features = [
+    "async-std-rustls-comp",
+    "default",
+    "cluster",
+    "cluster-async",
+] }
 redis-test = { version = "0.3", features = ["futures"] }
 regex = { version = "1" }
 reqwest = { version = "0.11", features = ["json"] }
 rustls = { version = "0.22" }
 rustls-pemfile = { version = "2" }
 serde = { version = "1", features = ["derive"] }
-serde_with = {version="3.4.0"}
+serde_with = { version = "3.4.0" }
 serde_yaml = { version = "0.9" }
 serde_json = { version = "1" }
-simd-json = { version = "0.13", features = ["serde_impl", "runtime-detection", "value-no-dup-keys"] }
+simd-json = { version = "0.13", features = [
+    "serde_impl",
+    "runtime-detection",
+    "value-no-dup-keys",
+] }
 smart-default = { version = "0.7" }
 sled = { version = "0.34" }
-sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-native-tls", "postgres", "macros", "time", "json" ] }
+sqlx = { version = "0.7", features = [
+    "runtime-tokio",
+    "tls-native-tls",
+    "postgres",
+    "macros",
+    "time",
+    "json",
+] }
 strum = { version = "0.25", features = ["derive"] }
 thiserror = "1"
 tonic = { version = "0.10.2", features = ["prost"] }
 tokio = { version = "1", features = ["full"] }
-tokio-stream = {version = "0.1", features=["sync"]}
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-rustls = { version = "0.25" }
-tower = { version = "0.4" }
+tower = { version = "0.4", features = ["steer"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-core = "0.1"
 tracing-opentelemetry = { version = "0.22" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-unwrap = {version="0.10"}
+tracing-unwrap = { version = "0.10" }
 url = "2"
 utoipa = { version = "4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "5", features = ["axum"] }
 utoipa-rapidoc = { version = "2", features = ["axum"] }
 utoipa-redoc = { version = "2", features = ["axum"] }
-object_store = {version = "0.9", features = ["aws"] }
+object_store = { version = "0.9", features = ["aws"] }
 local-ip-address = { version = "0.5" }
 flate2 = "1"
 tar = "0.4"
@@ -197,7 +213,5 @@ Indexify is a reactive structured extraction engine for un-structured data.
 """
 section = "utility"
 priority = "optional"
-assets = [
-    ["target/release/indexify", "/usr/local/bin/indexify", "755"],
-]
+assets = [["target/release/indexify", "/usr/local/bin/indexify", "755"]]
 depends = "$auto"

@@ -1,6 +1,5 @@
 use clap::{Args, Parser, Subcommand};
 
-mod coordinator;
 mod extractor;
 mod init_config;
 mod server;
@@ -25,7 +24,6 @@ pub struct GlobalArgs {
 pub enum Commands {
     /// Start the server
     Server(server::Args),
-    Coordinator(coordinator::Args),
     InitConfig(init_config::Args),
     Extractor(extractor::Args),
 }
@@ -46,7 +44,6 @@ impl Cli {
     pub async fn run(self) {
         match self.command {
             Commands::Server(args) => args.run(self.global_args).await,
-            Commands::Coordinator(args) => args.run(self.global_args).await,
             Commands::InitConfig(args) => args.run(self.global_args).await,
             Commands::Extractor(args) => args.run(self.global_args).await,
         }

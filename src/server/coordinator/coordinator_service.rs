@@ -3,10 +3,7 @@ use std::{
     hash::{Hash, Hasher},
     net::SocketAddr,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 
 use anyhow::{anyhow, Result};
@@ -15,15 +12,15 @@ use tokio::{
     signal,
     sync::{
         mpsc,
-        watch::{self, Receiver, Sender},
+        watch::{Receiver, Sender},
     },
 };
 use tokio_stream::{Stream, StreamExt};
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{transport::server::Routes, Request, Response, Status, Streaming};
 use tracing::{error, info};
 
+use super::coordinator::Coordinator;
 use crate::{
-    coordinator::Coordinator,
     indexify_coordinator::{
         self,
         coordinator_service_server::CoordinatorService,
@@ -453,7 +450,7 @@ impl CoordinatorServer {
         })
     }
 
-    pub async fn run(&self) -> Result<(), anyhow::Error> {
+    pub async fn into_service(self) -> Result<Routes, anyhow::Error> {
         let svc = CoordinatorServiceServer {
             coordinator: self.coordinator.clone(),
         };
@@ -464,74 +461,24 @@ impl CoordinatorServer {
             .initialize_raft()
             .await
             .map_err(|e| anyhow!("unable to initialize shared state: {}", e.to_string()))?;
-        let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let leader_change_watcher = self.coordinator.get_leader_change_watcher();
-        let coordinator_clone = self.coordinator.clone();
-        let state_watcher_rx = self.coordinator.get_state_watcher();
-        tokio::spawn(async move {
-            let _ = run_scheduler(
-                shutdown_rx,
-                leader_change_watcher,
-                state_watcher_rx,
-                coordinator_clone,
-            )
-            .await;
-        });
-        tonic::transport::Server::builder()
+
+        Ok(tonic::transport::Server::builder()
+            .accept_http1(true)
             .add_service(srvr)
-            .serve_with_shutdown(self.addr, async move {
-                let _ = shutdown_signal(shutdown_tx).await;
-                let res = shared_state.stop().await;
-                if let Err(err) = res {
-                    error!("error stopping server: {:?}", err);
-                }
-            })
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to start grpc server: {} addr: {}",
-                    e.to_string(),
-                    self.addr
-                )
-            })?;
-        Ok(())
+            .into_service())
     }
-}
 
-async fn run_scheduler(
-    mut shutdown_rx: Receiver<()>,
-    mut leader_changed: Receiver<bool>,
-    mut state_watcher_rx: Receiver<StateChange>,
-    coordinator: Arc<Coordinator>,
-) -> Result<()> {
-    //let mut interval =
-    // tokio::time::interval(tokio::time::Duration::from_secs(5));
-    let is_leader = AtomicBool::new(false);
-
-    // Throw away the first value since it's garbage
-    _ = state_watcher_rx.changed().await;
-    loop {
-        tokio::select! {
-            _ = state_watcher_rx.changed() => {
-                if is_leader.load(Ordering::Relaxed) {
-                    let _state_change = state_watcher_rx.borrow_and_update().clone();
-                   if let Err(err) = coordinator.process_and_distribute_work().await {
-                          error!("error processing and distributing work: {:?}", err);
-                   }
-                }
-            },
-            _ = shutdown_rx.changed() => {
-                info!("scheduler shutting down");
-                break;
-            }
-            _ = leader_changed.changed() => {
-                let leader_state = *leader_changed.borrow_and_update();
-                info!("leader changed detected: {:?}", leader_state);
-                is_leader.store(leader_state, std::sync::atomic::Ordering::Relaxed);
-            }
-        }
+    pub fn get_leader_change_watcher(&self) -> Receiver<bool> {
+        self.coordinator.get_leader_change_watcher()
     }
-    Ok(())
+
+    pub fn get_state_watcher(&self) -> Receiver<StateChange> {
+        self.coordinator.get_state_watcher()
+    }
+
+    pub fn get_coordinator(&self) -> Arc<Coordinator> {
+        self.coordinator.clone()
+    }
 }
 
 #[tracing::instrument]
