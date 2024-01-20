@@ -33,91 +33,45 @@ use crate::internal_api::{
 
 pub trait SledStoreable: Serialize + for<'de> Deserialize<'de> + SledStoreableTestFactory {
     fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-        let mut s = flexbuffers::FlexbufferSerializer::new();
-        self.serialize(&mut s)?;
-        Ok(s.take_buffer().into())
+		let serialized_data = simd_json::serde::to_string(self)?;
+
+		Ok(serialized_data.as_str().into())
     }
     fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
     where
         Self: Sized,
     {
-        // convert Vec<u8> to &[u8]
-        let raw_value = raw_value.to_vec();
-        let raw_value_slice = raw_value.as_slice();
+		// using simd_json
+		// convert IVec to String
+		let mut raw_value = raw_value.to_vec();
+		let raw_value_slice = raw_value.as_mut_slice();
+		let raw_value_str: &mut str = std::str::from_utf8_mut(raw_value_slice).map_err(|e| {
+			sled::Error::Io(std::io::Error::new(
+				std::io::ErrorKind::Other,
+				format!("Couldn't read a JSON bytestream from the cache: {}", e),
+			))
+		})?;
 
-        let r = flexbuffers::Reader::get_root(raw_value_slice).map_err(|e| {
-            sled::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "Couldn't read a FlexBuffer bytestream from the cache: {}",
-                    e
-                ),
-            ))
-        })?;
-
-        let value = Self::deserialize(r).map_err(|e| {
-            sled::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Deserializer would not deserialize using FlexBuffer: {}", e),
-            ))
-        })?;
-        Ok(value)
+		let value: Self;
+		// simd-json is inherently unsafe. See: https://github.com/simd-lite/simd-json#safety
+		unsafe {
+			value = simd_json::serde::from_str(raw_value_str).map_err(|e| {
+				sled::Error::Io(std::io::Error::new(
+					std::io::ErrorKind::Other,
+					format!("Couldn't read a JSON bytestream from the cache: {}", e),
+				))
+			})?;
+		}
+		Ok(value)
     }
 }
 
 impl SledStoreable for Vote<NodeId> {}
-
-impl SledStoreable for StoredSnapshot {
-    // use bincode because StoredSnapshot.meta contains a BTreeMap
-    fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-        let serialized_data = bincode::serialize(self)?;
-        Ok(serialized_data.into())
-    }
-
-    fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
-    where
-        Self: Sized,
-    {
-        let deserialized_data = bincode::deserialize(&raw_value)?;
-        Ok(deserialized_data)
-    }
-}
-
-/// Flexbuffer doesn't support serializing BTreeMaps, so we need to convert them
-/// to HashMaps using bincode instead.
-impl SledStoreable for Entry<TypeConfig> {
-    fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-        let serialized_data = bincode::serialize(self)?;
-        Ok(serialized_data.into())
-    }
-
-    fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
-    where
-        Self: Sized,
-    {
-        let deserialized_data = bincode::deserialize(&raw_value)?;
-        Ok(deserialized_data)
-    }
-}
-
-// all the state machine values can be stored in Sled
+impl SledStoreable for StoredSnapshot {}
+impl SledStoreable for Entry<TypeConfig> {}
 impl SledStoreable for LogId<NodeId> {}
-impl SledStoreable for StoredMembership<NodeId, BasicNode> {
-    fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-        let serialized_data = bincode::serialize(self)?;
-        Ok(serialized_data.into())
-    }
-
-    fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
-    where
-        Self: Sized,
-    {
-        let deserialized_data = bincode::deserialize(&raw_value)?;
-        Ok(deserialized_data)
-    }
-}
+impl SledStoreable for StoredMembership<NodeId, BasicNode> {}
 impl SledStoreable for SnapshotIndex {}
-
 impl SledStoreable for HashMap<ExecutorId, u64> {}
 impl SledStoreable for HashMap<ExecutorId, ExecutorMetadata> {}
 impl SledStoreable for HashMap<TaskId, Task> {}
@@ -130,39 +84,10 @@ impl SledStoreable for HashMap<ExtractorName, ExtractorDescription> {}
 impl SledStoreable for HashSet<String> {}
 impl SledStoreable for HashMap<RepositoryId, HashSet<Index>> {}
 impl SledStoreable for HashMap<String, Index> {}
-impl SledStoreable for StateMachine {
-    // can't use bincode: contains JSON Value
-    // can't use flexbuffers: contains BTreeMap
-    // use serde_json
-    fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-        let serialized_data = serde_json::to_vec(self)?;
-        Ok(serialized_data.into())
-    }
+impl SledStoreable for StateMachine {}
+impl SledStoreable for SnapshotMeta<u64, BasicNode> {}
 
-    fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
-    where
-        Self: Sized,
-    {
-        let deserialized_data = serde_json::from_slice(&raw_value)?;
-        Ok(deserialized_data)
-    }
-}
-impl SledStoreable for SnapshotMeta<u64, BasicNode> {
-    fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
-        let serialized_data = bincode::serialize(self)?;
-        Ok(serialized_data.into())
-    }
-
-    fn load_from_sled_value(raw_value: IVec) -> Result<Self, Box<dyn Error>>
-    where
-        Self: Sized,
-    {
-        let deserialized_data = bincode::deserialize(&raw_value)?;
-        Ok(deserialized_data)
-    }
-}
-
-// factories
+// factories for testing
 impl SledStoreableTestFactory for StateMachine {
     fn spawn_instance_for_store_test() -> Self {
         StateMachine {
