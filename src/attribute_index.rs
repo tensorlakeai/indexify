@@ -17,14 +17,14 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractedAttributes {
+pub struct ExtractedMetadata {
     pub id: String,
     pub content_id: String,
-    pub attributes: serde_json::Value,
+    pub metadata: serde_json::Value,
     pub extractor_name: String,
 }
 
-impl ExtractedAttributes {
+impl ExtractedMetadata {
     pub fn new(content_id: &str, attributes: serde_json::Value, extractor_name: &str) -> Self {
         let mut s = DefaultHasher::new();
         content_id.hash(&mut s);
@@ -33,24 +33,24 @@ impl ExtractedAttributes {
         Self {
             id,
             content_id: content_id.into(),
-            attributes,
+            metadata: attributes,
             extractor_name: extractor_name.into(),
         }
     }
 }
 
-pub struct AttributeIndexManager {
+pub struct MetadataIndexManager {
     pool: Pool<Postgres>,
     coordinator_client: Arc<CoordinatorClient>,
 }
 
-impl fmt::Debug for AttributeIndexManager {
+impl fmt::Debug for MetadataIndexManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AttributeIndexManager").finish()
     }
 }
 
-impl AttributeIndexManager {
+impl MetadataIndexManager {
     pub async fn new(db_addr: &str, coordinator_client: Arc<CoordinatorClient>) -> Result<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
@@ -104,7 +104,7 @@ impl AttributeIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extracted_attributes: ExtractedAttributes,
+        extracted_attributes: ExtractedMetadata,
     ) -> Result<()> {
         let table_name = format!("structured_store_{repository}_{index_name}");
         let query = format!("INSERT INTO {table_name} (id, repository_id, extractor, index_name, data, content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7);");
@@ -113,7 +113,7 @@ impl AttributeIndexManager {
             .bind(repository)
             .bind(extracted_attributes.extractor_name)
             .bind(index_name)
-            .bind(extracted_attributes.attributes)
+            .bind(extracted_attributes.metadata)
             .bind(extracted_attributes.content_id)
             .bind(timestamp_secs() as i64)
             .execute(&self.pool)
@@ -126,7 +126,7 @@ impl AttributeIndexManager {
         repository: &str,
         index_name: &str,
         content_id: Option<&String>,
-    ) -> Result<Vec<ExtractedAttributes>> {
+    ) -> Result<Vec<ExtractedMetadata>> {
         let table_name = format!("structured_store_{repository}_{index_name}");
         let query = format!("SELECT * FROM {table_name} WHERE repository_id = $1 AND index_name = $2 AND content_id = $3;");
         let rows = sqlx::query(&query)
@@ -141,10 +141,10 @@ impl AttributeIndexManager {
             let extractor: String = row.get(2);
             let data: serde_json::Value = row.get(4);
             let content_id: String = row.get(5);
-            let attributes = ExtractedAttributes {
+            let attributes = ExtractedMetadata {
                 id,
                 extractor_name: extractor,
-                attributes: data,
+                metadata: data,
                 content_id,
             };
             extracted_attributes.push(attributes);

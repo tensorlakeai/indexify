@@ -822,7 +822,7 @@ mod store_tests {
         let temp_sled_db = sled::Config::default().temporary(true).open().unwrap();
         let tree = "test-state-machine";
         let tree = temp_sled_db.open_tree(tree).unwrap();
-        let _ = state_machine.try_save_to_sled_tree(&tree).unwrap();
+        state_machine.try_save_to_sled_tree(&tree).unwrap();
         let deserialized_state_machine_value = StateMachine::try_from_sled_tree(tree).unwrap();
         // remove the db from the filesystem
         temp_sled_db

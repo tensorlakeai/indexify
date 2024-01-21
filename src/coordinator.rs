@@ -145,7 +145,7 @@ impl Coordinator {
         source: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let content = self.shared_state.list_content(repository).await?;
-        if source == "" {
+        if source.is_empty() {
             return Ok(content);
         }
         Ok(content

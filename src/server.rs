@@ -31,7 +31,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     api::{self, *},
-    attribute_index::AttributeIndexManager,
+    attribute_index::MetadataIndexManager,
     blob_storage::BlobStorageBuilder,
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
@@ -70,7 +70,7 @@ pub struct RepositoryEndpointState {
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
-            AttributeLookupResponse, ExtractedAttributes, ListExecutorsResponse)
+            MetadataResponse, ExtractedMetadata, ListExecutorsResponse)
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -110,7 +110,7 @@ impl Server {
                 .map_err(|e| anyhow!("unable to create vector index {}", e))?,
         );
         let attribute_index_manager = Arc::new(
-            AttributeIndexManager::new(&self.config.db_url, coordinator_client.clone()).await?,
+            MetadataIndexManager::new(&self.config.db_url, coordinator_client.clone()).await?,
         );
 
         let repository_manager = Arc::new(
@@ -163,7 +163,7 @@ impl Server {
                 post(index_search).with_state(repository_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/attributes",
+                "/repositories/:repository_name/metadata",
                 get(attribute_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
@@ -709,7 +709,7 @@ async fn index_search(
     get,
     path = "/repository/{repository_name}/attributes",
     tag = "indexify",
-    params(AttributeLookupRequest),
+    params(MetadataRequest),
     responses(
         (status = 200, description = "List of Events in a repository", body = AttributeLookupResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
@@ -719,15 +719,15 @@ async fn index_search(
 async fn attribute_lookup(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    Query(query): Query<AttributeLookupRequest>,
-) -> Result<Json<AttributeLookupResponse>, IndexifyAPIError> {
+    Query(query): Query<MetadataRequest>,
+) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
     let attributes = state
         .repository_manager
         .attribute_lookup(&repository_name, &query.index, query.content_id.as_ref())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(AttributeLookupResponse {
+    Ok(Json(MetadataResponse {
         attributes: attributes.into_iter().map(|r| r.into()).collect(),
     }))
 }

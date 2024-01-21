@@ -14,7 +14,7 @@ use tracing::{error, info};
 
 use crate::{
     api::{self, Content, EmbeddingSchema},
-    attribute_index::{AttributeIndexManager, ExtractedAttributes},
+    attribute_index::{ExtractedMetadata, MetadataIndexManager},
     blob_storage::{BlobStorageBuilder, BlobStorageTS},
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
@@ -35,7 +35,7 @@ use crate::{
 
 pub struct DataRepositoryManager {
     vector_index_manager: Arc<VectorIndexManager>,
-    attribute_index_manager: Arc<AttributeIndexManager>,
+    attribute_index_manager: Arc<MetadataIndexManager>,
     blob_storage: BlobStorageTS,
     coordinator_client: Arc<CoordinatorClient>,
 }
@@ -49,7 +49,7 @@ impl fmt::Debug for DataRepositoryManager {
 impl DataRepositoryManager {
     pub async fn new(
         vector_index_manager: Arc<VectorIndexManager>,
-        attribute_index_manager: Arc<AttributeIndexManager>,
+        attribute_index_manager: Arc<MetadataIndexManager>,
         blob_storage: BlobStorageTS,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
@@ -419,7 +419,7 @@ impl DataRepositoryManager {
                             .await?;
                     }
                     api::FeatureType::Metadata => {
-                        let extracted_attributes = ExtractedAttributes::new(
+                        let extracted_attributes = ExtractedMetadata::new(
                             &content_metadata.id,
                             feature.data.clone(),
                             "extractor_name",
@@ -510,7 +510,7 @@ impl DataRepositoryManager {
         repository: &str,
         index_name: &str,
         content_id: Option<&String>,
-    ) -> Result<Vec<ExtractedAttributes>, anyhow::Error> {
+    ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
         self.attribute_index_manager
             .get_attributes(repository, index_name, content_id)
             .await

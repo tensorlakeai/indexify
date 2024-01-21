@@ -260,19 +260,19 @@ pub struct SearchRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ExtractedAttributes {
+pub struct ExtractedMetadata {
     pub id: String,
     pub content_id: String,
-    pub attributes: serde_json::Value,
+    pub metadata: serde_json::Value,
     pub extractor_name: String,
 }
 
-impl From<attribute_index::ExtractedAttributes> for ExtractedAttributes {
-    fn from(value: attribute_index::ExtractedAttributes) -> Self {
+impl From<attribute_index::ExtractedMetadata> for ExtractedMetadata {
+    fn from(value: attribute_index::ExtractedMetadata) -> Self {
         Self {
             id: value.id,
             content_id: value.content_id,
-            attributes: value.attributes,
+            metadata: value.metadata,
             extractor_name: value.extractor_name,
         }
     }
@@ -284,14 +284,14 @@ pub struct ContentSourceFilter {
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
-pub struct AttributeLookupRequest {
+pub struct MetadataRequest {
     pub content_id: Option<String>,
     pub index: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AttributeLookupResponse {
-    pub attributes: Vec<ExtractedAttributes>,
+pub struct MetadataResponse {
+    pub attributes: Vec<ExtractedMetadata>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
