@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sled::{transaction::ConflictableTransactionError, IVec};
 use tokio::sync::RwLock;
 
-use super::{error::*, impl_sledstoreable::SledStorable, NodeId, TypeConfig, *};
+use super::{error::*, impl_sled_storable::SledStorable, NodeId, TypeConfig, *};
 use crate::{
     internal_api::{
         ContentMetadata,

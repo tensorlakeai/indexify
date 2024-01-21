@@ -1,5 +1,5 @@
 mod error;
-mod impl_sledstoreable;
+mod impl_sled_storable;
 mod sled_store;
 
 use std::{
@@ -14,7 +14,7 @@ use std::{
 
 use anyerror::AnyError;
 use error::*;
-use impl_sledstoreable::SledStorable;
+use impl_sled_storable::SledStorable;
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
@@ -128,6 +128,8 @@ pub type ExtractorName = String;
 pub enum ChangeType {
     NewContent,
     NewBinding,
+    ExecutorAdded,
+    ExecutorRemoved,
 }
 
 #[derive(Clone)]
@@ -144,8 +146,8 @@ pub struct StateChange {
  * type of value that has the serialization impl.
  *
  * IMPORTANT: All fields of StateMachine must:
- * - have SledStoreable implemented
- * - have a test in ./impl_sledstoreable.rs
+ * - have SledStorable implemented
+ * - have a test in ./impl_sled_storable.rs
  * - be handled in the StateMachine::try_from_sled_tree fn
  * - be handled in the StateMachine::try_save_to_sled_tree fn
  *
@@ -859,7 +861,7 @@ fn get_current_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
 mod test_state_machine_snapshot {
     use insta;
 
-    use super::{impl_sledstoreable::SledStorableTestFactory, *};
+    use super::{impl_sled_storable::SledStorableTestFactory, *};
 
     #[test]
     fn test_state_machine_snapshot() {

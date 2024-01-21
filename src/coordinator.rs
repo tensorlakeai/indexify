@@ -378,7 +378,7 @@ mod tests {
             .create_repository(DEFAULT_TEST_REPOSITORY)
             .await?;
 
-        // Add content and ensure that we are createing a extraction event
+        // Add content and ensure that we are creating a extraction event
         coordinator
             .create_content_metadata(vec![ContentMetadata {
                 id: "test".to_string(),
