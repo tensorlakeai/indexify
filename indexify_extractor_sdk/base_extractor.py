@@ -27,10 +27,6 @@ class Feature(BaseModel):
         return cls(feature_type="embedding", name=name, value=json.dumps(value))
     
     @classmethod
-    def ner(cls, entity: str, value: str, score: float, name: str="ner"):
-        return cls(feature_type="ner", name=name, value=json.dumps({"entity": entity, "value": value, "score": score}))
-    
-    @classmethod
     def metadata(cls, value: Json, name: str="metadata"):
         return cls(feature_type="metadata", name=name, value=json.dumps(value))
 

@@ -176,8 +176,8 @@ pub struct EmbeddingSchema {
 pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
-    #[serde(rename = "attributes")]
-    Attributes(serde_json::Value),
+    #[serde(rename = "metadata")]
+    Metadata(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -343,8 +343,6 @@ pub struct ContentMetadata {
 pub enum FeatureType {
     #[strum(serialize = "embedding")]
     Embedding,
-    #[strum(serialize = "ner")]
-    NamedEntity,
     #[strum(serialize = "metadata")]
     Metadata,
     #[strum(serialize = "unknown")]

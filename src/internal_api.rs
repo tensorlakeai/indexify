@@ -135,7 +135,7 @@ impl From<api::ExtractorDescription> for ExtractorDescription {
                         }),
                     );
                 }
-                api::ExtractorOutputSchema::Attributes(schema) => {
+                api::ExtractorOutputSchema::Metadata(schema) => {
                     output_schema.insert(output_name, OutputSchema::Attributes(schema));
                 }
             }
@@ -192,8 +192,6 @@ pub struct CreateWorkResponse {}
 pub enum FeatureType {
     #[strum(serialize = "embedding")]
     Embedding,
-    #[strum(serialize = "ner")]
-    NamedEntity,
     #[strum(serialize = "metadata")]
     Metadata,
     #[strum(serialize = "unknown")]
@@ -204,7 +202,6 @@ impl From<FeatureType> for api::FeatureType {
     fn from(feature_type: FeatureType) -> Self {
         match feature_type {
             FeatureType::Embedding => api::FeatureType::Embedding,
-            FeatureType::NamedEntity => api::FeatureType::NamedEntity,
             FeatureType::Metadata => api::FeatureType::Metadata,
             FeatureType::Unknown => api::FeatureType::Unknown,
         }

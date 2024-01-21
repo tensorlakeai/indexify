@@ -42,7 +42,6 @@ impl TryFrom<PyContent> for internal_api::Content {
             Some(py_feature) => {
                 let feature_type = match py_feature.feature_type.as_str() {
                     "embedding" => internal_api::FeatureType::Embedding,
-                    "named_entity" => internal_api::FeatureType::NamedEntity,
                     "metadata" => internal_api::FeatureType::Metadata,
                     _ => internal_api::FeatureType::Unknown,
                 };
