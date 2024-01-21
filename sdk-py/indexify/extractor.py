@@ -1,25 +1,8 @@
-import requests
+import httpx 
 from dataclasses import dataclass
 from typing import Union
 
 from .settings import DEFAULT_SERVICE_URL
-
-
-def list_extractors(base_url: str = DEFAULT_SERVICE_URL) -> list[dict]:
-    response = requests.get(f"{base_url}/extractors")
-    response.raise_for_status()
-    return response.json()["extractors"]
-
-
-@dataclass
-class EmbeddingExtractor:
-    dim: int
-    distance: str
-
-
-@dataclass
-class AttributeExtractor:
-    json_schema: str
 
 
 @dataclass
@@ -38,17 +21,17 @@ class Extractor:
     name: str
     description: str
     input_params: dict
-    schemas: ExtractorSchema
+    outputs: ExtractorSchema
 
 
 class Extractor:
     def __init__(
-        self, name: str, description: str, input_params: dict, schemas: ExtractorSchema
+        self, name: str, description: str, input_params: dict, outputs: ExtractorSchema
     ):
         self.name = name
         self.description = description
         self.input_params = input_params
-        self.schemas = schemas
+        self.outputs = outputs 
 
     @classmethod
     def from_dict(cls, data):
@@ -56,11 +39,11 @@ class Extractor:
             name=data["name"],
             description=data["description"],
             input_params=data["input_params"],
-            schemas=data["schemas"],
+            outputs=data["outputs"],
         )
 
     def __repr__(self) -> str:
-        return f"Extractor(name={self.name}, description={self.description})"
+        return f"Extractor(name={self.name}, description={self.description}, input_params={self.input_params}, outputs={self.outputs})"
 
     def __str__(self) -> str:
         return self.__repr__()

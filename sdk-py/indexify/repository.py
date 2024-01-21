@@ -10,68 +10,9 @@ from typing import List
 from .utils import json_set_default
 from indexify.exceptions import ApiException
 from .index import Index
+from .extractor_binding import ExtractorBinding
 
 Document = namedtuple("Document", ["text", "metadata"])
-
-
-@dataclass
-class Filter:
-    includes: dict[str, str]
-    excludes: dict[str, str]
-
-    @classmethod
-    def from_dict(cls, json: dict):
-        includes = json.get("eq", {})
-        excludes = json.get("ne", {})
-        return Filter(includes=includes, excludes=excludes)
-
-    def json(self):
-        filters = []
-        for k, v in self.includes.items():
-            filters.append({"eq": {k: v}})
-        for k, v in self.excludes.items():
-            filters.append({"neq": {k: v}})
-        return filters
-
-
-class FilterBuilder:
-    def __init__(self) -> None:
-        self._filter = Filter(includes={}, excludes={})
-
-    def include(self, key: str, value: str) -> "FilterBuilder":
-        self._filter.includes[key] = value
-        return self
-
-    def exclude(self, key: str, value: str) -> "FilterBuilder":
-        self._filter.excludes[key] = value
-        return self
-
-    def build(self) -> Filter:
-        return self._filter
-
-
-@dataclass
-class ExtractorBinding:
-    extractor_name: str
-    index_name: str
-    filters: list[Filter]
-    input_params: dict
-
-    def __repr__(self) -> str:
-        return f"ExtractorBinding(extractor_name={self.extractor_name}, index_name={self.index_name})"
-
-    def __str__(self) -> str:
-        return self.__repr__()
-
-    @classmethod
-    def from_dict(cls, json: dict):
-        filters_dict = json["filters"]
-        filters = []
-        for filter_dict in filters_dict:
-            filters.append(Filter.from_dict(filter_dict))
-        json["filters"] = filters
-        return ExtractorBinding(**json)
-
 
 class Repository:
     def __init__(
@@ -79,12 +20,12 @@ class Repository:
         name: str,
         service_url: str,
         extractor_bindings: List[ExtractorBinding] = None,
-        metadata: dict = None,
+        labels: dict = None,
     ) -> None:
         self.name = name
         self._service_url = service_url
         self.extractor_bindings = extractor_bindings
-        self.metadata = metadata
+        self.labels = labels 
 
     async def run_extractors(self) -> dict:
         response = httpx.post(f"{self._service_url}/run_extractors")
@@ -106,7 +47,7 @@ class Repository:
         extractor: str,
         name: str,
         input_params: dict = {},
-        filter: Filter = None,
+        filters: dict = {},
     ) -> dict:
         """Bind an extractor to this repository
 
@@ -129,10 +70,11 @@ class Repository:
             "extractor": extractor,
             "name": name,
             "input_params": input_params,
-            "filters": filter.json() if filter else [],
+            "filters": filters,
         }
 
         request_body = json.dumps(req, default=json_set_default)
+        print(request_body)
         response = httpx.post(
             f"{self._service_url}/repositories/{self.name}/extractor_bindings",
             data=request_body,
@@ -143,11 +85,20 @@ class Repository:
         except httpx.HTTPStatusError as exc:
             raise ApiException(exc.response.text)
         return
-
+    
     def indexes(self) -> List[Index]:
         response = httpx.get(f"{self._service_url}/repositories/{self.name}/indexes")
         response.raise_for_status()
         return response.json()["indexes"]
+    
+    def upload_file(self, path: str):
+        with open(path, "rb") as f:
+            response = httpx.post(
+                f"{self._service_url}/repositories/{self.name}/upload_file",
+                files={"file": f},
+            )
+            response.raise_for_status()
+            return response.json()
 
     @classmethod
     def get(cls, name: str, service_url: str = DEFAULT_SERVICE_URL) -> "Repository":
@@ -190,7 +141,7 @@ class Repository:
         return response.json()["results"]
 
     def __repr__(self) -> str:
-        return f"Repository(name={self.name})"
+        return f"Repository(name={self.name}, extractor_bindings={self.extractor_bindings}, labels={self.labels})"
 
     def __str__(self) -> str:
         return self.__repr__()

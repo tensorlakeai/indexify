@@ -2,6 +2,7 @@ import httpx
 from .repository import Repository
 from .settings import DEFAULT_SERVICE_URL
 from .extractor import Extractor
+from .extractor_binding import ExtractorBinding
 
 from typing import List, Optional
 
@@ -67,7 +68,11 @@ class IndexifyClient:
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
         response = self._client.request(method, **kwargs)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            print(f"exception: {exc}, response text: {response.text}")
+            raise exc
         return response
 
     def get(self, endpoint: str, **kwargs) -> httpx.Response:
@@ -147,7 +152,7 @@ class IndexifyClient:
 
     def create_repository(
         self, name: str, extractor_bindings: list = [], metadata: dict = {}
-    ) -> Repository:
+    ):
         """
         Create a new repository.
         """
@@ -155,15 +160,22 @@ class IndexifyClient:
             "name": name,
             "extractor_bindings": extractor_bindings,
             "metadata": metadata,
+            "labels": {},
         }
-        response = self.post(f"repositories", json=req)
-        return Repository(name, self._service_url)
+        self.post(f"repositories", json=req)
 
     def get_repository(self, name: str) -> Repository:
         """
         Get a repository by name.
         """
-        return Repository(name, self._service_url)
+        response = self.get(f"repositories/{name}")
+        response.raise_for_status()
+        resp_json = response.json()
+        name = resp_json["repository"]["name"]
+        extractor_bindings = []
+        for eb in resp_json["repository"]["extractor_bindings"]:
+            extractor_bindings.append(ExtractorBinding.from_dict(eb))
+        return Repository(name, self._service_url, extractor_bindings=extractor_bindings)
 
     def extractors(self) -> List[Extractor]:
         """
