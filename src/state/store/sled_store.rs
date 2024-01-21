@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sled::{transaction::ConflictableTransactionError, IVec};
 use tokio::sync::RwLock;
 
-use super::{error::*, impl_sledstoreable::SledStoreable, NodeId, TypeConfig, *};
+use super::{error::*, impl_sledstoreable::SledStorable, NodeId, TypeConfig, *};
 use crate::{
     internal_api::{
         ContentMetadata,
@@ -27,7 +27,7 @@ use crate::{
     server_config::SledConfig,
 };
 
-pub struct Store {
+pub struct SledStore {
     /// sled database
     pub(super) db: Arc<SledStoreDb>,
 
@@ -38,8 +38,8 @@ pub struct Store {
     pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
 }
 
-impl Store {
-    pub async fn new(config: SledConfig) -> Store {
+impl SledStore {
+    pub async fn new(config: SledConfig) -> SledStore {
         let (tx, rx) = tokio::sync::watch::channel(StateChange {
             id: "".to_string(),
             change_type: ChangeType::NewContent,
@@ -66,7 +66,7 @@ impl Store {
                 .expect("failed to load state machine from sled db"),
         );
 
-        Store {
+        SledStore {
             db: store_db,
             state_machine,
             state_change_tx: tx,
@@ -75,7 +75,7 @@ impl Store {
     }
 }
 
-impl Deref for Store {
+impl Deref for SledStore {
     type Target = Arc<SledStoreDb>;
 
     fn deref(&self) -> &Self::Target {
@@ -573,7 +573,7 @@ impl StateMachine {
         &self,
         tree: &sled::Tree,
         key: &str,
-        raw_value: Box<impl SledStoreable>,
+        raw_value: impl SledStorable,
     ) -> Result<(), StoreError> {
         let value = raw_value.to_saveable_value().map_err(|e| {
             StoreError::new(
@@ -610,111 +610,110 @@ impl StateMachine {
                 SledStoreTree::StateMachine,
             ))
         };
-        tree
-            .transaction(|tx| {
-                // insert last applied log if it exists
-                if let Some(last_applied_log) = &self.last_applied_log {
-                    tx.insert(
-                        "last_applied_log",
-                        last_applied_log
-                            .to_saveable_value()
-                            .map_err(|e| err_fn(e, "last_applied_log".to_string()))?,
-                    )?;
-                }
+        tree.transaction(|tx| {
+            // insert last applied log if it exists
+            if let Some(last_applied_log) = &self.last_applied_log {
                 tx.insert(
-                    "executors",
-                    self.executors
+                    "last_applied_log",
+                    last_applied_log
                         .to_saveable_value()
-                        .map_err(|e| err_fn(e, "executors".to_string()))?,
+                        .map_err(|e| err_fn(e, "last_applied_log".to_string()))?,
                 )?;
-                tx.insert(
-                    "tasks",
-                    self.tasks
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "tasks".to_string()))?,
-                )?;
-                tx.insert(
-                    "unassigned_tasks",
-                    self.unassigned_tasks
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "unassigned_tasks".to_string()))?,
-                )?;
-                tx.insert(
-                    "task_assignments",
-                    self.task_assignments
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "task_assignments".to_string()))?,
-                )?;
-                tx.insert(
-                    "extraction_events",
-                    self.extraction_events
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "extraction_events".to_string()))?,
-                )?;
-                tx.insert(
-                    "unprocessed_extraction_events",
-                    self.unprocessed_extraction_events
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "unprocessed_extraction_events".to_string()))?,
-                )?;
-                tx.insert(
-                    "content_table",
-                    self.content_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "content_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "content_repository_table",
-                    self.content_repository_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "content_repository_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "bindings_table",
-                    self.bindings_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "bindings_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "extractor_executors_table",
-                    self.extractor_executors_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "extractor_executors_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "extractors",
-                    self.extractors
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "extractors".to_string()))?,
-                )?;
-                tx.insert(
-                    "repositories",
-                    self.repositories
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "repositories".to_string()))?,
-                )?;
-                tx.insert(
-                    "repository_extractors",
-                    self.repository_extractors
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "repository_extractors".to_string()))?,
-                )?;
-                tx.insert(
-                    "index_table",
-                    self.index_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "index_table".to_string()))?,
-                )?;
-                Ok(())
-            })
-            .map_err(|e| {
-                StoreError::new(
-                    StoreErrorKind::WriteStateMachine,
-                    "failed to write state machine to sled".to_string(),
-                )
-                .with_tree(SledStoreTree::StateMachine)
-                .with_source(e.into())
-            })?;
+            }
+            tx.insert(
+                "executors",
+                self.executors
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "executors".to_string()))?,
+            )?;
+            tx.insert(
+                "tasks",
+                self.tasks
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "tasks".to_string()))?,
+            )?;
+            tx.insert(
+                "unassigned_tasks",
+                self.unassigned_tasks
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "unassigned_tasks".to_string()))?,
+            )?;
+            tx.insert(
+                "task_assignments",
+                self.task_assignments
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "task_assignments".to_string()))?,
+            )?;
+            tx.insert(
+                "extraction_events",
+                self.extraction_events
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "extraction_events".to_string()))?,
+            )?;
+            tx.insert(
+                "unprocessed_extraction_events",
+                self.unprocessed_extraction_events
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "unprocessed_extraction_events".to_string()))?,
+            )?;
+            tx.insert(
+                "content_table",
+                self.content_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "content_table".to_string()))?,
+            )?;
+            tx.insert(
+                "content_repository_table",
+                self.content_repository_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "content_repository_table".to_string()))?,
+            )?;
+            tx.insert(
+                "bindings_table",
+                self.bindings_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "bindings_table".to_string()))?,
+            )?;
+            tx.insert(
+                "extractor_executors_table",
+                self.extractor_executors_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "extractor_executors_table".to_string()))?,
+            )?;
+            tx.insert(
+                "extractors",
+                self.extractors
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "extractors".to_string()))?,
+            )?;
+            tx.insert(
+                "repositories",
+                self.repositories
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "repositories".to_string()))?,
+            )?;
+            tx.insert(
+                "repository_extractors",
+                self.repository_extractors
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "repository_extractors".to_string()))?,
+            )?;
+            tx.insert(
+                "index_table",
+                self.index_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "index_table".to_string()))?,
+            )?;
+            Ok(())
+        })
+        .map_err(|e| {
+            StoreError::new(
+                StoreErrorKind::WriteStateMachine,
+                "failed to write state machine to sled".to_string(),
+            )
+            .with_tree(SledStoreTree::StateMachine)
+            .with_source(e.into())
+        })?;
         Ok(())
     }
 

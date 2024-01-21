@@ -31,7 +31,7 @@ use crate::internal_api::{
     Task,
 };
 
-pub trait SledStoreable: Serialize + for<'de> Deserialize<'de> + SledStoreableTestFactory {
+pub trait SledStorable: Serialize + for<'de> Deserialize<'de> + SledStorableTestFactory {
     fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
         let serialized_data = simd_json::serde::to_string(self)?;
 
@@ -66,29 +66,29 @@ pub trait SledStoreable: Serialize + for<'de> Deserialize<'de> + SledStoreableTe
     }
 }
 
-impl SledStoreable for Vote<NodeId> {}
-impl SledStoreable for StoredSnapshot {}
-impl SledStoreable for Entry<TypeConfig> {}
-impl SledStoreable for LogId<NodeId> {}
-impl SledStoreable for StoredMembership<NodeId, BasicNode> {}
-impl SledStoreable for SnapshotIndex {}
-impl SledStoreable for HashMap<ExecutorId, u64> {}
-impl SledStoreable for HashMap<ExecutorId, ExecutorMetadata> {}
-impl SledStoreable for HashMap<TaskId, Task> {}
-impl SledStoreable for HashMap<ExtractionEventId, ExtractionEvent> {}
-impl SledStoreable for HashMap<ContentId, ContentMetadata> {}
-impl SledStoreable for HashMap<String, HashSet<String>> {}
-impl SledStoreable for HashMap<RepositoryId, HashSet<ExtractorBinding>> {}
-impl SledStoreable for HashMap<ExtractorName, Vec<ExecutorId>> {}
-impl SledStoreable for HashMap<ExtractorName, ExtractorDescription> {}
-impl SledStoreable for HashSet<String> {}
-impl SledStoreable for HashMap<RepositoryId, HashSet<Index>> {}
-impl SledStoreable for HashMap<String, Index> {}
-impl SledStoreable for StateMachine {}
-impl SledStoreable for SnapshotMeta<u64, BasicNode> {}
+impl SledStorable for Vote<NodeId> {}
+impl SledStorable for StoredSnapshot {}
+impl SledStorable for Entry<TypeConfig> {}
+impl SledStorable for LogId<NodeId> {}
+impl SledStorable for StoredMembership<NodeId, BasicNode> {}
+impl SledStorable for SnapshotIndex {}
+impl SledStorable for HashMap<ExecutorId, u64> {}
+impl SledStorable for HashMap<ExecutorId, ExecutorMetadata> {}
+impl SledStorable for HashMap<TaskId, Task> {}
+impl SledStorable for HashMap<ExtractionEventId, ExtractionEvent> {}
+impl SledStorable for HashMap<ContentId, ContentMetadata> {}
+impl SledStorable for HashMap<String, HashSet<String>> {}
+impl SledStorable for HashMap<RepositoryId, HashSet<ExtractorBinding>> {}
+impl SledStorable for HashMap<ExtractorName, Vec<ExecutorId>> {}
+impl SledStorable for HashMap<ExtractorName, ExtractorDescription> {}
+impl SledStorable for HashSet<String> {}
+impl SledStorable for HashMap<RepositoryId, HashSet<Index>> {}
+impl SledStorable for HashMap<String, Index> {}
+impl SledStorable for StateMachine {}
+impl SledStorable for SnapshotMeta<u64, BasicNode> {}
 
 // factories for testing
-impl SledStoreableTestFactory for StateMachine {
+impl SledStorableTestFactory for StateMachine {
     fn spawn_instance_for_store_test() -> Self {
         StateMachine {
             last_applied_log: Some(LogId::spawn_instance_for_store_test()),
@@ -119,7 +119,7 @@ impl SledStoreableTestFactory for StateMachine {
     }
 }
 
-impl SledStoreableTestFactory for LogId<NodeId> {
+impl SledStorableTestFactory for LogId<NodeId> {
     fn spawn_instance_for_store_test() -> Self {
         LogId {
             leader_id: LeaderId::new(0, 0),
@@ -128,7 +128,7 @@ impl SledStoreableTestFactory for LogId<NodeId> {
     }
 }
 
-impl SledStoreableTestFactory for StoredMembership<NodeId, BasicNode> {
+impl SledStorableTestFactory for StoredMembership<NodeId, BasicNode> {
     fn spawn_instance_for_store_test() -> Self {
         StoredMembership::new(
             Some(LogId::spawn_instance_for_store_test()),
@@ -137,27 +137,24 @@ impl SledStoreableTestFactory for StoredMembership<NodeId, BasicNode> {
     }
 }
 
-impl SledStoreableTestFactory for Membership<NodeId, BasicNode> {
+impl SledStorableTestFactory for Membership<NodeId, BasicNode> {
     fn spawn_instance_for_store_test() -> Self {
-        Membership::new(
-            vec![{
-                let mut config_set = BTreeSet::new();
-                config_set.insert(0);
-                config_set
-            }],
-            {
-                let mut node_set = BTreeMap::new();
-                node_set.insert(0, BasicNode::new("localhost:8080".to_string()));
-            },
-        )
+        let mut nodes = BTreeMap::new();
+        nodes.insert(0, BasicNode::new("localhost:8080".to_string()));
+        let config = vec![{
+            let mut config_set = BTreeSet::new();
+            config_set.insert(0);
+            config_set
+        }];
+        Membership::new(config, nodes)
     }
 }
 
-pub trait SledStoreableTestFactory {
+pub trait SledStorableTestFactory {
     fn spawn_instance_for_store_test() -> Self;
 }
 
-impl SledStoreableTestFactory for Vote<NodeId> {
+impl SledStorableTestFactory for Vote<NodeId> {
     fn spawn_instance_for_store_test() -> Self {
         Vote {
             leader_id: LeaderId::new(0, 0),
@@ -166,7 +163,7 @@ impl SledStoreableTestFactory for Vote<NodeId> {
     }
 }
 
-impl SledStoreableTestFactory for StoredSnapshot {
+impl SledStorableTestFactory for StoredSnapshot {
     fn spawn_instance_for_store_test() -> Self {
         StoredSnapshot {
             meta: SnapshotMeta::spawn_instance_for_store_test(),
@@ -175,7 +172,7 @@ impl SledStoreableTestFactory for StoredSnapshot {
     }
 }
 
-impl SledStoreableTestFactory for SnapshotMeta<u64, BasicNode> {
+impl SledStorableTestFactory for SnapshotMeta<u64, BasicNode> {
     fn spawn_instance_for_store_test() -> Self {
         SnapshotMeta {
             last_log_id: Some(LogId::spawn_instance_for_store_test()),
@@ -185,7 +182,7 @@ impl SledStoreableTestFactory for SnapshotMeta<u64, BasicNode> {
     }
 }
 
-impl SledStoreableTestFactory for Entry<TypeConfig> {
+impl SledStorableTestFactory for Entry<TypeConfig> {
     fn spawn_instance_for_store_test() -> Self {
         Entry {
             log_id: LogId::spawn_instance_for_store_test(),
@@ -194,13 +191,13 @@ impl SledStoreableTestFactory for Entry<TypeConfig> {
     }
 }
 
-impl SledStoreableTestFactory for SnapshotIndex {
+impl SledStorableTestFactory for SnapshotIndex {
     fn spawn_instance_for_store_test() -> Self {
         SnapshotIndex(0)
     }
 }
 
-impl SledStoreableTestFactory for HashMap<ExecutorId, u64> {
+impl SledStorableTestFactory for HashMap<ExecutorId, u64> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), 0);
@@ -208,7 +205,7 @@ impl SledStoreableTestFactory for HashMap<ExecutorId, u64> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<ExecutorId, ExecutorMetadata> {
+impl SledStorableTestFactory for HashMap<ExecutorId, ExecutorMetadata> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
@@ -219,7 +216,7 @@ impl SledStoreableTestFactory for HashMap<ExecutorId, ExecutorMetadata> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<TaskId, Task> {
+impl SledStorableTestFactory for HashMap<TaskId, Task> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), Task::spawn_instance_for_store_test());
@@ -227,7 +224,7 @@ impl SledStoreableTestFactory for HashMap<TaskId, Task> {
     }
 }
 
-impl SledStoreableTestFactory for HashSet<String> {
+impl SledStorableTestFactory for HashSet<String> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hs = HashSet::new();
         hs.insert("test".to_string());
@@ -235,7 +232,7 @@ impl SledStoreableTestFactory for HashSet<String> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<ExtractionEventId, ExtractionEvent> {
+impl SledStorableTestFactory for HashMap<ExtractionEventId, ExtractionEvent> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
@@ -246,7 +243,7 @@ impl SledStoreableTestFactory for HashMap<ExtractionEventId, ExtractionEvent> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<ContentId, ContentMetadata> {
+impl SledStorableTestFactory for HashMap<ContentId, ContentMetadata> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
@@ -271,7 +268,7 @@ fn test_json_value() -> serde_json::Value {
     .unwrap()
 }
 
-impl SledStoreableTestFactory for ExtractorDescription {
+impl SledStorableTestFactory for ExtractorDescription {
     fn spawn_instance_for_store_test() -> Self {
         ExtractorDescription {
             name: "test".to_string(),
@@ -289,7 +286,7 @@ impl SledStoreableTestFactory for ExtractorDescription {
     }
 }
 
-impl SledStoreableTestFactory for ExecutorMetadata {
+impl SledStorableTestFactory for ExecutorMetadata {
     fn spawn_instance_for_store_test() -> Self {
         ExecutorMetadata {
             id: "test".to_string(),
@@ -300,7 +297,7 @@ impl SledStoreableTestFactory for ExecutorMetadata {
     }
 }
 
-impl SledStoreableTestFactory for Task {
+impl SledStorableTestFactory for Task {
     fn spawn_instance_for_store_test() -> Self {
         Task {
             id: "test".to_string(),
@@ -315,7 +312,7 @@ impl SledStoreableTestFactory for Task {
     }
 }
 
-impl SledStoreableTestFactory for ContentMetadata {
+impl SledStorableTestFactory for ContentMetadata {
     fn spawn_instance_for_store_test() -> Self {
         ContentMetadata {
             id: "test_id".to_string(),
@@ -336,7 +333,7 @@ impl SledStoreableTestFactory for ContentMetadata {
     }
 }
 
-impl SledStoreableTestFactory for ExtractionEvent {
+impl SledStorableTestFactory for ExtractionEvent {
     fn spawn_instance_for_store_test() -> Self {
         ExtractionEvent {
             id: "test_id".to_string(),
@@ -350,7 +347,7 @@ impl SledStoreableTestFactory for ExtractionEvent {
     }
 }
 
-impl SledStoreableTestFactory for ExtractorBinding {
+impl SledStorableTestFactory for ExtractorBinding {
     fn spawn_instance_for_store_test() -> Self {
         ExtractorBinding {
             id: "test_id".to_string(),
@@ -371,7 +368,7 @@ impl SledStoreableTestFactory for ExtractorBinding {
     }
 }
 
-impl SledStoreableTestFactory for Index {
+impl SledStorableTestFactory for Index {
     fn spawn_instance_for_store_test() -> Self {
         Index {
             repository: "test_repository".to_string(),
@@ -384,7 +381,7 @@ impl SledStoreableTestFactory for Index {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<String, Index> {
+impl SledStorableTestFactory for HashMap<String, Index> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), Index::spawn_instance_for_store_test());
@@ -392,7 +389,7 @@ impl SledStoreableTestFactory for HashMap<String, Index> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<ExtractorName, ExtractorDescription> {
+impl SledStorableTestFactory for HashMap<ExtractorName, ExtractorDescription> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
@@ -403,7 +400,7 @@ impl SledStoreableTestFactory for HashMap<ExtractorName, ExtractorDescription> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<ExtractorName, Vec<ExecutorId>> {
+impl SledStorableTestFactory for HashMap<ExtractorName, Vec<ExecutorId>> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), vec!["test".to_string()]);
@@ -411,7 +408,7 @@ impl SledStoreableTestFactory for HashMap<ExtractorName, Vec<ExecutorId>> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<RepositoryId, HashSet<ExtractorBinding>> {
+impl SledStorableTestFactory for HashMap<RepositoryId, HashSet<ExtractorBinding>> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), {
@@ -423,7 +420,7 @@ impl SledStoreableTestFactory for HashMap<RepositoryId, HashSet<ExtractorBinding
     }
 }
 
-impl SledStoreableTestFactory for HashMap<RepositoryId, HashSet<Index>> {
+impl SledStorableTestFactory for HashMap<RepositoryId, HashSet<Index>> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), {
@@ -435,7 +432,7 @@ impl SledStoreableTestFactory for HashMap<RepositoryId, HashSet<Index>> {
     }
 }
 
-impl SledStoreableTestFactory for HashMap<String, HashSet<String>> {
+impl SledStorableTestFactory for HashMap<String, HashSet<String>> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), {
@@ -447,7 +444,7 @@ impl SledStoreableTestFactory for HashMap<String, HashSet<String>> {
     }
 }
 
-trait SledTestObject: SledStoreable + SledStoreableTestFactory + Debug + PartialEq {}
+trait SledTestObject: SledStorable + SledStorableTestFactory + Debug + PartialEq {}
 
 #[allow(unused_macros)]
 macro_rules! test_sled_storeable {

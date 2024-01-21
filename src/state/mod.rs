@@ -44,7 +44,7 @@ use crate::{
         TaskOutcome,
     },
     server_config::ServerConfig,
-    state::store::Store,
+    state::store::SledStore,
     utils::timestamp_secs,
 };
 
@@ -61,8 +61,8 @@ openraft::declare_raft_types!(
     Entry = openraft::Entry<TypeConfig>, SnapshotData = Cursor<Vec<u8>>
 );
 
-pub type LogStore = Adaptor<TypeConfig, Arc<Store>>;
-pub type StateMachineStore = Adaptor<TypeConfig, Arc<Store>>;
+pub type LogStore = Adaptor<TypeConfig, Arc<SledStore>>;
+pub type StateMachineStore = Adaptor<TypeConfig, Arc<SledStore>>;
 pub type Raft = openraft::Raft<TypeConfig, Network, LogStore, StateMachineStore>;
 
 pub type SharedState = Arc<App>;
@@ -95,7 +95,7 @@ pub struct App {
     shutdown_tx: Sender<()>,
     pub leader_change_rx: Receiver<bool>,
     join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
-    pub store: Arc<Store>,
+    pub store: Arc<SledStore>,
     pub config: Arc<openraft::Config>,
 }
 
@@ -113,7 +113,7 @@ impl App {
                 .validate()
                 .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
         );
-        let store = Arc::new(Store::new(server_config.sled.clone()).await);
+        let store = Arc::new(SledStore::new(server_config.sled.clone()).await);
         let (log_store, state_machine) = Adaptor::new(store.clone());
         let network = Network::new();
 
@@ -193,15 +193,11 @@ impl App {
             Err(e) => {
                 // match the type of the initialize error. if it's NotAllowed, ignore it.
                 // this means that the node is already initialized.
-                
-                match e.clone() {
-                    RaftError::APIError(inner_e) => match inner_e {
-                        InitializeError::NotAllowed(_) => {
-                            warn!("cluster is already initialized: {}", e);
-                            Ok(())
-                        }
-                        _ => Err(anyhow!("unable to initialize raft: {}", e)),
-                    },
+                match e {
+                    RaftError::APIError(InitializeError::NotAllowed(_)) => {
+                        warn!("cluster is already initialized: {}", e);
+                        Ok(())
+                    }
                     _ => Err(anyhow!("unable to initialize raft: {}", e)),
                 }
             }
