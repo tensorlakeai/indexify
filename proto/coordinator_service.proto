@@ -177,6 +177,7 @@ message GetRepositoryResponse {
 
 message ListContentRequest {
     string repository = 1;
+    string source = 2;
 }
 
 message ListContentResponse {

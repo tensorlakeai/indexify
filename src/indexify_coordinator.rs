@@ -214,6 +214,8 @@ pub struct GetRepositoryResponse {
 pub struct ListContentRequest {
     #[prost(string, tag = "1")]
     pub repository: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub source: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

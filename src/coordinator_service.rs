@@ -99,9 +99,10 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<ListContentRequest>,
     ) -> Result<tonic::Response<ListContentResponse>, tonic::Status> {
+        let req = request.into_inner();
         let content_list = self
             .coordinator
-            .list_content(&request.into_inner().repository)
+            .list_content(&req.repository, &req.source)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ListContentResponse {

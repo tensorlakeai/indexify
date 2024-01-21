@@ -4,6 +4,8 @@ from typing import List
 
 from pydantic import BaseModel
 
+import json
+
 class InputParams(BaseModel):
     a: int = 0
     b: str = ""
@@ -25,7 +27,7 @@ class MockExtractor(Extractor):
                 ),
                 Content.from_text(
                     text="Hello World",
-                    feature=Feature.ner(entity="Kevin Durant", value="PER", score=0.9),
+                    feature=Feature.metadata(json.loads('{"a": 1, "b": "foo"}')),
                 ),
             ]
         ]

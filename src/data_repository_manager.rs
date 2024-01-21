@@ -13,9 +13,9 @@ use nanoid::nanoid;
 use tracing::{error, info};
 
 use crate::{
-    api::{self, EmbeddingSchema},
+    api::{self, Content, EmbeddingSchema},
     attribute_index::{AttributeIndexManager, ExtractedAttributes},
-    blob_storage::BlobStorageTS,
+    blob_storage::{BlobStorageBuilder, BlobStorageTS},
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
@@ -24,6 +24,7 @@ use crate::{
         ContentMetadata,
         CreateContentRequest,
         CreateIndexRequest,
+        GetContentMetadataRequest,
         Index,
         ListIndexesRequest,
         UpdateTaskRequest,
@@ -52,23 +53,6 @@ impl DataRepositoryManager {
         blob_storage: BlobStorageTS,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
-        Ok(Self {
-            vector_index_manager,
-            attribute_index_manager,
-            blob_storage,
-            coordinator_client,
-        })
-    }
-
-    #[allow(dead_code)]
-    pub async fn new_with_db(
-        db_addr: &str,
-        vector_index_manager: Arc<VectorIndexManager>,
-        blob_storage: BlobStorageTS,
-        coordinator_client: Arc<CoordinatorClient>,
-    ) -> Result<Self> {
-        let attribute_index_manager =
-            Arc::new(AttributeIndexManager::new(db_addr, coordinator_client.clone()).await?);
         Ok(Self {
             vector_index_manager,
             attribute_index_manager,
@@ -124,16 +108,14 @@ impl DataRepositoryManager {
         let req = indexify_coordinator::GetRepositoryRequest {
             name: name.to_string(),
         };
-        let respsonse = self
+        let response = self
             .coordinator_client
             .get()
             .await?
             .get_repository(req)
             .await?
             .into_inner();
-        let repository = respsonse
-            .repository
-            .ok_or(anyhow!("repository not found"))?;
+        let repository = response.repository.ok_or(anyhow!("repository not found"))?;
         repository.try_into()
     }
 
@@ -230,9 +212,14 @@ impl DataRepositoryManager {
         Ok(())
     }
 
-    pub async fn list_content(&self, repository: &str) -> Result<Vec<api::ContentMetadata>> {
+    pub async fn list_content(
+        &self,
+        repository: &str,
+        source_filter: &str,
+    ) -> Result<Vec<api::ContentMetadata>> {
         let req = indexify_coordinator::ListContentRequest {
             repository: repository.to_string(),
+            source: source_filter.to_string(),
         };
         let response = self
             .coordinator_client
@@ -286,6 +273,36 @@ impl DataRepositoryManager {
                 })?;
         }
         Ok(())
+    }
+
+    pub async fn read_content(
+        &self,
+        _repository: &str,
+        content_ids: Vec<String>,
+    ) -> Result<Vec<Content>> {
+        let req = GetContentMetadataRequest {
+            content_list: content_ids,
+        };
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_content_metadata(req)
+            .await?;
+        let content_metadata_list = response.into_inner().content_list;
+        let mut content_list = Vec::new();
+        for c in content_metadata_list {
+            let blob_reader = BlobStorageBuilder::reader_from_link(&c.storage_url)?;
+            let bytes = blob_reader.get().await?;
+            let content = Content {
+                content_type: c.mime,
+                bytes,
+                labels: c.labels.clone(),
+                feature: None,
+            };
+            content_list.push(content);
+        }
+        Ok(content_list)
     }
 
     #[tracing::instrument(skip(self, data))]

@@ -176,8 +176,8 @@ pub struct EmbeddingSchema {
 pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
-    #[serde(rename = "attributes")]
-    Attributes(serde_json::Value),
+    #[serde(rename = "metadata")]
+    Metadata(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -278,6 +278,11 @@ impl From<attribute_index::ExtractedAttributes> for ExtractedAttributes {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContentSourceFilter {
+    pub source: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct AttributeLookupRequest {
     pub content_id: Option<String>,
@@ -343,8 +348,6 @@ pub struct ContentMetadata {
 pub enum FeatureType {
     #[strum(serialize = "embedding")]
     Embedding,
-    #[strum(serialize = "ner")]
-    NamedEntity,
     #[strum(serialize = "metadata")]
     Metadata,
     #[strum(serialize = "unknown")]
@@ -390,4 +393,9 @@ pub struct WriteExtractedContent {
     pub executor_id: String,
     pub task_outcome: TaskOutcome,
     pub extractor_binding: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetRawContentResponse {
+    pub content_list: Vec<Content>,
 }
