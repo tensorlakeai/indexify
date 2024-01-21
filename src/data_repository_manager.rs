@@ -21,6 +21,7 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskRequest,
 };
 use nanoid::nanoid;
+use tokio::task::{self, JoinHandle};
 use tracing::{error, info};
 
 use crate::{
@@ -294,16 +295,24 @@ impl DataRepositoryManager {
             .get_content_metadata(req)
             .await?;
         let content_metadata_list = response.into_inner().content_list;
+        let mut tasks =
+            Vec::<JoinHandle<Result<_, anyhow::Error>>>::with_capacity(content_metadata_list.len());
         let mut content_list = Vec::new();
-        for c in content_metadata_list {
-            let blob_reader = BlobStorageBuilder::reader_from_link(&c.storage_url)?;
-            let bytes = blob_reader.get().await?;
-            let content = Content {
-                content_type: c.mime,
-                bytes,
-                labels: c.labels.clone(),
-                feature: None,
-            };
+        for content in content_metadata_list {
+            tasks.push(task::spawn(async move {
+                let blob_reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
+                let bytes = blob_reader.get().await?;
+                let content = Content {
+                    content_type: content.mime,
+                    bytes,
+                    labels: content.labels.clone(),
+                    feature: None,
+                };
+                Ok(content)
+            }));
+        }
+        for task in tasks {
+            let content = task.await.unwrap()?;
             content_list.push(content);
         }
         Ok(content_list)

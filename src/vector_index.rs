@@ -5,6 +5,7 @@ use base64::{engine::general_purpose, Engine as _};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
 use itertools::Itertools;
+use tokio::task::{self, JoinHandle};
 use tracing::info;
 
 use crate::{
@@ -126,17 +127,26 @@ impl VectorIndexManager {
             ));
         }
         let mut content_id_to_blob = HashMap::new();
+        let mut tasks = Vec::<JoinHandle<Result<_, anyhow::Error>>>::with_capacity(
+            content_metadata_list.content_list.len(),
+        );
         for content in content_metadata_list.content_list {
-            let reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
-            let data = reader.get().await?;
-            let text = match content.mime.as_str() {
-                "text/plain" => String::from_utf8(data)?,
-                "application/json" => {
-                    let json: serde_json::Value = serde_json::from_slice(&data)?;
-                    json.to_string()
-                }
-                _ => general_purpose::STANDARD.encode(&data),
-            };
+            tasks.push(task::spawn(async move {
+                let reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
+                let data = reader.get().await?;
+                let text = match content.mime.as_str() {
+                    "text/plain" => String::from_utf8(data)?,
+                    "application/json" => {
+                        let json: serde_json::Value = serde_json::from_slice(&data)?;
+                        json.to_string()
+                    }
+                    _ => general_purpose::STANDARD.encode(&data),
+                };
+                Ok((content, text))
+            }));
+        }
+        for task in tasks {
+            let (content, text) = task.await.unwrap()?;
             content_id_to_blob.insert(content.id, text);
         }
         let mut index_search_results = Vec::new();
