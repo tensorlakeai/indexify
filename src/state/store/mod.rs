@@ -1,6 +1,6 @@
 mod error;
 mod impl_sledstoreable;
-mod store;
+mod sled_store;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -14,7 +14,7 @@ use std::{
 
 use anyerror::AnyError;
 use error::*;
-use impl_sledstoreable::SledStoreable;
+use impl_sledstoreable::SledStorable;
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
@@ -33,8 +33,8 @@ use openraft::{
     Vote,
 };
 use serde::{Deserialize, Serialize};
-pub use store::Store;
-use store::*;
+pub use sled_store::SledStore;
+use sled_store::*;
 
 use super::{NodeId, TypeConfig};
 use crate::internal_api::{
@@ -187,7 +187,7 @@ pub struct StateMachine {
 }
 
 #[async_trait]
-impl RaftLogReader<TypeConfig> for Arc<Store> {
+impl RaftLogReader<TypeConfig> for Arc<SledStore> {
     async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, StorageError<NodeId>> {
         let last_purged = self
             .get_last_purged_log_id()
@@ -261,13 +261,13 @@ impl RaftLogReader<TypeConfig> for Arc<Store> {
 }
 
 #[async_trait]
-impl RaftSnapshotBuilder<TypeConfig> for Arc<Store> {
+impl RaftSnapshotBuilder<TypeConfig> for Arc<SledStore> {
     #[tracing::instrument(level = "trace", skip(self))]
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
         let state_machine = self.state_machine.read().await;
         let storeable_state_machine = state_machine
             .to_saveable_value()
-            .map_err(|e| build_snapshot_err(e.into()))?;
+            .map_err(build_snapshot_err)?;
 
         let last_applied_log = self
             .get_last_applied_log()
@@ -309,7 +309,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<Store> {
 }
 
 #[async_trait]
-impl RaftStorage<TypeConfig> for Arc<Store> {
+impl RaftStorage<TypeConfig> for Arc<SledStore> {
     type LogReader = Self;
     type SnapshotBuilder = Self;
 
@@ -356,7 +356,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
         let keys: Vec<LogKey> = logs_tree
             .range(LogKey::from_log_id(&log_id).to_raw_log_key()..)
             .map(|res| res.expect("Failed to read log entry").0)
-            .map(|log_key| LogKey::from(log_key))
+            .map(LogKey::from)
             .collect::<Vec<_>>();
 
         // delete all keys greater than the given log id
@@ -405,9 +405,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
         // set the last purged log id
         let store_tree = self.open_tree(SledStoreTree::Store);
         let key = StoreKey::LastPurgedLogId.to_string();
-        let value = log_id
-            .to_saveable_value()
-            .map_err(|e| purge_logs_upto_err(e.into()))?;
+        let value = log_id.to_saveable_value().map_err(purge_logs_upto_err)?;
         store_tree
             .insert(key, value)
             .map_err(|e| purge_logs_upto_err(e.into()))?;
@@ -471,17 +469,17 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extractors",
-                            Box::new(sm.extractors.clone()),
+                            sm.extractors.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extractor_executors_table",
-                            Box::new(sm.extractor_executors_table.clone()),
+                            sm.extractor_executors_table.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "executors",
-                            Box::new(sm.executors.clone()),
+                            sm.executors.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -500,12 +498,12 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "executors",
-                            Box::new(sm.executors.clone()),
+                            sm.executors.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extractor_executors_table",
-                            Box::new(sm.extractor_executors_table.clone()),
+                            sm.extractor_executors_table.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -514,11 +512,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             sm.tasks.insert(task.id.clone(), task.clone());
                             sm.unassigned_tasks.insert(task.id.clone());
                         }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "tasks",
-                            Box::new(sm.tasks.clone()),
-                        )?;
+                        sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
                         res.push(Response { value: None })
                     }
                     Request::AssignTask { assignments } => {
@@ -532,12 +526,12 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "task_assignments",
-                            Box::new(sm.task_assignments.clone()),
+                            sm.task_assignments.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "unassigned_tasks",
-                            Box::new(sm.unassigned_tasks.clone()),
+                            sm.unassigned_tasks.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -547,12 +541,12 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extraction_events",
-                            Box::new(sm.extraction_events.clone()),
+                            sm.extraction_events.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "unprocessed_extraction_events",
-                            Box::new(sm.unprocessed_extraction_events.clone()),
+                            sm.unprocessed_extraction_events.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -569,12 +563,12 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extraction_events",
-                            Box::new(sm.extraction_events.clone()),
+                            sm.extraction_events.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "unprocessed_extraction_events",
-                            Box::new(sm.unprocessed_extraction_events.clone()),
+                            sm.unprocessed_extraction_events.clone(),
                         )?;
 
                         res.push(Response { value: None })
@@ -601,22 +595,22 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "content_table",
-                            Box::new(sm.content_table.clone()),
+                            sm.content_table.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "content_repository_table",
-                            Box::new(sm.content_repository_table.clone()),
+                            sm.content_repository_table.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extraction_events",
-                            Box::new(sm.extraction_events.clone()),
+                            sm.extraction_events.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "unprocessed_extraction_events",
-                            Box::new(sm.unprocessed_extraction_events.clone()),
+                            sm.unprocessed_extraction_events.clone(),
                         )?;
 
                         res.push(Response { value: None })
@@ -642,17 +636,17 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "bindings_table",
-                            Box::new(sm.bindings_table.clone()),
+                            sm.bindings_table.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "extraction_events",
-                            Box::new(sm.extraction_events.clone()),
+                            sm.extraction_events.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "unprocessed_extraction_events",
-                            Box::new(sm.unprocessed_extraction_events.clone()),
+                            sm.unprocessed_extraction_events.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -661,7 +655,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "repositories",
-                            Box::new(sm.repositories.clone()),
+                            sm.repositories.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -678,12 +672,12 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "repository_extractors",
-                            Box::new(sm.repository_extractors.clone()),
+                            sm.repository_extractors.clone(),
                         )?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "index_table",
-                            Box::new(sm.index_table.clone()),
+                            sm.index_table.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -715,15 +709,11 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                             sm.extraction_events.insert(event.id.clone(), event.clone());
                             sm.unprocessed_extraction_events.insert(event.id.clone());
                         }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "tasks",
-                            Box::new(sm.tasks.clone()),
-                        )?;
+                        sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
                         sm.overwrite_sled_kv(
                             &state_machine_tree,
                             "unassigned_tasks",
-                            Box::new(sm.unassigned_tasks.clone()),
+                            sm.unassigned_tasks.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
@@ -733,7 +723,7 @@ impl RaftStorage<TypeConfig> for Arc<Store> {
                     sm.overwrite_sled_kv(
                         &state_machine_tree,
                         "last_membership",
-                        Box::new(sm.last_membership.clone()),
+                        sm.last_membership.clone(),
                     )?;
                     res.push(Response { value: None })
                 }
@@ -869,7 +859,7 @@ fn get_current_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
 mod test_state_machine_snapshot {
     use insta;
 
-    use super::{impl_sledstoreable::SledStoreableTestFactory, *};
+    use super::{impl_sledstoreable::SledStorableTestFactory, *};
 
     #[test]
     fn test_state_machine_snapshot() {

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sled::{transaction::ConflictableTransactionError, IVec};
 use tokio::sync::RwLock;
 
-use super::{error::*, impl_sledstoreable::SledStoreable, NodeId, TypeConfig, *};
+use super::{error::*, impl_sledstoreable::SledStorable, NodeId, TypeConfig, *};
 use crate::{
     internal_api::{
         ContentMetadata,
@@ -27,7 +27,7 @@ use crate::{
     server_config::SledConfig,
 };
 
-pub struct Store {
+pub struct SledStore {
     /// sled database
     pub(super) db: Arc<SledStoreDb>,
 
@@ -38,8 +38,8 @@ pub struct Store {
     pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
 }
 
-impl Store {
-    pub async fn new(config: SledConfig) -> Store {
+impl SledStore {
+    pub async fn new(config: SledConfig) -> SledStore {
         let (tx, rx) = tokio::sync::watch::channel(StateChange {
             id: "".to_string(),
             change_type: ChangeType::NewContent,
@@ -56,7 +56,7 @@ impl Store {
         let db = Arc::new(
             sled_config
                 .open()
-                .expect(format!("failed to open sled db with {:?}", sled_config).as_str()),
+                .unwrap_or_else(|_| panic!("failed to open sled db with {:?}", sled_config)),
         );
 
         let store_db = Arc::new(SledStoreDb(db.clone()));
@@ -66,7 +66,7 @@ impl Store {
                 .expect("failed to load state machine from sled db"),
         );
 
-        Store {
+        SledStore {
             db: store_db,
             state_machine,
             state_change_tx: tx,
@@ -75,7 +75,7 @@ impl Store {
     }
 }
 
-impl Deref for Store {
+impl Deref for SledStore {
     type Target = Arc<SledStoreDb>;
 
     fn deref(&self) -> &Self::Target {
@@ -136,7 +136,7 @@ impl SledStoreDb {
                 LogId::<NodeId>::load_from_sled_value(value).map_err(|e| {
                     StoreErrorKind::ReadLogs.build_with_tree_and_key(
                         "failed to parse last log id",
-                        e.into(),
+                        e,
                         SledStoreTree::Store,
                         key,
                     )
@@ -164,7 +164,7 @@ impl SledStoreDb {
                     .map_err(|e| {
                         StoreErrorKind::ReadSnapshot.build_with_tree_and_key(
                             "failed to parse snapshot index",
-                            e.into(),
+                            e,
                             SledStoreTree::Store,
                             key,
                         )
@@ -192,7 +192,7 @@ impl SledStoreDb {
                 StoredSnapshot::load_from_sled_value(value).map_err(|e| {
                     StoreErrorKind::ReadSnapshot.build_with_tree_and_key(
                         "failed to parse current snapshot",
-                        e.into(),
+                        e,
                         SledStoreTree::Store,
                         key,
                     )
@@ -208,7 +208,7 @@ impl SledStoreDb {
         let result = snapshot.to_saveable_value().map_err(|e| {
             StoreErrorKind::WriteSnapshot.build_with_tree_and_key(
                 "set current snapshot failed",
-                e.into(),
+                e,
                 SledStoreTree::Store,
                 key.clone(),
             )
@@ -242,7 +242,7 @@ impl SledStoreDb {
                 Vote::<NodeId>::load_from_sled_value(value).map_err(|e| {
                     StoreErrorKind::ReadVote.build_with_tree_and_key(
                         "failed to parse vote",
-                        e.into(),
+                        e,
                         SledStoreTree::Store,
                         key,
                     )
@@ -258,7 +258,7 @@ impl SledStoreDb {
         let result = vote.to_saveable_value().map_err(|e| {
             StoreErrorKind::WriteVote.build_with_tree_and_key(
                 "insert vote failed",
-                e.into(),
+                e,
                 SledStoreTree::Store,
                 key.clone(),
             )
@@ -292,7 +292,7 @@ impl SledStoreDb {
                 StoredMembership::<NodeId, BasicNode>::load_from_sled_value(value).map_err(|e| {
                     StoreErrorKind::ReadLogs.build_with_tree_and_key(
                         "failed to parse last membership",
-                        e.into(),
+                        e,
                         SledStoreTree::StateMachine,
                         key,
                     )
@@ -319,7 +319,7 @@ impl SledStoreDb {
                 LogId::<NodeId>::load_from_sled_value(value).map_err(|e| {
                     StoreErrorKind::ReadLogs.build_with_tree_and_key(
                         "failed to parse last applied log",
-                        e.into(),
+                        e,
                         SledStoreTree::StateMachine,
                         key,
                     )
@@ -385,7 +385,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load last_membership",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -397,7 +397,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load executors",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -408,7 +408,7 @@ impl StateMachine {
                         .map_err(|e| {
                             err_kind.build_with_tree_and_key(
                                 "failed to load tasks",
-                                e.into(),
+                                e,
                                 SledStoreTree::StateMachine,
                                 key.clone(),
                             )
@@ -419,7 +419,7 @@ impl StateMachine {
                         .map_err(|e| {
                             err_kind.build_with_tree_and_key(
                                 "failed to load unassigned_tasks",
-                                e.into(),
+                                e,
                                 SledStoreTree::StateMachine,
                                 key.clone(),
                             )
@@ -431,7 +431,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load task_assignments",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -443,7 +443,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load extraction_events",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -454,7 +454,7 @@ impl StateMachine {
                         HashSet::<ExtractionEventId>::load_from_sled_value(value).map_err(|e| {
                             err_kind.build_with_tree_and_key(
                                 "failed to load unprocessed_extraction_events",
-                                e.into(),
+                                e,
                                 SledStoreTree::StateMachine,
                                 key.clone(),
                             )
@@ -466,7 +466,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load content_table",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -478,7 +478,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load content_repository_table",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -492,7 +492,7 @@ impl StateMachine {
                         .map_err(|e| {
                             err_kind.build_with_tree_and_key(
                                 "failed to load bindings_table",
-                                e.into(),
+                                e,
                                 SledStoreTree::StateMachine,
                                 key.clone(),
                             )
@@ -504,7 +504,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load extractor_executors_table",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -516,7 +516,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load extractors",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -527,7 +527,7 @@ impl StateMachine {
                         .map_err(|e| {
                             err_kind.build_with_tree_and_key(
                                 "failed to load repositories",
-                                e.into(),
+                                e,
                                 SledStoreTree::StateMachine,
                                 key.clone(),
                             )
@@ -539,7 +539,7 @@ impl StateMachine {
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load repository_extractors",
-                                    e.into(),
+                                    e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
@@ -550,7 +550,7 @@ impl StateMachine {
                         HashMap::<String, Index>::load_from_sled_value(value).map_err(|e| {
                             err_kind.build_with_tree_and_key(
                                 "failed to load index_table",
-                                e.into(),
+                                e,
                                 SledStoreTree::StateMachine,
                                 key.clone(),
                             )
@@ -573,7 +573,7 @@ impl StateMachine {
         &self,
         tree: &sled::Tree,
         key: &str,
-        raw_value: Box<impl SledStoreable>,
+        raw_value: impl SledStorable,
     ) -> Result<(), StoreError> {
         let value = raw_value.to_saveable_value().map_err(|e| {
             StoreError::new(
@@ -585,7 +585,7 @@ impl StateMachine {
             )
             .with_tree(SledStoreTree::StateMachine)
             .with_key(key)
-            .with_source(e.into())
+            .with_source(e)
         })?;
 
         tree.insert(key, value).map(|_| ()).map_err(|e| {
@@ -606,115 +606,114 @@ impl StateMachine {
                     "failed to serialize state machine from sled with key {}",
                     key
                 ),
-                e.into(),
+                e,
                 SledStoreTree::StateMachine,
             ))
         };
-        let _tx: () = tree
-            .transaction(|tx| {
-                // insert last applied log if it exists
-                if let Some(last_applied_log) = &self.last_applied_log {
-                    tx.insert(
-                        "last_applied_log",
-                        last_applied_log
-                            .to_saveable_value()
-                            .map_err(|e| err_fn(e, "last_applied_log".to_string()))?,
-                    )?;
-                }
+        tree.transaction(|tx| {
+            // insert last applied log if it exists
+            if let Some(last_applied_log) = &self.last_applied_log {
                 tx.insert(
-                    "executors",
-                    self.executors
+                    "last_applied_log",
+                    last_applied_log
                         .to_saveable_value()
-                        .map_err(|e| err_fn(e, "executors".to_string()))?,
+                        .map_err(|e| err_fn(e, "last_applied_log".to_string()))?,
                 )?;
-                tx.insert(
-                    "tasks",
-                    self.tasks
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "tasks".to_string()))?,
-                )?;
-                tx.insert(
-                    "unassigned_tasks",
-                    self.unassigned_tasks
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "unassigned_tasks".to_string()))?,
-                )?;
-                tx.insert(
-                    "task_assignments",
-                    self.task_assignments
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "task_assignments".to_string()))?,
-                )?;
-                tx.insert(
-                    "extraction_events",
-                    self.extraction_events
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "extraction_events".to_string()))?,
-                )?;
-                tx.insert(
-                    "unprocessed_extraction_events",
-                    self.unprocessed_extraction_events
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "unprocessed_extraction_events".to_string()))?,
-                )?;
-                tx.insert(
-                    "content_table",
-                    self.content_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "content_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "content_repository_table",
-                    self.content_repository_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "content_repository_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "bindings_table",
-                    self.bindings_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "bindings_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "extractor_executors_table",
-                    self.extractor_executors_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "extractor_executors_table".to_string()))?,
-                )?;
-                tx.insert(
-                    "extractors",
-                    self.extractors
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "extractors".to_string()))?,
-                )?;
-                tx.insert(
-                    "repositories",
-                    self.repositories
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "repositories".to_string()))?,
-                )?;
-                tx.insert(
-                    "repository_extractors",
-                    self.repository_extractors
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "repository_extractors".to_string()))?,
-                )?;
-                tx.insert(
-                    "index_table",
-                    self.index_table
-                        .to_saveable_value()
-                        .map_err(|e| err_fn(e, "index_table".to_string()))?,
-                )?;
-                Ok(())
-            })
-            .map_err(|e| {
-                StoreError::new(
-                    StoreErrorKind::WriteStateMachine,
-                    format!("failed to write state machine to sled"),
-                )
-                .with_tree(SledStoreTree::StateMachine)
-                .with_source(e.into())
-            })?;
+            }
+            tx.insert(
+                "executors",
+                self.executors
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "executors".to_string()))?,
+            )?;
+            tx.insert(
+                "tasks",
+                self.tasks
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "tasks".to_string()))?,
+            )?;
+            tx.insert(
+                "unassigned_tasks",
+                self.unassigned_tasks
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "unassigned_tasks".to_string()))?,
+            )?;
+            tx.insert(
+                "task_assignments",
+                self.task_assignments
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "task_assignments".to_string()))?,
+            )?;
+            tx.insert(
+                "extraction_events",
+                self.extraction_events
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "extraction_events".to_string()))?,
+            )?;
+            tx.insert(
+                "unprocessed_extraction_events",
+                self.unprocessed_extraction_events
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "unprocessed_extraction_events".to_string()))?,
+            )?;
+            tx.insert(
+                "content_table",
+                self.content_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "content_table".to_string()))?,
+            )?;
+            tx.insert(
+                "content_repository_table",
+                self.content_repository_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "content_repository_table".to_string()))?,
+            )?;
+            tx.insert(
+                "bindings_table",
+                self.bindings_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "bindings_table".to_string()))?,
+            )?;
+            tx.insert(
+                "extractor_executors_table",
+                self.extractor_executors_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "extractor_executors_table".to_string()))?,
+            )?;
+            tx.insert(
+                "extractors",
+                self.extractors
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "extractors".to_string()))?,
+            )?;
+            tx.insert(
+                "repositories",
+                self.repositories
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "repositories".to_string()))?,
+            )?;
+            tx.insert(
+                "repository_extractors",
+                self.repository_extractors
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "repository_extractors".to_string()))?,
+            )?;
+            tx.insert(
+                "index_table",
+                self.index_table
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "index_table".to_string()))?,
+            )?;
+            Ok(())
+        })
+        .map_err(|e| {
+            StoreError::new(
+                StoreErrorKind::WriteStateMachine,
+                "failed to write state machine to sled".to_string(),
+            )
+            .with_tree(SledStoreTree::StateMachine)
+            .with_source(e.into())
+        })?;
         Ok(())
     }
 
