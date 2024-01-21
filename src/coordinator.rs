@@ -142,8 +142,16 @@ impl Coordinator {
     pub async fn list_content(
         &self,
         repository: &str,
+        source: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.shared_state.list_content(repository).await
+        let content = self.shared_state.list_content(repository).await?;
+        if source == "" {
+            return Ok(content);
+        }
+        Ok(content
+            .into_iter()
+            .filter(|c| c.source == source)
+            .collect::<Vec<internal_api::ContentMetadata>>())
     }
 
     pub async fn list_bindings(

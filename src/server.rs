@@ -151,6 +151,10 @@ impl Server {
                 get(list_content).with_state(repository_endpoint_state.clone()),
             )
             .route(
+                "/repositories/:repository_name/content/:content_id",
+                get(read_content).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
                 "/repositories/:repository_name/upload_file",
                 post(upload_file).with_state(repository_endpoint_state.clone()),
             )
@@ -499,13 +503,27 @@ async fn add_texts(
 async fn list_content(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
+    filter: Option<Query<ContentSourceFilter>>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
+    let source_filter = filter.map(|f| f.source.clone()).unwrap_or("".to_string());
     let content_list = state
         .repository_manager
-        .list_content(&repository_name)
+        .list_content(&repository_name, &source_filter)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(ListContentResponse { content_list }))
+}
+
+async fn read_content(
+    Path((repository_name, content_id)): Path<(String, String)>,
+    State(state): State<RepositoryEndpointState>,
+) -> Result<Json<GetRawContentResponse>, IndexifyAPIError> {
+    let content_list = state
+        .repository_manager
+        .read_content(&repository_name, vec![content_id])
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(GetRawContentResponse { content_list }))
 }
 
 #[tracing::instrument]

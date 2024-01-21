@@ -278,6 +278,11 @@ impl From<attribute_index::ExtractedAttributes> for ExtractedAttributes {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContentSourceFilter {
+    pub source: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct AttributeLookupRequest {
     pub content_id: Option<String>,
@@ -388,4 +393,9 @@ pub struct WriteExtractedContent {
     pub executor_id: String,
     pub task_outcome: TaskOutcome,
     pub extractor_binding: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetRawContentResponse {
+    pub content_list: Vec<Content>,
 }
