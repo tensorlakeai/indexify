@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Type, Optional, Union
+from typing import Dict, List, Type, Optional, Union
 import json
 from importlib import import_module
 from typing import get_type_hints
@@ -32,12 +32,22 @@ class Feature(BaseModel):
 
 class Content(BaseModel):
     content_type: Optional[str]
-    data: bytes 
-    feature:Optional[Feature] = None
+    data: bytes
+    feature: Optional[Feature] = None
+    labels: Optional[Dict[str, str]] = None
 
     @classmethod
-    def from_text(cls, text: str, feature: Feature=None):
-        return cls(content_type="text/plain", data=bytes(text, "utf-8"), feature=feature)
+    def from_text(
+        cls, text: str, feature: Feature = None, labels: Dict[str, str] = None
+    ):
+
+        return cls(
+            content_type="text/plain",
+            data=bytes(text, "utf-8"),
+            feature=feature,
+            labels=labels,
+        )
+
     
 class Extractor(ABC):
 

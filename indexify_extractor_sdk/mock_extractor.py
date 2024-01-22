@@ -28,6 +28,7 @@ class MockExtractor(Extractor):
                 Content.from_text(
                     text="Hello World",
                     feature=Feature.metadata(json.loads('{"a": 1, "b": "foo"}')),
+                    labels={"label1": "val1", "label2": "val2"}
                 ),
             ]
         ]
