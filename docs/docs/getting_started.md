@@ -68,7 +68,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 === "curl"
     ```
     curl -v http://localhost:8900/repositories/default/upload_file \
-    -F files=kd.txt
+    -F "files=@kd.txt"
     ```
 
 #### Look at the metadata of the content which has been ingested 
