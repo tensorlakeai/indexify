@@ -54,7 +54,7 @@ paste = { version = "1.0" }
 pgvector = { version = "0.3", features = ["sqlx"] }
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
-pyo3 = { version = "0.20", features = ["auto-initialize"] }
+pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
 qdrant-client = "1"
 rand = { version = "0.8" }
 redis = { version = "0.24", features = ["async-std-rustls-comp", "default", "cluster", "cluster-async"] }

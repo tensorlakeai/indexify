@@ -20,7 +20,7 @@ mod scaffold;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
-    pub distance_metric: String,
+    pub distance: String,
     pub dim: usize,
 }
 
@@ -47,7 +47,9 @@ pub trait ExtractorCli {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorSchema {
     pub embedding_schemas: HashMap<String, EmbeddingSchema>,
+    pub metadata_schemas: HashMap<String, serde_json::Value>,
     pub input_params: serde_json::Value,
+    pub input_mimes: Vec<String>,
 }
 pub type ExtractorTS = Arc<dyn Extractor + Sync + Send>;
 

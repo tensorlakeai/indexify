@@ -126,12 +126,12 @@ impl From<api::ExtractorDescription> for ExtractorDescription {
         for (output_name, embedding_schema) in extractor.outputs {
             match embedding_schema {
                 api::ExtractorOutputSchema::Embedding(embedding_schema) => {
-                    let distance_metric = embedding_schema.distance.to_string();
+                    let distance = embedding_schema.distance.to_string();
                     output_schema.insert(
                         output_name,
                         OutputSchema::Embedding(EmbeddingSchema {
                             dim: embedding_schema.dim,
-                            distance: distance_metric,
+                            distance,
                         }),
                     );
                 }
