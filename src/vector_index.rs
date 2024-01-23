@@ -12,7 +12,7 @@ use crate::{
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
     indexify_coordinator::{self, Index},
-    internal_api::EmbeddingSchema,
+    internal_api::{Embedding, EmbeddingSchema},
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
 
@@ -94,11 +94,11 @@ impl VectorIndexManager {
             .feature
             .as_ref()
             .ok_or(anyhow!("No features were extracted"))?;
-        let embedding: Vec<f32> =
+        let embedding: Embedding =
             serde_json::from_value(features.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
         let search_result = self
             .vector_db
-            .search(index.table_name, embedding, k as u64)
+            .search(index.table_name, embedding.values, k as u64)
             .await?;
         let content_ids = search_result
             .iter()
