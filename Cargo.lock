@@ -2028,6 +2028,7 @@ dependencies = [
  "hostname",
  "hyper 1.1.0",
  "hyper-util",
+ "indexify_proto",
  "insta",
  "itertools 0.12.0",
  "jsonschema",
@@ -2088,6 +2089,15 @@ dependencies = [
  "utoipa-swagger-ui",
  "vergen",
  "walkdir",
+]
+
+[[package]]
+name = "indexify_proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.12.3",
+ "serde",
+ "tonic 0.10.2",
 ]
 
 [[package]]

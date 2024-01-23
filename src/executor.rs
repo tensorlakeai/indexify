@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
 
 use anyhow::{anyhow, Result};
+use indexify_proto::indexify_coordinator::{HeartbeatRequest, RegisterExecutorRequest};
 use nanoid::nanoid;
 use serde_json::json;
 use tokio::sync::watch;
@@ -11,7 +12,6 @@ use crate::{
     blob_storage::BlobStorageBuilder,
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
-    indexify_coordinator::{HeartbeatRequest, RegisterExecutorRequest},
     internal_api::{self, Content, ExecutorInfo, ExtractorDescription, Task, TaskResult},
     server_config::ExecutorConfig,
     task_store::TaskStore,

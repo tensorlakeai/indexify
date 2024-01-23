@@ -1,11 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use indexify_proto::indexify_raft::raft_api_client::RaftApiClient;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 use tracing::info;
-
-use crate::indexify_raft::raft_api_client::RaftApiClient;
 
 pub struct RaftClient {
     clients: Arc<Mutex<HashMap<String, RaftApiClient<Channel>>>>,

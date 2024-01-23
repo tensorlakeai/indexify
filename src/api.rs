@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use indexify_proto::indexify_coordinator;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
@@ -13,7 +14,6 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     attribute_index,
-    indexify_coordinator,
     internal_api::{self, TaskOutcome},
     vectordbs,
 };

@@ -14,6 +14,7 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use indexify_proto::indexify_coordinator::HeartbeatRequest;
 use tokio::{
     signal,
     sync::{watch, watch::Receiver},
@@ -26,7 +27,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     executor::{heartbeat, ExtractorExecutor},
     extractor::{extractor_runner, py_extractors, python_path},
-    indexify_coordinator::HeartbeatRequest,
     internal_api::{Content, ExtractRequest, ExtractResponse},
     server_config::{ExecutorConfig, ExtractorConfig},
     task_store::TaskStore,

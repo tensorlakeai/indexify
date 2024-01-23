@@ -7,7 +7,7 @@ build = "build.rs"
 resolver = "2"
 
 [workspace]
-members = ["."] 
+members = [".", "crates/indexify_proto"] 
 
 [workspace.dependencies]
 anyerror = "*"
@@ -31,6 +31,7 @@ hostname = { version = "0.3" }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["service"] }
 itertools = "0.12"
+indexify_proto = { path = "crates/indexify_proto" }
 jsonschema = "0.17"
 mime = { version = "0.3" }
 mime_guess = { version = "2" }
@@ -114,6 +115,7 @@ h2 = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+indexify_proto = { workspace = true }
 itertools = { workspace = true }
 jsonschema = { workspace = true }
 mime = { workspace = true }

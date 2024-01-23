@@ -1,10 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Ok, Result};
+use indexify_proto::indexify_coordinator::coordinator_service_client::CoordinatorServiceClient;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
-
-use crate::indexify_coordinator::coordinator_service_client::CoordinatorServiceClient;
 
 #[derive(Debug)]
 pub struct CoordinatorClient {

@@ -2,10 +2,9 @@
 
 use std::error::Error;
 
-use crate::{
-    indexify_raft::{RaftReply, RaftRequest},
-    state::typ::RaftError,
-};
+use indexify_proto::indexify_raft::{RaftReply, RaftRequest};
+
+use crate::state::typ::RaftError;
 
 pub struct GrpcHelper;
 

@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
 use tonic::{Request, Response, Status};
 
 use super::Raft;
-use crate::{
-    grpc_helper::GrpcHelper,
-    indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest},
-};
+use crate::grpc_helper::GrpcHelper;
 
 pub struct RaftGrpcServer {
     raft: Arc<Raft>,

@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
+use indexify_proto::indexify_coordinator::{self, Index};
 use itertools::Itertools;
 use tracing::info;
 
@@ -11,7 +12,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
-    indexify_coordinator::{self, Index},
     internal_api::{Embedding, EmbeddingSchema},
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };

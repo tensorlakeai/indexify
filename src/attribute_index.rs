@@ -6,13 +6,13 @@ use std::{
 };
 
 use anyhow::Result;
+use indexify_proto::indexify_coordinator::{CreateIndexRequest, Index};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use crate::{
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
-    indexify_coordinator::{CreateIndexRequest, Index},
     utils::timestamp_secs,
 };
 
