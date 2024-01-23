@@ -18,32 +18,28 @@ class EmbeddingInputParams(BaseModel):
 
 
 class BaseEmbeddingExtractor(Extractor):
+    input_mimes = ["text/plain"]
     def __init__(self, max_context_length: int):
         self._model_context_length: int = max_context_length
 
     def extract(
-        self, content_list: List[Content], params: EmbeddingInputParams
-    ) -> List[List[Content]]:
+        self, content: Content, params: EmbeddingInputParams
+    ) -> List[Content]:
         if params.chunk_size == 0:
             params.chunk_size = self._model_context_length
 
         splitter: Callable[[str], List[str]] = self._create_splitter(params)
-        extracted_content = []
-        for content in content_list:
-            extracted_embeddings = []
-            if content.content_type != "text/plain":
-                continue
-            text = content.data.decode("utf-8")
-            chunks: List[str] = splitter(text)
-            embeddings_list = self.extract_embeddings(chunks)
-            for chunk, embeddings in zip(chunks, embeddings_list):
-                content = Content.from_text(
-                    text=chunk,
-                    feature=Feature.embedding(value=embeddings),
-                )
-                extracted_embeddings.append(content)
-            extracted_content.append(extracted_embeddings)
-        return extracted_content
+        extracted_embeddings = []
+        text = content.data.decode("utf-8")
+        chunks: List[str] = splitter(text)
+        embeddings_list = self.extract_embeddings(chunks)
+        for chunk, embeddings in zip(chunks, embeddings_list):
+            content = Content.from_text(
+                text=chunk,
+                feature=Feature.embedding(value=embeddings),
+            )
+            extracted_embeddings.append(content)
+        return extracted_embeddings
 
     def _create_splitter(
         self, input_params: EmbeddingInputParams
@@ -63,3 +59,6 @@ class BaseEmbeddingExtractor(Extractor):
     @abstractmethod
     def extract_embeddings(self, texts: List[str]) -> List[List[float]]:
         ...
+
+    def sample_input(self) -> Content:
+        return Content.from_text("hello world")

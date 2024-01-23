@@ -4,18 +4,20 @@ import json
 from importlib import import_module
 from typing import get_type_hints
 
-from pydantic import BaseModel, Json, Field
+from pydantic import BaseModel, Json
 
 class EmbeddingSchema(BaseModel):
-    distance_metric: str
     dim: int
+    distance: str
 
-class ExtractorSchema(BaseModel):
-    features: dict[str, Union[EmbeddingSchema, Json]] = Field(default_factory=dict)
+class Embedding(BaseModel):
+    data: List[float]
+    distance: str
 
 class InternalExtractorSchema(BaseModel):
     embedding_schemas: dict[str, EmbeddingSchema]
     input_params: Optional[str]
+    input_mimes: List[str]
 
 class Feature(BaseModel):
     feature_type: str
@@ -23,8 +25,9 @@ class Feature(BaseModel):
     value: str
 
     @classmethod
-    def embedding(cls, value: List[float], name: str="embedding"):
-        return cls(feature_type="embedding", name=name, value=json.dumps(value))
+    def embedding(cls, value: List[float], name: str="embedding", distance="cosine"):
+        embedding = Embedding(data=value, distance=distance)
+        return cls(feature_type="embedding", name=name, value=embedding.model_dump_json())
     
     @classmethod
     def metadata(cls, value: Json, name: str="metadata"):
@@ -47,26 +50,40 @@ class Content(BaseModel):
             feature=feature,
             labels=labels,
         )
+    
+
+    @classmethod
+    def from_file(cls, path: str):
+        import mimetypes
+        m = mimetypes.guess_extension(path)
+        with open(path, "rb") as f:
+            return cls(content_type=m, data=f.read())
 
     
 class Extractor(ABC):
 
+    system_dependencies: List[str] = []
+
+    python_dependencies: List[str] = []
+
+    description: str = ""
+
+    input_mimes = ["text/plain"]
+
     @abstractmethod
     def extract(
-        self, content: List[Content], params: Type[BaseModel]=None) -> List[List[Content]]:
+        self, content: Content, params: Type[BaseModel]=None) -> List[Content]:
         """
         Extracts information from the content.
         """
         pass
 
-
-    @classmethod
     @abstractmethod
-    def schemas(cls) -> ExtractorSchema:
-        """
-        Returns a list of options for indexing.
-        """
-        return NotImplemented
+    def sample_input(self) -> Content:
+        pass
+    
+    def run_sample_input(self) -> List[Content]:
+        return self.extract(self.sample_input())
 
 class ExtractorWrapper:
 
@@ -74,27 +91,37 @@ class ExtractorWrapper:
         self._module = import_module(module_name)
         self._cls = getattr(self._module, class_name)
         self._param_cls = get_type_hints(self._cls.extract).get("params", None)
-        self._instance = self._cls()
+        self._instance: Extractor = self._cls()
 
     def extract(self, content: List[Content], params: Json) -> List[List[Content]]:
         params_dict = json.loads(params)
         param_instance = self._param_cls.model_validate(params_dict) if self._param_cls else None
-        content_list = []
-        for c in content:
-            content_list.append(Content(content_type=c.content_type, data=bytes(c.data)))
-        return self._instance.extract(content_list, param_instance)
 
-def extractor_schema(module_name: str, class_name: str) -> InternalExtractorSchema:
-    module = import_module(module_name)
-    cls = getattr(module, class_name)
-    param_cls = get_type_hints(cls.extract).get("params", None)
-    schema: ExtractorSchema = cls.schemas()
-    embedding_schemas = {}
-    if schema is not None:
-        for k,v in schema.features.items():
-            if isinstance(v, EmbeddingSchema):
-                embedding_schemas[k] = v
-                continue
-    json_schema = param_cls.model_json_schema() if param_cls else {}
-    json_schema['additionalProperties'] = False
-    return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_params=json.dumps(json_schema))
+        # This is because the rust side does batching and on python we don't batch 
+        out = []
+        for c in content:
+            extracted_data = self._instance.extract(Content(content_type=c.content_type, data=bytes(c.data)), param_instance)
+            out.append(extracted_data)
+        return out
+    
+    def schema(self, input_params: Type[BaseModel] = None) -> InternalExtractorSchema:
+        s_input = self._instance.sample_input()
+        input_mimes = self._instance.input_mimes
+        # Come back to this when we can support schemas based on user defined input params
+        if input_params is None:
+            input_params = self._param_cls() if self._param_cls else None
+        out_c: List[Content] = self._instance.extract(s_input, input_params)
+        embedding_schemas = {}
+        metadata_schemas = {}
+        json_schema = self._param_cls.model_json_schema() if self._param_cls else {}
+        json_schema['additionalProperties'] = False
+        for content in out_c:
+            if content.feature is not None:
+                if content.feature.feature_type == "embedding":
+                    embedding_value: Embedding = Embedding.parse_raw(content.feature.value)
+                    embedding_schema = EmbeddingSchema(dim=len(embedding_value.data), distance=embedding_value.distance)
+                    embedding_schemas[content.feature.name] = embedding_schema
+                elif content.feature.feature_type == "metadata":
+                    metadata_schemas[content.feature.name] = json.loads(content.feature.value)
+
+        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_mimes=input_mimes, input_params=json.dumps(json_schema))

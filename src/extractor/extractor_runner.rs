@@ -53,7 +53,7 @@ impl ExtractorRunner {
             .embedding_schemas
             .into_iter()
             .map(|(name, schema)| {
-                let distance = IndexDistance::from_str(&schema.distance_metric).unwrap();
+                let distance = IndexDistance::from_str(&schema.distance).unwrap();
                 (
                     name,
                     api::ExtractorOutputSchema::Embedding(api::EmbeddingSchema {

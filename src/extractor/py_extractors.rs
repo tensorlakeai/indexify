@@ -140,17 +140,21 @@ impl PythonExtractor {
             let extractor_wrapper = extractor_wrapper_class
                 .call1((entry_point.clone(), class_name.clone()))?
                 .into_py(py);
-            let args = (entry_point, class_name);
-            let schemas = module.call_method1("extractor_schema", args)?.into_py(py);
+            let schemas = extractor_wrapper.call_method0(py, "schema")?.into_py(py);
             let input_params: String = schemas.getattr(py, "input_params")?.extract(py)?;
+            let input_mimes: Vec<String> = schemas.getattr(py, "input_mimes")?.extract(py)?;
             let input_params = serde_json::from_str(&input_params)?;
+            let metadata_schemas: HashMap<String, serde_json::Value> = HashMap::new(); // TODO extract this properly
             let embedding_schemas: HashMap<String, EmbeddingSchema> = schemas
                 .getattr(py, "embedding_schemas")?
                 .extract(py)
                 .map_err(|e| anyhow!(e.to_string()))?;
+
             let extractor_schema = ExtractorSchema {
                 embedding_schemas,
+                metadata_schemas,
                 input_params,
+                input_mimes,
             };
             Ok((extractor_wrapper, extractor_schema))
         })?;
@@ -254,7 +258,7 @@ mod tests {
         let input_params = serde_json::from_str("{\"a\":5,\"b\":\"recursive\"}").unwrap();
 
         let extracted_data = extractor.extract(content.clone(), input_params).unwrap();
-        assert_eq!(extracted_data.len(), 1);
+        assert_eq!(extracted_data.len(), 2);
         assert_eq!(extracted_data.first().unwrap().len(), 3);
         assert_eq!(
             extracted_data.first().unwrap().first().unwrap().mime,
@@ -264,7 +268,7 @@ mod tests {
         // Pass in empty input params
 
         let extracted_data1 = extractor.extract(content, json!({})).unwrap();
-        assert_eq!(extracted_data1.len(), 1);
+        assert_eq!(extracted_data1.len(), 2);
     }
 
     #[test]
@@ -286,12 +290,21 @@ mod tests {
     }
 
     #[test]
-    fn extract_index_schema() {
+    fn extractor_schema() {
         let extractor =
             PythonExtractor::new("indexify_extractor_sdk.mock_extractor", "MockExtractor").unwrap();
 
         let extractor_schema = extractor.schemas().unwrap();
 
         assert_ne!(extractor_schema.input_params, json!({}));
+
+        assert_eq!(
+            extractor_schema.input_mimes,
+            vec![
+                "text/plain".to_string(),
+                "application/pdf".to_string(),
+                "image/jpeg".to_string()
+            ]
+        );
     }
 }
