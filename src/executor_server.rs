@@ -100,9 +100,10 @@ impl ExecutorServer {
             .layer(metrics);
 
         info!(
-            "starting executor server on: {}, advertising: {}",
+            "starting executor server on: {}, advertising: {}, server id: {} ",
             listen_addr,
-            advertise_addr.clone()
+            advertise_addr.clone(),
+            executor.executor_id
         );
         let (shutdown_tx, shutdown_rx) = watch::channel::<()>(());
         let (heartbeat_tx, heartbeat_rx) = watch::channel::<HeartbeatRequest>(HeartbeatRequest {
