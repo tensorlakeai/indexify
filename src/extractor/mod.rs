@@ -56,7 +56,7 @@ pub type ExtractorTS = Arc<dyn Extractor + Sync + Send>;
 #[derive(Debug, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct ExtractedEmbeddings {
     pub content_id: String,
-    pub embeddings: Vec<f32>,
+    pub embedding: Vec<f32>,
 }
 
 pub async fn run_docker_extractor(

@@ -70,6 +70,12 @@ pub struct EmbeddingSchema {
     pub distance: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Embedding {
+    pub values: Vec<f32>,
+    pub distance: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputSchema {
     #[serde(rename = "embedding")]

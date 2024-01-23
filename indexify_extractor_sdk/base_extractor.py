@@ -11,7 +11,7 @@ class EmbeddingSchema(BaseModel):
     distance: str
 
 class Embedding(BaseModel):
-    data: List[float]
+    values: List[float]
     distance: str
 
 class InternalExtractorSchema(BaseModel):
@@ -25,8 +25,8 @@ class Feature(BaseModel):
     value: str
 
     @classmethod
-    def embedding(cls, value: List[float], name: str="embedding", distance="cosine"):
-        embedding = Embedding(data=value, distance=distance)
+    def embedding(cls, values: List[float], name: str="embedding", distance="cosine"):
+        embedding = Embedding(values=values, distance=distance)
         return cls(feature_type="embedding", name=name, value=embedding.model_dump_json())
     
     @classmethod
@@ -119,7 +119,7 @@ class ExtractorWrapper:
             if content.feature is not None:
                 if content.feature.feature_type == "embedding":
                     embedding_value: Embedding = Embedding.parse_raw(content.feature.value)
-                    embedding_schema = EmbeddingSchema(dim=len(embedding_value.data), distance=embedding_value.distance)
+                    embedding_schema = EmbeddingSchema(dim=len(embedding_value.values), distance=embedding_value.distance)
                     embedding_schemas[content.feature.name] = embedding_schema
                 elif content.feature.feature_type == "metadata":
                     metadata_schemas[content.feature.name] = json.loads(content.feature.value)

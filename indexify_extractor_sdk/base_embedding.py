@@ -36,7 +36,7 @@ class BaseEmbeddingExtractor(Extractor):
         for chunk, embeddings in zip(chunks, embeddings_list):
             content = Content.from_text(
                 text=chunk,
-                feature=Feature.embedding(value=embeddings),
+                feature=Feature.embedding(values=embeddings),
             )
             extracted_embeddings.append(content)
         return extracted_embeddings
