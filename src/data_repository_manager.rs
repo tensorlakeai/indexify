@@ -29,7 +29,7 @@ use crate::{
         ListIndexesRequest,
         UpdateTaskRequest,
     },
-    internal_api::{self, OutputSchema},
+    internal_api::{self, Embedding, OutputSchema},
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -409,14 +409,20 @@ impl DataRepositoryManager {
             if let Some(feature) = content.feature.clone() {
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
-                        let emebedding: Vec<f32> = serde_json::from_value(feature.data)?;
+                        let embedding_payload: Embedding = serde_json::from_value(feature.data)
+                            .map_err(|e| {
+                                anyhow!("unable to get embedding from extracted data {}", e)
+                            })?;
                         let embeddings = ExtractedEmbeddings {
                             content_id: content_metadata.id.to_string(),
-                            embeddings: emebedding,
+                            embedding: embedding_payload.values,
                         };
                         self.vector_index_manager
                             .add_embedding(&index_name.clone().unwrap(), vec![embeddings])
-                            .await?;
+                            .await
+                            .map_err(|e| {
+                                anyhow!("unable to add embedding to vector index {}", e)
+                            })?;
                     }
                     api::FeatureType::Metadata => {
                         let extracted_attributes = ExtractedMetadata::new(

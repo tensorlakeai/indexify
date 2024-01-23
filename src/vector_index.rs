@@ -66,7 +66,7 @@ impl VectorIndexManager {
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
             let vector_chunk =
-                VectorChunk::new(embedding.content_id.clone(), embedding.embeddings.clone());
+                VectorChunk::new(embedding.content_id.clone(), embedding.embedding.clone());
             vector_chunks.push(vector_chunk);
         });
         self.vector_db

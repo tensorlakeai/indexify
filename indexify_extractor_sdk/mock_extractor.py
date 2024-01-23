@@ -21,10 +21,10 @@ class MockExtractor(Extractor):
     ) -> List[Content]:
         return [
                 Content.from_text(
-                    text="Hello World", feature=Feature.embedding(value=[1, 2, 3])
+                    text="Hello World", feature=Feature.embedding(values=[1, 2, 3])
                 ),
                 Content.from_text(
-                    text="Pipe Baz", feature=Feature.embedding(value=[1, 2, 3])
+                    text="Pipe Baz", feature=Feature.embedding(values=[1, 2, 3])
                 ),
                 Content.from_text(
                     text="Hello World",
@@ -43,10 +43,10 @@ class MockExtractorNoInputParams(Extractor):
     def extract(self, content: Content, params=None) -> List[Content]:
         return [
                 Content.from_text(
-                    text="Hello World", feature=Feature.embedding(value=[1, 2, 3])
+                    text="Hello World", feature=Feature.embedding(values=[1, 2, 3])
                 ),
                 Content.from_text(
-                    text="Pipe Baz", feature=Feature.embedding(value=[1, 2, 3])
+                    text="Pipe Baz", feature=Feature.embedding(values=[1, 2, 3])
                 ),
             ]
     
