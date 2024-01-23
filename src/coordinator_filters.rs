@@ -116,14 +116,10 @@ mod test_list_content_filter {
         assert_eq!(filtered_content[1].id, "3");
 
         // labels filter - empty - only matches if there are no labels
-        let filtered_content = list_content_filter(
-            content.clone().into_iter(),
-            "",
-            "",
-            Some(&HashMap::new()),
-        )
-        .into_iter()
-        .collect::<Vec<_>>();
+        let filtered_content =
+            list_content_filter(content.clone().into_iter(), "", "", Some(&HashMap::new()))
+                .into_iter()
+                .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id, "2");
         assert_eq!(filtered_content[1].id, "4");
