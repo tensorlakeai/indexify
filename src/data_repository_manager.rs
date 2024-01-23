@@ -216,10 +216,18 @@ impl DataRepositoryManager {
         &self,
         repository: &str,
         source_filter: &str,
+        parent_id_filter: &str,
+        labels_eq: Option<&HashMap<String, String>>,
     ) -> Result<Vec<api::ContentMetadata>> {
         let req = indexify_coordinator::ListContentRequest {
             repository: repository.to_string(),
             source: source_filter.to_string(),
+            parent_id: parent_id_filter.to_string(),
+            has_labels_eq_filter: labels_eq.is_some(),
+            labels_eq_filter: match labels_eq {
+                Some(labels) => labels.clone().to_owned(),
+                None => HashMap::new(),
+            },
         };
         let response = self
             .coordinator_client

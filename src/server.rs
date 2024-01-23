@@ -503,12 +503,16 @@ async fn add_texts(
 async fn list_content(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    filter: Option<Query<ContentSourceFilter>>,
+    filter: Query<super::api::ListContentParams>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
-    let source_filter = filter.map(|f| f.source.clone()).unwrap_or("".to_string());
     let content_list = state
         .repository_manager
-        .list_content(&repository_name, &source_filter)
+        .list_content(
+            &repository_name,
+            &filter.source,
+            &filter.parent_id,
+            filter.labels_eq.as_ref(),
+        )
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(ListContentResponse { content_list }))

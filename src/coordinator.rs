@@ -143,15 +143,17 @@ impl Coordinator {
         &self,
         repository: &str,
         source: &str,
+        parent_id: &str,
+        labels: Option<&HashMap<String, String>>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content = self.shared_state.list_content(repository).await?;
-        if source.is_empty() {
-            return Ok(content);
-        }
-        Ok(content
-            .into_iter()
-            .filter(|c| c.source == source)
-            .collect::<Vec<internal_api::ContentMetadata>>())
+        let content = self
+            .shared_state
+            .list_content(repository)
+            .await?
+            .into_iter();
+        list_content_filter(content, source, parent_id, labels)
+            .map(|c| Ok(c))
+            .collect::<Result<Vec<internal_api::ContentMetadata>>>()
     }
 
     pub async fn list_bindings(
