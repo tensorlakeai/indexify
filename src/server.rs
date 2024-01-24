@@ -503,7 +503,7 @@ async fn add_texts(
 async fn list_content(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
-    filter: Query<super::api::ListContentParams>,
+    filter: Query<super::api::ListContentFilters>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
     let content_list = state
         .repository_manager

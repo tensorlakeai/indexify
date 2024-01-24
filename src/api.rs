@@ -280,7 +280,7 @@ impl From<attribute_index::ExtractedMetadata> for ExtractedMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
-pub struct ListContentParams {
+pub struct ListContentFilters {
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default

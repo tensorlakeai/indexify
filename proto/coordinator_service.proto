@@ -179,9 +179,7 @@ message ListContentRequest {
     string repository = 1;
     string source = 2;
     string parent_id = 3;
-
-    bool has_labels_eq_filter = 4;
-    map<string, string> labels_eq_filter = 5;
+    map<string, string> labels_eq = 4;
 }
 
 message ListContentResponse {

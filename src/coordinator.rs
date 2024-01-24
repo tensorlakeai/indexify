@@ -11,6 +11,7 @@ use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
+    coordinator_filters::*,
     internal_api::{
         self,
         ContentMetadata,
@@ -144,14 +145,14 @@ impl Coordinator {
         repository: &str,
         source: &str,
         parent_id: &str,
-        labels: Option<&HashMap<String, String>>,
+        labels_eq: &HashMap<String, String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let content = self
             .shared_state
             .list_content(repository)
             .await?
             .into_iter();
-        list_content_filter(content, source, parent_id, labels)
+        list_content_filter(content, source, parent_id, labels_eq)
             .map(|c| Ok(c))
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
     }

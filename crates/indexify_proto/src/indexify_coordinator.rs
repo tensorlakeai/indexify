@@ -218,10 +218,8 @@ pub struct ListContentRequest {
     pub source: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub parent_id: ::prost::alloc::string::String,
-    #[prost(bool, tag = "4")]
-    pub has_labels_eq_filter: bool,
-    #[prost(map = "string, string", tag = "5")]
-    pub labels_eq_filter: ::std::collections::HashMap<
+    #[prost(map = "string, string", tag = "4")]
+    pub labels_eq: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,

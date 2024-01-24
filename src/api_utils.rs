@@ -244,10 +244,14 @@ where
     let labels = String::deserialize(deserializer)?;
     let labels: Vec<&str> = labels.split(',').collect();
 
-    // if there's one label and it's an empty string, then it's an empty filter -
-    // return an empty HashMap
+    // if there's one label and it's an empty string (i.e. labels_eq=)
+    // this is invalid - if a user wants to match on no labels,
+    // they should remove the labels_eq filter entirely
     if labels.len() == 1 && labels[0].is_empty() {
-        return Ok(Some(HashMap::new()));
+        return Err(err_formatter(
+            "query invalid".to_string(),
+            "must have at least one label - if you want to match on no labels, remove the labels_eq filter entirely".to_string(),
+        ));
     }
 
     // if there are labels, then parse them
@@ -293,12 +297,12 @@ mod test_deserialize_labels_eq_filter {
     use hyper::Uri;
 
     use super::*;
-    use crate::api::ListContentParams;
+    use crate::api::ListContentFilters;
 
     /// 1. ?source=foo&labels_eq=key:value
     #[test]
     fn test_key_value() {
-        let expected_query: Query<ListContentParams> = Query(ListContentParams {
+        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -311,14 +315,14 @@ mod test_deserialize_labels_eq_filter {
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value"
             .parse()
             .unwrap();
-        let query: Query<ListContentParams> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
     /// 2. ?source=foo&labels_eq=key:
     #[test]
     fn test_key_empty_value() {
-        let expected_query: Query<ListContentParams> = Query(ListContentParams {
+        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -331,31 +335,25 @@ mod test_deserialize_labels_eq_filter {
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:"
             .parse()
             .unwrap();
-        let query: Query<ListContentParams> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
     /// 3. ?source=foo&labels_eq=
-    /// ?source=foo&labels_eq= without a key or value matches on no labels
+    /// ?source=foo&labels_eq= is invalid and throws an error
     #[test]
-    fn test_empty() {
-        let expected_query: Query<ListContentParams> = Query(ListContentParams {
-            source: "foo".to_string(),
-            parent_id: "".to_string(),
-            labels_eq: Some(HashMap::new()),
-        });
-
+    fn test_empty_is_invalid() {
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq="
             .parse()
             .unwrap();
-        let query: Query<ListContentParams> = Query::try_from_uri(&query_str).unwrap();
-        assert_eq!(query.0, expected_query.0);
+        let query: Result<Query<ListContentFilters>, _> = Query::try_from_uri(&query_str);
+        assert!(query.is_err(), "query should be invalid: \"labels_eq=\"");
     }
 
     /// 4. ?source=foo&labels_eq=key:value&labels_eq=key2:value2
     #[test]
     fn test_multiple_key_value() {
-        let expected_query: Query<ListContentParams> = Query(ListContentParams {
+        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -369,14 +367,14 @@ mod test_deserialize_labels_eq_filter {
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:value2"
             .parse()
             .unwrap();
-        let query: Query<ListContentParams> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
     /// 5. ?source=foo&labels_eq=key:value&labels_eq=key2:
     #[test]
     fn test_multiple_key_value_key_empty_value() {
-        let expected_query: Query<ListContentParams> = Query(ListContentParams {
+        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -390,7 +388,7 @@ mod test_deserialize_labels_eq_filter {
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:"
             .parse()
             .unwrap();
-        let query: Query<ListContentParams> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
@@ -402,6 +400,7 @@ mod test_deserialize_labels_eq_filter {
             "labels_eq=key:value:key2",
             "labels_eq=:value",
             "labels_eq=key",
+            "labels_eq=",
             "labels_eq=:",
             "labels_eq=key:value&labels_eq=key2:value2",
         ]
@@ -411,7 +410,7 @@ mod test_deserialize_labels_eq_filter {
         .collect();
 
         for query_str in invalid_query_params {
-            let query: Result<Query<ListContentParams>, _> = Query::try_from_uri(&query_str);
+            let query: Result<Query<ListContentFilters>, _> = Query::try_from_uri(&query_str);
             assert!(query.is_err(), "query should be invalid: {}", query_str);
         }
     }
