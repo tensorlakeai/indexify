@@ -26,6 +26,7 @@ byteorder = "1"
 clap = { version = "4", features = ["derive"] }
 figment = { version = "0.10", features = ["yaml", "env"] }
 flexbuffers = { version = "2.0" }
+futures = { version = "0.3" }
 h2 = { version = "0.4.1" }
 hostname = { version = "0.3" }
 hyper = { version = "1", features = ["full"] }
@@ -128,6 +129,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 figment = { workspace = true }
 flexbuffers = { workspace = true }
+futures = { workspace = true }
 h2 = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true }

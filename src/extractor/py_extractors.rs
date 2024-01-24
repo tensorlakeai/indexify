@@ -33,7 +33,6 @@ pub struct PyContent {
     pub feature: Option<PyFeature>,
     #[pyo3(get, set)]
     pub labels: Option<HashMap<String, String>>,
-
 }
 
 impl TryFrom<PyContent> for internal_api::Content {
@@ -89,7 +88,7 @@ impl PyContent {
             content_type: mime::TEXT_PLAIN.to_string(),
             data: data.into_bytes().to_vec(),
             feature: None,
-            labels: labels,
+            labels,
         }
     }
 
@@ -242,7 +241,7 @@ impl Extractor for PythonExtractor {
                         }
                         None => None,
                     };
-                    let py_labels: Option<PyObject> = 
+                    let py_labels: Option<PyObject> =
                         py_content.getattr(py, "labels")?.extract(py)?;
 
                     let labels = match py_labels {
@@ -256,7 +255,7 @@ impl Extractor for PythonExtractor {
                         mime,
                         bytes: data,
                         feature,
-                        labels: labels,
+                        labels,
                     });
                 }
                 extracted_content.push(temp);
@@ -276,18 +275,11 @@ mod tests {
 
     #[test]
     fn extract_content() {
-
-        let test_labels = Some(HashMap::from([
-            ("url".to_string(), "test.com".to_string()),
-        ]));
-        let content1 = PyContent::new(
-            "My name is Donald and I live in Seattle".to_string(),
-        None)
+        let test_labels = Some(HashMap::from([("url".to_string(), "test.com".to_string())]));
+        let content1 = PyContent::new("My name is Donald and I live in Seattle".to_string(), None)
             .try_into()
             .unwrap();
-        let content2 = PyContent::new(
-            "My name is Donald and I live in Seattle".to_string(),
-        None)
+        let content2 = PyContent::new("My name is Donald and I live in Seattle".to_string(), None)
             .try_into()
             .unwrap();
         let content = vec![content1, content2];

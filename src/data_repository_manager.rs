@@ -21,13 +21,12 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskRequest,
 };
 use nanoid::nanoid;
-use tokio::task::{self, JoinHandle};
 use tracing::{error, info};
 
 use crate::{
     api::{self, Content, EmbeddingSchema},
     attribute_index::{ExtractedMetadata, MetadataIndexManager},
-    blob_storage::{BlobStorageBuilder, BlobStorageTS},
+    blob_storage::{BlobStorage, BlobStorageConfig, BlobStorageReader, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
@@ -37,7 +36,7 @@ use crate::{
 pub struct DataRepositoryManager {
     vector_index_manager: Arc<VectorIndexManager>,
     attribute_index_manager: Arc<MetadataIndexManager>,
-    blob_storage: BlobStorageTS,
+    blob_storage: BlobStorage,
     coordinator_client: Arc<CoordinatorClient>,
 }
 
@@ -51,9 +50,10 @@ impl DataRepositoryManager {
     pub async fn new(
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<MetadataIndexManager>,
-        blob_storage: BlobStorageTS,
+        blob_storage_config: BlobStorageConfig,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
+        let blob_storage = BlobStorage::new_with_config(blob_storage_config);
         Ok(Self {
             vector_index_manager,
             attribute_index_manager,
@@ -144,7 +144,10 @@ impl DataRepositoryManager {
             .await?
             .into_inner();
         let mut index_names = Vec::new();
-        let extractor = response.extractor.ok_or(anyhow!("extractor {:?} not found", extractor_binding.extractor))?;
+        let extractor = response.extractor.ok_or(anyhow!(
+            "extractor {:?} not found",
+            extractor_binding.extractor
+        ))?;
         for (name, output_schema) in &extractor.outputs {
             let output_schema: internal_api::OutputSchema = serde_json::from_str(output_schema)?;
             let index_name = response.output_index_name_mapping.get(name).unwrap();
@@ -295,26 +298,24 @@ impl DataRepositoryManager {
             .get_content_metadata(req)
             .await?;
         let content_metadata_list = response.into_inner().content_list;
-        let mut tasks =
-            Vec::<JoinHandle<Result<_, anyhow::Error>>>::with_capacity(content_metadata_list.len());
-        let mut content_list = Vec::new();
-        for content in content_metadata_list {
-            tasks.push(task::spawn(async move {
-                let blob_reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
-                let bytes = blob_reader.get().await?;
-                let content = Content {
-                    content_type: content.mime,
-                    bytes,
-                    labels: content.labels.clone(),
-                    feature: None,
-                };
-                Ok(content)
-            }));
-        }
-        for task in tasks {
-            let content = task.await.unwrap()?;
-            content_list.push(content);
-        }
+        let content_list = self
+            .blob_storage
+            .get(
+                &content_metadata_list
+                    .iter()
+                    .map(|item| item.storage_url.as_str())
+                    .collect::<Vec<_>>(),
+            )
+            .await?
+            .into_iter()
+            .zip(content_metadata_list.into_iter())
+            .map(|(bytes, content)| Content {
+                content_type: content.mime,
+                bytes,
+                labels: content.labels.clone(),
+                feature: None,
+            })
+            .collect();
         Ok(content_list)
     }
 

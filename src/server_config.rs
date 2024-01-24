@@ -12,6 +12,8 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::blob_storage::{BlobStorageConfig, DiskStorageConfig};
+
 fn default_executor_port() -> u64 {
     0
 }
@@ -27,24 +29,6 @@ fn default_coordinator_port() -> u64 {
 
 fn default_raft_port() -> u64 {
     8970
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct S3Config {
-    pub bucket: String,
-    pub region: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiskStorageConfig {
-    pub path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlobStorageConfig {
-    pub backend: String,
-    pub s3: Option<S3Config>,
-    pub disk: Option<DiskStorageConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::Display)]
@@ -388,7 +372,6 @@ impl Default for ServerConfig {
             db_url: "postgres://postgres:postgres@localhost/indexify".into(),
             coordinator_addr: format!("localhost:{}", default_coordinator_port()),
             blob_storage: BlobStorageConfig {
-                backend: "disk".to_string(),
                 s3: None,
                 disk: Some(DiskStorageConfig {
                     path: "blobs".to_string(),
