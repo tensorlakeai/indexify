@@ -130,13 +130,7 @@ impl Default for VectorIndexConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExtractorConfig {
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub module: String,
-    pub gpu: bool,
-    pub system_dependencies: Vec<String>,
-    pub python_dependencies: Vec<String>,
+    pub path: String,
 }
 
 impl ExtractorConfig {
@@ -200,6 +194,8 @@ pub struct ExecutorConfig {
     pub coordinator_addr: String,
     #[serde(default)]
     pub ingestion_api_addr: String,
+    #[serde(default)]
+    pub extractor_path: String,
 }
 
 impl Default for ExecutorConfig {
@@ -210,6 +206,7 @@ impl Default for ExecutorConfig {
             listen_port: default_executor_port(),
             coordinator_addr: format!("localhost:{}", default_coordinator_port()),
             ingestion_api_addr: format!("localhost:{}", default_server_port()),
+            extractor_path: "".into(),
         }
     }
 }
@@ -254,6 +251,11 @@ impl ExecutorConfig {
 
     pub fn with_ingestion_addr(mut self, addr: String) -> Self {
         self.ingestion_api_addr = addr;
+        self
+    }
+
+    pub fn with_extractor_path(mut self, path: String) -> Self {
+        self.extractor_path = path;
         self
     }
 }

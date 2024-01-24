@@ -28,13 +28,12 @@ use crate::{
     executor::{heartbeat, ExtractorExecutor},
     extractor::{extractor_runner, py_extractors, python_path},
     internal_api::{Content, ExtractRequest, ExtractResponse},
-    server_config::{ExecutorConfig, ExtractorConfig},
+    server_config::ExecutorConfig,
     task_store::TaskStore,
 };
 
 pub struct ExecutorServer {
     executor_config: Arc<ExecutorConfig>,
-    extractor_config_path: String,
     coordinator_client: Arc<CoordinatorClient>,
 }
 
@@ -45,18 +44,12 @@ pub struct ApiEndpointState {
 }
 
 impl ExecutorServer {
-    pub async fn new(
-        extractor_config_path: &str,
-        executor_config: Arc<ExecutorConfig>,
-    ) -> Result<Self> {
-        // Set Python Path
-        python_path::set_python_path(extractor_config_path)?;
+    pub async fn new(executor_config: Arc<ExecutorConfig>) -> Result<Self> {
         let coordinator_client =
             Arc::new(CoordinatorClient::new(&executor_config.coordinator_addr));
 
         Ok(Self {
             executor_config,
-            extractor_config_path: extractor_config_path.into(),
             coordinator_client,
         })
     }
@@ -67,11 +60,11 @@ impl ExecutorServer {
         let listen_addr = listener.local_addr()?.to_string();
         let listen_port = listener.local_addr()?.port();
         let advertise_addr = format!("{}:{}", self.executor_config.advertise_if, listen_port);
-        let extractor_config = ExtractorConfig::from_path(&self.extractor_config_path)?;
-        let extractor =
-            py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.module)?;
-        let extractor_runner =
-            extractor_runner::ExtractorRunner::new(Arc::new(extractor), extractor_config);
+        python_path::set_python_path(&self.executor_config.extractor_path)?;
+        let extractor = py_extractors::PythonExtractor::new_from_extractor_path(
+            &self.executor_config.extractor_path,
+        )?;
+        let extractor_runner = extractor_runner::ExtractorRunner::new(Arc::new(extractor));
         let task_store = Arc::new(TaskStore::new());
         let executor = Arc::new(
             ExtractorExecutor::new(

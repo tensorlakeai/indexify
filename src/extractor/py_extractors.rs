@@ -140,17 +140,33 @@ impl PythonExtractor {
             let extractor_wrapper = extractor_wrapper_class
                 .call1((entry_point.clone(), class_name.clone()))?
                 .into_py(py);
-            let schemas = extractor_wrapper.call_method0(py, "schema")?.into_py(py);
-            let input_params: String = schemas.getattr(py, "input_params")?.extract(py)?;
-            let input_mimes: Vec<String> = schemas.getattr(py, "input_mime_types")?.extract(py)?;
+            let description = extractor_wrapper.call_method0(py, "describe")?.into_py(py);
+            let input_params: String = description.getattr(py, "input_params")?.extract(py)?;
+            let input_mimes: Vec<String> =
+                description.getattr(py, "input_mime_types")?.extract(py)?;
             let input_params = serde_json::from_str(&input_params)?;
             let metadata_schemas: HashMap<String, serde_json::Value> = HashMap::new(); // TODO extract this properly
-            let embedding_schemas: HashMap<String, EmbeddingSchema> = schemas
+            let embedding_schemas: HashMap<String, EmbeddingSchema> = description
                 .getattr(py, "embedding_schemas")?
                 .extract(py)
                 .map_err(|e| anyhow!(e.to_string()))?;
 
+            let name: String = description.getattr(py, "name")?.extract(py)?;
+            let text_description: String = description.getattr(py, "description")?.extract(py)?;
+            let python_dependencies: Vec<String> = description
+                .getattr(py, "python_dependencies")?
+                .extract(py)?;
+            let system_dependencies: Vec<String> = description
+                .getattr(py, "system_dependencies")?
+                .extract(py)?;
+            let version: String = description.getattr(py, "version")?.extract(py)?;
+
             let extractor_schema = ExtractorSchema {
+                name,
+                version,
+                description: text_description,
+                python_dependencies,
+                system_dependencies,
                 embedding_schemas,
                 metadata_schemas,
                 input_params,
@@ -306,5 +322,7 @@ mod tests {
                 "image/jpeg".to_string()
             ]
         );
+
+        assert_eq!(extractor_schema.version, "0.0.0".to_string());
     }
 }
