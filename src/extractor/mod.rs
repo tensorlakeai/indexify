@@ -13,7 +13,7 @@ use tokio_stream::StreamExt;
 pub mod extractor_runner;
 pub mod py_extractors;
 
-use crate::{api::ExtractorDescription, internal_api::Content};
+use crate::{api, internal_api::Content};
 
 pub mod python_path;
 mod scaffold;
@@ -41,11 +41,16 @@ pub trait ExtractorCli {
         input_params: serde_json::Value,
     ) -> Result<Vec<Vec<Content>>>;
     fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<Content>>;
-    fn info(&self) -> Result<ExtractorDescription>;
+    fn info(&self) -> Result<api::ExtractorDescription>;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractorSchema {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub python_dependencies: Vec<String>,
+    pub system_dependencies: Vec<String>,
     pub embedding_schemas: HashMap<String, EmbeddingSchema>,
     pub metadata_schemas: HashMap<String, serde_json::Value>,
     pub input_params: serde_json::Value,

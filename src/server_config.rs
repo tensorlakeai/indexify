@@ -130,13 +130,7 @@ impl Default for VectorIndexConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExtractorConfig {
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub module: String,
-    pub gpu: bool,
-    pub system_dependencies: Vec<String>,
-    pub python_dependencies: Vec<String>,
+    pub path: String,
 }
 
 impl ExtractorConfig {

@@ -69,9 +69,8 @@ impl ExecutorServer {
         let advertise_addr = format!("{}:{}", self.executor_config.advertise_if, listen_port);
         let extractor_config = ExtractorConfig::from_path(&self.extractor_config_path)?;
         let extractor =
-            py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.module)?;
-        let extractor_runner =
-            extractor_runner::ExtractorRunner::new(Arc::new(extractor), extractor_config);
+            py_extractors::PythonExtractor::new_from_extractor_path(&extractor_config.path)?;
+        let extractor_runner = extractor_runner::ExtractorRunner::new(Arc::new(extractor));
         let task_store = Arc::new(TaskStore::new());
         let executor = Arc::new(
             ExtractorExecutor::new(

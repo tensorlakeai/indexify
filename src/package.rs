@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -10,11 +11,18 @@ use bollard::{
     service::BuildInfoAux,
     Docker,
 };
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tracing::info;
 use walkdir::WalkDir;
 
-use crate::server_config::ExtractorConfig;
+use crate::extractor::ExtractorSchema;
+
+#[derive(Serialize, Deserialize)]
+struct ExtractorConfig {
+    path: String,
+}
 
 #[derive(Template)]
 #[template(path = "Dockerfile.extractor", escape = "none")]
@@ -28,28 +36,43 @@ struct DockerfileTemplate<'a> {
 }
 
 pub struct Packager {
-    config_path: String,
-    config: ExtractorConfig,
+    extractor_path: String,
+    module_name: String,
+    extractor_description: ExtractorSchema,
     code_dir: PathBuf,
     dev: bool,
+    gpu: bool,
 }
 
 impl Packager {
-    pub fn new(path: String, dev: bool) -> Result<Packager> {
-        let path_buf = PathBuf::from(path.clone())
+    pub fn new(
+        extractor_description: ExtractorSchema,
+        dev: bool,
+        extractor_path: String,
+        gpu: bool,
+    ) -> Result<Packager> {
+        let extractor_paths = extractor_path.split(':').collect_vec();
+        if extractor_paths.len() != 2 {
+            return Err(anyhow!(
+                "specify extractor path as </path/to/extractor>:<module_name>"
+            ));
+        }
+        let extractor_path = extractor_paths[0].to_string();
+        let module_name = extractor_paths[1].to_string();
+        let path_buf = PathBuf::from(extractor_path.clone())
             .canonicalize()
             .map_err(|e| anyhow!(format!("unable to use path {}", e.to_string())))?;
         let code_dir_relative_path = path_buf
             .parent()
             .ok_or(anyhow!("unable to get parent of path"))?;
         info!("packaging extractor in: {:?}", code_dir_relative_path);
-
-        let config = ExtractorConfig::from_path(&path)?;
         Ok(Packager {
-            config_path: path,
-            config,
+            extractor_path,
+            module_name,
+            extractor_description,
             code_dir: code_dir_relative_path.into(),
             dev,
+            gpu,
         })
     }
 
@@ -66,7 +89,24 @@ impl Packager {
 
         self.add_directory_to_tar(&mut tar, &self.code_dir)?;
 
-        tar.append_path_with_name(self.config_path.clone(), "indexify.yaml")?;
+        // Add the indexify.yaml file to the tar
+        let indexify_extractor_config = ExtractorConfig {
+            path: format!(
+                "{}:{}",
+                self.extractor_path.clone(),
+                self.module_name.clone()
+            ),
+        };
+        let config_data = serde_yaml::to_string(&indexify_extractor_config)
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        let mut indexify_header = tar::Header::new_gnu();
+        indexify_header.set_path("indexify.yaml").unwrap();
+        indexify_header.set_size(config_data.len() as u64);
+        indexify_header.set_mode(0o755);
+        indexify_header.set_cksum();
+        tar.append(&indexify_header, config_data.as_bytes())
+            .unwrap();
 
         if self.dev {
             self.add_dev_dependencies(&mut tar)?;
@@ -77,12 +117,15 @@ impl Packager {
         c.write_all(&uncompressed).unwrap();
         let compressed = c.finish().unwrap();
 
+        fs::write("/tmp/indexify-extractor.tar.gz", &compressed)
+            .map_err(|e| anyhow!(e.to_string()))?;
+
         let build_image_options = BuildImageOptions {
-            t: self.config.name.clone(),
+            t: self.extractor_description.name.clone(),
             dockerfile: String::from("Dockerfile"),
             version: BuilderVersion::BuilderBuildKit,
             pull: true,
-            session: Some(self.config.name.clone()),
+            session: Some(self.extractor_description.name.clone()),
             ..Default::default()
         };
 
@@ -138,8 +181,8 @@ impl Packager {
         let (image_name, additional_pip_flags) =
             self.generate_base_image_name_for_matching_modify_dependencies()?;
 
-        let system_dependencies = self.config.system_dependencies.join(" ");
-        let python_dependencies = self.config.python_dependencies.join(" ");
+        let system_dependencies = self.extractor_description.system_dependencies.join(" ");
+        let python_dependencies = self.extractor_description.python_dependencies.join(" ");
         let additional_dev_setup = if self.dev {
             "
 COPY indexify_extractor_sdk /indexify/indexify_extractor_sdk
@@ -153,7 +196,7 @@ RUN python3 setup.py install
 RUN pip3 install --no-input indexify_extractor_sdk
 "
         };
-        let gpu = self.config.gpu;
+        let gpu = self.gpu;
         let tmpl = DockerfileTemplate {
             image_name: &image_name,
             system_dependencies: &system_dependencies,
@@ -170,15 +213,15 @@ RUN pip3 install --no-input indexify_extractor_sdk
         &self,
     ) -> Result<(String, &'static str), Error> {
         let pytorch = self
-            .config
+            .extractor_description
             .python_dependencies
             .iter()
             .position(|x| x.contains("torch"));
-        let gpu = self.config.gpu;
+        let gpu = self.gpu;
 
         let mut pytorch_version = None;
         if let Some(pos) = pytorch {
-            let dep_string = &self.config.python_dependencies[pos];
+            let dep_string = &self.extractor_description.python_dependencies[pos];
             if dep_string.contains("==") {
                 pytorch_version = Option::Some(dep_string.split("==").collect::<Vec<_>>()[1]);
             } else {
@@ -249,20 +292,21 @@ mod tests {
 
     #[test]
     fn test_create_docker_file() {
-        let config = ExtractorConfig {
+        let config = ExtractorSchema {
             name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
-            gpu: false,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
+            ..Default::default()
         };
         let packager = Packager {
-            config_path: "test".to_string(),
-            config,
+            extractor_path: "foo.py".to_string(),
+            module_name: "ModuleName".to_string(),
+            extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
+            gpu: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
 
@@ -292,20 +336,21 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
     #[test]
     fn test_create_docker_file_for_gpu() {
-        let config = ExtractorConfig {
+        let config = ExtractorSchema {
             name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
-            gpu: true,
             python_dependencies: vec!["numpy".to_string(), "pandas".to_string()],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
+            ..Default::default()
         };
         let packager = Packager {
-            config_path: "test".to_string(),
-            config,
+            module_name: "ModuleName".to_string(),
+            extractor_path: "foo.py".to_string(),
+            extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
+            gpu: true,
         };
         let docker_file = packager.create_docker_file().unwrap();
 
@@ -335,24 +380,25 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
     #[test]
     fn test_create_docker_file_for_gpu_with_pytorch() {
-        let config = ExtractorConfig {
+        let config = ExtractorSchema {
             name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
-            gpu: true,
             python_dependencies: vec![
                 "numpy".to_string(),
                 "pandas".to_string(),
                 "torch".to_string(),
             ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
+            ..Default::default()
         };
         let packager = Packager {
-            config_path: "test".to_string(),
-            config,
+            module_name: "ModuleName".to_string(),
+            extractor_path: "foo.py".to_string(),
+            extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
+            gpu: true,
         };
         assert!(packager.create_docker_file().is_err());
     }
@@ -360,24 +406,25 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
     #[test]
     fn test_create_docker_file_no_gpu_with_pytorch() {
         // cuda version was not specified - so use latest image.
-        let config = ExtractorConfig {
+        let config = ExtractorSchema {
             name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
-            gpu: false,
             python_dependencies: vec![
                 "numpy".to_string(),
                 "pandas".to_string(),
                 "torch".to_string(),
             ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
+            ..Default::default()
         };
         let packager = Packager {
-            config_path: "test".to_string(),
-            config,
+            module_name: "ModuleName".to_string(),
+            extractor_path: "foo.py".to_string(),
+            extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
+            gpu: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
 
@@ -407,24 +454,25 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
     #[test]
     fn test_create_docker_file_no_gpu_with_pytorch_version() {
-        let config = ExtractorConfig {
+        let config = ExtractorSchema {
             name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
-            gpu: false,
             python_dependencies: vec![
                 "numpy".to_string(),
                 "pandas".to_string(),
                 "torch==2.1.2".to_string(),
             ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
+            ..Default::default()
         };
         let packager = Packager {
-            config_path: "test".to_string(),
-            config,
+            module_name: "ModuleName".to_string(),
+            extractor_path: "foo.py".to_string(),
+            extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
+            gpu: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
 
@@ -454,24 +502,25 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
     #[test]
     fn test_create_docker_file_for_gpu_with_pytorch_version() {
-        let config = ExtractorConfig {
+        let config = ExtractorSchema {
             name: "test".to_string(),
-            module: "foo.py/ModuleName".to_string(),
             description: "test_description".into(),
             version: "0.1.0".to_string(),
-            gpu: true,
             python_dependencies: vec![
                 "numpy".to_string(),
                 "pandas".to_string(),
                 "torch==2.1.2".to_string(),
             ],
             system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
+            ..Default::default()
         };
         let packager = Packager {
-            config_path: "test".to_string(),
-            config,
+            module_name: "ModuleName".to_string(),
+            extractor_path: "foo.py".to_string(),
+            extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
+            gpu: true,
         };
         let docker_file = packager.create_docker_file().unwrap();
 

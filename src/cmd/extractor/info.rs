@@ -32,9 +32,8 @@ impl Args {
         python_path::set_python_path(&extractor_config_path).unwrap();
 
         let extractor_config = ExtractorConfig::from_path(&extractor_config_path).unwrap();
-        let extractor = PythonExtractor::new_from_extractor_path(&extractor_config.module).unwrap();
-        let extractor_runner =
-            extractor_runner::ExtractorRunner::new(Arc::new(extractor), extractor_config);
+        let extractor = PythonExtractor::new_from_extractor_path(&extractor_config.path).unwrap();
+        let extractor_runner = extractor_runner::ExtractorRunner::new(Arc::new(extractor));
         let info = extractor_runner.info().unwrap();
         println!("{}", serde_json::to_string_pretty(&info).unwrap());
     }

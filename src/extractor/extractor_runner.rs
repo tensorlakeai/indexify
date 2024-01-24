@@ -7,18 +7,16 @@ use crate::{
     api,
     api::{ExtractorDescription, IndexDistance},
     internal_api::Content,
-    server_config::ExtractorConfig,
 };
 
 #[derive(Debug)]
 pub struct ExtractorRunner {
     extractor: ExtractorTS,
-    config: ExtractorConfig,
 }
 
 impl ExtractorRunner {
-    pub fn new(extractor: ExtractorTS, config: ExtractorConfig) -> Self {
-        Self { extractor, config }
+    pub fn new(extractor: ExtractorTS) -> Self {
+        Self { extractor }
     }
 
     pub fn extract(
@@ -64,8 +62,8 @@ impl ExtractorRunner {
             })
             .collect();
         let extractor_description = ExtractorDescription {
-            name: self.config.name.clone(),
-            description: self.config.description.clone(),
+            name: extractor_schema.name.clone(),
+            description: extractor_schema.description.clone(),
             input_params: extractor_schema.input_params,
             outputs,
             input_mime_types: extractor_schema.input_mimes,
