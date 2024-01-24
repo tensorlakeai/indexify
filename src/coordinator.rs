@@ -5,12 +5,12 @@ use std::{
 };
 
 use anyhow::{anyhow, Ok, Result};
+use indexify_proto::indexify_coordinator;
 use jsonschema::JSONSchema;
 use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
-    indexify_coordinator,
     internal_api::{
         self,
         ContentMetadata,
@@ -365,8 +365,9 @@ fn content_request_to_content_metadata(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use indexify_proto::indexify_coordinator::ContentMetadata;
+
     use crate::{
-        indexify_coordinator::ContentMetadata,
         internal_api::ExtractorBinding,
         server_config::ServerConfig,
         state::App,

@@ -5,12 +5,13 @@ use std::{
 };
 
 use anyhow::Result;
+use indexify_proto::indexify_coordinator;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 
-use crate::{api, indexify_coordinator};
+use crate::api;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct Index {

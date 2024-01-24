@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .emit()?;
 
     tonic_build::configure()
-        .out_dir("src/")
+        .out_dir("crates/indexify_proto/src/")
         .type_attribute(
             "CreateContentRequest",
             "#[derive(serde::Deserialize, serde::Serialize)]",

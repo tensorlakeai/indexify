@@ -9,6 +9,16 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use indexify_proto::indexify_coordinator::{
+    self,
+    ContentMetadata,
+    CreateContentRequest,
+    CreateIndexRequest,
+    GetContentMetadataRequest,
+    Index,
+    ListIndexesRequest,
+    UpdateTaskRequest,
+};
 use nanoid::nanoid;
 use tracing::{error, info};
 
@@ -19,16 +29,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
-    indexify_coordinator::{
-        self,
-        ContentMetadata,
-        CreateContentRequest,
-        CreateIndexRequest,
-        GetContentMetadataRequest,
-        Index,
-        ListIndexesRequest,
-        UpdateTaskRequest,
-    },
     internal_api::{self, Embedding, OutputSchema},
     vector_index::{ScoredText, VectorIndexManager},
 };

@@ -25,10 +25,6 @@ mod data_repository_manager;
 mod executor;
 mod extractor_router;
 mod grpc_helper;
-#[rustfmt::skip]
-mod indexify_coordinator;
-#[rustfmt::skip]
-mod indexify_raft;
 mod internal_api;
 mod task_store;
 mod test_util;

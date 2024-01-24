@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use indexify_proto::indexify_coordinator::GetExtractorCoordinatesRequest;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::error;
@@ -9,7 +10,6 @@ use crate::{
     api::Content,
     caching::{Cache, NoOpCache},
     coordinator_client::CoordinatorClient,
-    indexify_coordinator::GetExtractorCoordinatesRequest,
     internal_api::{self, ExtractResponse},
 };
 

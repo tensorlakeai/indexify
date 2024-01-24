@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use itertools::Itertools;
 use network::Network;
 use openraft::{
@@ -32,7 +33,6 @@ use self::{
     store::{ExecutorId, StateChange, TaskId},
 };
 use crate::{
-    indexify_raft::raft_api_server::RaftApiServer,
     internal_api::{
         self,
         ContentMetadata,
