@@ -155,7 +155,7 @@ impl VectorDb for QdrantDb {
                 .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
             // TODO similarity score
             documents.push(SearchResult {
-                confidence_score: 0.0,
+                confidence_score: point.score,
                 content_id: qdrant_payload.chunk_id,
             });
         }

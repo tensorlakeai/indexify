@@ -227,7 +227,7 @@ Now let's rerun our query for documents related to "sports":
     curl -v -X POST http://localhost:8900/repositories/default/search \
     -H "Content-Type: application/json" \
     -d '{
-            "index": "minil6-embedding",
+            "index": "minil6.embedding",
             "query": "sports", 
             "k": 3
         }'
