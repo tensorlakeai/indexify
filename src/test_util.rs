@@ -21,9 +21,10 @@ pub mod db_utils {
         );
         ExtractorDescription {
             name: DEFAULT_TEST_EXTRACTOR.to_string(),
-            description: "test_desription".to_string(),
+            description: "test_description".to_string(),
             input_params: json!({}),
             outputs,
+            input_mime_types: vec!["text/plain".to_string()],
         }
     }
 }

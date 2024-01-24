@@ -91,6 +91,7 @@ pub struct ExtractorDescription {
     pub description: String,
     pub input_params: serde_json::Value,
     pub outputs: HashMap<String, OutputSchema>,
+    pub input_mime_types: Vec<String>,
 }
 
 impl From<ExtractorDescription> for indexify_coordinator::Extractor {
@@ -107,6 +108,7 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
             description: value.description,
             input_params: value.input_params.to_string(),
             outputs: output_schema,
+            input_mime_types: value.input_mime_types,
         }
     }
 }
@@ -123,6 +125,7 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
             description: value.description,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
             outputs: output_schema,
+            input_mime_types: value.input_mime_types,
         }
     }
 }
@@ -152,6 +155,7 @@ impl From<api::ExtractorDescription> for ExtractorDescription {
             description: extractor.description,
             input_params: extractor.input_params,
             outputs: output_schema,
+            input_mime_types: extractor.input_mime_types,
         }
     }
 }

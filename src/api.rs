@@ -183,6 +183,7 @@ pub enum ExtractorOutputSchema {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorDescription {
     pub name: String,
+    pub input_mime_types: Vec<String>,
     pub description: String,
     pub input_params: serde_json::Value,
     pub outputs: HashMap<String, ExtractorOutputSchema>,
@@ -200,6 +201,7 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
             description: value.description,
             input_params: value.input_params.to_string(),
             outputs,
+            input_mime_types: value.input_mime_types,
         }
     }
 }
@@ -218,6 +220,7 @@ impl TryFrom<indexify_coordinator::Extractor> for ExtractorDescription {
             description: value.description,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
             outputs,
+            input_mime_types: value.input_mime_types,
         })
     }
 }
