@@ -282,6 +282,7 @@ impl SledStorableTestFactory for ExtractorDescription {
                 );
                 outputs
             },
+            input_mime_types: vec!["text/plain".to_string()],
         }
     }
 }

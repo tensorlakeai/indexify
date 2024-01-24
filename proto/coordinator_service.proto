@@ -165,6 +165,7 @@ message Extractor {
     string description = 2;
     string input_params = 3;
     map<string, string> outputs = 4;
+    repeated string input_mime_types = 5;
 }
 
 message GetRepositoryRequest {

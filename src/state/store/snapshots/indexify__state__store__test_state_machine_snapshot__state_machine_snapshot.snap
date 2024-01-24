@@ -1,5 +1,6 @@
 ---
 source: src/state/store/mod.rs
+assertion_line: 873
 expression: sm
 ---
 StateMachine(
@@ -53,6 +54,9 @@ StateMachine(
             "outputs": [],
           }),
         },
+        input_mime_types: [
+          "text/plain",
+        ],
       ),
     ),
   },
@@ -188,6 +192,9 @@ StateMachine(
           "outputs": [],
         }),
       },
+      input_mime_types: [
+        "text/plain",
+      ],
     ),
   },
   repositories: [

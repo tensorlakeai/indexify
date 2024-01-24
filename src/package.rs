@@ -270,9 +270,9 @@ mod tests {
 
 RUN apt-get update -y && \
     apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    
     apt-get update -y && \
-    apt-get install -y indexify && \
+    
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
@@ -385,9 +385,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
 RUN apt-get update -y && \
     apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    
     apt-get update -y && \
-    apt-get install -y indexify && \
+    
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
@@ -432,9 +432,9 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
 
 RUN apt-get update -y && \
     apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    
     apt-get update -y && \
-    apt-get install -y indexify && \
+    
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 

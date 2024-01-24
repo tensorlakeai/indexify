@@ -68,6 +68,7 @@ impl ExtractorRunner {
             description: self.config.description.clone(),
             input_params: extractor_schema.input_params,
             outputs,
+            input_mime_types: extractor_schema.input_mimes,
         };
         Ok(extractor_description)
     }
