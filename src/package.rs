@@ -24,6 +24,7 @@ struct DockerfileTemplate<'a> {
     python_dependencies: &'a str,
     additional_pip_flags: &'a str,
     additional_dev_setup: &'a str,
+    gpu: bool,
 }
 
 pub struct Packager {
@@ -152,12 +153,14 @@ RUN python3 setup.py install
 RUN pip3 install --no-input indexify_extractor_sdk
 "
         };
+        let gpu = self.config.gpu;
         let tmpl = DockerfileTemplate {
             image_name: &image_name,
             system_dependencies: &system_dependencies,
             python_dependencies: &python_dependencies,
             additional_pip_flags,
             additional_dev_setup,
+            gpu,
         };
         tmpl.render().map_err(|e| anyhow!(e.to_string()))
     }
