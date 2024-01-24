@@ -24,7 +24,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub async fn run(self, extractor_config_path: String, _: GlobalArgs) {
+    pub async fn run(self, _: GlobalArgs) {
         let Self {
             advertise_addr,
             coordinator_addr,
@@ -39,7 +39,7 @@ impl Args {
                 .with_coordinator_addr(coordinator_addr)
                 .with_ingestion_addr(ingestion_addr),
         );
-        ExecutorServer::new(&extractor_config_path, executor_config)
+        ExecutorServer::new(executor_config)
             .await
             .expect("failed to create executor server")
             .run()

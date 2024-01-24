@@ -23,7 +23,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub async fn run(self, _: String, global_args: GlobalArgs) {
+    pub async fn run(self, global_args: GlobalArgs) {
         let Self {
             dev,
             extractor_path,

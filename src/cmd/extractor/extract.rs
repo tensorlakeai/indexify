@@ -30,7 +30,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub async fn run(self, _extractor_config_path: String, _: GlobalArgs) {
+    pub async fn run(self, _: GlobalArgs) {
         let Self {
             extractor_path,
             cache_dir,

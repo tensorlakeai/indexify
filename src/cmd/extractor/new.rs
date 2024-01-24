@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub async fn run(self, _extractor_config_path: String, _: GlobalArgs) {
+    pub async fn run(self, _: GlobalArgs) {
         let Self { path, name } = self;
 
         let current_dir = std::env::current_dir().expect("cannot get current directory");
