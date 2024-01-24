@@ -128,36 +128,6 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
     }
 }
 
-// impl From<api::ExtractorDescription> for ExtractorDescription {
-//     fn from(extractor: api::ExtractorDescription) -> ExtractorDescription {
-//         let mut output_schema = HashMap::new();
-//         for (output_name, embedding_schema) in extractor.outputs {
-//             match embedding_schema {
-//                 api::ExtractorOutputSchema::Embedding(embedding_schema) => {
-//                     let distance = embedding_schema.distance.to_string();
-//                     output_schema.insert(
-//                         output_name,
-//                         OutputSchema::Embedding(EmbeddingSchema {
-//                             dim: embedding_schema.dim,
-//                             distance,
-//                         }),
-//                     );
-//                 }
-//                 api::ExtractorOutputSchema::Metadata(schema) => {
-//                     output_schema.insert(output_name,
-// OutputSchema::Attributes(schema));                 }
-//             }
-//         }
-//         Self {
-//             name: extractor.name,
-//             description: extractor.description,
-//             input_params: extractor.input_params,
-//             outputs: output_schema,
-//             input_mime_types: extractor.input_mime_types,
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorInfo {
     pub id: String,
@@ -206,16 +176,6 @@ pub enum FeatureType {
     #[strum(serialize = "unknown")]
     Unknown,
 }
-
-// impl From<FeatureType> for api::FeatureType {
-//     fn from(feature_type: FeatureType) -> Self {
-//         match feature_type {
-//             FeatureType::Embedding => api::FeatureType::Embedding,
-//             FeatureType::Metadata => api::FeatureType::Metadata,
-//             FeatureType::Unknown => api::FeatureType::Unknown,
-//         }
-//     }
-// }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Feature {
