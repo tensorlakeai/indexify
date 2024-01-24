@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use clap::Args as ClapArgs;
-
 use tracing_unwrap::ResultExt;
 
 use crate::{

@@ -1,7 +1,6 @@
 use clap::{Args as ClapArgs, Subcommand};
 
 use super::GlobalArgs;
-use crate::prelude::*;
 
 mod extract;
 mod info;
@@ -17,9 +16,7 @@ pub struct Args {
 
 impl Args {
     pub async fn run(self, global_args: GlobalArgs) {
-        let Self {
-            command,
-        } = self;
+        let Self { command } = self;
 
         match command {
             Command::Extract(args) => args.run(global_args).await,
