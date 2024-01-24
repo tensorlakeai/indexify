@@ -79,6 +79,19 @@ Sometimes you might want to read all the metadata of the content for use in anot
 
     ```
 
+Content can be filtered:
+
+=== "curl"
+    ```
+    curl -v http://localhost:8900/repositories/default/content?source=some_source&parent_id=some_parent_id&labels_eq=key1:value1,key2:value2
+    ```
+=== "api spec"
+    ```
+    source: string
+    parent_id: string
+    labels_eq: <key>:<value>,<key>:<value>...
+    ```
+
 ### Using extractors
 
 Extractors are used to extract information from the documents in our repository. The extracted information can be structured (entities, keywords, etc.) or unstructured (embeddings) in nature, and is stored in an index for retrieval. 

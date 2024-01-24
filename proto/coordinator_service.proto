@@ -179,6 +179,8 @@ message GetRepositoryResponse {
 message ListContentRequest {
     string repository = 1;
     string source = 2;
+    string parent_id = 3;
+    map<string, string> labels_eq = 4;
 }
 
 message ListContentResponse {

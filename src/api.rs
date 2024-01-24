@@ -13,6 +13,7 @@ use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
+    api_utils,
     attribute_index,
     internal_api::{self, TaskOutcome},
     vectordbs,
@@ -281,9 +282,20 @@ impl From<attribute_index::ExtractedMetadata> for ExtractedMetadata {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ContentSourceFilter {
+#[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
+pub struct ListContentFilters {
+    #[serde(
+        deserialize_with = "api_utils::deserialize_none_to_empty_string",
+        default
+    )]
     pub source: String,
+    #[serde(
+        deserialize_with = "api_utils::deserialize_none_to_empty_string",
+        default
+    )]
+    pub parent_id: String,
+    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
+    pub labels_eq: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]

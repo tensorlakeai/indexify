@@ -218,6 +218,13 @@ pub struct ListContentRequest {
     pub repository: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub source: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub parent_id: ::prost::alloc::string::String,
+    #[prost(map = "string, string", tag = "4")]
+    pub labels_eq: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

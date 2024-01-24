@@ -15,6 +15,7 @@ use std::{
 use anyerror::AnyError;
 use error::*;
 use impl_sled_storable::SledStorable;
+pub use impl_sled_storable::SledStorableTestFactory;
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
