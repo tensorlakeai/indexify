@@ -17,7 +17,7 @@ class Embedding(BaseModel):
 class InternalExtractorSchema(BaseModel):
     embedding_schemas: dict[str, EmbeddingSchema]
     input_params: Optional[str]
-    input_mimes: List[str]
+    input_mime_types: List[str]
 
 class Feature(BaseModel):
     feature_type: str
@@ -68,7 +68,7 @@ class Extractor(ABC):
 
     description: str = ""
 
-    input_mimes = ["text/plain"]
+    input_mime_types = ["text/plain"]
 
     @abstractmethod
     def extract(
@@ -106,7 +106,7 @@ class ExtractorWrapper:
     
     def schema(self, input_params: Type[BaseModel] = None) -> InternalExtractorSchema:
         s_input = self._instance.sample_input()
-        input_mimes = self._instance.input_mimes
+        input_mime_types = self._instance.input_mime_types
         # Come back to this when we can support schemas based on user defined input params
         if input_params is None:
             input_params = self._param_cls() if self._param_cls else None
@@ -124,4 +124,4 @@ class ExtractorWrapper:
                 elif content.feature.feature_type == "metadata":
                     metadata_schemas[content.feature.name] = json.loads(content.feature.value)
 
-        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_mimes=input_mimes, input_params=json.dumps(json_schema))
+        return InternalExtractorSchema(embedding_schemas=embedding_schemas, input_mime_types=input_mime_types, input_params=json.dumps(json_schema))

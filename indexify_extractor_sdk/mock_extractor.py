@@ -12,7 +12,7 @@ class InputParams(BaseModel):
     b: str = ""
 
 class MockExtractor(Extractor):
-    input_mimes = ["text/plain", "application/pdf", "image/jpeg"]
+    input_mime_types = ["text/plain", "application/pdf", "image/jpeg"]
     def __init__(self):
         super().__init__()
 
