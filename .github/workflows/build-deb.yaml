@@ -25,7 +25,7 @@ jobs:
           toolchain: stable
           override: true
       - name: Install protoc
-        run: sudo apt update && sudo apt install protobuf-compiler
+        run: sudo apt update && sudo apt install protobuf-compiler -y
       - name: Cargo check
         run: cargo check
       - name: Make build-release
