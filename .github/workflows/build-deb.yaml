@@ -1,6 +1,13 @@
 name: Indexify Deb Build
 
-on: workflow_dispatch
+# on: workflow_dispatch
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "main"
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,6 +24,8 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+      - name: Install protoc
+        run: sudo apt update && sudo apt install protobuf-compiler
       - name: Cargo check
         run: cargo check
       - name: Make build-release
@@ -27,17 +36,17 @@ jobs:
         run: cargo deb
       - name: install reprepro
         run: sudo apt-get update && sudo apt-get install -y reprepro
-      - name: Run reprepro
-        run: |
-          cd .repo
-          reprepro includedeb buster ../target/debian/*.deb
-          reprepro includedeb focal ../target/debian/*.deb
-          reprepro includedeb jammy ../target/debian/*.deb
-      - uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET }}
-          source-dir: .repo
-          destination-dir: ./repo
+      # - name: Run reprepro
+      #   run: |
+      #     cd .repo
+      #     reprepro includedeb buster ../target/debian/*.deb
+      #     reprepro includedeb focal ../target/debian/*.deb
+      #     reprepro includedeb jammy ../target/debian/*.deb
+      # - uses: ryand56/r2-upload-action@latest
+      #   with:
+      #     r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+      #     r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+      #     r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      #     r2-bucket: ${{ secrets.R2_BUCKET }}
+      #     source-dir: .repo
+      #     destination-dir: ./repo
