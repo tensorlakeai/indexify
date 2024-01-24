@@ -11,8 +11,6 @@ use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 
-use crate::api;
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct Index {
     pub repository: String,
@@ -130,35 +128,35 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
     }
 }
 
-impl From<api::ExtractorDescription> for ExtractorDescription {
-    fn from(extractor: api::ExtractorDescription) -> ExtractorDescription {
-        let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in extractor.outputs {
-            match embedding_schema {
-                api::ExtractorOutputSchema::Embedding(embedding_schema) => {
-                    let distance = embedding_schema.distance.to_string();
-                    output_schema.insert(
-                        output_name,
-                        OutputSchema::Embedding(EmbeddingSchema {
-                            dim: embedding_schema.dim,
-                            distance,
-                        }),
-                    );
-                }
-                api::ExtractorOutputSchema::Metadata(schema) => {
-                    output_schema.insert(output_name, OutputSchema::Attributes(schema));
-                }
-            }
-        }
-        Self {
-            name: extractor.name,
-            description: extractor.description,
-            input_params: extractor.input_params,
-            outputs: output_schema,
-            input_mime_types: extractor.input_mime_types,
-        }
-    }
-}
+// impl From<api::ExtractorDescription> for ExtractorDescription {
+//     fn from(extractor: api::ExtractorDescription) -> ExtractorDescription {
+//         let mut output_schema = HashMap::new();
+//         for (output_name, embedding_schema) in extractor.outputs {
+//             match embedding_schema {
+//                 api::ExtractorOutputSchema::Embedding(embedding_schema) => {
+//                     let distance = embedding_schema.distance.to_string();
+//                     output_schema.insert(
+//                         output_name,
+//                         OutputSchema::Embedding(EmbeddingSchema {
+//                             dim: embedding_schema.dim,
+//                             distance,
+//                         }),
+//                     );
+//                 }
+//                 api::ExtractorOutputSchema::Metadata(schema) => {
+//                     output_schema.insert(output_name,
+// OutputSchema::Attributes(schema));                 }
+//             }
+//         }
+//         Self {
+//             name: extractor.name,
+//             description: extractor.description,
+//             input_params: extractor.input_params,
+//             outputs: output_schema,
+//             input_mime_types: extractor.input_mime_types,
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorInfo {
@@ -209,15 +207,15 @@ pub enum FeatureType {
     Unknown,
 }
 
-impl From<FeatureType> for api::FeatureType {
-    fn from(feature_type: FeatureType) -> Self {
-        match feature_type {
-            FeatureType::Embedding => api::FeatureType::Embedding,
-            FeatureType::Metadata => api::FeatureType::Metadata,
-            FeatureType::Unknown => api::FeatureType::Unknown,
-        }
-    }
-}
+// impl From<FeatureType> for api::FeatureType {
+//     fn from(feature_type: FeatureType) -> Self {
+//         match feature_type {
+//             FeatureType::Embedding => api::FeatureType::Embedding,
+//             FeatureType::Metadata => api::FeatureType::Metadata,
+//             FeatureType::Unknown => api::FeatureType::Unknown,
+//         }
+//     }
+// }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Feature {
@@ -245,21 +243,6 @@ impl Content {
             }
         }
         None
-    }
-}
-
-impl From<Content> for api::Content {
-    fn from(content: Content) -> Self {
-        Self {
-            content_type: content.mime,
-            bytes: content.bytes,
-            feature: content.feature.map(|f| api::Feature {
-                feature_type: f.feature_type.into(),
-                name: f.name,
-                data: f.data,
-            }),
-            labels: content.labels,
-        }
     }
 }
 

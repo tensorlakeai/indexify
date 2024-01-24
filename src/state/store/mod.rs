@@ -16,6 +16,7 @@ use anyerror::AnyError;
 use error::*;
 use impl_sled_storable::SledStorable;
 pub use impl_sled_storable::SledStorableTestFactory;
+use indexify_internal_api as internal_api;
 use openraft::{
     async_trait::async_trait,
     storage::{LogState, Snapshot},
@@ -38,59 +39,50 @@ pub use sled_store::SledStore;
 use sled_store::*;
 
 use super::{NodeId, TypeConfig};
-use crate::internal_api::{
-    ContentMetadata,
-    ExecutorMetadata,
-    ExtractionEvent,
-    ExtractorBinding,
-    ExtractorDescription,
-    Index,
-    Task,
-};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Request {
     RegisterExecutor {
         addr: String,
         executor_id: String,
-        extractor: ExtractorDescription,
+        extractor: internal_api::ExtractorDescription,
         ts_secs: u64,
     },
     CreateRepository {
         name: String,
     },
     CreateTasks {
-        tasks: Vec<Task>,
+        tasks: Vec<internal_api::Task>,
     },
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
     AddExtractionEvent {
-        event: ExtractionEvent,
+        event: internal_api::ExtractionEvent,
     },
     MarkExtractionEventProcessed {
         event_id: String,
         ts_secs: u64,
     },
     CreateContent {
-        content_metadata: Vec<ContentMetadata>,
-        extraction_events: Vec<ExtractionEvent>,
+        content_metadata: Vec<internal_api::ContentMetadata>,
+        extraction_events: Vec<internal_api::ExtractionEvent>,
     },
     CreateBinding {
-        binding: ExtractorBinding,
-        extraction_event: Option<ExtractionEvent>,
+        binding: internal_api::ExtractorBinding,
+        extraction_event: Option<internal_api::ExtractionEvent>,
     },
     CreateIndex {
-        index: Index,
+        index: internal_api::Index,
         repository: String,
         id: String,
     },
     UpdateTask {
-        task: Task,
+        task: internal_api::Task,
         mark_finished: bool,
         executor_id: Option<String>,
-        content_metadata: Vec<ContentMetadata>,
-        extraction_events: Vec<ExtractionEvent>,
+        content_metadata: Vec<internal_api::ContentMetadata>,
+        extraction_events: Vec<internal_api::ExtractionEvent>,
     },
     RemoveExecutor {
         executor_id: String,
@@ -160,33 +152,33 @@ pub struct StateMachine {
 
     pub last_membership: StoredMembership<NodeId, BasicNode>,
 
-    pub executors: HashMap<ExecutorId, ExecutorMetadata>,
+    pub executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
 
-    pub tasks: HashMap<TaskId, Task>,
+    pub tasks: HashMap<TaskId, internal_api::Task>,
 
     pub unassigned_tasks: HashSet<TaskId>,
 
     pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
 
-    pub extraction_events: HashMap<ExtractionEventId, ExtractionEvent>,
+    pub extraction_events: HashMap<ExtractionEventId, internal_api::ExtractionEvent>,
 
     pub unprocessed_extraction_events: HashSet<ExtractionEventId>,
 
-    pub content_table: HashMap<ContentId, ContentMetadata>,
+    pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
 
     pub content_repository_table: HashMap<RepositoryId, HashSet<ContentId>>,
 
-    pub bindings_table: HashMap<RepositoryId, HashSet<ExtractorBinding>>,
+    pub bindings_table: HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>>,
 
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
-    pub extractors: HashMap<ExtractorName, ExtractorDescription>,
+    pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
 
     pub repositories: HashSet<String>,
 
-    pub repository_extractors: HashMap<RepositoryId, HashSet<Index>>,
+    pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
 
-    pub index_table: HashMap<String, Index>,
+    pub index_table: HashMap<String, internal_api::Index>,
 }
 
 #[async_trait]
@@ -462,7 +454,7 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             .entry(extractor.name.clone())
                             .or_default()
                             .insert(executor_id.clone());
-                        let executor_info = ExecutorMetadata {
+                        let executor_info = internal_api::ExecutorMetadata {
                             id: executor_id.clone(),
                             last_seen: *ts_secs,
                             addr: addr.clone(),

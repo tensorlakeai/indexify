@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use itertools::Itertools;
 use network::Network;
@@ -32,21 +33,7 @@ use self::{
     grpc_server::RaftGrpcServer,
     store::{ExecutorId, StateChange, TaskId},
 };
-use crate::{
-    internal_api::{
-        self,
-        ContentMetadata,
-        ExecutorMetadata,
-        ExtractionEvent,
-        ExtractorBinding,
-        ExtractorDescription,
-        Task,
-        TaskOutcome,
-    },
-    server_config::ServerConfig,
-    state::store::SledStore,
-    utils::timestamp_secs,
-};
+use crate::{server_config::ServerConfig, state::store::SledStore, utils::timestamp_secs};
 
 pub mod grpc_server;
 pub mod network;
@@ -225,7 +212,9 @@ impl App {
         Ok(())
     }
 
-    pub async fn unprocessed_extraction_events(&self) -> Result<Vec<ExtractionEvent>> {
+    pub async fn unprocessed_extraction_events(
+        &self,
+    ) -> Result<Vec<internal_api::ExtractionEvent>> {
         let store = self.store.state_machine.read().await;
         let mut events = vec![];
         for event_id in store.unprocessed_extraction_events.iter() {
@@ -249,8 +238,8 @@ impl App {
 
     pub async fn filter_extractor_binding_for_content(
         &self,
-        content_metadata: &ContentMetadata,
-    ) -> Result<Vec<ExtractorBinding>> {
+        content_metadata: &internal_api::ContentMetadata,
+    ) -> Result<Vec<internal_api::ExtractorBinding>> {
         let bindings = {
             let store = self.store.state_machine.read().await;
             store
@@ -282,8 +271,8 @@ impl App {
     pub async fn content_matching_binding(
         &self,
         repository: &str,
-        binding: &ExtractorBinding,
-    ) -> Result<Vec<ContentMetadata>> {
+        binding: &internal_api::ExtractorBinding,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
         let content_list = {
             let store = self.store.state_machine.read().await;
             let content_list = store
@@ -320,7 +309,7 @@ impl App {
         Ok(matched_content_list)
     }
 
-    pub async fn unassigned_tasks(&self) -> Result<Vec<Task>> {
+    pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let store = self.store.state_machine.read().await;
         let mut tasks = vec![];
         for task_id in store.unassigned_tasks.iter() {
@@ -336,7 +325,7 @@ impl App {
     pub async fn get_executors_for_extractor(
         &self,
         extractor: &str,
-    ) -> Result<Vec<ExecutorMetadata>> {
+    ) -> Result<Vec<internal_api::ExecutorMetadata>> {
         let store = self.store.state_machine.read().await;
         let executor_ids = store
             .extractor_executors_table
@@ -354,7 +343,10 @@ impl App {
         Ok(executors)
     }
 
-    pub async fn list_content(&self, repository: &str) -> Result<Vec<ContentMetadata>> {
+    pub async fn list_content(
+        &self,
+        repository: &str,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
         let store = self.store.state_machine.read().await;
         let content_ids = store
             .content_repository_table
@@ -385,8 +377,8 @@ impl App {
 
     pub async fn create_binding(
         &self,
-        binding: ExtractorBinding,
-        extraction_event: ExtractionEvent,
+        binding: internal_api::ExtractorBinding,
+        extraction_event: internal_api::ExtractionEvent,
     ) -> Result<()> {
         let _resp = self
             .raft
@@ -400,12 +392,12 @@ impl App {
 
     pub async fn update_task(
         &self,
-        task: Task,
+        task: internal_api::Task,
         executor_id: Option<String>,
-        content_meta_list: Vec<ContentMetadata>,
-        extraction_events: Vec<ExtractionEvent>,
+        content_meta_list: Vec<internal_api::ContentMetadata>,
+        extraction_events: Vec<internal_api::ExtractionEvent>,
     ) -> Result<()> {
-        let mark_finished = task.outcome != TaskOutcome::Unknown;
+        let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
         let _resp = self
             .raft
             .client_write(Request::UpdateTask {
@@ -419,7 +411,10 @@ impl App {
         Ok(())
     }
 
-    pub async fn extractor_with_name(&self, extractor: &str) -> Result<ExtractorDescription> {
+    pub async fn extractor_with_name(
+        &self,
+        extractor: &str,
+    ) -> Result<internal_api::ExtractorDescription> {
         let store = self.store.state_machine.read().await;
         let binding = store
             .extractors
@@ -428,7 +423,10 @@ impl App {
         Ok(binding.clone())
     }
 
-    pub async fn list_bindings(&self, repository: &str) -> Result<Vec<ExtractorBinding>> {
+    pub async fn list_bindings(
+        &self,
+        repository: &str,
+    ) -> Result<Vec<internal_api::ExtractorBinding>> {
         let store = self.store.state_machine.read().await;
         let bindings = store
             .bindings_table
@@ -486,7 +484,7 @@ impl App {
         &self,
         addr: &str,
         executor_id: &str,
-        extractor: ExtractorDescription,
+        extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
         let _resp = self
             .raft
@@ -500,13 +498,13 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_extractors(&self) -> Result<Vec<ExtractorDescription>> {
+    pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
         let store = self.store.state_machine.read().await;
         let extractors = store.extractors.values().cloned().collect_vec();
         Ok(extractors)
     }
 
-    pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+    pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
         let store = self.store.state_machine.read().await;
         let executors = store.executors.values().cloned().collect_vec();
         Ok(executors)
@@ -525,8 +523,8 @@ impl App {
 
     pub async fn create_content_batch(
         &self,
-        content_metadata: Vec<ContentMetadata>,
-        extraction_events: Vec<ExtractionEvent>,
+        content_metadata: Vec<internal_api::ContentMetadata>,
+        extraction_events: Vec<internal_api::ExtractionEvent>,
     ) -> Result<()> {
         let req = Request::CreateContent {
             content_metadata,
@@ -540,7 +538,10 @@ impl App {
         Ok(())
     }
 
-    pub async fn get_conent_metadata(&self, content_id: &str) -> Result<ContentMetadata> {
+    pub async fn get_conent_metadata(
+        &self,
+        content_id: &str,
+    ) -> Result<internal_api::ContentMetadata> {
         let store = self.store.state_machine.read().await;
         let content_metadata = store
             .content_table
@@ -552,7 +553,7 @@ impl App {
     pub async fn get_content_metadata_batch(
         &self,
         content_ids: Vec<String>,
-    ) -> Result<Vec<ContentMetadata>> {
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
         let store = self.store.state_machine.read().await;
         let mut content_metadata_list = Vec::new();
         for content_id in content_ids {
@@ -564,7 +565,7 @@ impl App {
         Ok(content_metadata_list)
     }
 
-    pub async fn create_tasks(&self, tasks: Vec<Task>) -> Result<()> {
+    pub async fn create_tasks(&self, tasks: Vec<internal_api::Task>) -> Result<()> {
         let _resp = self
             .raft
             .client_write(Request::CreateTasks { tasks })
@@ -572,7 +573,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn tasks_for_executor(&self, executor_id: &str) -> Result<Vec<Task>> {
+    pub async fn tasks_for_executor(&self, executor_id: &str) -> Result<Vec<internal_api::Task>> {
         let store = self.store.state_machine.read().await;
         let tasks = store
             .task_assignments
@@ -587,7 +588,7 @@ impl App {
         Ok(tasks)
     }
 
-    pub async fn task_with_id(&self, task_id: &str) -> Result<Task> {
+    pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
         let store = self.store.state_machine.read().await;
         let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
         Ok(task.clone())

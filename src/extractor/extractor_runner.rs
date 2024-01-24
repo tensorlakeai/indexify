@@ -1,12 +1,12 @@
 use std::{collections::HashMap, str::FromStr};
 
 use anyhow::{anyhow, Ok, Result};
+use indexify_internal_api as internal_api;
 
 use super::ExtractorTS;
 use crate::{
     api,
     api::{ExtractorDescription, IndexDistance},
-    internal_api::Content,
 };
 
 #[derive(Debug)]
@@ -21,15 +21,19 @@ impl ExtractorRunner {
 
     pub fn extract(
         &self,
-        content: Vec<Content>,
+        content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
-    ) -> Result<Vec<Vec<Content>>> {
+    ) -> Result<Vec<Vec<internal_api::Content>>> {
         let extracted_content = self.extractor.extract(content, input_params)?;
         Ok(extracted_content)
     }
 
-    pub fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<Content>> {
-        let content = Content {
+    pub fn extract_from_data(
+        &self,
+        data: Vec<u8>,
+        mime: &str,
+    ) -> Result<Vec<internal_api::Content>> {
+        let content = internal_api::Content {
             bytes: data,
             mime: mime.to_string(),
             feature: None,

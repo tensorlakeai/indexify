@@ -14,6 +14,7 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::HeartbeatRequest;
 use tokio::{
     signal,
@@ -27,7 +28,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     executor::{heartbeat, ExtractorExecutor},
     extractor::{extractor_runner, py_extractors, python_path},
-    internal_api::{Content, ExtractRequest, ExtractResponse},
     server_config::ExecutorConfig,
     task_store::TaskStore,
 };
@@ -167,15 +167,15 @@ async fn root() -> &'static str {
 #[axum::debug_handler]
 async fn extract(
     endpoint_state: State<Arc<ApiEndpointState>>,
-    Json(query): Json<ExtractRequest>,
-) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
+    Json(query): Json<internal_api::ExtractRequest>,
+) -> Result<Json<internal_api::ExtractResponse>, IndexifyAPIError> {
     let content = endpoint_state
         .executor
         .extract(query.content, query.input_params)
         .await;
 
     match content {
-        Ok(content) => Ok(Json(ExtractResponse { content })),
+        Ok(content) => Ok(Json(internal_api::ExtractResponse { content })),
         Err(err) => {
             error!("unable to extract content: {}", err.to_string());
             Err(IndexifyAPIError::new(
@@ -293,10 +293,10 @@ async fn shutdown_signal() {
 }
 
 fn split_content_list_by_index_names(
-    content_list: Vec<Content>,
+    content_list: Vec<internal_api::Content>,
     index_mapping: HashMap<String, String>,
-) -> HashMap<String, Vec<Content>> {
-    let mut content_map: HashMap<String, Vec<Content>> = HashMap::new();
+) -> HashMap<String, Vec<internal_api::Content>> {
+    let mut content_map: HashMap<String, Vec<internal_api::Content>> = HashMap::new();
     for content in content_list {
         if let Some(feature) = &content.feature {
             let index_name = index_mapping.get(&feature.name).unwrap();

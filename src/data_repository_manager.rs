@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
     ContentMetadata,
@@ -29,7 +30,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
-    internal_api::{self, Embedding, OutputSchema},
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -145,7 +145,7 @@ impl DataRepositoryManager {
         let mut index_names = Vec::new();
         let extractor = response.extractor.ok_or(anyhow!("extractor not found"))?;
         for (name, output_schema) in &extractor.outputs {
-            let output_schema: OutputSchema = serde_json::from_str(output_schema)?;
+            let output_schema: internal_api::OutputSchema = serde_json::from_str(output_schema)?;
             let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
@@ -413,8 +413,8 @@ impl DataRepositoryManager {
             if let Some(feature) = content.feature.clone() {
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
-                        let embedding_payload: Embedding = serde_json::from_value(feature.data)
-                            .map_err(|e| {
+                        let embedding_payload: internal_api::Embedding =
+                            serde_json::from_value(feature.data).map_err(|e| {
                                 anyhow!("unable to get embedding from extracted data {}", e)
                             })?;
                         let embeddings = ExtractedEmbeddings {

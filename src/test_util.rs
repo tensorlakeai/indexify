@@ -2,24 +2,23 @@
 pub mod db_utils {
     use std::collections::HashMap;
 
+    use indexify_internal_api as internal_api;
     use serde_json::json;
-
-    use crate::internal_api::{EmbeddingSchema, ExtractorDescription, OutputSchema};
 
     pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
 
     pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
 
-    pub fn mock_extractor() -> ExtractorDescription {
+    pub fn mock_extractor() -> internal_api::ExtractorDescription {
         let mut outputs = HashMap::new();
         outputs.insert(
             "test_output".to_string(),
-            OutputSchema::Embedding(EmbeddingSchema {
+            internal_api::OutputSchema::Embedding(internal_api::EmbeddingSchema {
                 dim: 384,
                 distance: "cosine".to_string(),
             }),
         );
-        ExtractorDescription {
+        internal_api::ExtractorDescription {
             name: DEFAULT_TEST_EXTRACTOR.to_string(),
             description: "test_description".to_string(),
             input_params: json!({}),

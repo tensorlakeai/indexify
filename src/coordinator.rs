@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Ok, Result};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use jsonschema::JSONSchema;
 use tokio::sync::watch::Receiver;
@@ -12,16 +13,6 @@ use tracing::info;
 
 use crate::{
     coordinator_filters::*,
-    internal_api::{
-        self,
-        ContentMetadata,
-        ExtractionEvent,
-        ExtractionEventPayload,
-        ExtractorBinding,
-        ExtractorDescription,
-        Index,
-        Task,
-    },
     state::{store::StateChange, SharedState},
     utils::timestamp_secs,
 };
@@ -43,7 +34,7 @@ impl Coordinator {
             info!("processing extraction event: {}", event.id);
             let mut tasks = Vec::new();
             match event.payload.clone() {
-                ExtractionEventPayload::ExtractorBindingAdded {
+                internal_api::ExtractionEventPayload::ExtractorBindingAdded {
                     repository,
                     binding,
                 } => {
@@ -54,7 +45,7 @@ impl Coordinator {
                     let tasks_for_binding = self.create_task(&binding, content_list).await?;
                     tasks.extend(tasks_for_binding);
                 }
-                ExtractionEventPayload::CreateContent { content } => {
+                internal_api::ExtractionEventPayload::CreateContent { content } => {
                     let bindings = self
                         .shared_state
                         .filter_extractor_binding_for_content(&content)
@@ -98,9 +89,9 @@ impl Coordinator {
 
     pub async fn create_task(
         &self,
-        extractor_binding: &ExtractorBinding,
-        content_list: Vec<ContentMetadata>,
-    ) -> Result<Vec<Task>> {
+        extractor_binding: &internal_api::ExtractorBinding,
+        content_list: Vec<internal_api::ContentMetadata>,
+    ) -> Result<Vec<internal_api::Task>> {
         let extractor = self
             .shared_state
             .extractor_with_name(&extractor_binding.extractor)
@@ -124,7 +115,7 @@ impl Coordinator {
             extractor_binding.repository.hash(&mut hasher);
             content.id.hash(&mut hasher);
             let id = format!("{:x}", hasher.finish());
-            let task = Task {
+            let task = internal_api::Task {
                 id,
                 extractor: extractor_binding.extractor.clone(),
                 extractor_binding: extractor_binding.name.clone(),
@@ -207,7 +198,7 @@ impl Coordinator {
         self.shared_state.list_extractors().await
     }
 
-    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<Task>> {
+    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<internal_api::Task>> {
         let tasks = self.shared_state.tasks_for_executor(executor_id).await?;
         Ok(tasks)
     }
@@ -218,11 +209,11 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<Index>> {
+    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<internal_api::Index>> {
         self.shared_state.list_indexes(repository).await
     }
 
-    pub async fn get_index(&self, repository: &str, name: &str) -> Result<Index> {
+    pub async fn get_index(&self, repository: &str, name: &str) -> Result<internal_api::Index> {
         let mut s = DefaultHasher::new();
         repository.hash(&mut s);
         name.hash(&mut s);
@@ -230,7 +221,7 @@ impl Coordinator {
         self.shared_state.get_index(&id).await
     }
 
-    pub async fn create_index(&self, repository: &str, index: Index) -> Result<()> {
+    pub async fn create_index(&self, repository: &str, index: internal_api::Index) -> Result<()> {
         let id = index.id();
         self.shared_state.create_index(repository, index, id).await
     }
@@ -251,7 +242,7 @@ impl Coordinator {
         &self,
         addr: &str,
         executor_id: &str,
-        extractor: ExtractorDescription,
+        extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
         self.shared_state
             .register_executor(addr, executor_id, extractor)
@@ -261,20 +252,23 @@ impl Coordinator {
     pub async fn get_content_metadata(
         &self,
         content_ids: Vec<String>,
-    ) -> Result<Vec<ContentMetadata>> {
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.shared_state
             .get_content_metadata_batch(content_ids)
             .await
     }
 
-    pub async fn get_extractor(&self, extractor_name: &str) -> Result<ExtractorDescription> {
+    pub async fn get_extractor(
+        &self,
+        extractor_name: &str,
+    ) -> Result<internal_api::ExtractorDescription> {
         self.shared_state.extractor_with_name(extractor_name).await
     }
 
     pub async fn create_binding(
         &self,
         binding: internal_api::ExtractorBinding,
-        extractor: ExtractorDescription,
+        extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
         let input_params_schema = JSONSchema::compile(&extractor.input_params).map_err(|e| {
             anyhow!(
@@ -296,10 +290,10 @@ impl Coordinator {
                 errors.join(",")
             ));
         }
-        let extraction_event = ExtractionEvent {
+        let extraction_event = internal_api::ExtractionEvent {
             id: nanoid::nanoid!(),
             repository: binding.repository.clone(),
-            payload: ExtractionEventPayload::ExtractorBindingAdded {
+            payload: internal_api::ExtractionEventPayload::ExtractorBindingAdded {
                 repository: binding.repository.clone(),
                 binding: binding.clone(),
             },
@@ -345,17 +339,20 @@ impl Coordinator {
 
 fn content_request_to_content_metadata(
     content_list: Vec<indexify_coordinator::ContentMetadata>,
-) -> Result<(Vec<ContentMetadata>, Vec<ExtractionEvent>)> {
+) -> Result<(
+    Vec<internal_api::ContentMetadata>,
+    Vec<internal_api::ExtractionEvent>,
+)> {
     let mut content_meta_list = Vec::new();
     let mut extraction_events = Vec::new();
     for content in content_list {
         let repository = content.repository.clone();
         let c: internal_api::ContentMetadata = content.try_into()?;
         content_meta_list.push(c.clone());
-        let extraction_event = ExtractionEvent {
+        let extraction_event = internal_api::ExtractionEvent {
             id: nanoid::nanoid!(),
             repository,
-            payload: ExtractionEventPayload::CreateContent { content: c },
+            payload: internal_api::ExtractionEventPayload::CreateContent { content: c },
             created_at: timestamp_secs(),
             processed_at: None,
         };
@@ -368,13 +365,13 @@ fn content_request_to_content_metadata(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
-    use indexify_proto::indexify_coordinator::ContentMetadata;
+    use indexify_internal_api as internal_api;
+    use indexify_proto::indexify_coordinator;
 
     use crate::{
-        internal_api::ExtractorBinding,
         server_config::ServerConfig,
         state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY}, /* coordinator_service::CoordinatorServer, */
+        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
     };
 
     #[tokio::test]
@@ -392,7 +389,7 @@ mod tests {
 
         // Add content and ensure that we are creating a extraction event
         coordinator
-            .create_content_metadata(vec![ContentMetadata {
+            .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test".to_string(),
                 repository: DEFAULT_TEST_REPOSITORY.to_string(),
                 parent_id: "".to_string(),
@@ -422,7 +419,7 @@ mod tests {
             .await?;
         coordinator
             .create_binding(
-                ExtractorBinding {
+                internal_api::ExtractorBinding {
                     id: "test-binding-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
@@ -456,7 +453,7 @@ mod tests {
 
         // Add a content with a different source and ensure we don't create a task
         coordinator
-            .create_content_metadata(vec![ContentMetadata {
+            .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test2".to_string(),
                 repository: DEFAULT_TEST_REPOSITORY.to_string(),
                 parent_id: "test".to_string(),

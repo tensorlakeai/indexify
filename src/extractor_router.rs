@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::GetExtractorCoordinatesRequest;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -10,7 +11,6 @@ use crate::{
     api::Content,
     caching::{Cache, NoOpCache},
     coordinator_client::CoordinatorClient,
-    internal_api::{self, ExtractResponse},
 };
 
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -126,8 +126,9 @@ impl ExtractorRouter {
             .await
             .map_err(|e| anyhow!("unable to get response body: {}", e))?;
 
-        let extractor_response: ExtractResponse = serde_json::from_str(&response_body)
-            .map_err(|e| anyhow!("unable to extract response from json: {}", e))?;
+        let extractor_response: internal_api::ExtractResponse =
+            serde_json::from_str(&response_body)
+                .map_err(|e| anyhow!("unable to extract response from json: {}", e))?;
 
         let content_list: Vec<Content> = extractor_response
             .content

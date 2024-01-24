@@ -1,13 +1,13 @@
 use std::{collections::HashMap, path::Path, str::FromStr};
 
 use anyhow::{anyhow, Ok, Result};
+use indexify_internal_api as internal_api;
 use pyo3::{
     prelude::*,
     types::{PyList, PyString},
 };
 
 use super::{EmbeddingSchema, Extractor, ExtractorSchema};
-use crate::internal_api::{self, Content};
 
 const EXTRACT_METHOD: &str = "extract";
 
@@ -190,9 +190,9 @@ impl Extractor for PythonExtractor {
 
     fn extract(
         &self,
-        content: Vec<Content>,
+        content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
-    ) -> Result<Vec<Vec<Content>>, anyhow::Error> {
+    ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error> {
         let extracted_content = Python::with_gil(|py| {
             let json_string = serde_json::to_string(&input_params)?.into_py(py);
             let content: Vec<PyContent> = content
@@ -236,7 +236,7 @@ impl Extractor for PythonExtractor {
                         }
                         None => None,
                     };
-                    temp.push(Content {
+                    temp.push(internal_api::Content {
                         mime,
                         bytes: data,
                         feature,
