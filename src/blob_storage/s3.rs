@@ -1,9 +1,10 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::{stream::FuturesOrdered, StreamExt};
 use object_store::{aws::AmazonS3, ObjectStore};
 
-use super::{BlobStorage, BlobStorageReader};
+use super::{BlobStorageReader, BlobStorageWriter};
 
 pub struct S3Storage {
     bucket: String,
@@ -20,7 +21,7 @@ impl S3Storage {
 }
 
 #[async_trait]
-impl BlobStorage for S3Storage {
+impl BlobStorageWriter for S3Storage {
     async fn put(&self, key: &str, data: Bytes) -> Result<String> {
         self.client.put(&key.into(), data).await?;
         Ok(format!("s3://{}/{}", self.bucket, key))
@@ -36,28 +37,32 @@ impl BlobStorage for S3Storage {
     }
 }
 
-pub struct S3Reader {
-    client: AmazonS3,
-    key: String,
-}
-
-impl S3Reader {
-    pub fn new(client: AmazonS3, key: &str) -> Self {
-        S3Reader {
-            client,
-            key: key.to_string(),
-        }
-    }
-}
-
 #[async_trait]
-impl BlobStorageReader for S3Reader {
-    async fn get(&self) -> Result<Vec<u8>> {
-        let data = self.client.get(&self.key.clone().as_str().into()).await?;
-        let data = data
-            .bytes()
-            .await
-            .map_err(|e| anyhow!("Failed to read bytes from key: {}, {}", self.key, e))?;
-        Ok(data.to_vec())
+impl BlobStorageReader for S3Storage {
+    async fn get(&self, keys: &[&str]) -> Result<Vec<Vec<u8>>> {
+        let mut readers = FuturesOrdered::new();
+        for &key in keys {
+            readers.push_back(async {
+                Ok::<_, Error>(
+                    self.client
+                        .get(&key.into())
+                        .await?
+                        .bytes()
+                        .await
+                        .map_err(|e| {
+                            anyhow!("Failed to read bytes from key: {}, {}", key.to_owned(), e)
+                        })?
+                        .to_vec(),
+                )
+            });
+        }
+
+        let mut buffers = Vec::with_capacity(keys.len());
+
+        while let Some(blob) = readers.next().await {
+            buffers.push(blob?);
+        }
+
+        Ok(buffers)
     }
 }

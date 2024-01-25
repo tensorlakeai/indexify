@@ -32,7 +32,6 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     api::{self, *},
     attribute_index::MetadataIndexManager,
-    blob_storage::BlobStorageBuilder,
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
@@ -101,8 +100,6 @@ impl Server {
             }
             false => info!("starting indexify server with TLS disabled"),
         }
-        let blob_storage =
-            BlobStorageBuilder::new(Arc::new(self.config.blob_storage.clone())).build()?;
         let vector_db = vectordbs::create_vectordb(self.config.index_config.clone()).await?;
         let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
         let vector_index_manager = Arc::new(
@@ -117,7 +114,7 @@ impl Server {
             DataRepositoryManager::new(
                 vector_index_manager,
                 attribute_index_manager,
-                blob_storage.clone(),
+                self.config.blob_storage.clone(),
                 coordinator_client.clone(),
             )
             .await?,

@@ -2024,6 +2024,7 @@ dependencies = [
  "figment",
  "flate2",
  "flexbuffers",
+ "futures",
  "h2 0.4.2",
  "hostname",
  "hyper 1.1.0",

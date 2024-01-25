@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{HeartbeatRequest, RegisterExecutorRequest};
 use nanoid::nanoid;
@@ -10,7 +10,7 @@ use tokio_stream::{wrappers::WatchStream, StreamExt};
 use tracing::{error, info};
 
 use crate::{
-    blob_storage::BlobStorageBuilder,
+    blob_storage::{BlobStorage, BlobStorageReader},
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
     server_config::ExecutorConfig,
@@ -153,8 +153,12 @@ impl ExtractorExecutor {
 async fn get_content(
     content_metadata: internal_api::ContentMetadata,
 ) -> Result<internal_api::Content> {
-    let blog_storage_reader = BlobStorageBuilder::reader_from_link(&content_metadata.storage_url)?;
-    let data = blog_storage_reader.get().await?;
+    let data = BlobStorage::new()
+        .get(&[&content_metadata.storage_url])
+        .await?
+        .into_iter()
+        .next()
+        .context("no data returned. Invalid error")?;
     let extracted_content = internal_api::Content {
         mime: content_metadata.content_type,
         bytes: data,

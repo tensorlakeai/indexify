@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use base64::{engine::general_purpose, Engine as _};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
@@ -9,7 +9,7 @@ use tracing::info;
 
 use crate::{
     api::{self},
-    blob_storage::BlobStorageBuilder,
+    blob_storage::{BlobStorage, BlobStorageReader},
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
@@ -125,20 +125,33 @@ impl VectorIndexManager {
                 content_metadata_list.content_list,
             ));
         }
-        let mut content_id_to_blob = HashMap::new();
-        for content in content_metadata_list.content_list {
-            let reader = BlobStorageBuilder::reader_from_link(&content.storage_url)?;
-            let data = reader.get().await?;
-            let text = match content.mime.as_str() {
-                "text/plain" => String::from_utf8(data)?,
-                "application/json" => {
-                    let json: serde_json::Value = serde_json::from_slice(&data)?;
-                    json.to_string()
-                }
-                _ => general_purpose::STANDARD.encode(&data),
-            };
-            content_id_to_blob.insert(content.id, text);
-        }
+
+        let content_id_to_blob = BlobStorage::new()
+            .get(
+                &content_metadata_list
+                    .content_list
+                    .iter()
+                    .map(|item| item.storage_url.as_str())
+                    .collect::<Vec<_>>(),
+            )
+            .await?
+            .into_iter()
+            .zip(content_metadata_list.content_list.into_iter())
+            .map(|(data, content)| {
+                let text = match content.mime.as_str() {
+                    "text/plain" => String::from_utf8(data)?,
+                    "application/json" => {
+                        let json: serde_json::Value = serde_json::from_slice(&data)?;
+                        json.to_string()
+                    }
+                    _ => general_purpose::STANDARD.encode(&data),
+                };
+                Ok::<_, Error>((content.id, text))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .collect::<HashMap<_, _>>();
+
         let mut index_search_results = Vec::new();
         for result in search_result {
             let chunk = content_id_to_blob.get(&result.content_id);
