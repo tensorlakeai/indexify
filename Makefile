@@ -10,6 +10,7 @@ BINDIR = $(PREFIX)/bin
 # Target executable
 TARGET = ./target/release/$(APPLICATION_NAME)
 
+.PHONY: build
 build: ## Build rust application
 	cargo build
 
