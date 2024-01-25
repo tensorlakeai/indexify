@@ -48,7 +48,7 @@ Indexify comes with some pre-built extractors that you can download and deploy w
     <details>
     <summary>Sentence Transformers - MiniLML6, MPnet</summary>
       <ul>
-        <li><p>MiniLML6 - This extractor extractors an embedding for a piece of text. It uses the huggingface MiniLM-6 model, which is a tiny but very robust emebdding model for text.</p></li>
+        <li><p>MiniLML6 - This extractor extractors an embedding for a piece of text. It uses the huggingface <a href ='https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2'>MiniLM-6 model</a> , which is a tiny but very robust emebdding model for text.</p></li>
         <li><p>MPnet - This is a sentence embedding extractor based on the <a href = 'https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2'>MPNET Multilingual Base V2</a>. This is a sentence-transformers model: It maps sentences & paragraphs to a 768 dimensional dense vector space and can be used for tasks like clustering or semantic search. It's best use case is paraphrasing, but it can also be used for other tasks.</p></li>
       </ul>
     </details>
