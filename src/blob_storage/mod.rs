@@ -80,6 +80,13 @@ impl BlobStorageReader for BlobStorage {
             return s3::S3Storage::new(
                 key,
                 AmazonS3Builder::from_env()
+                    .with_region(
+                        self.config
+                            .s3
+                            .map(|config| config.region)
+                            .as_deref()
+                            .unwrap_or("us-east-1"),
+                    )
                     .with_bucket_name(bucket)
                     .build()
                     .context("unable to build S3 builder")?,
@@ -113,6 +120,13 @@ impl BlobStorageWriter for BlobStorage {
             return s3::S3Storage::new(
                 key,
                 AmazonS3Builder::from_env()
+                    .with_region(
+                        self.config
+                            .s3
+                            .map(|config| config.region)
+                            .as_deref()
+                            .unwrap_or("us-east-1"),
+                    )
                     .with_bucket_name(bucket)
                     .build()
                     .context("unable to build S3 builder")?,
@@ -143,6 +157,13 @@ impl BlobStorageWriter for BlobStorage {
             return s3::S3Storage::new(
                 key,
                 AmazonS3Builder::from_env()
+                    .with_region(
+                        self.config
+                            .s3
+                            .map(|config| config.region)
+                            .as_deref()
+                            .unwrap_or("us-east-1"),
+                    )
                     .with_bucket_name(bucket)
                     .build()
                     .context("unable to build S3 builder")?,
