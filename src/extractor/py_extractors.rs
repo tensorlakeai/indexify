@@ -62,7 +62,7 @@ impl TryFrom<PyContent> for internal_api::Content {
             mime: mime_type.to_string(),
             bytes: py_content.data,
             feature,
-            labels: HashMap::new(),
+            labels: py_content.labels.unwrap_or_default(),
         };
         Ok(extracted_content)
     }
@@ -277,20 +277,17 @@ mod tests {
     #[test]
     fn extract_content() {
 
-        let test_labels1 = Some(HashMap::from([
-            ("url".to_string(), "test.com".to_string()),
-        ]));
-        let test_labels2 = Some(HashMap::from([
+        let test_labels = Some(HashMap::from([
             ("url".to_string(), "test.com".to_string()),
         ]));
         let content1 = PyContent::new(
             "My name is Donald and I live in Seattle".to_string(),
-            test_labels1.clone())
+        None)
             .try_into()
             .unwrap();
         let content2 = PyContent::new(
             "My name is Donald and I live in Seattle".to_string(),
-            test_labels2)
+        None)
             .try_into()
             .unwrap();
         let content = vec![content1, content2];
@@ -309,7 +306,7 @@ mod tests {
         );
         assert_eq!(
             extracted_data.first().unwrap().first().unwrap().labels,
-            test_labels1.clone().expect("No labels found")
+            test_labels.clone().expect("No labels found")
         );
 
         // Pass in empty input params
