@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use clap::Args as ClapArgs;
+use clap::{ArgAction, Args as ClapArgs};
 use tracing_unwrap::ResultExt;
 
 use crate::{
@@ -11,13 +11,13 @@ use crate::{
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
-    #[arg(long)]
+    #[arg(long, action(ArgAction::SetTrue))]
     dev: bool,
 
     #[arg(long)]
     extractor_path: String,
 
-    #[arg(long, default_value = "false")]
+    #[arg(long, action(ArgAction::SetTrue))]
     gpu: bool,
 }
 

@@ -31,7 +31,7 @@ struct DockerfileTemplate<'a> {
     system_dependencies: &'a str,
     python_dependencies: &'a str,
     additional_pip_flags: &'a str,
-    additional_dev_setup: &'a str,
+    dev: bool,
     gpu: bool,
 }
 
@@ -183,27 +183,13 @@ impl Packager {
 
         let system_dependencies = self.extractor_description.system_dependencies.join(" ");
         let python_dependencies = self.extractor_description.python_dependencies.join(" ");
-        let additional_dev_setup = if self.dev {
-            "
-COPY indexify_extractor_sdk /indexify/indexify_extractor_sdk
-
-COPY setup.py /indexify/setup.py
-
-RUN python3 setup.py install
-"
-        } else {
-            "
-RUN pip3 install --no-input indexify_extractor_sdk
-"
-        };
-        let gpu = self.gpu;
         let tmpl = DockerfileTemplate {
             image_name: &image_name,
             system_dependencies: &system_dependencies,
             python_dependencies: &python_dependencies,
             additional_pip_flags,
-            additional_dev_setup,
-            gpu,
+            dev: self.dev,
+            gpu: self.gpu,
         };
         tmpl.render().map_err(|e| anyhow!(e.to_string()))
     }
@@ -229,7 +215,11 @@ RUN pip3 install --no-input indexify_extractor_sdk
             }
         }
 
-        let mut additional_pip_flags = "";
+        let additional_pip_flags = if gpu {
+            ""
+        } else {
+            "--extra-index-url https://download.pytorch.org/whl/cpu"
+        };
         let image_name: String;
 
         match (pytorch_version, gpu) {
@@ -244,7 +234,6 @@ RUN pip3 install --no-input indexify_extractor_sdk
             }
             (Some(_version), false) => {
                 image_name = "tensorlake/indexify-extractor-base".to_string();
-                additional_pip_flags = "--extra-index-url https://download.pytorch.org/whl/cpu";
             }
             (None, _) => {
                 image_name = "tensorlake/indexify-extractor-base".to_string();
@@ -320,14 +309,14 @@ RUN apt-get update -y && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
-RUN pip3 install --no-input  numpy pandas
+RUN pip3 install --no-input --extra-index-url https://download.pytorch.org/whl/cpu numpy pandas
 
 COPY . /indexify/
 
 COPY indexify.yaml indexify.yaml
 
 
-RUN pip3 install --no-input indexify_extractor_sdk
+RUN pip3 install --no-input indexify_extractor_sdk --extra-index-url https://download.pytorch.org/whl/cpu
 
 
 ENTRYPOINT [ "/indexify/indexify" ]"#;
@@ -371,7 +360,7 @@ COPY . /indexify/
 COPY indexify.yaml indexify.yaml
 
 
-RUN pip3 install --no-input indexify_extractor_sdk
+RUN pip3 install --no-input indexify_extractor_sdk 
 
 
 ENTRYPOINT [ "/indexify/indexify" ]"#;
@@ -445,7 +434,7 @@ COPY . /indexify/
 COPY indexify.yaml indexify.yaml
 
 
-RUN pip3 install --no-input indexify_extractor_sdk
+RUN pip3 install --no-input indexify_extractor_sdk --extra-index-url https://download.pytorch.org/whl/cpu
 
 
 ENTRYPOINT [ "/indexify/indexify" ]"#;
@@ -493,7 +482,7 @@ COPY . /indexify/
 COPY indexify.yaml indexify.yaml
 
 
-RUN pip3 install --no-input indexify_extractor_sdk
+RUN pip3 install --no-input indexify_extractor_sdk --extra-index-url https://download.pytorch.org/whl/cpu
 
 
 ENTRYPOINT [ "/indexify/indexify" ]"#;
@@ -541,7 +530,7 @@ COPY . /indexify/
 COPY indexify.yaml indexify.yaml
 
 
-RUN pip3 install --no-input indexify_extractor_sdk
+RUN pip3 install --no-input indexify_extractor_sdk 
 
 
 ENTRYPOINT [ "/indexify/indexify" ]"#;

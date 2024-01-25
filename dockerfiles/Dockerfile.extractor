@@ -14,6 +14,14 @@ COPY . /indexify/
 
 COPY indexify.yaml indexify.yaml
 
-{{ additional_dev_setup }}
+{% if dev %}
+COPY indexify_extractor_sdk /indexify/indexify_extractor_sdk
+
+COPY setup.py /indexify/setup.py
+
+RUN python3 setup.py install
+{% else %}
+RUN pip3 install --no-input indexify_extractor_sdk {{ additional_pip_flags }}
+{% endif %}
 
 ENTRYPOINT [ "/indexify/indexify" ]
