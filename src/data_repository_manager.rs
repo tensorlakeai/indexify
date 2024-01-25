@@ -143,7 +143,7 @@ impl DataRepositoryManager {
             .await?
             .into_inner();
         let mut index_names = Vec::new();
-        let extractor = response.extractor.ok_or(anyhow!("extractor not found"))?;
+        let extractor = response.extractor.ok_or(anyhow!("extractor {:?} not found", extractor_binding.extractor))?;
         for (name, output_schema) in &extractor.outputs {
             let output_schema: internal_api::OutputSchema = serde_json::from_str(output_schema)?;
             let index_name = response.output_index_name_mapping.get(name).unwrap();
