@@ -27,8 +27,9 @@ nav:
   - Home: 'index.md'
   - Getting Started: 'getting_started.md'
   - Concepts: 'concepts.md'
-  - Guides:
-    - Extractors: 'apis/extractors.md'
+  - Extractors:
+    - Introduction: 'apis/extractors.md'
+    - Available Extractors: 'apis/available_extractors.md'
     - Content Ingestion: 'apis/data_repository.md'
     - Retrieval: 'apis/retrieval.md'
   - Configuration: 'configuration.md'
