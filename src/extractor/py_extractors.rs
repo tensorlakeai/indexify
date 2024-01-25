@@ -285,7 +285,7 @@ mod tests {
         ]));
         let content1 = PyContent::new(
             "My name is Donald and I live in Seattle".to_string(),
-            test_labels1)
+            test_labels1.clone())
             .try_into()
             .unwrap();
         let content2 = PyContent::new(
@@ -306,6 +306,10 @@ mod tests {
         assert_eq!(
             extracted_data.first().unwrap().first().unwrap().mime,
             mime::TEXT_PLAIN.to_string()
+        );
+        assert_eq!(
+            extracted_data.first().unwrap().first().unwrap().labels,
+            test_labels1.clone().expect("No labels found")
         );
 
         // Pass in empty input params
