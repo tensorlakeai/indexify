@@ -424,7 +424,7 @@ impl App {
         let binding = store
             .extractors
             .get(extractor)
-            .ok_or(anyhow!("extractor not found"))?;
+            .ok_or(anyhow!("extractor {:?} not found", extractor))?;
         Ok(binding.clone())
     }
 
