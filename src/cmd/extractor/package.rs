@@ -17,7 +17,7 @@ pub struct Args {
     #[arg(long)]
     extractor_path: String,
 
-    #[arg(long)]
+    #[arg(long, default_value = "false")]
     gpu: bool,
 }
 
