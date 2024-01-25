@@ -363,13 +363,12 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
 
     use crate::{
-        coordinator_service::CoordinatorServer, /* coordinator_service::CoordinatorServer, */
         server_config::{ServerConfig, ServerPeer, SledConfig},
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
@@ -478,38 +477,28 @@ mod tests {
         assert_eq!(0, shared_state.unassigned_tasks().await?.len());
         Ok(())
     }
-    use tokio::{select, spawn, sync::mpsc};
 
-    async fn create_test_raft_cluster(
+    fn create_test_raft_configs(
         node_count: usize,
-    ) -> Result<
-        (
-            Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>>,
-            Vec<Arc<ServerConfig>>,
-            Vec<mpsc::Sender<()>>,
-        ),
-        anyhow::Error,
-    > {
+    ) -> Result<Vec<Arc<ServerConfig>>, anyhow::Error> {
         let append = nanoid::nanoid!();
         let base_port = 18950;
         let mut configs = Vec::new();
         let mut peers = Vec::new();
-        let mut shutdown_senders = Vec::new();
-        let mut handles = Vec::new();
 
         // Generate configurations and peer information
         for i in 0..node_count {
-            let port = base_port + i as u64;
+            let port = (base_port + i * 2) as u64;
             peers.push(ServerPeer {
                 node_id: i as u64,
-                addr: format!("localhost:{}", port + 20),
+                addr: format!("localhost:{}", port + 1),
             });
 
             let config = Arc::new(ServerConfig {
                 node_id: i as u64,
                 coordinator_port: port,
                 coordinator_addr: format!("localhost:{}", port),
-                raft_port: port + 20,
+                raft_port: port + 1,
                 peers: peers.clone(),
                 sled: SledConfig {
                     path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
@@ -518,81 +507,57 @@ mod tests {
             });
 
             configs.push(config.clone());
-
-            // Create individual mpsc channels for each coordinator
-            let (tx, mut rx) = mpsc::channel::<()>(1);
-            shutdown_senders.push(tx);
-
-            let handle = spawn(async move {
-                let coordinator = CoordinatorServer::new(config.clone())
-                    .await
-                    .expect("failed to create coordinator server");
-
-                select! {
-                    result = coordinator.run() => {
-                        match result {
-                            Ok(_) => {
-                                println!("Coordinator {} exited successfully", i);
-                                drop(rx);
-                                Ok(())
-                            }
-                            Err(e) => {
-                                eprintln!("Error in coordinator {}: {}", i, e);
-                                drop(rx);
-                                Err(e)
-                            }
-                        }
-                    }
-                    _ = rx.recv() => {
-                        // close the receiver
-                        drop(rx);
-                        Ok(())
-                    }
-                }
-            });
-
-            handles.push(handle);
-            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         }
 
-        Ok((handles, configs, shutdown_senders))
+        Ok(configs)
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        // Currently only passes with 2 nodes
-        // TODO: Fix so it passes with an arbitrary number of nodes
-        // TODO: If the coordinator panics, the test will hang waiting for the
-        //       shutdown signal receiver to be closed. Fix this.
-        let (handles, _, shutdown_senders) = create_test_raft_cluster(2).await?;
+        let server_configs = create_test_raft_configs(20)?;
 
-        // Wait for a specific time before shutting down
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-        // Send a shutdown signal to each coordinator
-        for tx in shutdown_senders {
-            let _ = tx
-                .send(())
-                .await
-                .map_err(|e| anyhow::anyhow!("Error sending shutdown signal: {}", e))?;
+        let mut apps = Vec::new();
+        for config in server_configs {
+            let shared_state = App::new(config.clone()).await?;
+            apps.push(shared_state);
         }
 
-        // Wait for all tasks to complete simultaneously. if any fail, fail them all
-        // and shut down all the senders
-        let _results = futures::future::join_all(handles)
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("Error in raft cluster: {}", e))?
-            .into_iter()
-            .map(|r| match r {
-                Ok(_) => {}
-                Err(e) => {
-                    panic!("Error in raft cluster: {}", e);
-                }
-            })
-            .collect::<Vec<_>>();
+        // Store the handles of the spawned tasks
+        let mut handles = Vec::new();
+        for app in apps {
+            let handle = tokio::spawn(async move {
+                app.initialize_raft()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("error initializing raft: {}", e))
+            });
+            handles.push(handle);
+        }
+
+        // pause for 2 seconds
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let timeout = tokio::time::sleep(Duration::from_secs(10));
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                _ = &mut timeout => {
+                    // this is a failure - the cluster should have initialized
+                    return Err(anyhow::anyhow!("timeout error: raft cluster failed to initialize within 10 seconds"));
+                },
+                result = futures::future::select_all(handles) => {
+
+                    let (result, _, remaining_handles) = result;
+                    result??; // Handle the result of the completed future
+                    handles = remaining_handles;
+                    if handles.is_empty() {
+                        // all raft nodes have been initialized
+                        break;
+                    }
+                },
+            }
+        }
 
         Ok(())
     }

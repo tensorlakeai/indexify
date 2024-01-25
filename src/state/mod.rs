@@ -651,7 +651,13 @@ async fn watch_for_leader_change(
                 let mut prev_srvr_state = prev_server_state.borrow_mut();
                 if !(prev_srvr_state).eq(&server_state) {
                     info!("raft change metrics prev {:?} current {:?}", prev_srvr_state, server_state);
-                    leader_change_tx.send(server_state.is_leader()).unwrap();
+                    let result = leader_change_tx.send(server_state.is_leader()).map_err(|e| anyhow!("unable to send leader change: {}", e));
+                    match result {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("unable to send leader change: {}", e);
+                        }
+                    }
                     // replace the previous state with the new state
                     *prev_srvr_state = server_state;
                 }
