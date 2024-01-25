@@ -1,38 +1,27 @@
 # Deployment 
 
-You can download the Indexify binary and deploy them on your own infrastructure using your automation tool of choice. Here, we show how to run the Indexify control plane with the binary, and on Kubernetes on AWS, GCP and Azure. We have open sourced the Kubernetes deployment scripts, you could use that as a starting point.
+This resource is designed to assist developers in deploying and managing an efficient, scalable, and secure EKS (Elastic Kubernetes Service) infrastructure on Amazon Web Services (AWS) using Terraform and Kubernetes. We have [open sourced an example here](https://github.com/tensorlakeai/indexify-aws-deployment) including a comprehensive README tailored to streamline your journey from setup to production. It outlines a step-by-step process divided into eight main sections:
 
-## Production
-The strategies of deploying to production will depend on throughput of API queries, number of documents stored and number of extractors extracting features. Kubernetes is the easiest way to deploy the service across clouds with all it's dependencies. We have included K8s deployment specifications, we expect users deploying the service in their environment to tweak the settings based on their scale and availability requirements. We will go through the steps to deploy our provided K8s deployment configuration on AWS EKS.
+#####1. Install AWS + Terraform CLI 
+Instructions on installing the Terraform CLI, AWS CLI, and eksctl.
 
-1. Create a new EKS Cluster
-    If you are using AWS and need a test cluster environment, we have created a cluster configuration that can be easily bootstrapped with `eksctl`, it has the CSI driver for provisioning persistent volumes for storage services on EBS.
-    ```shell
-    eksctl create cluster -f deployment/k8s/cluster_config.yaml
-    ```
+#####2. Create AWS Credentials 
+Guidance on creating a new user in the AWS IAM console, generating access keys, and configuring the AWS CLI.
 
-2. Deploy the secrets and configuration
-    Create the secrets and configuration objects which are going to be used by Indexify and other dependencies for retrieving credentials and service configurations.
-    ```shell
-    kubectl apply -f deployment/k8s/secrets.yaml
-    kubectl apply -f deployment/k8s/indexify-configmap.yaml
-    ```
+#####3. Setup IAM Policy + Role 
+Details on creating a new policy named TerraformPolicy and assigning it to the user.
 
-3. Create the Persistent Volumes
-    Create the PVs.
-    ```shell
-    kubectl apply -f deployment/k8s/persistence-volumes.yaml
-    ```
+#####4. Initialize Terraform and Apply Resources 
+Steps to initialize Terraform in the appropriate directory, modify necessary variables, and apply the configuration.
 
-4. Deploy Postgres and Qdrant
-    Next deploy Qdrant and Postgres and wait for them to be ready before moving on to the next step.
-    ```shell
-    kubectl apply -f deployment/k8s/postgres-deployment.yaml
-    kubectl apply -f deployment/k8s/qdrant-deployment.yaml
-    ```
+#####5. Configure Kubernetes Files 
+Instructions on setting up kubeconfig, updating Kubernetes configuration files, and setting AWS access keys in environment variables.
 
-5. Deploy Indexify
-   Finally deploy Indexify.
-   ```shell
-    kubectl apply -f deployment/k8s/indexify-deployment.yaml
-   ```
+#####6. k8 Load Balancer Setup 
+A comprehensive walkthrough for setting up a Kubernetes load balancer, including creating an IAM policy, a service account, an OIDC provider, and installing the AWS Load Balancer.
+
+#####7. Apply the Rest of the k8 Configuration 
+Guidance on applying the remaining Kubernetes configurations.
+
+#####8. Tests 
+Instructions on how to test the setup, including adding data, binding a miniLM extractor, getting indexes, and performing a search.
