@@ -74,6 +74,9 @@ theme:
 
 extra:
   generator: false
+  analytics:
+    - provider: google
+      property: G-KCZ6YYKGKR
   social:
     - icon: fontawesome/brands/discord
       link: https://discord.gg/mrXrq3DmV8
