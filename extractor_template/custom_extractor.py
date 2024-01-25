@@ -51,4 +51,7 @@ class MyExtractor(Extractor):
 
 
 if __name__ == "__main__":
+    # You can run the extractor by simply invoking this python file
+    # python custom_extractor.py and that would run the extractor
+    # with the sample input provided.
     MyExtractor().extract_sample_input()
