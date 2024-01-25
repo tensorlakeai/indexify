@@ -10,8 +10,8 @@ use crate::{
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
-    #[arg(short = 'c', long)]
-    config_path: Option<String>,
+    #[arg(long)]
+    extractor_path: Option<String>,
 
     #[arg(long)]
     cache_dir: Option<String>,
@@ -23,16 +23,22 @@ pub struct Args {
 impl Args {
     pub async fn run(self, _: GlobalArgs) {
         let Self {
-            config_path: _,
+            extractor_path,
             cache_dir: _,
             name: _,
         } = self;
+        
+        let extractor_path = match extractor_path {
+            Some(path) => path,
+            None => {
+                ExtractorConfig::from_path("indexify.yaml")
+                    .unwrap_or_else(|_| panic!("unable to load extractor config from indexify.yaml, and extractor path is not provided explicitly via --extractor-path"))
+                    .path
+            }
+        };
 
-        let extractor_config_path = self.config_path.unwrap_or("indexify.yaml".to_string());
-        python_path::set_python_path(&extractor_config_path).unwrap();
-
-        let extractor_config = ExtractorConfig::from_path(&extractor_config_path).unwrap();
-        let extractor = PythonExtractor::new_from_extractor_path(&extractor_config.path).unwrap();
+        python_path::set_python_path(&extractor_path).unwrap();
+        let extractor = PythonExtractor::new_from_extractor_path(&extractor_path).unwrap();
         let extractor_runner = extractor_runner::ExtractorRunner::new(Arc::new(extractor));
         let info = extractor_runner.info().unwrap();
         println!("{}", serde_json::to_string_pretty(&info).unwrap());
