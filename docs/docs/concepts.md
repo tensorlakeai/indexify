@@ -1,36 +1,22 @@
 # Key Concepts
 
-A typical workflow using Indexify involves adding content to a data repository, wait for views such as vector indexes to be updated as extractors run on the content. Once the views are populated, you could retrieve information from the views, via semantic search or read named entities, or see how content is clustered.
+A typical workflow using Indexify involves adding content to a data repository, wait for vector or JSON document indexes to be updated as extractors run on the content. As indexes are updated continously, you could retrieve updated information from them, via semantic search, K/V lookup or JSON path queries.
 
 ![High Level Concept](images/System_Architecture_Diagram.png)
 
-## Extractors
-Extractors extract features such as embedding or any other structured data from content to be made available for retrieval processes. Extractors can also produce more content, that can be consumed by other extractors. 
+## Content
+Unstructured data ingested into Indexify or produced within the service by transforming ingested content. Ex - PDF, Videos, Images, Text. Content produced by transforming a source content has their lineage tracked to the source. For example a PDF document could be transformed by the system into Text, Images and JSON documents.
 
-Some examples of extractors are - 
+## Index and Retreival APIs
+Indexes store extracted information from unstructured data, that can be either 1. Looked up with IDs 2. Searched semantically in the case of embedding indexes, or exact search in case of lucene indexes or using JSON path queries incase of JSON documents.
 
-* PDF Extractors that extract embedding from texts, finds named entities, or summarize content.
-* Audio segmentation extractors which chunks audio based on presence of human speech. 
+## Extractor
+A python class that can -
+1. Transform unstructured data into intermediate forms. For example, a PDF document transformed into text, images, structured data if it contains tabular data.
+2. Extract features like embedding or metadata(JSON) that goes into various indexes that can be retreived by LLM applications.
 
-## Indexes
-Indexify stores extracted features in Indexes. Indexify uses vector storage to store embedding and structured data such as JSON are stored in Postgres and other document stores. Indexes are automatically updated when content is added to a data repository by applying extractors on them, and are made available for retrieval.
+## Extractor Bindings
+Applies extractors in a streaming fashion to ingested or derived unstructured content, and Indexes are automatically updated with the extracted data. Think of bindings as calls to extractors, they are long lived and are being called every time there is new content in the system.
 
 ## Data Repositories
 Data Repositories are logical abstractions for storing related content. Repositories allow partitioning data based on security and organizational boundaries.
-
-## Content 
-Content are ny kind of unstructured data such as text, video or audio along with corresponding metadata. Content is stored in blob and K/V stores. 
-Content are chunked, embedded, and indexed automatically by extractors. Content are either added by external systems or from extractors which chunk or transform unstructured data into intermediate forms, such as text chunks of large PDF/HTML docs, small speech segments of a podcast.
-
-## Retrieval APIs
-
-Retrieval APIs are used to retrieve information from indexes. Indexify supports two types of retrieval APIs - semantic search and faceted search.
-
-#### Vector Index
-
-A vector index allows for quick retrieval of relevant information, given a user query using semantic search. 
-Indexify currently supports [HNSW (Hierarchical Navigable Small World Graph)](https://arxiv.org/abs/1603.09320) based vector indexes.
-
-#### Metadata Index
-
-Metadata Index are created from metadata extracted as JSON documents from content. For example, output of a NER extractor can be searched for chunks of PDFs that has the name of a person. We support full text search on metadata indexes and also json path based queries.
