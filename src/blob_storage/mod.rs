@@ -83,8 +83,8 @@ impl BlobStorageReader for BlobStorage {
                     .with_region(
                         self.config
                             .s3
-                            .map(|config| config.region)
-                            .as_deref()
+                            .as_ref()
+                            .map(|config| config.region.as_str())
                             .unwrap_or("us-east-1"),
                     )
                     .with_bucket_name(bucket)
@@ -123,8 +123,8 @@ impl BlobStorageWriter for BlobStorage {
                     .with_region(
                         self.config
                             .s3
-                            .map(|config| config.region)
-                            .as_deref()
+                            .as_ref()
+                            .map(|config| config.region.as_str())
                             .unwrap_or("us-east-1"),
                     )
                     .with_bucket_name(bucket)
@@ -160,8 +160,8 @@ impl BlobStorageWriter for BlobStorage {
                     .with_region(
                         self.config
                             .s3
-                            .map(|config| config.region)
-                            .as_deref()
+                            .as_ref()
+                            .map(|config| config.region.as_str())
                             .unwrap_or("us-east-1"),
                     )
                     .with_bucket_name(bucket)
