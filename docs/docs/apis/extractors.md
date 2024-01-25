@@ -5,6 +5,7 @@ Extractors are used for structured extraction from un-structured data of any mod
 ## Extractor Input and Ouput 
 
 Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them. 
+
 For example, a PDF document could be broken down to - images, multiple text chunks, tabular data encoded as JSON, embeddings of the text chunks, each would be encoded as a Content and emitted by the extractor. Indexify stores raw bytes into blob store and features such as embeddings or JSON documents into indexes for retreival. 
 
 ![High Level Concept](../images/Content_AI_Content.png)
