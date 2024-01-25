@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt, sync::Arc, time::SystemTime};
 
 use anyhow::{anyhow, Result};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{HeartbeatRequest, RegisterExecutorRequest};
 use nanoid::nanoid;
 use serde_json::json;
@@ -12,7 +13,6 @@ use crate::{
     blob_storage::BlobStorageBuilder,
     coordinator_client::CoordinatorClient,
     extractor::extractor_runner::ExtractorRunner,
-    internal_api::{self, Content, ExecutorInfo, ExtractorDescription, Task, TaskResult},
     server_config::ExecutorConfig,
     task_store::TaskStore,
 };
@@ -29,7 +29,7 @@ pub struct ExtractorExecutor {
     executor_config: Arc<ExecutorConfig>,
     pub executor_id: String,
     extractor_runner: Arc<ExtractorRunner>,
-    extractor_description: ExtractorDescription,
+    extractor_description: internal_api::ExtractorDescription,
     listen_addr: String,
 
     task_store: Arc<TaskStore>,
@@ -67,8 +67,8 @@ impl ExtractorExecutor {
     }
 
     #[tracing::instrument]
-    pub fn get_executor_info(&self) -> ExecutorInfo {
-        ExecutorInfo {
+    pub fn get_executor_info(&self) -> internal_api::ExecutorInfo {
+        internal_api::ExecutorInfo {
             id: self.executor_id.clone(),
             last_seen: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -82,9 +82,9 @@ impl ExtractorExecutor {
     #[tracing::instrument]
     pub async fn extract(
         &self,
-        content: Content,
+        content: internal_api::Content,
         input_params: Option<serde_json::Value>,
-    ) -> Result<Vec<Content>, anyhow::Error> {
+    ) -> Result<Vec<internal_api::Content>, anyhow::Error> {
         let extracted_content = self
             .extractor_runner
             .extract(vec![content], input_params.unwrap_or(json!({})))?;
@@ -104,7 +104,10 @@ impl ExtractorExecutor {
             let content = get_content(task.content_metadata).await;
             if let Err(err) = &content {
                 info!("failed to get content: {}", err);
-                results.push(TaskResult::failed(&task.id, Some(err.to_string())));
+                results.push(internal_api::TaskResult::failed(
+                    &task.id,
+                    Some(err.to_string()),
+                ));
                 continue;
             }
             let content = content.unwrap();
@@ -113,12 +116,18 @@ impl ExtractorExecutor {
                 .extract(vec![content], task.input_params.clone());
             if let Err(err) = &extracted_content_batch {
                 info!("failed to extract content: {}", err);
-                results.push(TaskResult::failed(&task.id, Some(err.to_string())));
+                results.push(internal_api::TaskResult::failed(
+                    &task.id,
+                    Some(err.to_string()),
+                ));
                 continue;
             }
 
             for extracted_content_list in extracted_content_batch.unwrap() {
-                results.push(TaskResult::success(&task.id, extracted_content_list));
+                results.push(internal_api::TaskResult::success(
+                    &task.id,
+                    extracted_content_list,
+                ));
             }
         }
         self.task_store.update(results);
@@ -141,10 +150,12 @@ impl ExtractorExecutor {
     }
 }
 
-async fn get_content(content_metadata: internal_api::ContentMetadata) -> Result<Content> {
+async fn get_content(
+    content_metadata: internal_api::ContentMetadata,
+) -> Result<internal_api::Content> {
     let blog_storage_reader = BlobStorageBuilder::reader_from_link(&content_metadata.storage_url)?;
     let data = blog_storage_reader.get().await?;
-    let extracted_content = Content {
+    let extracted_content = internal_api::Content {
         mime: content_metadata.content_type,
         bytes: data,
         feature: None,
@@ -177,7 +188,7 @@ pub async fn heartbeat(
             if task_store.has_finished(&task.id) {
                 continue;
             }
-            let task: Result<Task> = task.try_into();
+            let task: Result<internal_api::Task> = task.try_into();
             if let Ok(task) = task {
                 tasks.push(task);
             } else {

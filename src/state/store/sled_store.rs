@@ -8,24 +8,14 @@ use std::{
 };
 
 use byteorder::{BigEndian, ByteOrder};
+use indexify_internal_api as internal_api;
 use openraft::{BasicNode, Entry, LogId, StoredMembership, Vote};
 use serde::{Deserialize, Serialize};
 use sled::{transaction::ConflictableTransactionError, IVec};
 use tokio::sync::RwLock;
 
 use super::{error::*, impl_sled_storable::SledStorable, NodeId, TypeConfig, *};
-use crate::{
-    internal_api::{
-        ContentMetadata,
-        ExecutorMetadata,
-        ExtractionEvent,
-        ExtractorBinding,
-        ExtractorDescription,
-        Index,
-        Task,
-    },
-    server_config::SledConfig,
-};
+use crate::server_config::SledConfig;
 
 pub struct SledStore {
     /// sled database
@@ -393,7 +383,7 @@ impl StateMachine {
                 }
                 "executors" => {
                     state_machine.executors =
-                        HashMap::<ExecutorId, ExecutorMetadata>::load_from_sled_value(value)
+                        HashMap::<ExecutorId, internal_api::ExecutorMetadata>::load_from_sled_value(value)
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load executors",
@@ -404,15 +394,16 @@ impl StateMachine {
                             })?;
                 }
                 "tasks" => {
-                    state_machine.tasks = HashMap::<TaskId, Task>::load_from_sled_value(value)
-                        .map_err(|e| {
-                            err_kind.build_with_tree_and_key(
-                                "failed to load tasks",
-                                e,
-                                SledStoreTree::StateMachine,
-                                key.clone(),
-                            )
-                        })?;
+                    state_machine.tasks =
+                        HashMap::<TaskId, internal_api::Task>::load_from_sled_value(value)
+                            .map_err(|e| {
+                                err_kind.build_with_tree_and_key(
+                                    "failed to load tasks",
+                                    e,
+                                    SledStoreTree::StateMachine,
+                                    key.clone(),
+                                )
+                            })?;
                 }
                 "unassigned_tasks" => {
                     state_machine.unassigned_tasks = HashSet::<TaskId>::load_from_sled_value(value)
@@ -438,16 +429,20 @@ impl StateMachine {
                             })?;
                 }
                 "extraction_events" => {
-                    state_machine.extraction_events =
-                        HashMap::<ExtractionEventId, ExtractionEvent>::load_from_sled_value(value)
-                            .map_err(|e| {
-                                err_kind.build_with_tree_and_key(
-                                    "failed to load extraction_events",
-                                    e,
-                                    SledStoreTree::StateMachine,
-                                    key.clone(),
-                                )
-                            })?;
+                    state_machine.extraction_events = HashMap::<
+                        ExtractionEventId,
+                        internal_api::ExtractionEvent,
+                    >::load_from_sled_value(
+                        value
+                    )
+                    .map_err(|e| {
+                        err_kind.build_with_tree_and_key(
+                            "failed to load extraction_events",
+                            e,
+                            SledStoreTree::StateMachine,
+                            key.clone(),
+                        )
+                    })?;
                 }
                 "unprocessed_extraction_events" => {
                     state_machine.unprocessed_extraction_events =
@@ -462,15 +457,17 @@ impl StateMachine {
                 }
                 "content_table" => {
                     state_machine.content_table =
-                        HashMap::<ContentId, ContentMetadata>::load_from_sled_value(value)
-                            .map_err(|e| {
-                                err_kind.build_with_tree_and_key(
-                                    "failed to load content_table",
-                                    e,
-                                    SledStoreTree::StateMachine,
-                                    key.clone(),
-                                )
-                            })?;
+                        HashMap::<ContentId, internal_api::ContentMetadata>::load_from_sled_value(
+                            value,
+                        )
+                        .map_err(|e| {
+                            err_kind.build_with_tree_and_key(
+                                "failed to load content_table",
+                                e,
+                                SledStoreTree::StateMachine,
+                                key.clone(),
+                            )
+                        })?;
                 }
                 "content_repository_table" => {
                     state_machine.content_repository_table =
@@ -485,18 +482,20 @@ impl StateMachine {
                             })?;
                 }
                 "bindings_table" => {
-                    state_machine.bindings_table =
-                        HashMap::<RepositoryId, HashSet<ExtractorBinding>>::load_from_sled_value(
-                            value,
+                    state_machine.bindings_table = HashMap::<
+                        RepositoryId,
+                        HashSet<internal_api::ExtractorBinding>,
+                    >::load_from_sled_value(
+                        value
+                    )
+                    .map_err(|e| {
+                        err_kind.build_with_tree_and_key(
+                            "failed to load bindings_table",
+                            e,
+                            SledStoreTree::StateMachine,
+                            key.clone(),
                         )
-                        .map_err(|e| {
-                            err_kind.build_with_tree_and_key(
-                                "failed to load bindings_table",
-                                e,
-                                SledStoreTree::StateMachine,
-                                key.clone(),
-                            )
-                        })?;
+                    })?;
                 }
                 "extractor_executors_table" => {
                     state_machine.extractor_executors_table =
@@ -511,16 +510,18 @@ impl StateMachine {
                             })?;
                 }
                 "extractors" => {
-                    state_machine.extractors =
-                        HashMap::<ExtractorName, ExtractorDescription>::load_from_sled_value(value)
-                            .map_err(|e| {
-                                err_kind.build_with_tree_and_key(
-                                    "failed to load extractors",
-                                    e,
-                                    SledStoreTree::StateMachine,
-                                    key.clone(),
-                                )
-                            })?;
+                    state_machine.extractors = HashMap::<
+                        ExtractorName,
+                        internal_api::ExtractorDescription,
+                    >::load_from_sled_value(value)
+                    .map_err(|e| {
+                        err_kind.build_with_tree_and_key(
+                            "failed to load extractors",
+                            e,
+                            SledStoreTree::StateMachine,
+                            key.clone(),
+                        )
+                    })?;
                 }
                 "repositories" => {
                     state_machine.repositories = HashSet::<String>::load_from_sled_value(value)
@@ -534,27 +535,32 @@ impl StateMachine {
                         })?;
                 }
                 "repository_extractors" => {
-                    state_machine.repository_extractors =
-                        HashMap::<RepositoryId, HashSet<Index>>::load_from_sled_value(value)
+                    state_machine.repository_extractors = HashMap::<
+                        RepositoryId,
+                        HashSet<internal_api::Index>,
+                    >::load_from_sled_value(
+                        value
+                    )
+                    .map_err(|e| {
+                        err_kind.build_with_tree_and_key(
+                            "failed to load repository_extractors",
+                            e,
+                            SledStoreTree::StateMachine,
+                            key.clone(),
+                        )
+                    })?;
+                }
+                "index_table" => {
+                    state_machine.index_table =
+                        HashMap::<String, internal_api::Index>::load_from_sled_value(value)
                             .map_err(|e| {
                                 err_kind.build_with_tree_and_key(
-                                    "failed to load repository_extractors",
+                                    "failed to load index_table",
                                     e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
                             })?;
-                }
-                "index_table" => {
-                    state_machine.index_table =
-                        HashMap::<String, Index>::load_from_sled_value(value).map_err(|e| {
-                            err_kind.build_with_tree_and_key(
-                                "failed to load index_table",
-                                e,
-                                SledStoreTree::StateMachine,
-                                key.clone(),
-                            )
-                        })?;
                 }
                 _ => {
                     return Err(StoreError::new(

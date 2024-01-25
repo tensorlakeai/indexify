@@ -27,7 +27,6 @@ mod data_repository_manager;
 mod executor;
 mod extractor_router;
 mod grpc_helper;
-mod internal_api;
 mod task_store;
 mod test_util;
 mod tls;

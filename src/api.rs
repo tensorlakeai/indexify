@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
@@ -12,12 +13,7 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::{
-    api_utils,
-    attribute_index,
-    internal_api::{self, TaskOutcome},
-    vectordbs,
-};
+use crate::{api_utils, attribute_index, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
@@ -207,6 +203,37 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
     }
 }
 
+impl From<ExtractorDescription> for internal_api::ExtractorDescription {
+    fn from(extractor: ExtractorDescription) -> internal_api::ExtractorDescription {
+        let mut output_schema = HashMap::new();
+        for (output_name, embedding_schema) in extractor.outputs {
+            match embedding_schema {
+                ExtractorOutputSchema::Embedding(embedding_schema) => {
+                    let distance = embedding_schema.distance.to_string();
+                    output_schema.insert(
+                        output_name,
+                        internal_api::OutputSchema::Embedding(internal_api::EmbeddingSchema {
+                            dim: embedding_schema.dim,
+                            distance,
+                        }),
+                    );
+                }
+                ExtractorOutputSchema::Metadata(schema) => {
+                    output_schema
+                        .insert(output_name, internal_api::OutputSchema::Attributes(schema));
+                }
+            }
+        }
+        Self {
+            name: extractor.name,
+            description: extractor.description,
+            input_params: extractor.input_params,
+            outputs: output_schema,
+            input_mime_types: extractor.input_mime_types,
+        }
+    }
+}
+
 impl TryFrom<indexify_coordinator::Extractor> for ExtractorDescription {
     type Error = anyhow::Error;
 
@@ -369,6 +396,16 @@ pub enum FeatureType {
     Unknown,
 }
 
+impl From<internal_api::FeatureType> for FeatureType {
+    fn from(feature_type: internal_api::FeatureType) -> Self {
+        match feature_type {
+            internal_api::FeatureType::Embedding => FeatureType::Embedding,
+            internal_api::FeatureType::Metadata => FeatureType::Metadata,
+            internal_api::FeatureType::Unknown => FeatureType::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Feature {
     pub feature_type: FeatureType,
@@ -384,6 +421,21 @@ pub struct Content {
     pub bytes: Vec<u8>,
     pub feature: Option<Feature>,
     pub labels: HashMap<String, String>,
+}
+
+impl From<internal_api::Content> for Content {
+    fn from(content: internal_api::Content) -> Self {
+        Self {
+            content_type: content.mime,
+            bytes: content.bytes,
+            feature: content.feature.map(|f| Feature {
+                feature_type: f.feature_type.into(),
+                name: f.name,
+                data: f.data,
+            }),
+            labels: content.labels,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -406,7 +458,7 @@ pub struct WriteExtractedContent {
     pub index_name: Option<String>,
     pub parent_content_id: String,
     pub executor_id: String,
-    pub task_outcome: TaskOutcome,
+    pub task_outcome: internal_api::TaskOutcome,
     pub extractor_binding: String,
 }
 

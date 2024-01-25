@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use crate::internal_api::ContentMetadata;
+use indexify_internal_api as internal_api;
 
 /// filter for content metadata
 pub fn list_content_filter<'a>(
-    content: impl IntoIterator<Item = ContentMetadata> + 'a,
+    content: impl IntoIterator<Item = internal_api::ContentMetadata> + 'a,
     source: &'a str,
     parent_id: &'a str,
     labels_eq: &'a HashMap<String, String>,
-) -> impl Iterator<Item = ContentMetadata> + 'a {
+) -> impl Iterator<Item = internal_api::ContentMetadata> + 'a {
     content
         .into_iter()
         .filter(move |c| source.is_empty() || c.source == source)
@@ -37,10 +37,10 @@ mod test_list_content_filter {
 
     #[test]
     fn test_list_content_filter() {
-        let default = ContentMetadata::spawn_instance_for_store_test();
+        let default = internal_api::ContentMetadata::spawn_instance_for_store_test();
         let no_labels_filter = HashMap::new();
         let content = vec![
-            ContentMetadata {
+            internal_api::ContentMetadata {
                 id: "1".to_string(),
                 source: "source1".to_string(),
                 parent_id: "parent1".to_string(),
@@ -51,14 +51,14 @@ mod test_list_content_filter {
                 },
                 ..default.clone()
             },
-            ContentMetadata {
+            internal_api::ContentMetadata {
                 id: "2".to_string(),
                 source: "source2".to_string(),
                 parent_id: "parent2".to_string(),
                 labels: HashMap::new(),
                 ..default.clone()
             },
-            ContentMetadata {
+            internal_api::ContentMetadata {
                 id: "3".to_string(),
                 source: "source1".to_string(),
                 parent_id: "parent2".to_string(),
@@ -70,7 +70,7 @@ mod test_list_content_filter {
                 },
                 ..default.clone()
             },
-            ContentMetadata {
+            internal_api::ContentMetadata {
                 id: "4".to_string(),
                 source: "source4".to_string(),
                 parent_id: "parent4".to_string(),

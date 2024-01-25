@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
 use itertools::Itertools;
 use tracing::info;
@@ -12,7 +13,6 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
-    internal_api::{Embedding, EmbeddingSchema},
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
 
@@ -45,7 +45,11 @@ impl VectorIndexManager {
         })
     }
 
-    pub async fn create_index(&self, index_name: &str, schema: EmbeddingSchema) -> Result<String> {
+    pub async fn create_index(
+        &self,
+        index_name: &str,
+        schema: internal_api::EmbeddingSchema,
+    ) -> Result<String> {
         let create_index_params = CreateIndexParams {
             vectordb_index_name: index_name.to_string(),
             vector_dim: schema.dim as u64,
@@ -94,7 +98,7 @@ impl VectorIndexManager {
             .feature
             .as_ref()
             .ok_or(anyhow!("No features were extracted"))?;
-        let embedding: Embedding =
+        let embedding: internal_api::Embedding =
             serde_json::from_value(features.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
         let search_result = self
             .vector_db

@@ -5,6 +5,7 @@ use std::{
     string::ToString,
 };
 
+use indexify_internal_api as internal_api;
 use openraft::{
     BasicNode,
     Entry,
@@ -19,17 +20,6 @@ use serde::{Deserialize, Serialize};
 use sled::IVec;
 
 use super::{NodeId, TypeConfig, *};
-use crate::internal_api::{
-    ContentMetadata,
-    ExecutorMetadata,
-    ExtractionEvent,
-    ExtractionEventPayload,
-    ExtractorBinding,
-    ExtractorDescription,
-    Index,
-    OutputSchema,
-    Task,
-};
 
 pub trait SledStorable: Serialize + for<'de> Deserialize<'de> + SledStorableTestFactory {
     fn to_saveable_value(&self) -> Result<IVec, Box<dyn Error>> {
@@ -73,17 +63,17 @@ impl SledStorable for LogId<NodeId> {}
 impl SledStorable for StoredMembership<NodeId, BasicNode> {}
 impl SledStorable for SnapshotIndex {}
 impl SledStorable for HashMap<ExecutorId, u64> {}
-impl SledStorable for HashMap<ExecutorId, ExecutorMetadata> {}
-impl SledStorable for HashMap<TaskId, Task> {}
-impl SledStorable for HashMap<ExtractionEventId, ExtractionEvent> {}
-impl SledStorable for HashMap<ContentId, ContentMetadata> {}
+impl SledStorable for HashMap<ExecutorId, internal_api::ExecutorMetadata> {}
+impl SledStorable for HashMap<TaskId, internal_api::Task> {}
+impl SledStorable for HashMap<ExtractionEventId, internal_api::ExtractionEvent> {}
+impl SledStorable for HashMap<ContentId, internal_api::ContentMetadata> {}
 impl SledStorable for HashMap<String, HashSet<String>> {}
-impl SledStorable for HashMap<RepositoryId, HashSet<ExtractorBinding>> {}
+impl SledStorable for HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>> {}
 impl SledStorable for HashMap<ExtractorName, Vec<ExecutorId>> {}
-impl SledStorable for HashMap<ExtractorName, ExtractorDescription> {}
+impl SledStorable for HashMap<ExtractorName, internal_api::ExtractorDescription> {}
 impl SledStorable for HashSet<String> {}
-impl SledStorable for HashMap<RepositoryId, HashSet<Index>> {}
-impl SledStorable for HashMap<String, Index> {}
+impl SledStorable for HashMap<RepositoryId, HashSet<internal_api::Index>> {}
+impl SledStorable for HashMap<String, internal_api::Index> {}
 impl SledStorable for StateMachine {}
 impl SledStorable for SnapshotMeta<u64, BasicNode> {}
 
@@ -93,28 +83,28 @@ impl SledStorableTestFactory for StateMachine {
         StateMachine {
             last_applied_log: Some(LogId::spawn_instance_for_store_test()),
             last_membership: StoredMembership::spawn_instance_for_store_test(),
-            executors: HashMap::<ExecutorId, ExecutorMetadata>::spawn_instance_for_store_test(),
-            tasks: HashMap::<TaskId, Task>::spawn_instance_for_store_test(),
+            executors: HashMap::<ExecutorId, internal_api::ExecutorMetadata>::spawn_instance_for_store_test(),
+            tasks: HashMap::<TaskId, internal_api::Task>::spawn_instance_for_store_test(),
             unassigned_tasks: HashSet::<TaskId>::spawn_instance_for_store_test(),
             task_assignments: HashMap::<ExecutorId, HashSet<TaskId>>::spawn_instance_for_store_test(
             ),
             extraction_events:
-                HashMap::<ExtractionEventId, ExtractionEvent>::spawn_instance_for_store_test(),
+                HashMap::<ExtractionEventId, internal_api::ExtractionEvent>::spawn_instance_for_store_test(),
             unprocessed_extraction_events:
                 HashSet::<ExtractionEventId>::spawn_instance_for_store_test(),
-            content_table: HashMap::<ContentId, ContentMetadata>::spawn_instance_for_store_test(),
+            content_table: HashMap::<ContentId, internal_api::ContentMetadata>::spawn_instance_for_store_test(),
             content_repository_table:
                 HashMap::<RepositoryId, HashSet<ContentId>>::spawn_instance_for_store_test(),
             bindings_table:
-                HashMap::<RepositoryId, HashSet<ExtractorBinding>>::spawn_instance_for_store_test(),
+                HashMap::<RepositoryId, HashSet<internal_api::ExtractorBinding>>::spawn_instance_for_store_test(),
             extractor_executors_table:
                 HashMap::<ExtractorName, HashSet<ExecutorId>>::spawn_instance_for_store_test(),
             extractors:
-                HashMap::<ExtractorName, ExtractorDescription>::spawn_instance_for_store_test(),
+                HashMap::<ExtractorName, internal_api::ExtractorDescription>::spawn_instance_for_store_test(),
             repositories: HashSet::<String>::spawn_instance_for_store_test(),
             repository_extractors:
-                HashMap::<RepositoryId, HashSet<Index>>::spawn_instance_for_store_test(),
-            index_table: HashMap::<String, Index>::spawn_instance_for_store_test(),
+                HashMap::<RepositoryId, HashSet<internal_api::Index>>::spawn_instance_for_store_test(),
+            index_table: HashMap::<String, internal_api::Index>::spawn_instance_for_store_test(),
         }
     }
 }
@@ -205,21 +195,24 @@ impl SledStorableTestFactory for HashMap<ExecutorId, u64> {
     }
 }
 
-impl SledStorableTestFactory for HashMap<ExecutorId, ExecutorMetadata> {
+impl SledStorableTestFactory for HashMap<ExecutorId, internal_api::ExecutorMetadata> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
             "test".to_string(),
-            ExecutorMetadata::spawn_instance_for_store_test(),
+            internal_api::ExecutorMetadata::spawn_instance_for_store_test(),
         );
         hm
     }
 }
 
-impl SledStorableTestFactory for HashMap<TaskId, Task> {
+impl SledStorableTestFactory for HashMap<TaskId, internal_api::Task> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
-        hm.insert("test".to_string(), Task::spawn_instance_for_store_test());
+        hm.insert(
+            "test".to_string(),
+            internal_api::Task::spawn_instance_for_store_test(),
+        );
         hm
     }
 }
@@ -232,23 +225,23 @@ impl SledStorableTestFactory for HashSet<String> {
     }
 }
 
-impl SledStorableTestFactory for HashMap<ExtractionEventId, ExtractionEvent> {
+impl SledStorableTestFactory for HashMap<ExtractionEventId, internal_api::ExtractionEvent> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
             "test".to_string(),
-            ExtractionEvent::spawn_instance_for_store_test(),
+            internal_api::ExtractionEvent::spawn_instance_for_store_test(),
         );
         hm
     }
 }
 
-impl SledStorableTestFactory for HashMap<ContentId, ContentMetadata> {
+impl SledStorableTestFactory for HashMap<ContentId, internal_api::ContentMetadata> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
             "test".to_string(),
-            ContentMetadata::spawn_instance_for_store_test(),
+            internal_api::ContentMetadata::spawn_instance_for_store_test(),
         );
         hm
     }
@@ -268,9 +261,9 @@ fn test_json_value() -> serde_json::Value {
     .unwrap()
 }
 
-impl SledStorableTestFactory for ExtractorDescription {
+impl SledStorableTestFactory for internal_api::ExtractorDescription {
     fn spawn_instance_for_store_test() -> Self {
-        ExtractorDescription {
+        internal_api::ExtractorDescription {
             name: "test".to_string(),
             description: "test".to_string(),
             input_params: test_json_value(),
@@ -278,7 +271,7 @@ impl SledStorableTestFactory for ExtractorDescription {
                 let mut outputs = HashMap::new();
                 outputs.insert(
                     "test".to_string(),
-                    OutputSchema::Attributes(test_json_value()),
+                    internal_api::OutputSchema::Attributes(test_json_value()),
                 );
                 outputs
             },
@@ -287,35 +280,35 @@ impl SledStorableTestFactory for ExtractorDescription {
     }
 }
 
-impl SledStorableTestFactory for ExecutorMetadata {
+impl SledStorableTestFactory for internal_api::ExecutorMetadata {
     fn spawn_instance_for_store_test() -> Self {
-        ExecutorMetadata {
+        internal_api::ExecutorMetadata {
             id: "test".to_string(),
             last_seen: 0,
             addr: "localhost:8080".to_string(),
-            extractor: ExtractorDescription::spawn_instance_for_store_test(),
+            extractor: internal_api::ExtractorDescription::spawn_instance_for_store_test(),
         }
     }
 }
 
-impl SledStorableTestFactory for Task {
+impl SledStorableTestFactory for internal_api::Task {
     fn spawn_instance_for_store_test() -> Self {
-        Task {
+        internal_api::Task {
             id: "test".to_string(),
             extractor: "test".to_string(),
             extractor_binding: "test".to_string(),
             output_index_table_mapping: HashMap::new(),
             repository: "test".to_string(),
-            content_metadata: ContentMetadata::spawn_instance_for_store_test(),
+            content_metadata: internal_api::ContentMetadata::spawn_instance_for_store_test(),
             input_params: test_json_value(),
-            outcome: crate::internal_api::TaskOutcome::Success,
+            outcome: internal_api::TaskOutcome::Success,
         }
     }
 }
 
-impl SledStorableTestFactory for ContentMetadata {
+impl SledStorableTestFactory for internal_api::ContentMetadata {
     fn spawn_instance_for_store_test() -> Self {
-        ContentMetadata {
+        internal_api::ContentMetadata {
             id: "test_id".to_string(),
             parent_id: "test_parent_id".to_string(),
             repository: "test_repository".to_string(),
@@ -334,13 +327,13 @@ impl SledStorableTestFactory for ContentMetadata {
     }
 }
 
-impl SledStorableTestFactory for ExtractionEvent {
+impl SledStorableTestFactory for internal_api::ExtractionEvent {
     fn spawn_instance_for_store_test() -> Self {
-        ExtractionEvent {
+        internal_api::ExtractionEvent {
             id: "test_id".to_string(),
             repository: "test_repository".to_string(),
-            payload: ExtractionEventPayload::CreateContent {
-                content: ContentMetadata::spawn_instance_for_store_test(),
+            payload: internal_api::ExtractionEventPayload::CreateContent {
+                content: internal_api::ContentMetadata::spawn_instance_for_store_test(),
             },
             created_at: 1234567890,
             processed_at: Some(1234567890),
@@ -348,9 +341,9 @@ impl SledStorableTestFactory for ExtractionEvent {
     }
 }
 
-impl SledStorableTestFactory for ExtractorBinding {
+impl SledStorableTestFactory for internal_api::ExtractorBinding {
     fn spawn_instance_for_store_test() -> Self {
-        ExtractorBinding {
+        internal_api::ExtractorBinding {
             id: "test_id".to_string(),
             name: "test_name".to_string(),
             repository: "test_repository".to_string(),
@@ -369,9 +362,9 @@ impl SledStorableTestFactory for ExtractorBinding {
     }
 }
 
-impl SledStorableTestFactory for Index {
+impl SledStorableTestFactory for internal_api::Index {
     fn spawn_instance_for_store_test() -> Self {
-        Index {
+        internal_api::Index {
             repository: "test_repository".to_string(),
             name: "test_name".to_string(),
             table_name: "test_table_name".to_string(),
@@ -382,20 +375,23 @@ impl SledStorableTestFactory for Index {
     }
 }
 
-impl SledStorableTestFactory for HashMap<String, Index> {
-    fn spawn_instance_for_store_test() -> Self {
-        let mut hm = HashMap::new();
-        hm.insert("test".to_string(), Index::spawn_instance_for_store_test());
-        hm
-    }
-}
-
-impl SledStorableTestFactory for HashMap<ExtractorName, ExtractorDescription> {
+impl SledStorableTestFactory for HashMap<String, internal_api::Index> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert(
             "test".to_string(),
-            ExtractorDescription::spawn_instance_for_store_test(),
+            internal_api::Index::spawn_instance_for_store_test(),
+        );
+        hm
+    }
+}
+
+impl SledStorableTestFactory for HashMap<ExtractorName, internal_api::ExtractorDescription> {
+    fn spawn_instance_for_store_test() -> Self {
+        let mut hm = HashMap::new();
+        hm.insert(
+            "test".to_string(),
+            internal_api::ExtractorDescription::spawn_instance_for_store_test(),
         );
         hm
     }
@@ -409,24 +405,24 @@ impl SledStorableTestFactory for HashMap<ExtractorName, Vec<ExecutorId>> {
     }
 }
 
-impl SledStorableTestFactory for HashMap<RepositoryId, HashSet<ExtractorBinding>> {
+impl SledStorableTestFactory for HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), {
             let mut hs = HashSet::new();
-            hs.insert(ExtractorBinding::spawn_instance_for_store_test());
+            hs.insert(internal_api::ExtractorBinding::spawn_instance_for_store_test());
             hs
         });
         hm
     }
 }
 
-impl SledStorableTestFactory for HashMap<RepositoryId, HashSet<Index>> {
+impl SledStorableTestFactory for HashMap<RepositoryId, HashSet<internal_api::Index>> {
     fn spawn_instance_for_store_test() -> Self {
         let mut hm = HashMap::new();
         hm.insert("test".to_string(), {
             let mut hs = HashSet::new();
-            hs.insert(Index::spawn_instance_for_store_test());
+            hs.insert(internal_api::Index::spawn_instance_for_store_test());
             hs
         });
         hm
@@ -482,20 +478,20 @@ mod sled_tests {
     type TestLogId = LogId<NodeId>;
     type TestStoredMembership = StoredMembership<NodeId, BasicNode>;
     type TestExecutorHealthChecks = HashMap<ExecutorId, u64>;
-    type TestExecutors = HashMap<ExecutorId, ExecutorMetadata>;
-    type TestTasks = HashMap<TaskId, Task>;
+    type TestExecutors = HashMap<ExecutorId, internal_api::ExecutorMetadata>;
+    type TestTasks = HashMap<TaskId, internal_api::Task>;
     type TestUnassignedTasks = HashSet<TaskId>;
     type TestTaskAssignments = HashMap<ExecutorId, HashSet<TaskId>>;
-    type TestExtractionEvents = HashMap<ExtractionEventId, ExtractionEvent>;
+    type TestExtractionEvents = HashMap<ExtractionEventId, internal_api::ExtractionEvent>;
     type TestUnprocessedExtractionEvents = HashSet<ExtractionEventId>;
-    type TestContentTable = HashMap<ContentId, ContentMetadata>;
+    type TestContentTable = HashMap<ContentId, internal_api::ContentMetadata>;
     type TestContentRepositoryTable = HashMap<RepositoryId, HashSet<ContentId>>;
-    type TestBindingsTable = HashMap<RepositoryId, HashSet<ExtractorBinding>>;
+    type TestBindingsTable = HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>>;
     type TestExtractorExecutorsTable = HashMap<ExtractorName, Vec<ExecutorId>>;
-    type TestExtractors = HashMap<ExtractorName, ExtractorDescription>;
+    type TestExtractors = HashMap<ExtractorName, internal_api::ExtractorDescription>;
     type TestRepositories = HashSet<String>;
-    type TestRepositoryExtractors = HashMap<RepositoryId, HashSet<Index>>;
-    type TestIndexTable = HashMap<String, Index>;
+    type TestRepositoryExtractors = HashMap<RepositoryId, HashSet<internal_api::Index>>;
+    type TestIndexTable = HashMap<String, internal_api::Index>;
     type TestStateMachine = StateMachine;
     type TestVoteNodeId = Vote<NodeId>;
     type TestStoredSnapshot = StoredSnapshot;

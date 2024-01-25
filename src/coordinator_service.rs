@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_server::CoordinatorService,
@@ -59,7 +60,6 @@ use tracing::{error, info};
 
 use crate::{
     coordinator::Coordinator,
-    internal_api,
     server_config::ServerConfig,
     state::{self, store::StateChange},
     tonic_streamer::DropReceiver,

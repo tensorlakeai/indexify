@@ -2028,6 +2028,7 @@ dependencies = [
  "hostname",
  "hyper 1.1.0",
  "hyper-util",
+ "indexify_internal_api",
  "indexify_proto",
  "insta",
  "itertools 0.12.0",
@@ -2089,6 +2090,20 @@ dependencies = [
  "utoipa-swagger-ui",
  "vergen",
  "walkdir",
+]
+
+[[package]]
+name = "indexify_internal_api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "indexify_proto",
+ "mime",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smart-default",
+ "strum",
 ]
 
 [[package]]

@@ -13,7 +13,9 @@ use tokio_stream::StreamExt;
 pub mod extractor_runner;
 pub mod py_extractors;
 
-use crate::{api, internal_api::Content};
+use indexify_internal_api as internal_api;
+
+use crate::api;
 
 pub mod python_path;
 mod scaffold;
@@ -29,18 +31,18 @@ pub trait Extractor: Debug {
 
     fn extract(
         &self,
-        content: Vec<Content>,
+        content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
-    ) -> Result<Vec<Vec<Content>>, anyhow::Error>;
+    ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error>;
 }
 
 pub trait ExtractorCli {
     fn extract(
         &self,
-        content: Vec<Content>,
+        content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
-    ) -> Result<Vec<Vec<Content>>>;
-    fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<Content>>;
+    ) -> Result<Vec<Vec<internal_api::Content>>>;
+    fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<internal_api::Content>>;
     fn info(&self) -> Result<api::ExtractorDescription>;
 }
 
@@ -69,7 +71,7 @@ pub async fn run_docker_extractor(
     cache_dir: Option<String>,
     text: Option<String>,
     file_path: Option<String>,
-) -> Result<Vec<Content>, anyhow::Error> {
+) -> Result<Vec<internal_api::Content>, anyhow::Error> {
     let docker = Docker::connect_with_socket_defaults().unwrap();
     let options = Some(CreateContainerOptions {
         name: name.clone().replace('/', "."),

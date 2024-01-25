@@ -2,13 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
 use clap::Args as ClapArgs;
+use indexify_internal_api as internal_api;
 use serde_json::json;
 use tracing_unwrap::ResultExt;
 
 use crate::{
     cmd::GlobalArgs,
     extractor::{py_extractors::PythonExtractor, python_path, ExtractorTS},
-    internal_api::Content,
 };
 
 #[derive(Debug, ClapArgs)]
@@ -53,7 +53,7 @@ impl Args {
                 PythonExtractor::new_from_extractor_path(&extractor_path).unwrap_or_log();
             let extractor: ExtractorTS = Arc::new(extractor);
             let content = match (text, file) {
-                (Some(text), None) => Ok(Content {
+                (Some(text), None) => Ok(internal_api::Content {
                     mime: "text/plain".to_string(),
                     bytes: text.as_bytes().to_vec(),
                     feature: None,
@@ -66,7 +66,7 @@ impl Args {
                         })
                         .unwrap_or_log();
                     let mime_type = mime_guess::from_path(&file_path).first_or_octet_stream();
-                    Ok(Content {
+                    Ok(internal_api::Content {
                         mime: mime_type.to_string(),
                         bytes: data,
                         feature: None,

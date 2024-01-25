@@ -3,16 +3,15 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use indexify_internal_api as internal_api;
 use tokio::sync::watch;
 use tracing::info;
 
-use crate::internal_api::{Task, TaskResult};
-
 #[derive(Debug)]
 pub struct TaskStore {
-    tasks: Arc<RwLock<HashMap<String, Task>>>,
+    tasks: Arc<RwLock<HashMap<String, internal_api::Task>>>,
     pending: Arc<RwLock<HashSet<String>>>,
-    finished: Arc<RwLock<HashMap<String, TaskResult>>>,
+    finished: Arc<RwLock<HashMap<String, internal_api::TaskResult>>>,
     tx: watch::Sender<()>,
     rx: watch::Receiver<()>,
 }
@@ -34,7 +33,7 @@ impl TaskStore {
         self.tasks.write().unwrap().remove(task_id);
     }
 
-    pub fn add(&self, tasks: Vec<Task>) {
+    pub fn add(&self, tasks: Vec<internal_api::Task>) {
         info!("Adding {} tasks to task store", tasks.len());
         let mut pending = self.pending.write().unwrap();
         let mut tasks_store = self.tasks.write().unwrap();
@@ -45,7 +44,7 @@ impl TaskStore {
         self.tx.send(()).unwrap();
     }
 
-    pub fn update(&self, task_results: Vec<TaskResult>) {
+    pub fn update(&self, task_results: Vec<internal_api::TaskResult>) {
         let mut pending = self.pending.write().unwrap();
         let mut finished = self.finished.write().unwrap();
         for task_result in task_results {
@@ -54,7 +53,7 @@ impl TaskStore {
         }
     }
 
-    pub fn pending_tasks(&self) -> Vec<Task> {
+    pub fn pending_tasks(&self) -> Vec<internal_api::Task> {
         let pending = self.pending.read().unwrap();
         let tasks = self.tasks.read().unwrap();
         pending
@@ -63,7 +62,7 @@ impl TaskStore {
             .collect()
     }
 
-    pub fn finished_tasks(&self) -> Vec<TaskResult> {
+    pub fn finished_tasks(&self) -> Vec<internal_api::TaskResult> {
         let finished = self.finished.read().unwrap();
         finished.values().cloned().collect()
     }
@@ -77,7 +76,7 @@ impl TaskStore {
         self.rx.clone()
     }
 
-    pub fn get_task(&self, task_id: &str) -> Option<Task> {
+    pub fn get_task(&self, task_id: &str) -> Option<internal_api::Task> {
         let tasks = self.tasks.read().unwrap();
         tasks.get(task_id).cloned()
     }
