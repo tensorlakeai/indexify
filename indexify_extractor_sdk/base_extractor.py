@@ -97,7 +97,7 @@ class Extractor(ABC):
     def sample_input(self) -> Content:
         pass
 
-    def run_sample_input(self) -> List[Content]:
+    def extract_sample_input(self) -> List[Content]:
         return self.extract(self.sample_input())
 
 
