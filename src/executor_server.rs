@@ -169,8 +169,6 @@ async fn extract(
     endpoint_state: State<Arc<ApiEndpointState>>,
     Json(query): Json<internal_api::ExtractRequest>,
 ) -> Result<Json<internal_api::ExtractResponse>, IndexifyAPIError> {
-    // the ExtractorRunner will handle filtering out content that does not match the
-    // extractor input mime types
     let content = endpoint_state
         .executor
         .extract(query.content, query.input_params)

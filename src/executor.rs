@@ -86,8 +86,6 @@ impl ExtractorExecutor {
         input_params: Option<serde_json::Value>,
     ) -> Result<Vec<internal_api::Content>, anyhow::Error> {
         let extracted_content = self
-            // the ExtractorRunner will handle filtering out content that does not match the
-            // extractor input mime types
             .extractor_runner
             .extract(vec![content], input_params.unwrap_or(json!({})))?;
         let content = extracted_content
