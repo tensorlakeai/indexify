@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux-package:
+  build-linux-package-amd64:
     name: Build Linux amd64 Package
     runs-on: ubuntu-latest
     steps:
@@ -34,6 +34,7 @@ jobs:
       - run: rustup target add aarch64-unknown-linux-gnu
       - run: cargo +nightly fmt --check
       - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
+      - run: sudo apt install -qy binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - run: cargo build --release --target=aarch64-unknown-linux-gnu
       - uses: actions/upload-artifact@v4
         with:
@@ -44,6 +45,9 @@ jobs:
   debbuild:
     runs-on: ubuntu-latest
     name: Build Deb And Push r2 Repo
+    needs:
+      - build-linux-package-amd64
+      - build-linux-package-arm64
     steps:
       - uses: actions/checkout@v4
       - run: mkdir -p /tmp/release
