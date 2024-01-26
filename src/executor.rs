@@ -66,6 +66,13 @@ impl ExtractorExecutor {
         Ok(extractor_executor)
     }
 
+    pub fn matches_mime_type(
+        &self,
+        content: &internal_api::Content,
+    ) -> Result<bool, anyhow::Error> {
+        self.extractor_runner.matches_mime_type(content)
+    }
+
     #[tracing::instrument]
     pub fn get_executor_info(&self) -> internal_api::ExecutorInfo {
         internal_api::ExecutorInfo {
@@ -86,6 +93,8 @@ impl ExtractorExecutor {
         input_params: Option<serde_json::Value>,
     ) -> Result<Vec<internal_api::Content>, anyhow::Error> {
         let extracted_content = self
+            // the ExtractorRunner will handle filtering out content that does not match the
+            // extractor input mime types
             .extractor_runner
             .extract(vec![content], input_params.unwrap_or(json!({})))?;
         let content = extracted_content

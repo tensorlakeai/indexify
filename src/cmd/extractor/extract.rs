@@ -27,6 +27,11 @@ pub struct Args {
 
     #[arg(short, long)]
     file: Option<String>,
+
+    /// a boolean flag that indicates whether to ignore unmatched mime types
+    /// defaults to true
+    #[arg(long)]
+    err_for_unmatched_mimetype: Option<bool>,
 }
 
 impl Args {
@@ -37,6 +42,7 @@ impl Args {
             name,
             text,
             file,
+            err_for_unmatched_mimetype,
         } = self;
 
         if extractor_path.is_none() && name.is_none() {
@@ -76,6 +82,18 @@ impl Args {
                 _ => Err(anyhow!("either text or file path must be provided")),
             }
             .unwrap_or_log();
+
+            // if the content mimetype does not match the extractor input mimetype, throw an
+            // error
+            if err_for_unmatched_mimetype.unwrap_or(true) &&
+                !extractor.matches_mime_type(&content).unwrap_or_log()
+            {
+                panic!(
+                    "content mimetype: {} does not match extractor input mimetype: {:?}",
+                    content.mime,
+                    extractor.schemas().unwrap_or_log().input_mimes
+                );
+            }
             let extracted_content = extractor.extract(vec![content], json!({})).unwrap_or_log();
             println!(
                 "{}",

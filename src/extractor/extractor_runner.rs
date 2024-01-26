@@ -2,6 +2,7 @@ use std::{collections::HashMap, str::FromStr};
 
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
+use tracing::error;
 
 use super::ExtractorTS;
 use crate::{
@@ -19,13 +20,45 @@ impl ExtractorRunner {
         Self { extractor }
     }
 
+    pub fn matches_mime_type(
+        &self,
+        content: &internal_api::Content,
+    ) -> Result<bool, anyhow::Error> {
+        self.extractor.matches_mime_type(content)
+    }
+
     pub fn extract(
         &self,
         content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<Vec<internal_api::Content>>> {
-        let extracted_content = self.extractor.extract(content, input_params)?;
+        // the extractor runner filters by mime type to ensure that the extractor
+        // supports the content mime type. If the extractor does not support the
+        // content mime type, the content is filtered out.
+        // to prevent this behavior, set the extractor input mime types to ["*/*"]
+        let filtered_content = self.filter_extracted_content(content)?;
+
+        let extracted_content = self.extractor.extract(filtered_content, input_params)?;
         Ok(extracted_content)
+    }
+
+    fn filter_extracted_content(
+        &self,
+        content: Vec<internal_api::Content>,
+    ) -> Result<Vec<internal_api::Content>> {
+        let filtered_content: Vec<internal_api::Content> = content
+            .into_iter()
+            .filter(|c| {
+                match self.extractor.matches_mime_type(&c) {
+                    Result::Ok(is_match) => is_match,
+                    Result::Err(e) => {
+                        error!("Failed to check mime type for content: {}", e);
+                        false
+                    }
+                }
+            })
+            .collect();
+        Ok(filtered_content)
     }
 
     pub fn extract_from_data(
