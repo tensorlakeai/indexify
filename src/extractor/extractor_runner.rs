@@ -48,13 +48,11 @@ impl ExtractorRunner {
     ) -> Result<Vec<internal_api::Content>> {
         let filtered_content: Vec<internal_api::Content> = content
             .into_iter()
-            .filter(|c| {
-                match self.extractor.matches_mime_type(&c) {
-                    Result::Ok(is_match) => is_match,
-                    Result::Err(e) => {
-                        error!("Failed to check mime type for content: {}", e);
-                        false
-                    }
+            .filter(|c| match self.extractor.matches_mime_type(&c) {
+                Result::Ok(is_match) => is_match,
+                Result::Err(e) => {
+                    error!("Failed to check mime type for content: {}", e);
+                    false
                 }
             })
             .collect();

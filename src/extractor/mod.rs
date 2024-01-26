@@ -18,6 +18,8 @@ use indexify_internal_api as internal_api;
 pub mod python_path;
 mod scaffold;
 
+pub const WILDCARD_MIME: &str = "*/*";
+
 /// EmbeddingSchema describes the embedding output by an extractor
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
@@ -59,7 +61,7 @@ pub trait Extractor: Debug {
         let supported_mimes = self.schemas()?.input_mimes;
         // if the extractor input mime types include ["*/*"], then the extractor
         // supports all mime types.
-        if supported_mimes.contains(&"*/*".to_string()) {
+        if supported_mimes.contains(&WILDCARD_MIME.to_string()) {
             return Ok(true);
         }
 
@@ -98,7 +100,7 @@ mod test_extractor {
                     ..Default::default()
                 },
                 TestExtractor::Wildcard => ExtractorSchema {
-                    input_mimes: vec!["*/*".to_string()],
+                    input_mimes: vec![WILDCARD_MIME.to_string()],
                     ..Default::default()
                 },
             };
