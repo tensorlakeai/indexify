@@ -271,7 +271,7 @@ Now let's rerun our query for documents related to "sports":
     {'text': 'Indexify is a retrieval service for LLM agents!', 'confidence_score': -0.012608046, 'metadata': {}}
     ```
 
-We can see the new document we added about Steph Curry is now included in the search results. Indexify automatically ran our extractors when we added the new document and updated the relevant indexes.
+We can see the new document we added about Steph Curry is now included in the search results. Indexify automatically ran our extractors when we added the new document and updated the relevant indexes. Extractors will only match content with the same mime type as the extractor. For example, the embedding extractor will only match text documents.
 
 ### Specify filters for extractor bindings
 

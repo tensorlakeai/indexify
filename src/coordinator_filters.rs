@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use indexify_internal_api as internal_api;
 
-pub const WILDCARD_MIME: &str = "*/*";
-
 /// filter for content metadata
 pub fn list_content_filter<'a>(
     content: impl IntoIterator<Item = internal_api::ContentMetadata> + 'a,
@@ -186,7 +184,7 @@ mod test_list_content_filter {
 pub fn matches_mime_type(supported_mimes: &[String], content_mime_type: &String) -> bool {
     // if the extractor input mime types include ["*/*"], then the extractor
     // supports all mime types.
-    if supported_mimes.contains(&WILDCARD_MIME.to_string()) {
+    if supported_mimes.contains(&mime::STAR_STAR.to_string()) {
         return true;
     }
 
@@ -215,11 +213,11 @@ mod test_extractor_mimetype_filter {
         fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error> {
             let schemas = match self {
                 TestExtractor::TextPlain => ExtractorSchema {
-                    input_mimes: vec!["text/plain".to_string()],
+                    input_mimes: vec![mime::TEXT_PLAIN.to_string()],
                     ..Default::default()
                 },
                 TestExtractor::Wildcard => ExtractorSchema {
-                    input_mimes: vec![WILDCARD_MIME.to_string()],
+                    input_mimes: vec![mime::STAR_STAR.to_string()],
                     ..Default::default()
                 },
             };
@@ -256,17 +254,17 @@ mod test_extractor_mimetype_filter {
         mimetype_matcher(
             TestExtractor::TextPlain,
             vec![
-                ("text/plain", true),
-                ("image/png", false),
-                ("application/pdf", false),
+                (&mime::TEXT_PLAIN.to_string(), true),
+                (&mime::IMAGE_PNG.to_string(), false),
+                (&mime::APPLICATION_PDF.to_string(), false),
             ],
         );
         mimetype_matcher(
             TestExtractor::Wildcard,
             vec![
-                ("text/plain", true),
-                ("image/png", true),
-                ("application/pdf", true),
+                (&mime::TEXT_PLAIN.to_string(), true),
+                (&mime::IMAGE_PNG.to_string(), true),
+                (&mime::APPLICATION_PDF.to_string(), true),
             ],
         );
     }
