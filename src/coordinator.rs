@@ -363,13 +363,13 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
 
     use crate::{
-        server_config::ServerConfig,
+        server_config::{ServerConfig, ServerPeer, SledConfig},
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
     };
@@ -478,75 +478,87 @@ mod tests {
         Ok(())
     }
 
-    // // mark this test to skip
-    // #[tokio::test]
-    // #[tracing_test::traced_test]
-    // #[ignore]
-    // async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-    //     // create a random str for the data dirs
-    //     let append = nanoid::nanoid!();
-    //     // run multiple coordinators at multiple ports
-    //     let ports = vec![8950, 8951];
-    //     let mut config_list = Vec::new();
-    //     let sled_data_dirs = vec![
-    //         format!("/tmp/indexify/raft/{}/0", append),
-    //         format!("/tmp/indexify/raft/{}/1", append),
-    //     ];
+    fn create_test_raft_configs(
+        node_count: usize,
+    ) -> Result<Vec<Arc<ServerConfig>>, anyhow::Error> {
+        let append = nanoid::nanoid!();
+        let base_port = 18950;
+        let mut configs = Vec::new();
+        let mut peers = Vec::new();
 
-    //     // iterate over the ports and data dirs to create the configs
-    //     for (i, port) in ports.iter().enumerate() {
-    //         let node_id: u64 = i.try_into().unwrap();
-    //         let config = ServerConfig {
-    //             node_id,
-    //             coordinator_port: *port,
-    //             raft_port: *port,
-    //             peers: ports
-    //                 .iter()
-    //                 .enumerate()
-    //                 .filter(|(j, _)| *j != i)
-    //                 .map(|(_, p)| ServerPeer {
-    //                     node_id: (*p).try_into().unwrap(),
-    //                     addr: format!("localhost:{}", p),
-    //                 })
-    //                 .collect(),
-    //             sled: SledConfig {
-    //                 path: Some(sled_data_dirs[i].clone()),
-    //             },
-    //             ..Default::default()
-    //         };
-    //         config_list.push(Arc::new(config));
-    //     }
+        // Generate configurations and peer information
+        for i in 0..node_count {
+            let port = (base_port + i * 2) as u64;
+            peers.push(ServerPeer {
+                node_id: i as u64,
+                addr: format!("localhost:{}", port + 1),
+            });
 
-    //     let mut coordinators = Vec::new();
+            let config = Arc::new(ServerConfig {
+                node_id: i as u64,
+                coordinator_port: port,
+                coordinator_addr: format!("localhost:{}", port),
+                raft_port: port + 1,
+                peers: peers.clone(),
+                sled: SledConfig {
+                    path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
+                },
+                ..Default::default()
+            });
 
-    //     for config in config_list {
-    //         let app = CoordinatorServer::new(config.clone())
-    //             .await
-    //             .expect("failed to create coordinator server");
-    //         coordinators.push(app);
-    //     }
+            configs.push(config.clone());
+        }
 
-    //     // run all the coordinators in tokio
-    //     let mut handles = Vec::new();
-    //     // only start the first two
-    //     for (i, coordinator) in coordinators
-    //     .into_iter().enumerate().take(2) {
-    //         let ports = ports.clone();
-    //         let handle = tokio::spawn(async move {
-    //             coordinator.run().await.expect(format!("failed to run
-    // coordinator: {} at port {}", i, ports.clone()[i]).as_str());
-    //             Ok::<(), anyhow::Error>(())
-    //         });
-    //         handles.push(handle);
+        Ok(configs)
+    }
 
-    //         // wait a few seconds for the coordinator to start
-    //         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    //     }
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
+        let server_configs = create_test_raft_configs(50)?;
 
-    //     for handle in handles {
-    //         handle.await?;
-    //     }
+        let mut apps = Vec::new();
+        for config in server_configs {
+            let shared_state = App::new(config.clone()).await?;
+            apps.push(shared_state);
+        }
 
-    //     Ok(())
-    // }
+        // Store the handles of the spawned tasks
+        let mut handles = Vec::new();
+        for app in apps {
+            let handle = tokio::spawn(async move {
+                app.initialize_raft()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("error initializing raft: {}", e))
+            });
+            handles.push(handle);
+        }
+
+        // pause for 2 seconds
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let timeout = tokio::time::sleep(Duration::from_secs(10));
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                _ = &mut timeout => {
+                    // this is a failure - the cluster should have initialized
+                    return Err(anyhow::anyhow!("timeout error: raft cluster failed to initialize within 10 seconds"));
+                },
+                result = futures::future::select_all(handles) => {
+
+                    let (result, _, remaining_handles) = result;
+                    result??; // Handle the result of the completed future
+                    handles = remaining_handles;
+                    if handles.is_empty() {
+                        // all raft nodes have been initialized
+                        break;
+                    }
+                },
+            }
+        }
+
+        Ok(())
+    }
 }
