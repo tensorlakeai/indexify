@@ -34,19 +34,18 @@ hyper-util = { version = "0.1", features = ["service"] }
 itertools = "0.12"
 indexify_internal_api = { path = "crates/indexify_internal_api" }
 indexify_proto = { path = "crates/indexify_proto" }
-jsonschema = "0.17"
+jsonschema = {version = "0.17", features=["draft202012"]}
 mime = { version = "0.3" }
 mime_guess = { version = "2" }
 moka = { version = "0.12", features = ["default", "future"] }
 nanoid = { version = "0.4" }
 openraft = { version = "0.8.8", features = ["serde"] }
-opensearch = { version = "2" }
+opensearch = { version = "2", features=["rustls-tls"] }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.21"
 opentelemetry-semantic-conventions = "0.13"
 opentelemetry-otlp = { version = "0.13", features = [
     "http-proto",
-    "reqwest-client",
 ] }
 opentelemetry-stdout = { version = "0.2", features = [
     "logs",
@@ -58,7 +57,7 @@ pgvector = { version = "0.3", features = ["sqlx"] }
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
 pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
-qdrant-client = "1"
+qdrant-client = {version = "1"}
 rand = { version = "0.8" }
 redis = { version = "0.24", features = [
     "async-std-rustls-comp",
@@ -68,7 +67,7 @@ redis = { version = "0.24", features = [
 ] }
 redis-test = { version = "0.3", features = ["futures"] }
 regex = { version = "1" }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "rustls-tls", "rustls-tls-webpki-roots", "tokio-rustls", "hyper-rustls"] }
 rustls = { version = "0.22" }
 rustls-pemfile = { version = "2" }
 serde = { version = "1", features = ["derive"] }
@@ -84,7 +83,7 @@ smart-default = { version = "0.7" }
 sled = { version = "0.34" }
 sqlx = { version = "0.7", features = [
     "runtime-tokio",
-    "tls-native-tls",
+    "tls-rustls",
     "postgres",
     "macros",
     "time",
