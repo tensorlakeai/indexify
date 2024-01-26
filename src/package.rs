@@ -1,5 +1,4 @@
 use std::{
-    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -27,17 +26,15 @@ struct ExtractorConfig {
 #[derive(Template)]
 #[template(path = "Dockerfile.extractor", escape = "none")]
 struct DockerfileTemplate<'a> {
-    image_name: &'a str,
     system_dependencies: &'a str,
     python_dependencies: &'a str,
     additional_pip_flags: &'a str,
     dev: bool,
-    gpu: bool,
 }
 
 pub struct Packager {
     extractor_path: String,
-    module_name: String,
+    extractor_class_name: String,
     extractor_description: ExtractorSchema,
     code_dir: PathBuf,
     dev: bool,
@@ -58,7 +55,7 @@ impl Packager {
             ));
         }
         let extractor_path = extractor_paths[0].to_string();
-        let module_name = extractor_paths[1].to_string();
+        let extractor_class_name = extractor_paths[1].to_string();
         let path_buf = PathBuf::from(extractor_path.clone())
             .canonicalize()
             .map_err(|e| anyhow!(format!("unable to use path {}", e.to_string())))?;
@@ -68,7 +65,7 @@ impl Packager {
         info!("packaging extractor in: {:?}", code_dir_relative_path);
         Ok(Packager {
             extractor_path,
-            module_name,
+            extractor_class_name,
             extractor_description,
             code_dir: code_dir_relative_path.into(),
             dev,
@@ -90,12 +87,20 @@ impl Packager {
         self.add_directory_to_tar(&mut tar, &self.code_dir)?;
 
         // Add the indexify.yaml file to the tar
+        let file_name = Path::new(&self.extractor_path)
+            .file_name()
+            .ok_or(anyhow!(
+                "unable to get file name from path {}",
+                self.extractor_path
+            ))?
+            .to_str()
+            .ok_or(anyhow!(
+                "unable to convert file name to string {}",
+                self.extractor_path
+            ))?
+            .to_string();
         let indexify_extractor_config = ExtractorConfig {
-            path: format!(
-                "{}:{}",
-                self.extractor_path.clone(),
-                self.module_name.clone()
-            ),
+            path: format!("{}:{}", file_name, self.extractor_class_name.clone()),
         };
         let config_data = serde_yaml::to_string(&indexify_extractor_config)
             .map_err(|e| anyhow!(e.to_string()))?;
@@ -116,9 +121,6 @@ impl Packager {
         let mut c = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         c.write_all(&uncompressed).unwrap();
         let compressed = c.finish().unwrap();
-
-        fs::write("/tmp/indexify-extractor.tar.gz", &compressed)
-            .map_err(|e| anyhow!(e.to_string()))?;
 
         let build_image_options = BuildImageOptions {
             t: self.extractor_description.name.clone(),
@@ -178,71 +180,20 @@ impl Packager {
     }
 
     fn create_docker_file(&self) -> Result<String, Error> {
-        let (image_name, additional_pip_flags) =
-            self.generate_base_image_name_for_matching_modify_dependencies()?;
-
-        let system_dependencies = self.extractor_description.system_dependencies.join(" ");
-        let python_dependencies = self.extractor_description.python_dependencies.join(" ");
-        let tmpl = DockerfileTemplate {
-            image_name: &image_name,
-            system_dependencies: &system_dependencies,
-            python_dependencies: &python_dependencies,
-            additional_pip_flags,
-            dev: self.dev,
-            gpu: self.gpu,
-        };
-        tmpl.render().map_err(|e| anyhow!(e.to_string()))
-    }
-
-    // TODO move image strings to config
-    pub fn generate_base_image_name_for_matching_modify_dependencies(
-        &self,
-    ) -> Result<(String, &'static str), Error> {
-        let pytorch = self
-            .extractor_description
-            .python_dependencies
-            .iter()
-            .position(|x| x.contains("torch"));
-        let gpu = self.gpu;
-
-        let mut pytorch_version = None;
-        if let Some(pos) = pytorch {
-            let dep_string = &self.extractor_description.python_dependencies[pos];
-            if dep_string.contains("==") {
-                pytorch_version = Option::Some(dep_string.split("==").collect::<Vec<_>>()[1]);
-            } else {
-                pytorch_version = Option::Some("latest");
-            }
-        }
-
-        let additional_pip_flags = if gpu {
+        let additional_pip_flags = if self.gpu {
             ""
         } else {
             "--extra-index-url https://download.pytorch.org/whl/cpu"
         };
-        let image_name: String;
-
-        match (pytorch_version, gpu) {
-            (Some(version), true) => {
-                if version == "latest" {
-                    return Err(anyhow!(
-                        "Please make sure to specify pytorch version and cuda version"
-                    ));
-                } else {
-                    image_name = "ubuntu:22.04".to_string();
-                }
-            }
-            (Some(_version), false) => {
-                image_name = "tensorlake/indexify-extractor-base".to_string();
-            }
-            (None, _) => {
-                image_name = "tensorlake/indexify-extractor-base".to_string();
-            }
-        }
-
-        info!("Selecting image_name `{}`", image_name);
-
-        Ok((image_name, additional_pip_flags))
+        let system_dependencies = self.extractor_description.system_dependencies.join(" ");
+        let python_dependencies = self.extractor_description.python_dependencies.join(" ");
+        let tmpl = DockerfileTemplate {
+            system_dependencies: &system_dependencies,
+            python_dependencies: &python_dependencies,
+            additional_pip_flags,
+            dev: self.dev,
+        };
+        tmpl.render().map_err(|e| anyhow!(e.to_string()))
     }
 
     fn add_directory_to_tar(
@@ -291,25 +242,30 @@ mod tests {
         };
         let packager = Packager {
             extractor_path: "foo.py".to_string(),
-            module_name: "ModuleName".to_string(),
+            extractor_class_name: "ModuleName".to_string(),
             extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
             dev: false,
             gpu: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
-
-        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt-get update -y && \
-    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    
+    apt-get -y install lsb-release ca-certificates
+
+RUN update-ca-certificates
+
+RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
 RUN pip3 install --no-input --extra-index-url https://download.pytorch.org/whl/cpu numpy pandas
+
+WORKDIR /indexify
 
 COPY . /indexify/
 
@@ -319,7 +275,7 @@ COPY indexify.yaml indexify.yaml
 RUN pip3 install --no-input indexify_extractor_sdk --extra-index-url https://download.pytorch.org/whl/cpu
 
 
-ENTRYPOINT [ "/indexify/indexify" ]"#;
+ENTRYPOINT [ "indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
     }
 
@@ -334,7 +290,7 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             ..Default::default()
         };
         let packager = Packager {
-            module_name: "ModuleName".to_string(),
+            extractor_class_name: "ModuleName".to_string(),
             extractor_path: "foo.py".to_string(),
             extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
@@ -342,18 +298,23 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             gpu: true,
         };
         let docker_file = packager.create_docker_file().unwrap();
-
-        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt-get update -y && \
-    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get -y install lsb-release ca-certificates
+
+RUN update-ca-certificates
+
+RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
 RUN pip3 install --no-input  numpy pandas
+
+WORKDIR /indexify
 
 COPY . /indexify/
 
@@ -363,33 +324,8 @@ COPY indexify.yaml indexify.yaml
 RUN pip3 install --no-input indexify_extractor_sdk 
 
 
-ENTRYPOINT [ "/indexify/indexify" ]"#;
+ENTRYPOINT [ "indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
-    }
-
-    #[test]
-    fn test_create_docker_file_for_gpu_with_pytorch() {
-        let config = ExtractorSchema {
-            name: "test".to_string(),
-            description: "test_description".into(),
-            version: "0.1.0".to_string(),
-            python_dependencies: vec![
-                "numpy".to_string(),
-                "pandas".to_string(),
-                "torch".to_string(),
-            ],
-            system_dependencies: vec!["libpq-dev".to_string(), "libssl-dev".to_string()],
-            ..Default::default()
-        };
-        let packager = Packager {
-            module_name: "ModuleName".to_string(),
-            extractor_path: "foo.py".to_string(),
-            extractor_description: config,
-            code_dir: PathBuf::from("/tmp"),
-            dev: false,
-            gpu: true,
-        };
-        assert!(packager.create_docker_file().is_err());
     }
 
     #[test]
@@ -408,7 +344,7 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             ..Default::default()
         };
         let packager = Packager {
-            module_name: "ModuleName".to_string(),
+            extractor_class_name: "ModuleName".to_string(),
             extractor_path: "foo.py".to_string(),
             extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
@@ -416,18 +352,23 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             gpu: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
-
-        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt-get update -y && \
-    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    
+    apt-get -y install lsb-release ca-certificates
+
+RUN update-ca-certificates
+
+RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
 RUN pip3 install --no-input --extra-index-url https://download.pytorch.org/whl/cpu numpy pandas torch
+
+WORKDIR /indexify
 
 COPY . /indexify/
 
@@ -437,7 +378,7 @@ COPY indexify.yaml indexify.yaml
 RUN pip3 install --no-input indexify_extractor_sdk --extra-index-url https://download.pytorch.org/whl/cpu
 
 
-ENTRYPOINT [ "/indexify/indexify" ]"#;
+ENTRYPOINT [ "indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
     }
 
@@ -456,7 +397,7 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             ..Default::default()
         };
         let packager = Packager {
-            module_name: "ModuleName".to_string(),
+            extractor_class_name: "ModuleName".to_string(),
             extractor_path: "foo.py".to_string(),
             extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
@@ -464,18 +405,23 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             gpu: false,
         };
         let docker_file = packager.create_docker_file().unwrap();
-
-        let expected_dockerfile = r#"FROM --platform=linux/amd64 tensorlake/indexify-extractor-base
+        let expected_dockerfile = r#"FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt-get update -y && \
-    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    
+    apt-get -y install lsb-release ca-certificates
+
+RUN update-ca-certificates
+
+RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
 RUN pip3 install --no-input --extra-index-url https://download.pytorch.org/whl/cpu numpy pandas torch==2.1.2
+
+WORKDIR /indexify
 
 COPY . /indexify/
 
@@ -485,7 +431,7 @@ COPY indexify.yaml indexify.yaml
 RUN pip3 install --no-input indexify_extractor_sdk --extra-index-url https://download.pytorch.org/whl/cpu
 
 
-ENTRYPOINT [ "/indexify/indexify" ]"#;
+ENTRYPOINT [ "indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
     }
 
@@ -504,7 +450,7 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             ..Default::default()
         };
         let packager = Packager {
-            module_name: "ModuleName".to_string(),
+            extractor_class_name: "ModuleName".to_string(),
             extractor_path: "foo.py".to_string(),
             extractor_description: config,
             code_dir: PathBuf::from("/tmp"),
@@ -512,18 +458,23 @@ ENTRYPOINT [ "/indexify/indexify" ]"#;
             gpu: true,
         };
         let docker_file = packager.create_docker_file().unwrap();
-
         let expected_dockerfile = r#"FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt-get update -y && \
-    apt-get install -y lsb-release apt-transport-https python3 python3-dev python3-pip && \
-    echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get -y install lsb-release ca-certificates
+
+RUN update-ca-certificates
+
+RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
 
 RUN pip3 install --no-input  numpy pandas torch==2.1.2
+
+WORKDIR /indexify
 
 COPY . /indexify/
 
@@ -533,7 +484,7 @@ COPY indexify.yaml indexify.yaml
 RUN pip3 install --no-input indexify_extractor_sdk 
 
 
-ENTRYPOINT [ "/indexify/indexify" ]"#;
+ENTRYPOINT [ "indexify" ]"#;
         assert_eq!(docker_file, expected_dockerfile);
     }
 }
