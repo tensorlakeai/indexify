@@ -21,5 +21,3 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: push-container
         run: make push-container
-      - name: build-base-extractor-push
-        run: make build-base-extractor-push
