@@ -1,45 +1,81 @@
 name: Indexify Deb Build
 
-on: workflow_dispatch
+# on: workflow_dispatch
+on:
+  pull_request:
+    branches:
+      - "main"
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build-linux-package:
+    name: Build Linux Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --component rustfmt
+      - run: cargo +nightly fmt --check
+      - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-linux-amd64
+          path: target/release/indexify
+          if-no-files-found: error
+
+  build-macos-package:
+    name: Build macOS Package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --component rustfmt
+      - run: rustup target add aarch64-apple-darwin
+      - run: cargo +nightly fmt --check
+      - run: brew install protobuf
+      - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-darwin-arm64
+          path: target/aarch64-apple-darwin/release/indexify
+          if-no-files-found: error
+
   debbuild:
     runs-on: ubuntu-latest
     name: Build Deb And Push r2 Repo
     steps:
-      - uses: actions/checkout@v2
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - name: Install protoc
-        run: sudo apt update && sudo apt install protobuf-compiler -y
-      - name: Cargo check
-        run: cargo check
-      - name: Make build-release
-        run: make build-release
-      - name: Install cargo-deb
-        run: cargo install cargo-deb
-      - name: Build and Package
-        run: cargo deb
-      - name: install reprepro
-        run: sudo apt-get update && sudo apt-get install -y reprepro
-      - name: Run reprepro
-        run: |
-          cd .repo
-          reprepro includedeb buster ../target/debian/*.deb
-          reprepro includedeb focal ../target/debian/*.deb
-          reprepro includedeb jammy ../target/debian/*.deb
-      - uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET }}
-          source-dir: .repo
-          destination-dir: ./repo
+      - uses: actions/checkout@v4
+      - run: ls target/*
+      # - name: Install Rust
+      #   uses: actions-rs/toolchain@v1
+      #   with:
+      #     profile: minimal
+      #     toolchain: stable
+      #     override: true
+      # - name: Install protoc
+      #   run: sudo apt update && sudo apt install protobuf-compiler -y
+      # - name: Cargo check
+      #   run: cargo check
+      # - name: Make build-release
+      #   run: make build-release
+      # - name: Install cargo-deb
+      #   run: cargo install cargo-deb
+      # - name: Build and Package
+      #   run: cargo deb
+      # - name: install reprepro
+      #   run: sudo apt-get update && sudo apt-get install -y reprepro
+      # - name: Run reprepro
+      #   run: |
+      #     cd .repo
+      #     reprepro includedeb buster ../target/debian/*.deb
+      #     reprepro includedeb focal ../target/debian/*.deb
+      #     reprepro includedeb jammy ../target/debian/*.deb
+      # - uses: ryand56/r2-upload-action@latest
+      #   with:
+      #     r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+      #     r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+      #     r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      #     r2-bucket: ${{ secrets.R2_BUCKET }}
+      #     source-dir: .repo
+      #     destination-dir: ./repo
