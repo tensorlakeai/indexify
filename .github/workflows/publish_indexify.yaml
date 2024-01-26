@@ -1,17 +1,22 @@
-name: Publish Indexify Binaries
+name: Publish Indexify Binaries TEST BUILD DEB
+
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       release_message:
+#         type: string
+#         description: Release message
+#         required: true
+#       prerelease:
+#         type: boolean
+#         description: Is this a pre-release version?
+#         required: false
+#         default: false
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_message:
-        type: string
-        description: Release message
-        required: true
-      prerelease:
-        type: boolean
-        description: Is this a pre-release version?
-        required: false
-        default: false
+  pull_request:
+    branches:
+      - "main"
 
 permissions:
   contents: write
@@ -21,114 +26,163 @@ env:
 
 jobs:
   build-linux-package:
-    name: Build Linux Package
+    name: Build Linux aarch Package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install nightly --component rustfmt
-      - run: cargo +nightly fmt --check
-      - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
-      - run: cargo build --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions-rs/toolchain@v1
         with:
-          name: indexify-linux-amd64
-          path: target/release/indexify
-          if-no-files-found: error
+          toolchain: stable
+          target: aarch64-unknown-linux-gnu
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --target aarch64-unknown-linux-gnu
 
-  build-macos-package:
-    name: Build macOS Package
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain install nightly --component rustfmt
-      - run: rustup target add aarch64-apple-darwin
-      - run: cargo +nightly fmt --check
-      - run: brew install protobuf
-      - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
-      - uses: actions/upload-artifact@v4
-        with:
-          name: indexify-darwin-arm64
-          path: target/aarch64-apple-darwin/release/indexify
-          if-no-files-found: error
+  # build-linux-package:
+  #   name: Build Linux Package
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: rustup toolchain install nightly --component rustfmt
+  #     - run: cargo +nightly fmt --check
+  #     - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
+  #     - run: cargo build --release
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: indexify-linux-amd64
+  #         path: target/release/indexify
+  #         if-no-files-found: error
 
-  build-windows-package:
-    name: Build Windows Package
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain install nightly --component rustfmt
-      - run: cargo +nightly fmt --check
-      - run: choco install protoc
-      - run: cargo build --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: indexify-windows-amd64.exe
-          path: target/release/indexify.exe
-          if-no-files-found: error
+  # build-macos-package:
+  #   name: Build macOS Package
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: rustup toolchain install nightly --component rustfmt
+  #     - run: rustup target add aarch64-apple-darwin
+  #     - run: cargo +nightly fmt --check
+  #     - run: brew install protobuf
+  #     - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: indexify-darwin-arm64
+  #         path: target/aarch64-apple-darwin/release/indexify
+  #         if-no-files-found: error
 
-  extract-version:
-    name: Extract Version Number
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version_extraction.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: version_extraction
-        run: echo "version=$(cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify") | .version' | xargs)" >> "$GITHUB_OUTPUT"
+  # build-windows-package:
+  #   name: Build Windows Package
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: rustup toolchain install nightly --component rustfmt
+  #     - run: cargo +nightly fmt --check
+  #     - run: choco install protoc
+  #     - run: cargo build --release
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: indexify-windows-amd64.exe
+  #         path: target/release/indexify.exe
+  #         if-no-files-found: error
 
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs:
-      - build-linux-package
-      - build-windows-package
-      - build-macos-package
-      - extract-version
-    steps:
-      - uses: actions/checkout@v4
-      - run: mkdir -p /tmp/release
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/release/
-      - name: Name Artifacts
-        run: |
-          mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: "v${{ needs.extract-version.outputs.version }}"
-          prerelease: ${{ github.event.inputs.prerelease }}
-          body: ${{ github.event.inputs.release_message }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload Windows Binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload Linux Binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload macOS Binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # extract-version:
+  #   name: Extract Version Number
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     version: ${{ steps.version_extraction.outputs.version }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - id: version_extraction
+  #       run: echo "version=$(cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify") | .version' | xargs)" >> "$GITHUB_OUTPUT"
+
+  # create-release:
+  #   name: Create GitHub Release
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - build-linux-package
+  #     - build-windows-package
+  #     - build-macos-package
+  #     - extract-version
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: mkdir -p /tmp/release
+  #     - name: Download Artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: /tmp/release/
+  #     - name: Name Artifacts
+  #       run: |
+  #         mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+  #         mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+  #         mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+  #     - name: Create GitHub Release
+  #       id: create_release
+  #       uses: actions/create-release@v1
+  #       with:
+  #         tag_name: "v${{ needs.extract-version.outputs.version }}"
+  #         prerelease: ${{ github.event.inputs.prerelease }}
+  #         body: ${{ github.event.inputs.release_message }}
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Upload Windows Binary
+  #       uses: actions/upload-release-asset@v1
+  #       with:
+  #         upload_url: ${{ steps.create_release.outputs.upload_url }}
+  #         asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+  #         asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+  #         asset_content_type: application/octet-stream
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Upload Linux Binary
+  #       uses: actions/upload-release-asset@v1
+  #       with:
+  #         upload_url: ${{ steps.create_release.outputs.upload_url }}
+  #         asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+  #         asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+  #         asset_content_type: application/octet-stream
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Upload macOS Binary
+  #       uses: actions/upload-release-asset@v1
+  #       with:
+  #         upload_url: ${{ steps.create_release.outputs.upload_url }}
+  #         asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+  #         asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+  #         asset_content_type: application/octet-stream
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # - uses: actions/checkout@v2
+  # - name: Install Rust
+  #   uses: actions-rs/toolchain@v1
+  #   with:
+  #     profile: minimal
+  #     toolchain: stable
+  #     override: true
+  # - name: Install protoc
+  #   run: sudo apt update && sudo apt install protobuf-compiler -y
+  # - name: Cargo check
+  #   run: cargo check
+  # - name: Make build-release
+  #   run: make build-release
+  # - name: Install cargo-deb
+  #   run: cargo install cargo-deb
+  # - name: Build and Package
+  #   run: cargo deb
+  # - name: install reprepro
+  #   run: sudo apt-get update && sudo apt-get install -y reprepro
+  # - name: Run reprepro
+  #   run: |
+  #     cd .repo
+  #     reprepro includedeb buster ../target/debian/*.deb
+  #     reprepro includedeb focal ../target/debian/*.deb
+  #     reprepro includedeb jammy ../target/debian/*.deb
+  # - uses: ryand56/r2-upload-action@latest
+  #   with:
+  #     r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+  #     r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+  #     r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  #     r2-bucket: ${{ secrets.R2_BUCKET }}
+  #     source-dir: .repo
+  #     destination-dir: ./repo
