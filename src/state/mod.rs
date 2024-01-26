@@ -33,7 +33,12 @@ use self::{
     grpc_server::RaftGrpcServer,
     store::{ExecutorId, StateChange, TaskId},
 };
-use crate::{server_config::ServerConfig, state::store::SledStore, utils::timestamp_secs};
+use crate::{
+    coordinator_filters::matches_mime_type,
+    server_config::ServerConfig,
+    state::store::SledStore,
+    utils::timestamp_secs,
+};
 
 pub mod grpc_server;
 pub mod network;
@@ -273,6 +278,8 @@ impl App {
         repository: &str,
         binding: &internal_api::ExtractorBinding,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
+        // get the extractor so we can check the mimetype
+        let extractor = self.extractor_with_name(&binding.extractor).await?;
         let content_list = {
             let store = self.store.state_machine.read().await;
             let content_list = store
@@ -286,6 +293,10 @@ impl App {
                     .content_table
                     .get(&content_id)
                     .ok_or(anyhow!("internal error: content {} not found", content_id))?;
+                // if the content metadata mimetype does not match the extractor, skip it
+                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
+                    continue;
+                }
                 content_meta_list.push(content_metadata.clone());
             }
             content_meta_list

@@ -18,8 +18,6 @@ use indexify_internal_api as internal_api;
 pub mod python_path;
 mod scaffold;
 
-pub const WILDCARD_MIME: &str = "*/*";
-
 /// EmbeddingSchema describes the embedding output by an extractor
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
@@ -35,123 +33,12 @@ pub trait Extractor: Debug {
     /// Returns the extractor schema
     fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error>;
 
-    /// Returns true if the extractor supports the content mime type
-    /// Returns false if the extractor does not support the content mime type
-    /// Returns an error if the extractor is unable to fetch the ExtractorSchema
-    ///
-    /// If the extractor input mime types include ["*/*"], then the extractor
-    /// supports all mime types. This is useful for debugging, or for
-    /// extractors that do not depend on the content mime type. However,
-    /// this is not recommended for production use as it can lead to
-    /// unexpected behavior.
-    ///
-    /// Otherwise, the extractor input mime types are checked to see if they
-    /// include the content mime type.
-    ///
-    /// For example, if the extractor input mime types are ["text/plain",
-    /// "application/pdf"], and the content mime type is "text/plain", then
-    /// the extractor supports the content mime type. Conversely, if the
-    /// extractor input mime types are ["text/plain", "application/pdf"], and
-    /// the content mime type is "image/png", then the extractor does not
-    /// support the content mime type and false is returned.
-    ///
-    /// This method can be overridden for extractors that need custom logic to
-    /// determine if the extractor supports the content mime type.
-    fn matches_mime_type(&self, content: &internal_api::Content) -> Result<bool, anyhow::Error> {
-        let supported_mimes = self.schemas()?.input_mimes;
-        // if the extractor input mime types include ["*/*"], then the extractor
-        // supports all mime types.
-        if supported_mimes.contains(&WILDCARD_MIME.to_string()) {
-            return Ok(true);
-        }
-
-        // otherwise, check if the extractor supports the content mime type
-        let content_mime = content.mime.clone();
-        let is_match = supported_mimes.contains(&content_mime);
-        Ok(is_match)
-    }
-
     /// Extracts embeddings from content
     fn extract(
         &self,
         content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error>;
-}
-
-#[cfg(test)]
-mod test_extractor {
-    use super::*;
-
-    #[derive(Debug)]
-    enum TestExtractor {
-        // "text/plain"
-        TextPlain,
-
-        // "*/*"
-        Wildcard,
-    }
-
-    impl Extractor for TestExtractor {
-        fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error> {
-            let schemas = match self {
-                TestExtractor::TextPlain => ExtractorSchema {
-                    input_mimes: vec!["text/plain".to_string()],
-                    ..Default::default()
-                },
-                TestExtractor::Wildcard => ExtractorSchema {
-                    input_mimes: vec![WILDCARD_MIME.to_string()],
-                    ..Default::default()
-                },
-            };
-            Ok(schemas)
-        }
-
-        fn extract(
-            &self,
-            content: Vec<internal_api::Content>,
-            _input_params: serde_json::Value,
-        ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error> {
-            Ok(vec![content])
-        }
-    }
-
-    #[test]
-    fn test_matches_mime_type() {
-        let mimetype_matcher = |extractor: TestExtractor, content_mimetypes: Vec<(&str, bool)>| {
-            for (content_mime, expected) in content_mimetypes {
-                let content = internal_api::Content {
-                    mime: content_mime.to_string(),
-                    bytes: vec![],
-                    feature: None,
-                    labels: HashMap::new(),
-                };
-                let matches = extractor.matches_mime_type(&content).unwrap();
-                assert_eq!(
-                    matches, expected,
-                    "content mime type {} did not match for case {:?}",
-                    content_mime, extractor
-                );
-            }
-        };
-
-        mimetype_matcher(
-            TestExtractor::TextPlain,
-            vec![
-                ("text/plain", true),
-                ("image/png", false),
-                ("application/pdf", false),
-            ],
-        );
-        mimetype_matcher(
-            TestExtractor::Wildcard,
-            vec![
-                ("text/plain", true),
-                ("image/png", true),
-                ("application/pdf", true),
-            ],
-        );
-    }
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

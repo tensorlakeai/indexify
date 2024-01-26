@@ -66,13 +66,6 @@ impl ExtractorExecutor {
         Ok(extractor_executor)
     }
 
-    pub fn matches_mime_type(
-        &self,
-        content: &internal_api::Content,
-    ) -> Result<bool, anyhow::Error> {
-        self.extractor_runner.matches_mime_type(content)
-    }
-
     #[tracing::instrument]
     pub fn get_executor_info(&self) -> internal_api::ExecutorInfo {
         internal_api::ExecutorInfo {

@@ -8,6 +8,7 @@ use tracing_unwrap::ResultExt;
 
 use crate::{
     cmd::GlobalArgs,
+    coordinator_filters::matches_mime_type,
     extractor::{py_extractors::PythonExtractor, python_path, ExtractorTS},
 };
 
@@ -27,11 +28,6 @@ pub struct Args {
 
     #[arg(short, long)]
     file: Option<String>,
-
-    /// a boolean flag that indicates whether to ignore unmatched mime types
-    /// defaults to true
-    #[arg(long)]
-    err_for_unmatched_mimetype: Option<bool>,
 }
 
 impl Args {
@@ -42,7 +38,6 @@ impl Args {
             name,
             text,
             file,
-            err_for_unmatched_mimetype,
         } = self;
 
         if extractor_path.is_none() && name.is_none() {
@@ -83,13 +78,12 @@ impl Args {
             }
             .unwrap_or_log();
 
-            // if the content mimetype does not match the extractor input mimetype, throw an
-            // error
-            if err_for_unmatched_mimetype.unwrap_or(true) &&
-                !extractor.matches_mime_type(&content).unwrap_or_log()
-            {
+            if !matches_mime_type(
+                extractor.schemas().unwrap_or_log().input_mimes.as_slice(),
+                &content.mime,
+            ) {
                 panic!(
-                    "content mimetype: {} does not match extractor input mimetype: {:?}",
+                    "content mimetype: {} does not match supported extractor input mimetypes: {:?}. To override this behavior, add a wildcard mimetype '*/*' to the extractor input mimetype list.",
                     content.mime,
                     extractor.schemas().unwrap_or_log().input_mimes
                 );
