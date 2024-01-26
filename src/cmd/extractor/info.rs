@@ -27,7 +27,7 @@ impl Args {
             cache_dir: _,
             name: _,
         } = self;
-        
+
         let extractor_path = match extractor_path {
             Some(path) => path,
             None => {
