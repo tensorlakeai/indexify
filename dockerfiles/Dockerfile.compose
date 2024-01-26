@@ -1,18 +1,20 @@
-FROM tensorlake/builder AS builder
 FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y libssl-dev python3-dev ca-certificates
+RUN apt install -y lsb-release libssl-dev python3-dev ca-certificates apt-transport-https
 
 RUN update-ca-certificates
 
-WORKDIR /indexify
+RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
+    apt-get update -y && \
+    apt-get install -y indexify && \
+    apt-get -y clean
 
-COPY --from=builder /indexify-build/target/release/indexify ./
+WORKDIR /indexify
 
 COPY sample_config.yaml ./config/indexify.yaml
 
 COPY ./scripts/docker_compose_start.sh .
 
-ENTRYPOINT [ "/indexify/indexify" ]
+ENTRYPOINT [ "indexify" ]
