@@ -9,8 +9,8 @@ An extractor receives unstructured data in a `Content` object and transforms the
 The content object has the following properties - <br/>
     ** data ** - The unstructured data encoded as raw bytes.<br/>
     ** content_type ** - The mime type of the data. For example, `text/plain`, `image/png`, etc. This allows you to decode the bytes correctly.<br/>
-    ** labels ** - Optional Key Value metadata associated with the content provides by users or added by Indexify.<br/>
-    ** Feature ** - Optional Feature associated with the content, such as embedding or JSON metadata.<br/>
+    ** labels ** - Optional Key Value metadata associated with the content provided by users or added by Indexify. Labels are meant for filtering content while deciding which bindings are invoked on them or for storing user defined opaque metadata <br/>
+    ** Feature ** - Optional Feature associated with the content, such as embedding or JSON metadata. Embeddings are stored in indexes in Vector Store and JSON metadata are stored in structured store such as Postgres. Feartures are searchable, if they are embedding you can perform KNN search on the resulting index, if it's JSON you could do JSON path queries on them.<br/>
 
 The **Content** object is [defined here](https://github.com/tensorlakeai/indexify/blob/11346c29055f16d397fc0901ec10139cdc945134/indexify_extractor_sdk/base_extractor.py#L48) 
 
