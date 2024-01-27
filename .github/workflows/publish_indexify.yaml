@@ -93,6 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-linux-package
+      - build-linux-aarch64-package
       - build-windows-package
       - build-macos-package
       - extract-version
