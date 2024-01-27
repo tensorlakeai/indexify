@@ -1,0 +1,21 @@
+FROM ghcr.io/cross-rs/aarch64-unknown-linux-gnu:edge
+RUN dpkg --add-architecture arm64
+RUN apt-get update && apt-get install --assume-yes libssl-dev:arm64
+
+
+RUN apt -y install software-properties-common
+RUN add-apt-repository ppa:deadsnakes/ppa -y
+RUN apt remove software-properties-common -y
+RUN apt update
+RUN apt-get install -y \
+    build-essential \
+    curl pkg-config python3.11 python3.11-dev python3.11-venv git
+
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+RUN rustup target add aarch64-unknown-linux-gnu
+ENV PYO3_CROSS_PYTHON_VERSION=3.11
