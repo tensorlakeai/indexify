@@ -1,0 +1,15 @@
+[target.aarch64-unknown-linux-gnu]
+dockerfile = "dockerfiles/Dockerfile.cross"
+pre-build = [
+    "apt-get update && apt-get install --assume-yes build-essential",
+
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+]
+
+[build.env]
+passthrough = [
+  "PYO3_PYTHON=/usr/bin/python3.11",
+  "PYO3_CROSS=1",
+  "PYO3_CROSS_PYTHON_VERSION=3.11",
+  "PYO3_CROSS_LIB_DIR=/opt/sysroot/usr/lib",
+]
