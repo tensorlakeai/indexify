@@ -11,7 +11,7 @@ indexify extractor new --path my-extractor
 ```
 
 ## Implement the Extractor 
-The template creates a `MyExtractor` class in the `custom_extractor.py` file. Implement the extract method, which accepts a `Content` and prouduces a list of `Content`, since every content can hypothetically produce multiple content. The valid output features are `Embedding` and `JSON`. Chunks of document goes in the `Content` in the data payload of the `Content`. 
+The template creates a `MyExtractor` class in the `custom_extractor.py` file. Implement the extract method, which accepts a `Content` and prouduces a list of `Content`. The output content is usually some form of transformation of the input to the extractors and some features related to it. The valid output features are `Embedding` and `JSON`. Chunks of document goes in the `Content` in the data payload of the `Content`. 
 
 ```python
 def extract(self, content: Content) -> List[Content]:
@@ -35,17 +35,18 @@ In this example we iterate over a list of content, chunk each content, run a NER
 
     Use any python or native system dependencies in your extractors because we can package them in a container to deploy them to production.
 
-Implement the schemas method to contain the output schema of the extractor. Name each feature and provide the type of the feature. For embedding types use the `EmbeddingSchema` type, for any other metadata just use the json schema of the output feature.
 
-```python
-def schemas(cls) -> ExtractorSchema:
-    """
-    Returns schema of features for indexing.
-    """
-    return ExtractorSchema(
-        features={"text_embedding": EmbeddingSchema(distance_metric="cosine", dim=3)},
-    )
-```
+## Extractor Metadata
+Add a name to your extractor, a description of what it does and python and system dependencies. These goes in attributes/properties of your Extractor class.
+** name ** - The name of the extractor. We use the name of the extractor also to name the container package.
+
+** description ** - Long description of the extractor
+
+** python_dependencies ** -  List of python dependencies that you are importing in the extractor. Example - `["torch", "transformers"]`
+
+** system_dependencies ** - List of system dependencies of the extractor such as any native dependencies of the model or packages you are using. Example - `["curl", "protobuf-compiler"]`
+
+** input_mime_types ** - The list of input data types the extractor can handle. We use standard mime types as the API. Default is `["text/plain]`, and you can override or specify which ones your extractor supports from the [list here](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types)
 
 #### Test the extractor locally
 
