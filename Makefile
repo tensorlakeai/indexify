@@ -17,6 +17,10 @@ build: ## Build rust application
 build-release: ## Build rust release
 	cargo build --release
 
+build-release-aarch64:
+	cargo install cross
+	cross build --target aarch64-unknown-linux-gnu --release
+
 clean: ## Clean rust build artifacts
 	cargo clean
 
