@@ -108,3 +108,7 @@ If you're within the dev container, you can call the docker-compose-v1 from with
 
 If docker produces a EONET error, please try to build your devcontainer prior to launching it in vscode:
 ```devcontainer up --workspace-folder```
+
+To build a local container for testing, run the following command from the root of the project:
+
+```make build-container-dev```

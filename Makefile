@@ -27,6 +27,9 @@ build-container: ## Build container
 	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune
 
+build-container-dev: ## Build container for local development
+	docker build -f dockerfiles/Dockerfile.builder --tag ${DOCKER_USERNAME}/builder .
+	docker build -f dockerfiles/Dockerfile.local --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 build-base-extractor: ## Build base extractor container
 	docker build -f dockerfiles/Dockerfile.extractor_base --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
