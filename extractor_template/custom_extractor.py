@@ -6,6 +6,13 @@ from indexify_extractor_sdk import Extractor, Content, Feature
 from indexify_extractor_sdk.base_extractor import Content
 import json
 
+
+# Extractors can be parameterized by providing a pydantic model
+# as the second argument to the Extractor class. The model is exposed
+# in the Indexify API so that users can dynamically change the behavior
+# of the extractor for various use cases. Some examples here can be
+# chunk size of audio clips during segmentation, or the text splitter algorithm
+# for embedding long documents
 class InputParams(BaseModel):
     a: int = 0
     b: str = ""
@@ -28,6 +35,11 @@ class MyExtractor(Extractor):
     def __init__(self):
         super().__init__()
 
+    # The extract method is the main entrypoint for the extractor. It takes in a Content object and returns
+    # a list of transformed content objects. Each transformed content can have different features that will be
+    # indexed. For example a long document can be split into multiple content chunks, each containing features
+    # like embedding, JSON metdata, etc. If you are doing on ETL(transformation), you can return content with
+    # no features.
     def extract(self, content: Content, params: InputParams) -> List[Content]:
         return [
                 ## If the name of the embedding field in the schema is anything besides "embedding",
