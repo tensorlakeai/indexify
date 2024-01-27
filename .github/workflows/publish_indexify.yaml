@@ -34,7 +34,19 @@ jobs:
           name: indexify-linux-amd64
           path: target/release/indexify
           if-no-files-found: error
-
+  build-linux-aarch64-package:
+    name: Build Aarch64 Linux Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --component rustfmt
+      - run: cargo +nightly fmt --check
+      - run: make build-release-aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-linux-aarch64
+          path: target/aarch64-unknown-linux-gnu/release/indexify
+          if-no-files-found: error
   build-macos-package:
     name: Build macOS Package
     runs-on: macos-latest
