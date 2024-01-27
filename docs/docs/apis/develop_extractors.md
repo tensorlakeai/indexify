@@ -2,6 +2,23 @@
 
 When you are working on a use case for which we might not have an extractor already you can write your own extractor, and deploy in your cluster, and also publish to our extractor hub for others to use! 
 
+## Concepts
+
+An extractor receives unstructured data in a `Content` object and transforms the content into one or many `Content`, each output content can optionally have a `Feature` related to it. For example, you could split a PDF content into three content with their text and corresponding embedding or some other metadata such as tabular information encoded as JSON metadata.
+
+The content object has the following properties - <br/>
+    ** data ** - The unstructured data encoded as raw bytes.<br/>
+    ** content_type ** - The mime type of the data. For example, `text/plain`, `image/png`, etc. This allows you to decode the bytes correctly.<br/>
+    ** labels ** - Optional Key Value metadata associated with the content provides by users or added by Indexify.<br/>
+    ** Feature ** - Optional Feature associated with the content, such as embedding or JSON metadata.<br/>
+
+The **Content** object is [defined here](https://github.com/tensorlakeai/indexify/blob/11346c29055f16d397fc0901ec10139cdc945134/indexify_extractor_sdk/base_extractor.py#L48) 
+
+### Feature
+Feature is some form of extracted information from unstructured data. Embedding, or JSON metadata are the possible features for now. Features extracted are indexed and searchable.
+Features can be easily constructed from [helper methods](https://github.com/tensorlakeai/indexify/blob/11346c29055f16d397fc0901ec10139cdc945134/indexify_extractor_sdk/base_extractor.py#L37)
+You can optionaly give features a name such as `my_custom_text_embedding`, we use the names as sufixes of index names.
+
 ## Start from a template
 
 The following command will create a template for a new extractor in the current directory. 
