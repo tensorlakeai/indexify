@@ -1,0 +1,9 @@
+[target.aarch64-unknown-linux-gnu]
+image = "crossrs:latest"
+[build.env]
+passthrough = [
+  "PYO3_PYTHON=/usr/bin/python3.8",
+  "PYO3_CROSS=1",
+  "PYO3_CROSS_PYTHON_VERSION=3.8",
+  "PYO3_CROSS_LIB_DIR=/opt/sysroot/usr/lib",
+]
