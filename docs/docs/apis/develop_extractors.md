@@ -4,7 +4,7 @@ When you are working on a use case for which we might not have an extractor alre
 
 ## Concepts
 
-An extractor receives unstructured data in a `Content` object and transforms the content into one or many `Content`, each output content can optionally have a `Feature` related to it. For example, you could split a PDF content into three content with their text and corresponding embedding or some other metadata such as tabular information encoded as JSON metadata.
+An extractor receives unstructured data in a `Content` object and transforms the content into one or many `Content`, each output content can optionally have a `Feature` added to it during extraction. For example, you could split a PDF content into three content with their text and corresponding embedding or some other metadata such as tabular information encoded as JSON metadata.
 
 The content object has the following properties -
 
