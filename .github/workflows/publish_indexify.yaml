@@ -109,6 +109,12 @@ jobs:
           mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+      - name: Install Cargo Deb
+        run: cargo install cargo-deb
+      - name: Build Deb Package for x86_64
+        run: cargo deb --no-build --no-strip
+      - name: Build Deb Package for aarch64
+        run: cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -142,6 +148,20 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_content_type: application/octet-stream
+      - name: Upload Linux Deb Package for x86_64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: target/debian/indexify_${{ needs.extract-version.outputs.version }}-1_amd64.deb
+          asset_name: indexify_${{ needs.extract-version.outputs.version }}_amd64.deb
+          asset_content_type: application/octet-stream
+      - name: Upload Linux Deb Package for aarch64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: target/aarch64-unknown-linux-gnu/debian/indexify_${{ needs.extract-version.outputs.version }}-1_arm64.deb
+          asset_name: indexify_${{ needs.extract-version.outputs.version }}_aarch64.deb
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

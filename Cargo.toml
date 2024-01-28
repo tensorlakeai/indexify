@@ -213,6 +213,7 @@ tonic-build = { version = "0.10.2", features = ["prost"] }
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
 copyright = "2024, Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
 license-file = ["LICENSE", "4"]
+description = "Indexify is a reactive structured extraction engine for un-structured data."
 extended-description = """\
 Indexify is a reactive structured extraction engine for un-structured data.
 """
