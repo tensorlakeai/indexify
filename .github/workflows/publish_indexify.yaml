@@ -28,11 +28,18 @@ jobs:
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
+      - run: cargo install cargo-deb
       - run: cargo build --release
+      - run: cargo deb --no-build --no-strip
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-linux-amd64
           path: target/release/indexify
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-deb-linux-amd64
+          path: target/debian/indexify_*.deb
           if-no-files-found: error
   build-linux-aarch64-package:
     name: Build Aarch64 Linux Package
@@ -42,10 +49,17 @@ jobs:
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: make build-release-aarch64
+      - run: cargo install cargo-deb
+      - run: cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-linux-aarch64
           path: target/aarch64-unknown-linux-gnu/release/indexify
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-deb-linux-aarch64
+          path: target/aarch64-unknown-linux-gnu/debian/indexify_*.deb
           if-no-files-found: error
   build-macos-package:
     name: Build macOS Package
@@ -109,12 +123,8 @@ jobs:
           mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-      - name: Install Cargo Deb
-        run: cargo install cargo-deb
-      - name: Build Deb Package for x86_64
-        run: cargo deb --no-build --no-strip
-      - name: Build Deb Package for aarch64
-        run: cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
+          mv /tmp/release/indexify-deb-linux-amd64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-1_amd64.deb
+          mv /tmp/release/indexify-deb-linux-aarch64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-1_arm64.deb
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1

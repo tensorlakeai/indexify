@@ -218,5 +218,4 @@ Indexify is a reactive structured extraction engine for un-structured data.
 """
 section = "utility"
 priority = "optional"
-assets = [["target/release/indexify", "/usr/local/bin/indexify", "755"]]
 depends = "$auto"
