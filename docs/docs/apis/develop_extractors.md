@@ -75,34 +75,14 @@ indexify extractor extract -e my-extractor/custom_extractor.py:MyExtractor --tex
 It's a good idea to test the behavior of the extractor with the Indexify Control Plane locally to make sure it works as expected. 
 
 ```shell
-indexify extractor start -e my-extractor/indexify.yaml --control-plane-addr 172.21.0.2:8950
-```
-
-#### Update the extractor configuration
-You can include the python and system dependencies of the extractor in the configuration file. Update the indexify.yaml file with the dependencies of the extractor. 
-
-```yaml
-name: my-extractor
-version: 1
-description: "Description of the Extractor goes here"
-# Rename the file and the class name if you wish to
-module: custom_extractor.py:MyExtractor
-gpu: false
-# Add all the python dependencies here which are required for the extractor to work
-python_dependencies:
-  - torch
-# Add all the system dependencies here. We use a ubuntu base image, so the package names
-# should be available in ubuntu
-system_dependencies:
-  - ffmpeg
-
+indexify extractor start --extractor_path my_extractor.py:MyClass --control-plane-addr 172.21.0.2:8950
 ```
 
 #### Package the extractor
 Once you have tested the package, pakcage it into a container. From here the extractor is deployable to any environment. You can share the extractor on our Hub for other developers to know about it! 
 
 ```shell
-indexify extractor package -v -c my-extractor/indexify.yaml
+indexify extractor package -vv -extractor-path </path/to/extractor.py>:<ExtractorClass>
 ```
 
 The packaged extractors should also be visible as a docker container locally.
