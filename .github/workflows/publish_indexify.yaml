@@ -175,3 +175,19 @@ jobs:
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: install reprepro
+        run: sudo apt-get update && sudo apt-get install -y reprepro
+      - name: Run reprepro
+        run: |
+          cd .repo
+          reprepro includedeb buster /tmp/release/*.deb
+          reprepro includedeb focal /tmp/release/*.deb
+          reprepro includedeb jammy /tmp/release/*.deb
+      - uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: .repo
+          destination-dir: ./repo
