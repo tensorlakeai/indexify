@@ -61,7 +61,7 @@ pub struct RepositoryEndpointState {
             index_search,
             list_extractors,
             bind_extractor,
-            attribute_lookup,
+            metadata_lookup,
             list_executors
         ),
         components(
@@ -161,7 +161,7 @@ impl Server {
             )
             .route(
                 "/repositories/:repository_name/metadata",
-                get(attribute_lookup).with_state(repository_endpoint_state.clone()),
+                get(metadata_lookup).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/repositories",
@@ -717,14 +717,14 @@ async fn index_search(
     ),
 )]
 #[axum::debug_handler]
-async fn attribute_lookup(
+async fn metadata_lookup(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
     Query(query): Query<MetadataRequest>,
 ) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
     let attributes = state
         .repository_manager
-        .attribute_lookup(&repository_name, &query.index, query.content_id.as_ref())
+        .metadata_lookup(&repository_name, &query.index, query.content_id.as_ref())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

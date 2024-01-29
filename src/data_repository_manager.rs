@@ -35,7 +35,7 @@ use crate::{
 
 pub struct DataRepositoryManager {
     vector_index_manager: Arc<VectorIndexManager>,
-    attribute_index_manager: Arc<MetadataIndexManager>,
+    metadata_index_manager: Arc<MetadataIndexManager>,
     blob_storage: BlobStorage,
     coordinator_client: Arc<CoordinatorClient>,
 }
@@ -56,7 +56,7 @@ impl DataRepositoryManager {
         let blob_storage = BlobStorage::new_with_config(blob_storage_config);
         Ok(Self {
             vector_index_manager,
-            attribute_index_manager,
+            metadata_index_manager: attribute_index_manager,
             blob_storage,
             coordinator_client,
         })
@@ -171,9 +171,10 @@ impl DataRepositoryManager {
                 }
                 internal_api::OutputSchema::Attributes(schema) => {
                     let _ = self
-                        .attribute_index_manager
+                        .metadata_index_manager
                         .create_index(
                             repository,
+                            &index_name,
                             table_name,
                             &extractor.name,
                             &extractor_binding.name,
@@ -398,7 +399,7 @@ impl DataRepositoryManager {
         &self,
         extracted_content: api::WriteExtractedContent,
     ) -> Result<()> {
-        let index_name = extracted_content.index_name.clone();
+        let index_table_name = extracted_content.index_table_name.clone();
         let mut new_content_metadata = Vec::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
@@ -412,9 +413,10 @@ impl DataRepositoryManager {
                 )
                 .await?;
             new_content_metadata.push(content_metadata.clone());
-            if index_name.as_ref().is_none() {
+            if index_table_name.as_ref().is_none() {
                 continue;
             }
+            let index_table_name = index_table_name.as_ref().unwrap();
             if let Some(feature) = content.feature.clone() {
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
@@ -427,7 +429,7 @@ impl DataRepositoryManager {
                             embedding: embedding_payload.values,
                         };
                         self.vector_index_manager
-                            .add_embedding(&index_name.clone().unwrap(), vec![embeddings])
+                            .add_embedding(&index_table_name.clone(), vec![embeddings])
                             .await
                             .map_err(|e| {
                                 anyhow!("unable to add embedding to vector index {}", e)
@@ -438,11 +440,13 @@ impl DataRepositoryManager {
                             &content_metadata.id,
                             feature.data.clone(),
                             "extractor_name",
+                            &extracted_content.repository,
                         );
-                        self.attribute_index_manager
+                        info!("adding metadata to index {}", feature.data.to_string());
+                        self.metadata_index_manager
                             .add_metadata(
                                 &extracted_content.repository,
-                                &index_name.clone().unwrap(),
+                                &index_table_name.clone(),
                                 extracted_attributes,
                             )
                             .await?;
@@ -520,14 +524,28 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn attribute_lookup(
+    pub async fn metadata_lookup(
         &self,
         repository: &str,
         index_name: &str,
         content_id: Option<&String>,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
-        self.attribute_index_manager
-            .get_attributes(repository, index_name, content_id)
+        let req = indexify_coordinator::GetIndexRequest {
+            repository: repository.to_string(),
+            name: index_name.to_string(),
+        };
+        let index = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_index(req)
+            .await?
+            .into_inner()
+            .index
+            .ok_or(anyhow!("Index not found"))?;
+
+        self.metadata_index_manager
+            .get_attributes(repository, &index.table_name, content_id)
             .await
     }
 
