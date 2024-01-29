@@ -33,7 +33,12 @@ use self::{
     grpc_server::RaftGrpcServer,
     store::{ExecutorId, StateChange, TaskId},
 };
-use crate::{server_config::ServerConfig, state::store::SledStore, utils::timestamp_secs};
+use crate::{
+    coordinator_filters::matches_mime_type,
+    server_config::ServerConfig,
+    state::store::SledStore,
+    utils::timestamp_secs,
+};
 
 pub mod grpc_server;
 pub mod network;
@@ -263,16 +268,34 @@ impl App {
                     continue;
                 }
             }
+            // check if the mimetype matches
+            let extractor = self.extractor_with_name(&binding.extractor).await?;
+            if !matches_mime_type(
+                &extractor.input_mime_types,
+                &content_metadata.content_type,
+            ) {
+                info!(
+                    "content {} does not match extractor {}",
+                    content_metadata.id, binding.extractor
+                );
+                continue;
+            }
             matched_bindings.push(binding.clone());
         }
         Ok(matched_bindings)
     }
 
+    /// Returns the extractor bindings that match the content metadata
+    /// If the content metadata does not match any extractor bindings, returns an empty list
+    /// Any filtration of extractor bindings based on content metadata should be done in
+    /// this function.
     pub async fn content_matching_binding(
         &self,
         repository: &str,
         binding: &internal_api::ExtractorBinding,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
+        // get the extractor so we can check the mimetype
+        let extractor = self.extractor_with_name(&binding.extractor).await?;
         let content_list = {
             let store = self.store.state_machine.read().await;
             let content_list = store
@@ -286,6 +309,10 @@ impl App {
                     .content_table
                     .get(&content_id)
                     .ok_or(anyhow!("internal error: content {} not found", content_id))?;
+                // if the content metadata mimetype does not match the extractor, skip it
+                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
+                    continue;
+                }
                 content_meta_list.push(content_metadata.clone());
             }
             content_meta_list

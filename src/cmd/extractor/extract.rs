@@ -8,6 +8,7 @@ use tracing_unwrap::ResultExt;
 
 use crate::{
     cmd::GlobalArgs,
+    coordinator_filters::matches_mime_type,
     extractor::{py_extractors::PythonExtractor, python_path, ExtractorTS},
 };
 
@@ -76,6 +77,17 @@ impl Args {
                 _ => Err(anyhow!("either text or file path must be provided")),
             }
             .unwrap_or_log();
+
+            if !matches_mime_type(
+                extractor.schemas().unwrap_or_log().input_mimes.as_slice(),
+                &content.mime,
+            ) {
+                panic!(
+                    "content mimetype: {} does not match supported extractor input mimetypes: {:?}. To override this behavior, add a wildcard mimetype '*/*' to the extractor input mimetype list.",
+                    content.mime,
+                    extractor.schemas().unwrap_or_log().input_mimes
+                );
+            }
             let extracted_content = extractor.extract(vec![content], json!({})).unwrap_or_log();
             println!(
                 "{}",

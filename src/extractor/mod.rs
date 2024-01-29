@@ -15,35 +15,30 @@ pub mod py_extractors;
 
 use indexify_internal_api as internal_api;
 
-use crate::api;
-
 pub mod python_path;
 mod scaffold;
 
+/// EmbeddingSchema describes the embedding output by an extractor
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromPyObject)]
 pub struct EmbeddingSchema {
+    /// distance is the distance metric used to compare embeddings
+    /// i.e. dot, cosine, euclidean, etc.
     pub distance: String,
+
+    /// dim is the dimensionality of the embedding
     pub dim: usize,
 }
 
 pub trait Extractor: Debug {
+    /// Returns the extractor schema
     fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error>;
 
+    /// Extracts embeddings from content
     fn extract(
         &self,
         content: Vec<internal_api::Content>,
         input_params: serde_json::Value,
     ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error>;
-}
-
-pub trait ExtractorCli {
-    fn extract(
-        &self,
-        content: Vec<internal_api::Content>,
-        input_params: serde_json::Value,
-    ) -> Result<Vec<Vec<internal_api::Content>>>;
-    fn extract_from_data(&self, data: Vec<u8>, mime: &str) -> Result<Vec<internal_api::Content>>;
-    fn info(&self) -> Result<api::ExtractorDescription>;
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

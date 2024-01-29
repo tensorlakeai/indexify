@@ -161,3 +161,111 @@ mod test_list_content_filter {
         assert_eq!(filtered_content[0].id, "3");
     }
 }
+
+/// Returns true if the extractor supports the content mime type
+/// Returns false if the extractor does not support the content mime type
+/// Returns an error if the extractor is unable to fetch the ExtractorSchema
+///
+/// If the extractor input mime types include ["*/*"], then the extractor
+/// supports all mime types. This is useful for debugging, or for
+/// extractors that do not depend on the content mime type. However,
+/// this is not recommended for production use as it can lead to
+/// unexpected behavior.
+///
+/// Otherwise, the extractor input mime types are checked to see if they
+/// include the content mime type.
+///
+/// For example, if the extractor input mime types are ["text/plain",
+/// "application/pdf"], and the content mime type is "text/plain", then
+/// the extractor supports the content mime type. Conversely, if the
+/// extractor input mime types are ["text/plain", "application/pdf"], and
+/// the content mime type is "image/png", then the extractor does not
+/// support the content mime type and false is returned.
+pub fn matches_mime_type(supported_mimes: &[String], content_mime_type: &String) -> bool {
+    // if the extractor input mime types include ["*/*"], then the extractor
+    // supports all mime types.
+    if supported_mimes.contains(&mime::STAR_STAR.to_string()) {
+        return true;
+    }
+
+    // otherwise, check if the extractor supports the content mime type
+    supported_mimes.contains(content_mime_type)
+}
+
+#[cfg(test)]
+mod test_extractor_mimetype_filter {
+    use super::*;
+    use crate::{
+        extractor::{Extractor, ExtractorSchema},
+        state::store::SledStorableTestFactory,
+    };
+
+    #[derive(Debug)]
+    enum TestExtractor {
+        // "text/plain"
+        TextPlain,
+
+        // "*/*"
+        Wildcard,
+    }
+
+    impl Extractor for TestExtractor {
+        fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error> {
+            let schemas = match self {
+                TestExtractor::TextPlain => ExtractorSchema {
+                    input_mimes: vec![mime::TEXT_PLAIN.to_string()],
+                    ..Default::default()
+                },
+                TestExtractor::Wildcard => ExtractorSchema {
+                    input_mimes: vec![mime::STAR_STAR.to_string()],
+                    ..Default::default()
+                },
+            };
+            Ok(schemas)
+        }
+
+        fn extract(
+            &self,
+            content: Vec<internal_api::Content>,
+            _input_params: serde_json::Value,
+        ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error> {
+            Ok(vec![content])
+        }
+    }
+
+    #[test]
+    fn test_matches_mime_type() {
+        let mimetype_matcher = |extractor: TestExtractor, content_mimetypes: Vec<(&str, bool)>| {
+            for (content_mime, expected) in content_mimetypes {
+                let mut content = internal_api::ContentMetadata::spawn_instance_for_store_test();
+                content.content_type = content_mime.to_string();
+                let matches = matches_mime_type(
+                    &extractor.schemas().unwrap().input_mimes,
+                    &content.content_type,
+                );
+                assert_eq!(
+                    matches, expected,
+                    "content mime type {} did not match for case {:?}",
+                    content_mime, extractor
+                );
+            }
+        };
+
+        mimetype_matcher(
+            TestExtractor::TextPlain,
+            vec![
+                (&mime::TEXT_PLAIN.to_string(), true),
+                (&mime::IMAGE_PNG.to_string(), false),
+                (&mime::APPLICATION_PDF.to_string(), false),
+            ],
+        );
+        mimetype_matcher(
+            TestExtractor::Wildcard,
+            vec![
+                (&mime::TEXT_PLAIN.to_string(), true),
+                (&mime::IMAGE_PNG.to_string(), true),
+                (&mime::APPLICATION_PDF.to_string(), true),
+            ],
+        );
+    }
+}
