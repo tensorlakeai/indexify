@@ -237,13 +237,8 @@ impl DataRepositoryManager {
             .await?;
         let content_list = response.into_inner().content_list;
         let mut content = Vec::new();
+
         for c in content_list {
-            let metadata = c
-                .labels
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k, serde_json::from_str(&v).unwrap()))
-                .collect();
             content.push(api::ContentMetadata {
                 id: c.id,
                 name: c.file_name,
@@ -252,7 +247,7 @@ impl DataRepositoryManager {
                 created_at: c.created_at,
                 content_type: c.mime,
                 repository: c.repository,
-                labels: metadata,
+                labels: c.labels,
                 source: c.source,
             })
         }
