@@ -25,11 +25,11 @@ use tracing::{error, info};
 
 use crate::{
     api::{self, Content, EmbeddingSchema},
-    attribute_index::{ExtractedMetadata, MetadataIndexManager},
     blob_storage::{BlobStorage, BlobStorageConfig, BlobStorageReader, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
+    metadata_index::{ExtractedMetadata, MetadataIndexManager},
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -445,7 +445,7 @@ impl DataRepositoryManager {
                             "extractor_name",
                         );
                         self.attribute_index_manager
-                            .add_index(
+                            .add_metadata(
                                 &extracted_content.repository,
                                 &index_name.clone().unwrap(),
                                 extracted_attributes,

@@ -1,29 +1,10 @@
-use std::fmt;
-
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
-use crate::server_config::PgVectorConfig;
-
-#[derive(Debug, Clone)]
-pub struct IndexName(String);
-
-impl IndexName {
-    pub fn new(index_name: &str) -> IndexName {
-        let name = index_name.replace('-', "_");
-        let name = name.replace('.', "_");
-        Self(name)
-    }
-}
-
-impl fmt::Display for IndexName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+use crate::{server_config::PgVectorConfig, utils::PostgresIndexName};
 
 #[derive(Debug)]
 pub struct PgVector {
@@ -62,7 +43,7 @@ impl VectorDb for PgVector {
             tracing::error!("Failed to create vector extension: {}", err);
             return Err(anyhow!("Failed to create vector extension {}", err));
         }
-        let index_name = IndexName::new(&index.vectordb_index_name);
+        let index_name = PostgresIndexName::new(&index.vectordb_index_name);
         let vector_dim = index.vector_dim;
         let distance_extension = match &index.distance {
             crate::vectordbs::IndexDistance::Euclidean => "vector_l2_ops",
@@ -88,7 +69,7 @@ impl VectorDb for PgVector {
 
     #[tracing::instrument]
     async fn add_embedding(&self, index: &str, chunks: Vec<VectorChunk>) -> Result<()> {
-        let index = IndexName::new(index);
+        let index = PostgresIndexName::new(index);
 
         for chunk in chunks {
             let embedding = Vector::from(chunk.embedding);
@@ -109,7 +90,7 @@ impl VectorDb for PgVector {
         query_embedding: Vec<f32>,
         k: u64,
     ) -> Result<Vec<SearchResult>> {
-        let index = IndexName::new(&index);
+        let index = PostgresIndexName::new(&index);
         let query = format!(
             "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> $1 LIMIT {k};"
         );
@@ -137,7 +118,7 @@ impl VectorDb for PgVector {
     // TODO: Should change index to &str to keep things uniform across functions
     #[tracing::instrument]
     async fn drop_index(&self, index: String) -> Result<()> {
-        let index = IndexName::new(&index);
+        let index = PostgresIndexName::new(&index);
         let query = format!("DROP TABLE IF EXISTS {INDEX_TABLE_PREFIX}{index};");
         let _ = sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
@@ -145,7 +126,7 @@ impl VectorDb for PgVector {
 
     #[tracing::instrument]
     async fn num_vectors(&self, index: &str) -> Result<u64> {
-        let index = IndexName::new(index);
+        let index = PostgresIndexName::new(index);
         let query = format!("SELECT COUNT(*) FROM {INDEX_TABLE_PREFIX}{index};");
         let result = sqlx::query(&query).fetch_one(&self.pool).await?;
         let count: i64 = result.get(0);
