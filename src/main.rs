@@ -17,7 +17,6 @@ pub mod state;
 
 mod api;
 mod api_utils;
-mod attribute_index;
 mod blob_storage;
 mod caching;
 mod cmd;
@@ -27,6 +26,7 @@ mod data_repository_manager;
 mod executor;
 mod extractor_router;
 mod grpc_helper;
+mod metadata_index;
 mod task_store;
 mod test_util;
 mod tls;

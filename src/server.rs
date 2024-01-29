@@ -31,11 +31,11 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     api::{self, *},
-    attribute_index::MetadataIndexManager,
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_repository_manager::DataRepositoryManager,
     extractor_router::ExtractorRouter,
+    metadata_index::MetadataIndexManager,
     server_config::ServerConfig,
     tls::build_mtls_acceptor,
     vector_index::VectorIndexManager,

@@ -25,11 +25,11 @@ use tracing::{error, info};
 
 use crate::{
     api::{self, Content, EmbeddingSchema},
-    attribute_index::{ExtractedMetadata, MetadataIndexManager},
     blob_storage::{BlobStorage, BlobStorageConfig, BlobStorageReader, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
+    metadata_index::{ExtractedMetadata, MetadataIndexManager},
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -237,13 +237,8 @@ impl DataRepositoryManager {
             .await?;
         let content_list = response.into_inner().content_list;
         let mut content = Vec::new();
+
         for c in content_list {
-            let metadata = c
-                .labels
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k, serde_json::from_str(&v).unwrap()))
-                .collect();
             content.push(api::ContentMetadata {
                 id: c.id,
                 name: c.file_name,
@@ -252,7 +247,7 @@ impl DataRepositoryManager {
                 created_at: c.created_at,
                 content_type: c.mime,
                 repository: c.repository,
-                labels: metadata,
+                labels: c.labels,
                 source: c.source,
             })
         }
@@ -445,7 +440,7 @@ impl DataRepositoryManager {
                             "extractor_name",
                         );
                         self.attribute_index_manager
-                            .add_index(
+                            .add_metadata(
                                 &extracted_content.repository,
                                 &index_name.clone().unwrap(),
                                 extracted_attributes,

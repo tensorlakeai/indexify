@@ -13,7 +13,7 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::{api_utils, attribute_index, vectordbs};
+use crate::{api_utils, metadata_index, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractorBinding {
@@ -298,8 +298,8 @@ pub struct ExtractedMetadata {
     pub extractor_name: String,
 }
 
-impl From<attribute_index::ExtractedMetadata> for ExtractedMetadata {
-    fn from(value: attribute_index::ExtractedMetadata) -> Self {
+impl From<metadata_index::ExtractedMetadata> for ExtractedMetadata {
+    fn from(value: metadata_index::ExtractedMetadata) -> Self {
         Self {
             id: value.id,
             content_id: value.content_id,

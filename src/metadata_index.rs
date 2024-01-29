@@ -13,7 +13,7 @@ use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 use crate::{
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
-    utils::timestamp_secs,
+    utils::{timestamp_secs, PostgresIndexName},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,26 +70,30 @@ impl MetadataIndexManager {
         extractor_binding: &str,
         schema: serde_json::Value,
     ) -> Result<String> {
+        let index_name = PostgresIndexName::new(index_name);
+        let table_name = format!("structured_store_{repository}_{index_name}");
         let index = CreateIndexRequest {
             index: Some(Index {
                 name: index_name.to_string(),
-                table_name: index_name.to_string(),
+                table_name: table_name.clone(),
                 repository: repository.to_string(),
                 schema: schema.to_string(),
                 extractor: extractor.to_string(),
                 extractor_binding: extractor_binding.to_string(),
             }),
         };
-        let query = "CREATE TABLE IF NOT EXISTS {table_name} (
+        let query = format!(
+            "CREATE TABLE IF NOT EXISTS {table_name} (
             id TEXT PRIMARY KEY,
             repository_id TEXT,
             extractor TEXT,
             index_name TEXT,
             data JSONB,
             content_id TEXT,
-            created_at BIGINT,
-        );";
-        let _ = sqlx::query(query).execute(&self.pool).await?;
+            created_at BIGINT
+        );"
+        );
+        let _ = sqlx::query(&query).execute(&self.pool).await?;
         let req = GrpcHelper::into_req(index);
         let _resp = self
             .coordinator_client
@@ -100,19 +104,20 @@ impl MetadataIndexManager {
         Ok(index_name.to_string())
     }
 
-    pub async fn add_index(
+    pub async fn add_metadata(
         &self,
         repository: &str,
         index_name: &str,
         extracted_attributes: ExtractedMetadata,
     ) -> Result<()> {
+        let index_name = PostgresIndexName::new(index_name);
         let table_name = format!("structured_store_{repository}_{index_name}");
         let query = format!("INSERT INTO {table_name} (id, repository_id, extractor, index_name, data, content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7);");
         let _ = sqlx::query(&query)
             .bind(extracted_attributes.id)
             .bind(repository)
             .bind(extracted_attributes.extractor_name)
-            .bind(index_name)
+            .bind(index_name.to_string())
             .bind(extracted_attributes.metadata)
             .bind(extracted_attributes.content_id)
             .bind(timestamp_secs() as i64)
@@ -127,11 +132,12 @@ impl MetadataIndexManager {
         index_name: &str,
         content_id: Option<&String>,
     ) -> Result<Vec<ExtractedMetadata>> {
+        let index_name = PostgresIndexName::new(index_name);
         let table_name = format!("structured_store_{repository}_{index_name}");
         let query = format!("SELECT * FROM {table_name} WHERE repository_id = $1 AND index_name = $2 AND content_id = $3;");
         let rows = sqlx::query(&query)
             .bind(repository)
-            .bind(index_name)
+            .bind(index_name.to_string())
             .bind(content_id)
             .fetch_all(&self.pool)
             .await?;
