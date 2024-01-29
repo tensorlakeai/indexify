@@ -150,7 +150,16 @@ impl PythonExtractor {
             let input_mimes: Vec<String> =
                 description.getattr(py, "input_mime_types")?.extract(py)?;
             let input_params = serde_json::from_str(&input_params)?;
-            let metadata_schemas: HashMap<String, serde_json::Value> = HashMap::new(); // TODO extract this properly
+            let metadata_schemas_temp: HashMap<String, String> = description
+                .getattr(py, "metadata_schemas")?
+                .extract(py)
+                .map_err(|e| anyhow!(e.to_string()))?;
+            let mut metadata_schemas = HashMap::new();
+            for (key, value) in metadata_schemas_temp.iter() {
+                println!("key: {}, value: {}", key, value);
+                let value: serde_json::Value = serde_json::from_str(&value)?;
+                metadata_schemas.insert(key.clone(), value);
+            }
             let embedding_schemas: HashMap<String, EmbeddingSchema> = description
                 .getattr(py, "embedding_schemas")?
                 .extract(py)

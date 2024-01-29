@@ -24,6 +24,7 @@ class ExtractorDescription(BaseModel):
     python_dependencies: List[str]
     system_dependencies: List[str]
     embedding_schemas: dict[str, EmbeddingSchema]
+    metadata_schemas: dict[str, str]
     input_params: Optional[str]
     input_mime_types: List[str]
 
@@ -145,10 +146,7 @@ class ExtractorWrapper:
                     )
                     embedding_schemas[content.feature.name] = embedding_schema
                 elif content.feature.feature_type == "metadata":
-                    metadata_schemas[content.feature.name] = json.loads(
-                        content.feature.value
-                    )
-
+                    metadata_schemas[content.feature.name] = json.dumps({})
         return ExtractorDescription(
             name=self._instance.name,
             version=self._instance.version,
@@ -156,6 +154,7 @@ class ExtractorWrapper:
             python_dependencies=self._instance.python_dependencies,
             system_dependencies=self._instance.system_dependencies,
             embedding_schemas=embedding_schemas,
+            metadata_schemas=metadata_schemas,
             input_mime_types=self._instance.input_mime_types,
             input_params=json.dumps(json_schema),
         )

@@ -6,7 +6,7 @@ use indexify_internal_api as internal_api;
 use super::ExtractorTS;
 use crate::{
     api,
-    api::{ExtractorDescription, IndexDistance},
+    api::{ExtractorDescription, ExtractorOutputSchema, IndexDistance},
 };
 
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl ExtractorRunner {
             .extractor
             .schemas()
             .map_err(|e| anyhow!("Failed to get extractor schema: {}", e))?;
-        let outputs = extractor_schema
+        let embedding_outputs: HashMap<String, ExtractorOutputSchema> = extractor_schema
             .embedding_schemas
             .into_iter()
             .map(|(name, schema)| {
@@ -64,6 +64,15 @@ impl ExtractorRunner {
                     }),
                 )
             })
+            .collect();
+        let metadata_outputs: HashMap<String, ExtractorOutputSchema> = extractor_schema
+            .metadata_schemas
+            .into_iter()
+            .map(|(name, schema)| (name, api::ExtractorOutputSchema::Metadata(schema)))
+            .collect();
+        let outputs = embedding_outputs
+            .into_iter()
+            .chain(metadata_outputs)
             .collect();
         let extractor_description = ExtractorDescription {
             name: extractor_schema.name.clone(),
