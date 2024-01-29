@@ -270,10 +270,7 @@ impl App {
             }
             // check if the mimetype matches
             let extractor = self.extractor_with_name(&binding.extractor).await?;
-            if !matches_mime_type(
-                &extractor.input_mime_types,
-                &content_metadata.content_type,
-            ) {
+            if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
                     content_metadata.id, binding.extractor
@@ -286,9 +283,9 @@ impl App {
     }
 
     /// Returns the extractor bindings that match the content metadata
-    /// If the content metadata does not match any extractor bindings, returns an empty list
-    /// Any filtration of extractor bindings based on content metadata should be done in
-    /// this function.
+    /// If the content metadata does not match any extractor bindings, returns
+    /// an empty list Any filtration of extractor bindings based on content
+    /// metadata should be done in this function.
     pub async fn content_matching_binding(
         &self,
         repository: &str,
