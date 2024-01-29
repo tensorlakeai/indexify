@@ -226,7 +226,7 @@ fn run_extractors(
                                 task_id: task.id.clone(),
                                 repository: task.repository.clone(),
                                 content_list: content_list.clone(),
-                                index_name: Some(index_name.clone()),
+                                index_table_name: Some(index_name.clone()),
                                 executor_id: executor.executor_id.clone(),
                                 task_outcome: task_result.outcome.clone(),
                                 extractor_binding: task.extractor_binding.clone(),

@@ -25,15 +25,22 @@ pub struct ExtractedMetadata {
 }
 
 impl ExtractedMetadata {
-    pub fn new(content_id: &str, attributes: serde_json::Value, extractor_name: &str) -> Self {
+    pub fn new(
+        content_id: &str,
+        metadata: serde_json::Value,
+        extractor_name: &str,
+        repository: &str,
+    ) -> Self {
         let mut s = DefaultHasher::new();
         content_id.hash(&mut s);
         extractor_name.hash(&mut s);
+        repository.hash(&mut s);
+        metadata.to_string().hash(&mut s);
         let id = format!("{:x}", s.finish());
         Self {
             id,
             content_id: content_id.into(),
-            metadata: attributes,
+            metadata,
             extractor_name: extractor_name.into(),
         }
     }
@@ -66,16 +73,16 @@ impl MetadataIndexManager {
         &self,
         repository: &str,
         index_name: &str,
+        table_name: &str,
         extractor: &str,
         extractor_binding: &str,
         schema: serde_json::Value,
     ) -> Result<String> {
-        let index_name = PostgresIndexName::new(index_name);
-        let table_name = format!("structured_store_{repository}_{index_name}");
+        let table_name = PostgresIndexName::new(table_name);
         let index = CreateIndexRequest {
             index: Some(Index {
                 name: index_name.to_string(),
-                table_name: table_name.clone(),
+                table_name: table_name.to_string(),
                 repository: repository.to_string(),
                 schema: schema.to_string(),
                 extractor: extractor.to_string(),
@@ -108,18 +115,17 @@ impl MetadataIndexManager {
         &self,
         repository: &str,
         index_name: &str,
-        extracted_attributes: ExtractedMetadata,
+        metadata: ExtractedMetadata,
     ) -> Result<()> {
         let index_name = PostgresIndexName::new(index_name);
-        let table_name = format!("structured_store_{repository}_{index_name}");
-        let query = format!("INSERT INTO {table_name} (id, repository_id, extractor, index_name, data, content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7);");
+        let query = format!("INSERT INTO {index_name} (id, repository_id, extractor, index_name, data, content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
-            .bind(extracted_attributes.id)
+            .bind(metadata.id)
             .bind(repository)
-            .bind(extracted_attributes.extractor_name)
+            .bind(metadata.extractor_name)
             .bind(index_name.to_string())
-            .bind(extracted_attributes.metadata)
-            .bind(extracted_attributes.content_id)
+            .bind(metadata.metadata)
+            .bind(metadata.content_id)
             .bind(timestamp_secs() as i64)
             .execute(&self.pool)
             .await?;
@@ -129,18 +135,29 @@ impl MetadataIndexManager {
     pub async fn get_attributes(
         &self,
         repository: &str,
-        index_name: &str,
+        index_table_name: &str,
         content_id: Option<&String>,
     ) -> Result<Vec<ExtractedMetadata>> {
-        let index_name = PostgresIndexName::new(index_name);
-        let table_name = format!("structured_store_{repository}_{index_name}");
-        let query = format!("SELECT * FROM {table_name} WHERE repository_id = $1 AND index_name = $2 AND content_id = $3;");
-        let rows = sqlx::query(&query)
-            .bind(repository)
-            .bind(index_name.to_string())
-            .bind(content_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let index_table_name = PostgresIndexName::new(index_table_name);
+        let rows = match content_id {
+            Some(content_id) => {
+                let query = format!(
+                    "SELECT * FROM {index_table_name} WHERE repository_id = $1 and content_id = $2"
+                );
+                sqlx::query(&query)
+                    .bind(repository)
+                    .bind(content_id)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            None => {
+                let query = format!("SELECT * FROM {index_table_name} WHERE repository_id = $1");
+                sqlx::query(&query)
+                    .bind(repository)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+        };
         let mut extracted_attributes = Vec::new();
         for row in rows {
             let id: String = row.get(0);
