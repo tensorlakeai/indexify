@@ -7,10 +7,9 @@ use std::{
 
 use anyhow::Result;
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     routing::{get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
@@ -90,7 +89,8 @@ impl ExecutorServer {
             .route("/extract", post(extract).with_state(endpoint_state.clone()))
             //start OpenTelemetry trace on incoming request
             .layer(OtelAxumLayer::default())
-            .layer(metrics);
+            .layer(metrics)
+            .layer(DefaultBodyLimit::disable());
 
         info!(
             "starting executor server on: {}, advertising: {}, server id: {} ",
