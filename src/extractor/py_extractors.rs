@@ -318,7 +318,7 @@ mod tests {
 
         let extracted_data = extractor.extract(content.clone(), input_params).unwrap();
         assert_eq!(extracted_data.len(), 2);
-        assert_eq!(extracted_data.first().unwrap().len(), 3);
+        assert_eq!(extracted_data.first().unwrap().len(), 2);
         assert_eq!(
             extracted_data.first().unwrap().first().unwrap().mime,
             mime::TEXT_PLAIN.to_string()

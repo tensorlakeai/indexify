@@ -135,18 +135,18 @@ class ExtractorWrapper:
         json_schema = self._param_cls.model_json_schema() if self._param_cls else {}
         json_schema["additionalProperties"] = False
         for content in out_c:
-            if content.feature is not None:
-                if content.feature.feature_type == "embedding":
+            for feature in content.features:
+                if feature.feature_type == "embedding":
                     embedding_value: Embedding = Embedding.parse_raw(
-                        content.feature.value
+                        feature.value
                     )
                     embedding_schema = EmbeddingSchema(
                         dim=len(embedding_value.values),
                         distance=embedding_value.distance,
                     )
-                    embedding_schemas[content.feature.name] = embedding_schema
-                elif content.feature.feature_type == "metadata":
-                    metadata_schemas[content.feature.name] = json.dumps({})
+                    embedding_schemas[feature.name] = embedding_schema
+                elif feature.feature_type == "metadata":
+                    metadata_schemas[feature.name] = json.dumps({})
         return ExtractorDescription(
             name=self._instance.name,
             version=self._instance.version,
