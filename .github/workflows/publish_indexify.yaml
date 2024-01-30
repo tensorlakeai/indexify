@@ -126,6 +126,7 @@ jobs:
           mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
           mv /tmp/release/indexify-deb-linux-amd64/indexify_${{ needs.extract-version.outputs.version }}-1_amd64.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
           mv /tmp/release/indexify-deb-linux-aarch64/indexify_${{ needs.extract-version.outputs.version }}-1_arm64.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          ls -lR /tmp/release/
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
