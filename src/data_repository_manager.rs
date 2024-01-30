@@ -309,7 +309,7 @@ impl DataRepositoryManager {
                 content_type: content.mime,
                 bytes,
                 labels: content.labels.clone(),
-                feature: None,
+                features: vec![],
             })
             .collect();
         Ok(content_list)
@@ -327,7 +327,7 @@ impl DataRepositoryManager {
             content_type: content_mime.to_string(),
             bytes: data.to_vec(),
             labels: HashMap::new(),
-            feature: None,
+            features: vec![],
         };
         let content_metadata = self
             .write_content(repository, content, Some(name), None, "ingestion")
@@ -417,7 +417,7 @@ impl DataRepositoryManager {
                 continue;
             }
             let index_table_name = index_table_name.as_ref().unwrap();
-            if let Some(feature) = content.feature.clone() {
+            for feature in content.features {
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
                         let embedding_payload: internal_api::Embedding =

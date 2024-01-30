@@ -49,17 +49,17 @@ class Feature(BaseModel):
 class Content(BaseModel):
     content_type: Optional[str]
     data: bytes
-    feature: Optional[Feature] = None
-    labels: Optional[Dict[str, str]] = None
+    features: List[Feature] = []
+    labels: Dict[str, str] = {}
 
     @classmethod
     def from_text(
-        cls, text: str, feature: Feature = None, labels: Dict[str, str] = None
+        cls, text: str, features: List[Feature] = [], labels: Dict[str, str] = {} 
     ):
         return cls(
             content_type="text/plain",
             data=bytes(text, "utf-8"),
-            feature=feature,
+            features=features,
             labels=labels,
         )
 

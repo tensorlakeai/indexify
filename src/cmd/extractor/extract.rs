@@ -57,7 +57,7 @@ impl Args {
                 (Some(text), None) => Ok(internal_api::Content {
                     mime: "text/plain".to_string(),
                     bytes: text.as_bytes().to_vec(),
-                    feature: None,
+                    features: vec![],
                     labels: HashMap::new(),
                 }),
                 (None, Some(file_path)) => {
@@ -70,7 +70,7 @@ impl Args {
                     Ok(internal_api::Content {
                         mime: mime_type.to_string(),
                         bytes: data,
-                        feature: None,
+                        features: vec![],
                         labels: HashMap::new(),
                     })
                 }

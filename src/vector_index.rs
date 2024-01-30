@@ -83,7 +83,7 @@ impl VectorIndexManager {
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
-            feature: None,
+            features: vec![],
             labels: HashMap::new(),
         };
         info!("Extracting searching from index {:?}", index);
@@ -94,12 +94,12 @@ impl VectorIndexManager {
             .map_err(|e| anyhow!("unable to extract embedding: {}", e.to_string()))?
             .pop()
             .ok_or(anyhow!("No content was extracted"))?;
-        let features = content
-            .feature
-            .as_ref()
+        let feature = content
+            .features
+            .first()
             .ok_or(anyhow!("No features were extracted"))?;
         let embedding: internal_api::Embedding =
-            serde_json::from_value(features.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
+            serde_json::from_value(feature.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
         let search_result = self
             .vector_db
             .search(index.table_name, embedding.values, k as u64)

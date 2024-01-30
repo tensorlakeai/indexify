@@ -36,7 +36,7 @@ impl ExtractorRunner {
         let content = internal_api::Content {
             bytes: data,
             mime: mime.to_string(),
-            feature: None,
+            features: vec![],
             labels: HashMap::new(),
         };
         let extracted_content = self.extract(vec![content], serde_json::Value::Null)?;

@@ -190,7 +190,7 @@ pub struct Content {
     pub mime: String,
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
-    pub feature: Option<Feature>,
+    pub features: Vec<Feature>,
     pub labels: HashMap<String, String>,
 }
 
