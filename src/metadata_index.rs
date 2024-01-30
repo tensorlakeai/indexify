@@ -20,6 +20,7 @@ use crate::{
 pub struct ExtractedMetadata {
     pub id: String,
     pub content_id: String,
+    pub parent_content_id: String,
     pub metadata: serde_json::Value,
     pub extractor_name: String,
 }
@@ -27,6 +28,7 @@ pub struct ExtractedMetadata {
 impl ExtractedMetadata {
     pub fn new(
         content_id: &str,
+        parent_content_id: &str,
         metadata: serde_json::Value,
         extractor_name: &str,
         repository: &str,
@@ -40,6 +42,7 @@ impl ExtractedMetadata {
         Self {
             id,
             content_id: content_id.into(),
+            parent_content_id: parent_content_id.into(),
             metadata,
             extractor_name: extractor_name.into(),
         }
@@ -97,6 +100,7 @@ impl MetadataIndexManager {
             index_name TEXT,
             data JSONB,
             content_id TEXT,
+            parent_content_id TEXT,
             created_at BIGINT
         );"
         );
@@ -118,7 +122,7 @@ impl MetadataIndexManager {
         metadata: ExtractedMetadata,
     ) -> Result<()> {
         let index_name = PostgresIndexName::new(index_name);
-        let query = format!("INSERT INTO {index_name} (id, repository_id, extractor, index_name, data, content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+        let query = format!("INSERT INTO {index_name} (id, repository_id, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
             .bind(repository)
@@ -126,6 +130,7 @@ impl MetadataIndexManager {
             .bind(index_name.to_string())
             .bind(metadata.metadata)
             .bind(metadata.content_id)
+            .bind(metadata.parent_content_id)
             .bind(timestamp_secs() as i64)
             .execute(&self.pool)
             .await?;
@@ -164,11 +169,13 @@ impl MetadataIndexManager {
             let extractor: String = row.get(2);
             let data: serde_json::Value = row.get(4);
             let content_id: String = row.get(5);
+            let parent_content_id: String = row.get(6);
             let attributes = ExtractedMetadata {
                 id,
                 extractor_name: extractor,
                 metadata: data,
                 content_id,
+                parent_content_id,
             };
             extracted_attributes.push(attributes);
         }

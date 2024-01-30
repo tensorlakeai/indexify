@@ -438,6 +438,7 @@ impl DataRepositoryManager {
                     api::FeatureType::Metadata => {
                         let extracted_attributes = ExtractedMetadata::new(
                             &content_metadata.id,
+                            &content_metadata.parent_id,
                             feature.data.clone(),
                             "extractor_name",
                             &extracted_content.repository,
