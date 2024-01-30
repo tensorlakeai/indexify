@@ -14,6 +14,7 @@ on:
         default: false
 
 permissions:
+  packages: write
   contents: write
 
 env:
@@ -179,6 +180,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y reprepro
       - name: Run reprepro
         run: |
+          ls /tmp/release/
           cd .repo
           reprepro includedeb buster /tmp/release/*.deb
           reprepro includedeb focal /tmp/release/*.deb
