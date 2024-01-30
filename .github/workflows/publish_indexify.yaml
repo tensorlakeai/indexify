@@ -120,11 +120,12 @@ jobs:
           path: /tmp/release/
       - name: Name Artifacts
         run: |
+          ls -l /tmp/release/
           mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          mv /tmp/release/indexify-deb-linux-amd64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
-          mv /tmp/release/indexify-deb-linux-aarch64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          mv /tmp/release/indexify-deb-linux-amd64/indexify_${{ needs.extract-version.outputs.version }}-1_amd64.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
+          mv /tmp/release/indexify-deb-linux-aarch64/indexify_${{ needs.extract-version.outputs.version }}-1_arm64.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -175,7 +176,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-arm64.deb
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-aarch64.deb
+          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
