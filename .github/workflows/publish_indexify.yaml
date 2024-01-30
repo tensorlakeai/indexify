@@ -14,15 +14,14 @@ on:
         default: false
 
 permissions:
-  packages: write
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux-package:
-    name: Build Linux Package
+  build-linux-amd64-package:
+    name: Build x86_64 Linux Package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +41,7 @@ jobs:
           name: indexify-deb-linux-amd64
           path: target/debian/indexify_*.deb
           if-no-files-found: error
-  build-linux-aarch64-package:
+  build-linux-arm64-package:
     name: Build Aarch64 Linux Package
     runs-on: ubuntu-latest
     steps:
@@ -107,8 +106,8 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs:
-      - build-linux-package
-      - build-linux-aarch64-package
+      - build-linux-amd64-package
+      - build-linux-arm64-package
       - build-windows-package
       - build-macos-package
       - extract-version
@@ -124,8 +123,8 @@ jobs:
           mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          mv /tmp/release/indexify-deb-linux-amd64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-1_amd64.deb
-          mv /tmp/release/indexify-deb-linux-aarch64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-1_arm64.deb
+          mv /tmp/release/indexify-deb-linux-amd64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
+          mv /tmp/release/indexify-deb-linux-aarch64/indexify_*.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -160,19 +159,23 @@ jobs:
           asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
           asset_content_type: application/octet-stream
-      - name: Upload Linux Deb Package for x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux Deb Package for amd64
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: target/debian/indexify_${{ needs.extract-version.outputs.version }}-1_amd64.deb
-          asset_name: indexify_${{ needs.extract-version.outputs.version }}_amd64.deb
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-amd64.deb
+          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
           asset_content_type: application/octet-stream
-      - name: Upload Linux Deb Package for aarch64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux Deb Package for arm64
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: target/aarch64-unknown-linux-gnu/debian/indexify_${{ needs.extract-version.outputs.version }}-1_arm64.deb
-          asset_name: indexify_${{ needs.extract-version.outputs.version }}_aarch64.deb
+          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-arm64.deb
+          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-aarch64.deb
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
