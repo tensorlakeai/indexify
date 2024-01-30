@@ -54,7 +54,7 @@ class Content(BaseModel):
 
     @classmethod
     def from_text(
-        cls, text: str, features: List[Feature] = [], labels: Dict[str, str] = {} 
+        cls, text: str, features: List[Feature] = [], labels: Dict[str, str] = {}
     ):
         return cls(
             content_type="text/plain",
@@ -137,9 +137,7 @@ class ExtractorWrapper:
         for content in out_c:
             for feature in content.features:
                 if feature.feature_type == "embedding":
-                    embedding_value: Embedding = Embedding.parse_raw(
-                        feature.value
-                    )
+                    embedding_value: Embedding = Embedding.parse_raw(feature.value)
                     embedding_schema = EmbeddingSchema(
                         dim=len(embedding_value.values),
                         distance=embedding_value.distance,

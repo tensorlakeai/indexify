@@ -19,15 +19,13 @@ class EmbeddingInputParams(BaseModel):
 
 class BaseEmbeddingExtractor(Extractor):
     input_mimes = ["text/plain"]
+
     def __init__(self, max_context_length: int):
         self._model_context_length: int = max_context_length
 
-    def extract(
-        self, content: Content, params: EmbeddingInputParams
-    ) -> List[Content]:
+    def extract(self, content: Content, params: EmbeddingInputParams) -> List[Content]:
         if params.chunk_size == 0:
             params.chunk_size = self._model_context_length
-
         splitter: Callable[[str], List[str]] = self._create_splitter(params)
         extracted_embeddings = []
         text = content.data.decode("utf-8")
@@ -36,7 +34,7 @@ class BaseEmbeddingExtractor(Extractor):
         for chunk, embeddings in zip(chunks, embeddings_list):
             content = Content.from_text(
                 text=chunk,
-                feature=Feature.embedding(values=embeddings),
+                features=[Feature.embedding(values=embeddings)],
             )
             extracted_embeddings.append(content)
         return extracted_embeddings
