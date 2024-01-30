@@ -413,26 +413,33 @@ pub struct Feature {
     pub data: serde_json::Value,
 }
 
+impl From<internal_api::Feature> for Feature {
+    fn from(feature: internal_api::Feature) -> Self {
+        Self {
+            feature_type: feature.feature_type.into(),
+            name: feature.name,
+            data: feature.data,
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Content {
     pub content_type: String,
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
-    pub feature: Option<Feature>,
+    pub features: Vec<Feature>,
     pub labels: HashMap<String, String>,
 }
 
 impl From<internal_api::Content> for Content {
     fn from(content: internal_api::Content) -> Self {
+        let features = content.features.into_iter().map(|f| f.into()).collect();
         Self {
             content_type: content.mime,
             bytes: content.bytes,
-            feature: content.feature.map(|f| Feature {
-                feature_type: f.feature_type.into(),
-                name: f.name,
-                data: f.data,
-            }),
+            features,
             labels: content.labels,
         }
     }

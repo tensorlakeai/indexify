@@ -162,7 +162,7 @@ async fn get_content(
     let extracted_content = internal_api::Content {
         mime: content_metadata.content_type,
         bytes: data,
-        feature: None,
+        features: vec![],
         labels: HashMap::new(),
     };
     Ok(extracted_content)

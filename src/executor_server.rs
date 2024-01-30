@@ -297,15 +297,20 @@ fn split_content_list_by_index_names(
     index_mapping: HashMap<String, String>,
 ) -> HashMap<String, Vec<internal_api::Content>> {
     let mut content_map: HashMap<String, Vec<internal_api::Content>> = HashMap::new();
-    for content in content_list {
-        if let Some(feature) = &content.feature {
+    for content in &content_list {
+        if content.features.is_empty() {
+            content_map
+                .entry("".to_string())
+                .or_default()
+                .push(content.clone());
+            continue;
+        }
+        for feature in &content.features {
             let index_name = index_mapping.get(&feature.name).unwrap();
             content_map
                 .entry(index_name.clone())
                 .or_default()
-                .push(content);
-        } else {
-            content_map.entry("".to_string()).or_default().push(content);
+                .push(content.clone());
         }
     }
     content_map

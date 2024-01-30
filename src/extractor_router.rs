@@ -85,7 +85,7 @@ impl ExtractorRouter {
             content: internal_api::Content {
                 mime: content.content_type,
                 bytes: content.bytes,
-                feature: None,
+                features: vec![],
                 labels: HashMap::new(),
             },
             input_params,

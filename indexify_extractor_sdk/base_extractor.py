@@ -49,17 +49,17 @@ class Feature(BaseModel):
 class Content(BaseModel):
     content_type: Optional[str]
     data: bytes
-    feature: Optional[Feature] = None
-    labels: Optional[Dict[str, str]] = None
+    features: List[Feature] = []
+    labels: Dict[str, str] = {}
 
     @classmethod
     def from_text(
-        cls, text: str, feature: Feature = None, labels: Dict[str, str] = None
+        cls, text: str, features: List[Feature] = [], labels: Dict[str, str] = {} 
     ):
         return cls(
             content_type="text/plain",
             data=bytes(text, "utf-8"),
-            feature=feature,
+            features=features,
             labels=labels,
         )
 
@@ -135,18 +135,18 @@ class ExtractorWrapper:
         json_schema = self._param_cls.model_json_schema() if self._param_cls else {}
         json_schema["additionalProperties"] = False
         for content in out_c:
-            if content.feature is not None:
-                if content.feature.feature_type == "embedding":
+            for feature in content.features:
+                if feature.feature_type == "embedding":
                     embedding_value: Embedding = Embedding.parse_raw(
-                        content.feature.value
+                        feature.value
                     )
                     embedding_schema = EmbeddingSchema(
                         dim=len(embedding_value.values),
                         distance=embedding_value.distance,
                     )
-                    embedding_schemas[content.feature.name] = embedding_schema
-                elif content.feature.feature_type == "metadata":
-                    metadata_schemas[content.feature.name] = json.dumps({})
+                    embedding_schemas[feature.name] = embedding_schema
+                elif feature.feature_type == "metadata":
+                    metadata_schemas[feature.name] = json.dumps({})
         return ExtractorDescription(
             name=self._instance.name,
             version=self._instance.version,

@@ -481,7 +481,7 @@ async fn add_texts(
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: d.text.as_bytes().to_vec(),
             labels: d.labels.clone(),
-            feature: None,
+            features: vec![],
         })
         .collect();
     state

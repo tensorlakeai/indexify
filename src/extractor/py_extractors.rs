@@ -30,9 +30,9 @@ pub struct PyContent {
     #[pyo3(get, set)]
     pub data: Vec<u8>,
     #[pyo3(get, set)]
-    pub feature: Option<PyFeature>,
+    pub features: Vec<PyFeature>,
     #[pyo3(get, set)]
-    pub labels: Option<HashMap<String, String>>,
+    pub labels: HashMap<String, String>,
 }
 
 impl TryFrom<PyContent> for internal_api::Content {
@@ -40,28 +40,27 @@ impl TryFrom<PyContent> for internal_api::Content {
 
     fn try_from(py_content: PyContent) -> Result<Self, Self::Error> {
         let mime_type = mime::Mime::from_str(&py_content.content_type)?;
-        let feature = match py_content.feature {
-            Some(py_feature) => {
-                let feature_type = match py_feature.feature_type.as_str() {
-                    "embedding" => internal_api::FeatureType::Embedding,
-                    "metadata" => internal_api::FeatureType::Metadata,
-                    _ => internal_api::FeatureType::Unknown,
-                };
-                let data = serde_json::from_str(&py_feature.value)?;
-                let name = py_feature.name;
-                Some(internal_api::Feature {
-                    feature_type,
-                    name,
-                    data,
-                })
-            }
-            None => None,
-        };
+        let mut features = Vec::new();
+        for feature in py_content.features.iter() {
+            let feature_type = match feature.feature_type.as_str() {
+                "embedding" => internal_api::FeatureType::Embedding,
+                "metadata" => internal_api::FeatureType::Metadata,
+                _ => internal_api::FeatureType::Unknown,
+            };
+            let data = serde_json::from_str(&feature.value)?;
+            let name = feature.name.clone();
+            let feature = internal_api::Feature {
+                feature_type,
+                name,
+                data,
+            };
+            features.push(feature);
+        }
         let extracted_content = internal_api::Content {
             mime: mime_type.to_string(),
             bytes: py_content.data,
-            feature,
-            labels: py_content.labels.unwrap_or_default(),
+            features,
+            labels: py_content.labels,
         };
         Ok(extracted_content)
     }
@@ -73,21 +72,37 @@ impl TryFrom<internal_api::Content> for PyContent {
     fn try_from(content: internal_api::Content) -> Result<Self, Self::Error> {
         let content_type = content.mime.to_string();
         let data = content.bytes;
+        let mut py_features = Vec::new();
+        for feature in content.features {
+            let feature_type = match feature.feature_type {
+                internal_api::FeatureType::Embedding => "embedding",
+                internal_api::FeatureType::Metadata => "metadata",
+                _ => "unknown",
+            };
+            let name = feature.name;
+            let value = serde_json::to_string(&feature.data)?;
+            let py_feature = PyFeature {
+                feature_type: feature_type.to_string(),
+                name,
+                value,
+            };
+            py_features.push(py_feature);
+        }
         Ok(PyContent {
             content_type,
             data,
-            feature: None,
-            labels: None,
+            features: py_features,
+            labels: content.labels,
         })
     }
 }
 
 impl PyContent {
-    pub fn new(data: String, labels: Option<HashMap<String, String>>) -> Self {
+    pub fn new(data: String, labels: HashMap<String, String>) -> Self {
         Self {
             content_type: mime::TEXT_PLAIN.to_string(),
             data: data.into_bytes().to_vec(),
-            feature: None,
+            features: vec![],
             labels,
         }
     }
@@ -96,8 +111,8 @@ impl PyContent {
         Self {
             content_type: content_type.to_string(),
             data,
-            feature: None,
-            labels: None,
+            features: vec![],
+            labels: HashMap::new(),
         }
     }
 }
@@ -231,24 +246,22 @@ impl Extractor for PythonExtractor {
                 for py_content in list1.iter() {
                     let mime: String = py_content.getattr(py, "content_type")?.extract(py)?;
                     let data: Vec<u8> = py_content.getattr(py, "data")?.extract(py)?;
-                    let py_feature: Option<PyObject> =
-                        py_content.getattr(py, "feature")?.extract(py)?;
-                    let feature = match py_feature {
-                        Some(py_feature) => {
-                            let feature_type: String =
-                                py_feature.getattr(py, "feature_type")?.extract(py)?;
-                            let feature_type = internal_api::FeatureType::from_str(&feature_type)?;
-                            let name: String = py_feature.getattr(py, "name")?.extract(py)?;
-                            let value: String = py_feature.getattr(py, "value")?.extract(py)?;
-                            let value: serde_json::Value = serde_json::from_str(&value)?;
-                            Some(internal_api::Feature {
-                                feature_type,
-                                name,
-                                data: value,
-                            })
-                        }
-                        None => None,
-                    };
+                    let py_features: Vec<PyObject> =
+                        py_content.getattr(py, "features")?.extract(py)?;
+                    let mut features = Vec::new();
+                    for py_feature in py_features {
+                        let feature_type: String =
+                            py_feature.getattr(py, "feature_type")?.extract(py)?;
+                        let feature_type = internal_api::FeatureType::from_str(&feature_type)?;
+                        let name: String = py_feature.getattr(py, "name")?.extract(py)?;
+                        let value: String = py_feature.getattr(py, "value")?.extract(py)?;
+                        let value: serde_json::Value = serde_json::from_str(&value)?;
+                        features.push(internal_api::Feature {
+                            feature_type,
+                            name,
+                            data: value,
+                        });
+                    }
                     let py_labels: Option<PyObject> =
                         py_content.getattr(py, "labels")?.extract(py)?;
 
@@ -262,7 +275,7 @@ impl Extractor for PythonExtractor {
                     temp.push(internal_api::Content {
                         mime,
                         bytes: data,
-                        feature,
+                        features,
                         labels,
                     });
                 }
@@ -284,12 +297,18 @@ mod tests {
     #[test]
     fn extract_content() {
         let test_labels = Some(HashMap::from([("url".to_string(), "test.com".to_string())]));
-        let content1 = PyContent::new("My name is Donald and I live in Seattle".to_string(), None)
-            .try_into()
-            .unwrap();
-        let content2 = PyContent::new("My name is Donald and I live in Seattle".to_string(), None)
-            .try_into()
-            .unwrap();
+        let content1 = PyContent::new(
+            "My name is Donald and I live in Seattle".to_string(),
+            HashMap::new(),
+        )
+        .try_into()
+        .unwrap();
+        let content2 = PyContent::new(
+            "My name is Donald and I live in Seattle".to_string(),
+            HashMap::new(),
+        )
+        .try_into()
+        .unwrap();
         let content = vec![content1, content2];
 
         let extractor =
@@ -299,7 +318,7 @@ mod tests {
 
         let extracted_data = extractor.extract(content.clone(), input_params).unwrap();
         assert_eq!(extracted_data.len(), 2);
-        assert_eq!(extracted_data.first().unwrap().len(), 3);
+        assert_eq!(extracted_data.first().unwrap().len(), 2);
         assert_eq!(
             extracted_data.first().unwrap().first().unwrap().mime,
             mime::TEXT_PLAIN.to_string()
