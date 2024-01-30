@@ -201,7 +201,7 @@ jobs:
 
   build-and-push-docker-image:
     name: Build and Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: image-builder
     needs:
       - extract-version
       - create-release
@@ -217,7 +217,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
-          docker buildx build --platform=linux/amd64,linux/arm64 . -t tensorlake/indexify:latest -t tensorlake/indexify:stable;
+          docker buildx build --platform=linux/amd64,linux/arm64 . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.compose;
           docker push tensorlake/indexify:latest;
           docker push tensorlake/indexify:stable;
 
