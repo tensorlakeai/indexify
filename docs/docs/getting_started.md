@@ -81,10 +81,10 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 #### Look at the metadata of the content which has been ingested 
 Sometimes you might want to read all the metadata of the content for use in another application or debugging.
 
-=== "curl"
+=== "python"
 
     ```
-    curl -v http://localhost:8900/repositories/default/content
+    repo.get_content()
     ```
 
 === "curl"
@@ -94,6 +94,12 @@ Sometimes you might want to read all the metadata of the content for use in anot
     ```
 
 Content can be filtered:
+
+=== "python"
+
+    ```
+    repo.get_content({"parent_id":"some_parent_id", "labels_eq":"key1:value1,key2:value2"})
+    ```
 
 === "curl"
 
