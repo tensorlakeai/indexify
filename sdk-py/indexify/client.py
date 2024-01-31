@@ -162,7 +162,10 @@ class IndexifyClient:
         return repositories
 
     def create_repository(
-        self, name: str, extractor_bindings: list = [], metadata: dict = {}
+        self,
+        name: str,
+        extractor_bindings: list = [],
+        labels: dict = {},
     ):
         """
         Create a new repository.
@@ -170,8 +173,7 @@ class IndexifyClient:
         req = {
             "name": name,
             "extractor_bindings": extractor_bindings,
-            "metadata": metadata,
-            "labels": {},
+            "labels": labels,
         }
         self.post(f"repositories", json=req)
         return self.get_repository(name)
