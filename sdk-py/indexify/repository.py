@@ -6,7 +6,7 @@ from collections import namedtuple
 
 from .data_containers import TextChunk
 from .settings import DEFAULT_SERVICE_URL
-from typing import List
+from typing import List, Union
 from .utils import json_set_default
 from indexify.exceptions import ApiException
 from .index import Index
@@ -32,9 +32,26 @@ class Repository:
         response = httpx.post(f"{self._service_url}/run_extractors")
         response.raise_for_status()
 
-    def add_documents(self, documents: List[Document]) -> None:
+    def add_documents(
+        self, documents: Union[Document, str, List[Union[Document, str]]]
+    ) -> None:
         if isinstance(documents, Document):
             documents = [documents]
+        elif isinstance(documents, str):
+            documents = [Document(documents, {})]
+        elif isinstance(documents, list):
+            new_documents = []
+            for item in documents:
+                if isinstance(item, Document):
+                    new_documents.append(item)
+                elif isinstance(item, str):
+                    new_documents.append(Document(item, {}))
+                else:
+                    raise ValueError(
+                        "List items must be either Document instances or strings."
+                    )
+            documents = new_documents
+
         req = {"documents": documents}
         response = httpx.post(
             f"{self._service_url}/repositories/{self.name}/add_texts",
