@@ -35,7 +35,7 @@ class TestIntegrationTest(unittest.TestCase):
         repository.add_documents(
             Document(
                 text="This is a test",
-                metadata={"source": "test"},
+                labels={"source": "test"},
             )
         )
 
@@ -44,11 +44,11 @@ class TestIntegrationTest(unittest.TestCase):
             [
                 Document(
                     text="This is a new test",
-                    metadata={"source": "test"},
+                    labels={"source": "test"},
                 ),
                 Document(
                     text="This is another test",
-                    metadata={"source": "test"},
+                    labels={"source": "test"},
                 ),
             ]
         )
@@ -61,6 +61,13 @@ class TestIntegrationTest(unittest.TestCase):
 
         # Add mixed
         repository.add_documents(["string", Document("document string", {})])
+
+    def test_get_content(self):
+        repository_name = str(uuid4())
+        repo = self.client.create_repository(repository_name)
+        repo.add_documents(["one", "two", "three"])
+        content = repo.get_content()
+        assert len(content) == 3
 
     def test_search(self):
         repository_name = str(uuid4())
@@ -82,7 +89,7 @@ class TestIntegrationTest(unittest.TestCase):
             [
                 Document(
                     text="Indexify is also a retrieval service for LLM agents!",
-                    metadata={"url": url},
+                    labels={"url": url},
                 )
             ]
         )

@@ -12,7 +12,7 @@ from indexify.exceptions import ApiException
 from .index import Index
 from .extractor_binding import ExtractorBinding
 
-Document = namedtuple("Document", ["text", "metadata"])
+Document = namedtuple("Document", ["text", "labels"])
 
 
 class Repository:
@@ -136,13 +136,20 @@ class Repository:
         extractor_bindings = []
         for eb in repository_json["repository"]["extractor_bindings"]:
             extractor_bindings.append(ExtractorBinding.from_dict(eb))
-        metadata = repository_json["repository"]["metadata"]
+        labels = repository_json["repository"]["labels"]
         return Repository(
             name=repository_json["repository"]["name"],
             service_url=service_url,
             extractor_bindings=extractor_bindings,
-            metadata=metadata,
+            labels=labels,
         )
+
+    def get_content(self, params: dict = {}):
+        response = httpx.get(
+            f"{self._service_url}/repositories/{self.name}/content", params=params
+        )
+        response.raise_for_status()
+        return response.json()["content_list"]
 
     def get_extractor_bindings(self):
         response = httpx.get(f"{self._service_url}/repositories/{self.name}")

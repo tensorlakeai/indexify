@@ -42,6 +42,16 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 
 #### Add some documents
 
+=== "python"
+
+    ```python
+    repo = client.get_repository("default")
+    repo.add_documents([
+        "Indexify is amazing!",
+        "Indexify is a retrieval service for LLM agents!",
+        "Kevin Durant is the best basketball player in the world."
+    ])
+    ```
 === "curl"
 
     ```shell
@@ -53,43 +63,52 @@ Data Repositories are logical buckets that store content. Indexify starts with a
             {"text": "Kevin Durant is the best basketball player in the world."}
         ]}'
     ```
-=== "python"
-
-    ```python
-    repo = client.get_repository("default")
-    repo.add_documents([
-        "Indexify is amazing!",
-        "Indexify is a retrieval service for LLM agents!",
-        "Kevin Durant is the best basketball player in the world."
-    ])
-    ```
 
 #### You can also upload files to Indexify
-=== "curl"
-    ```
-    curl -v http://localhost:8900/repositories/default/upload_file \
-    -F "files=@kd.txt"
-    ```
 === "python"
+
     ```python
     repo = client.get_repository("default")
     repo.upload_file("kd.txt")
     ```
+    
+=== "curl"
+
+    ```
+    curl -v http://localhost:8900/repositories/default/upload_file \
+    -F "files=@kd.txt"
+    ```
+
 #### Look at the metadata of the content which has been ingested 
 Sometimes you might want to read all the metadata of the content for use in another application or debugging.
+
+=== "python"
+
+    ```
+    repo.get_content()
+    ```
+
 === "curl"
+
     ```
     curl -v http://localhost:8900/repositories/default/content
-
     ```
 
 Content can be filtered:
 
+=== "python"
+
+    ```
+    repo.get_content({"parent_id":"some_parent_id", "labels_eq":"key1:value1,key2:value2"})
+    ```
+
 === "curl"
+
     ```
     curl -v http://localhost:8900/repositories/default/content?source=some_source&parent_id=some_parent_id&labels_eq=key1:value1,key2:value2
     ```
 === "api spec"
+
     ```
     source: string
     parent_id: string
@@ -102,25 +121,31 @@ Extractors are used to extract information from the documents in our repository.
 
 #### Get available extractors
 
+=== "python"
+
+    ```python
+    extractors = client.extractors()
+    ```
+
 === "curl"
 
     ```shell
     curl -X GET http://localhost:8900/extractors
     ```
 
-=== "python"
-
-    ```python
-    from indexify import IndexifyClient
-
-    client = IndexifyClient()
-    extractors = client.extractors()
-    ```
 #### Bind some extractors to the repository
 
 To start extracting information from the documents, we need to bind some extractors to the repository. Let's bind a named entity extractor so that we can retrieve some data in the form of key/value pairs, and an embedding extractor so that we can run semantic search over the raw text.
 
 Every extractor we bind results in a corresponding index being created in Indexify to store the extracted information for fast retrieval. So we must also provide an index name for each extractor.
+
+=== "python"
+
+    ```python
+    repo.bind_extractor("tensorlake/minilm-l6", "minil6")
+
+    bindings = repo.extractor_bindings
+    ```
 
 === "curl"
 
@@ -132,13 +157,6 @@ Every extractor we bind results in a corresponding index being created in Indexi
             "name": "minil6"
         }'
     ```
-=== "python"
-
-    ```python
-    repo.bind_extractor("tensorlake/minilm-l6", "minil6")
-
-    bindings = repo.extractor_bindings
-    ```
 
 We now have an index with embedding extracted by MiniLML6.
 
@@ -148,6 +166,37 @@ Next let's query the index created by the embedding extractor. The index will al
 
 Let's look for documents related to "sports":
 
+=== "python"
+
+    ```python
+    search_results = repo.search_index("minil6.embedding", "sports", 3)
+    print('Search results:', *search_results, sep='\n')
+    ```
+    
+    Here are the results:
+
+    ```
+    [
+        {
+            'content_id': '8a4e86c1ed871aa5', 
+            'text': 'Kevin Durant is the best basketball player in the world.', 
+            'confidence_score': 0.22862443, 
+            'labels': {}
+        },
+        {
+            'content_id': 'cca837cf4d0654aa', 
+            'text': 'Indexify is a retrieval service for LLM agents!',
+            'confidence_score': -0.012608088, 
+            'labels': {}
+        },
+        {
+            'content_id': 'ad2540d8cf3fb9b7', 
+            'text': 'Indexify is amazing!', 
+            'confidence_score': -0.048074536, 
+            'labels': {}
+        }
+    ]
+    ```
 === "curl"
 
     ```shell
@@ -188,44 +237,18 @@ Let's look for documents related to "sports":
 
     ```
 
-=== "python"
-
-    ```python
-    search_results = repo.search_index("minil6.embedding", "sports", 3)
-    print('Search results:', *search_results, sep='\n')
-    ```
-    
-    Here are the results:
-
-    ```
-    Search results: 
-    [
-        {
-            'content_id': '8a4e86c1ed871aa5', 
-            'text': 'Kevin Durant is the best basketball player in the world.', 
-            'confidence_score': 0.22862443, 
-            'labels': {}
-        },
-        {
-            'content_id': 'cca837cf4d0654aa', 
-            'text': 'Indexify is a retrieval service for LLM agents!',
-            'confidence_score': -0.012608088, 
-            'labels': {}
-        },
-        {
-            'content_id': 'ad2540d8cf3fb9b7', 
-            'text': 'Indexify is amazing!', 
-            'confidence_score': -0.048074536, 
-            'labels': {}
-        }
-    ]
-    ```
 
 ### Automatic extraction and indexing
 
 Indexify automatically watches your data repository and runs your extractors whenever new documents are added. Let's go through an example. 
 
 #### Add a new document to the repository
+
+=== "python"
+
+    ```python
+    repo.add_documents("Steph Curry is also an amazing player!")
+    ```
 
 === "curl"
 
@@ -236,15 +259,43 @@ Indexify automatically watches your data repository and runs your extractors whe
             {"text": "Steph Curry is also an amazing player!"}
         ]}' 
     ```
-=== "python"
-
-    ```python
-    repo.add_documents("Steph Curry is also an amazing player!")
-    ```
 
 #### Query the embedding index
 
 Now let's rerun our query for documents related to "sports":
+
+=== "python"
+
+    ```python
+    search_results = repo.search_index("minil6.embedding", "sports", 3)
+    print('Updated search results:', *search_results, sep='\n')
+    ```
+
+    Here are the new search results:
+
+    ```
+    Updated search results: 
+    [
+        {
+            'content_id': '8a4e86c1ed871aa5', 
+            'text': 'Kevin Durant is the best basketball player in the world.',
+            'confidence_score': 0.22862443, 
+            'labels': {}
+        }, 
+        {
+            'content_id': 'fcb76d63e3324d9c', 
+            'text': 'Steph Curry is also an amazing player!', 
+            'confidence_score': 0.17857653, 
+            'labels': {}
+        }, 
+        {
+            'content_id': 'cca837cf4d0654aa', 
+            'text': 'Indexify is a retrieval service for LLM agents!',
+            'confidence_score': -0.012608088, 
+            'labels': {}
+        }
+    ]
+    ```
 
 === "curl"
 
@@ -286,44 +337,23 @@ Now let's rerun our query for documents related to "sports":
 
     ```
 
-=== "python"
-
-    ```python
-    search_results = repo.search_index("minil6.embedding", "sports", 3)
-    print('Updated search results:', *search_results, sep='\n')
-    ```
-
-    Here are the new search results:
-
-    ```
-    Updated search results: 
-    [
-        {
-            'content_id': '8a4e86c1ed871aa5', 
-            'text': 'Kevin Durant is the best basketball player in the world.',
-            'confidence_score': 0.22862443, 
-            'labels': {}
-        }, 
-        {
-            'content_id': 'fcb76d63e3324d9c', 
-            'text': 'Steph Curry is also an amazing player!', 
-            'confidence_score': 0.17857653, 
-            'labels': {}
-        }, 
-        {
-            'content_id': 'cca837cf4d0654aa', 
-            'text': 'Indexify is a retrieval service for LLM agents!',
-            'confidence_score': -0.012608088, 
-            'labels': {}
-        }
-    ]
-    ```
 
 We can see the new document we added about Steph Curry is now included in the search results. Indexify automatically ran our extractors when we added the new document and updated the relevant indexes. Extractors will only match content with the same mime type as the extractor. For example, the embedding extractor will only match text documents.
 
 ### Specify filters for extractor bindings
 
 Sometimes you might want to restrict the content from a data repository that's extracted and added to an index. For example, you might only want to process the documents that are downloaded from a specific URL. Indexify provides an easy way to do this using filters.
+
+=== "python"
+
+    ```python
+    repo.add_documents([
+        {"text": "The Cayuga was launched in 2245.", 
+         "labels": 
+            {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
+        }
+    ])
+    ```
 
 === "curl"
 
@@ -332,23 +362,23 @@ Sometimes you might want to restrict the content from a data repository that's e
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
             {"text": "The Cayuga was launched in 2245.", 
-             "metadata": 
+             "labels": 
                 {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
             }
         ]}' 
     ```
+    
+Now you can add extractor bindings with filters which match the URL and index content only from those documents.
+
 === "python"
 
     ```python
-    repo.add_documents([
-        {"text": "The Cayuga was launched in 2245.", 
-         "metadata": 
-            {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
-        }
-    ])
-    ```
+    repo.bind_extractor("tensorlake/minilm-l6", "star_trek", filters={
+        "source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
+    })
 
-Now you can add extractor bindings with filters which match the URL and index content only from those documents.
+    print(repo.extractor_bindings)
+    ```
 
 === "curl"
 
@@ -363,12 +393,4 @@ Now you can add extractor bindings with filters which match the URL and index co
             }
         }'
     ```
-=== "python"
-
-    ```python
-    repo.bind_extractor("tensorlake/minilm-l6", "star_trek", filters={
-        "source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
-    })
-
-    print(repo.extractor_bindings)
-    ```
+    

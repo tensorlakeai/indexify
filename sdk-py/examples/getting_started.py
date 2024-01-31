@@ -44,7 +44,7 @@ repo.add_documents(
     [
         {
             "text": "The Cayuga was launched in 2245.",
-            "metadata": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"},
+            "labels": {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"},
         },
     ]
 )
