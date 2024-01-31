@@ -102,7 +102,6 @@ class Repository:
                 files={"file": f},
             )
             response.raise_for_status()
-            return response.json()
 
     @classmethod
     def get(cls, name: str, service_url: str = DEFAULT_SERVICE_URL) -> "Repository":
