@@ -349,7 +349,7 @@ Sometimes you might want to restrict the content from a data repository that's e
     ```python
     repo.add_documents([
         {"text": "The Cayuga was launched in 2245.", 
-         "metadata": 
+         "labels": 
             {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
         }
     ])
@@ -362,7 +362,7 @@ Sometimes you might want to restrict the content from a data repository that's e
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
             {"text": "The Cayuga was launched in 2245.", 
-             "metadata": 
+             "labels": 
                 {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
             }
         ]}' 

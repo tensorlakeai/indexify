@@ -65,7 +65,7 @@ A data repository can be created by specifying a unique name, and any additional
               "input_params": {}
             }
           ],
-          "metadata": {
+          "labels": {
             "sensitive": true
           }
         }
@@ -77,7 +77,7 @@ A data repository can be created by specifying a unique name, and any additional
 Extractor Bindings are rules to instruct Indexify to run a particular extractor on content in a repository. Bindings are evaluated when new content is added and extractors are run automatically on new or existing content. Bindings keep indexes updated as new content is ingested.
 Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
 
-For ex, the example below binds the extractor `MiniLML6` to all the content in the repository `default` which has labels `url` as `https://www.example.com`. Anytime any text is added to the repository with metadata that matches the content they are indexed.
+For ex, the example below binds the extractor `MiniLML6` to all the content in the repository `default` which has labels `url` as `https://www.example.com`. Anytime any text is added to the repository with labels that matches the content they are indexed.
 
 === "python"
     ```python
