@@ -113,10 +113,14 @@ class Repository:
 
     @classmethod
     def _from_json(cls, service_url: str, repository_json: dict):
+        extractor_bindings = []
+        for eb in repository_json["repository"]["extractor_bindings"]:
+            extractor_bindings.append(ExtractorBinding.from_dict(eb))
         metadata = repository_json["repository"]["metadata"]
         return Repository(
             name=repository_json["repository"]["name"],
             service_url=service_url,
+            extractor_bindings=extractor_bindings,
             metadata=metadata,
         )
 
