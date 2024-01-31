@@ -90,7 +90,8 @@ Start an extractor to join the server
 Clone the repository 
 ```
 git clone https://github.com/tensorlakeai/indexify-extractors.git
-indexify extractor  start --coordinator-addr localhost:8950 -c /path/to/indexify-extractors/embedding-extractors/minilm-l6/indexify.yaml
+cd indexify-extractors
+indexify extractor start --coordinator-addr localhost:8950 --ingestion-addr localhost:8900 --extractor-path embedding-extractors/minilm-l6/minilm_l6_embedding.py:MiniLML6Extractor
 ```
 
 
