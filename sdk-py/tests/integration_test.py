@@ -1,6 +1,5 @@
 import sys
 
-from indexify import FilterBuilder
 from indexify.repository import Document
 from indexify.client import IndexifyClient
 import time
@@ -22,12 +21,16 @@ class TestIntegrationTest(unittest.TestCase):
         assert len(repositories) >= 1
 
     def test_get_repository(self):
-        repository = self.client.get_repository("default")
-        assert repository.name == "default"
+        repository_name = str(uuid4())
+        self.client.create_repository(repository_name)
+        repository = self.client.get_repository(repository_name)
+        assert repository.name == repository_name
 
     def test_add_documents(self):
         # Add single documents
-        repository = self.client.get_repository("default")
+        repository_name = str(uuid4())
+        self.client.create_repository(repository_name)
+        repository = self.client.get_repository(repository_name)
         repository.add_documents(
             Document(
                 text="This is a test",
@@ -50,15 +53,19 @@ class TestIntegrationTest(unittest.TestCase):
         )
 
     def test_search(self):
-        name = str(uuid4())
-        repository = self.client.get_repository("default")
-        url = "https://memory-alpha.fandom.com"
-        filter = FilterBuilder().include("url", url).exclude("url", "bar").build()
+        repository_name = str(uuid4())
+        extractor_name = str(uuid4())
 
+        print("create repository", repository_name)
+        self.client.create_repository(repository_name)
+        repository = self.client.get_repository(repository_name)
+        url = "https://memory-alpha.fandom.com"
+
+        print("bind extractor", extractor_name)
         repository.bind_extractor(
-            "diptanu/minilm-l6-extractor",
-            name,
-            filter=filter,
+            extractor="tensorlake/minilm-l6",
+            name=extractor_name,
+            filters={"source": url},
         )
 
         repository.add_documents(
@@ -70,12 +77,12 @@ class TestIntegrationTest(unittest.TestCase):
             ]
         )
         time.sleep(10)
-        results = repository.search_index(f"{name}-embedding", "LLM", 1)
+        results = repository.search_index(f"{extractor_name}.embedding", "LLM", 1)
         assert len(results) == 1
 
     def test_list_extractors(self):
         extractors = self.client.extractors()
-        assert len(extractors) == 1
+        assert len(extractors) >= 1
 
     def test_create_repository(self):
         repository_name = str(uuid4())
@@ -85,21 +92,21 @@ class TestIntegrationTest(unittest.TestCase):
 
     def test_bind_extractor(self):
         name = str(uuid4())
-        repository = self.client.create_repository("binding-test-repository")
-        filter = (
-            FilterBuilder().include("url", "foo.com").exclude("url", "bar.com").build()
-        )
+        repository_name = "binding-test-repository"
+        self.client.create_repository(repository_name)
+        repository = self.client.get_repository(repository_name)
         repository.bind_extractor(
-            "diptanu/minilm-l6-extractor",
+            "tensorlake/minilm-l6",
             name,
-            filter=filter,
         )
 
     def test_extractor_input_params(self):
         name = str(uuid4())
-        repository = self.client.create_repository("binding-test-repository")
+        repository_name = "binding-test-repository"
+        self.client.create_repository(repository_name)
+        repository = self.client.create_repository(repository_name)
         repository.bind_extractor(
-            extractor="diptanu/minilm-l6-extractor",
+            extractor="tensorlake/minilm-l6",
             name=name,
             input_params={
                 "chunk_size": 300,
@@ -108,11 +115,21 @@ class TestIntegrationTest(unittest.TestCase):
             },
         )
 
+    def test_get_bindings(self):
+        name = str(uuid4())
+        repository = self.client.create_repository("binding-test-repository")
+        repository.bind_extractor(
+            "tensorlake/minilm-l6",
+            name,
+        )
+        bindings = repository.extractor_bindings
+        assert len(list(filter(lambda x: x.name.startswith(name), bindings))) == 1
+
     def test_get_indexes(self):
         name = str(uuid4())
         repository = self.client.create_repository("binding-test-repository")
         repository.bind_extractor(
-            "diptanu/minilm-l6-extractor",
+            "tensorlake/minilm-l6",
             name,
         )
         indexes = repository.indexes()

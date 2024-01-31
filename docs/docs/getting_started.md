@@ -51,7 +51,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
             {"text": "Indexify is amazing!"},
             {"text": "Indexify is a retrieval service for LLM agents!"}, 
             {"text": "Kevin Durant is the best basketball player in the world."}
-        ]}' 
+        ]}'
     ```
 === "python"
 
@@ -110,7 +110,7 @@ Extractors are used to extract information from the documents in our repository.
     from indexify import IndexifyClient
 
     client = IndexifyClient()
-    extractors = client.extractors
+    extractors = client.extractors()
     ```
 #### Bind some extractors to the repository
 
@@ -124,16 +124,16 @@ Every extractor we bind results in a corresponding index being created in Indexi
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor": "tensorlake/minilm-l6-extractor",
+            "extractor": "tensorlake/minilm-l6",
             "name": "minil6"
         }'
     ```
 === "python"
 
     ```python
-    repo.bind_extractor("tensorlake/minilm-l6-extractor", "minil6")
+    repo.bind_extractor("tensorlake/minilm-l6", "minil6")
 
-    bindings = repo.extractor_bindings()
+    bindings = repo.extractor_bindings
     ```
 
 We now have an index with embedding extracted by MiniLML6.
@@ -159,29 +159,35 @@ Let's look for documents related to "sports":
     Here are the results:
 
     ```json
-    {"results": [
-        {
-            "text": "Kevin Durant is the best basketball player in the world.",
-            "confidence_score": 0.22862448,
-            "metadata": {}
-        },
-        {
-            "text": "Indexify is a retrieval service for LLM agents!",
-            "confidence_score": -0.012608046,
-            "metadata": {}
-        },
-        {
-            "text": "Indexify is amazing!",
-            "confidence_score": -0.04807447,
-            "metadata": {}
-        }
-    ]}
+    {
+        "results": [
+            {
+                "content_id": "8a4e86c1ed871aa5",
+                "text": "Kevin Durant is the best basketball player in the world.",
+                "confidence_score": 0.22862443,
+                "labels": {}
+            },
+            {
+                "content_id": "cca837cf4d0654aa",
+                "text": "Indexify is a retrieval service for LLM agents!",
+                "confidence_score": -0.012608088,
+                "labels": {}
+            },
+            {
+                "content_id": "ad2540d8cf3fb9b7",
+                "text": "Indexify is amazing!",
+                "confidence_score": -0.048074536,
+                "labels": {}
+            }
+        ]
+    }
+
     ```
 
 === "python"
 
     ```python
-    search_results = repo.search_index("embeddings", "sports", 3)
+    search_results = repo.search_index("minil6.embedding", "sports", 3)
     print('Search results:', *search_results, sep='\n')
     ```
     
@@ -189,9 +195,26 @@ Let's look for documents related to "sports":
 
     ```
     Search results: 
-    {'text': 'Kevin Durant is the best basketball player in the world.', 'confidence_score': 0.22862448, 'metadata': {}}
-    {'text': 'Indexify is a retrieval service for LLM agents!', 'confidence_score': -0.012608046, 'metadata': {}}
-    {'text': 'Indexify is amazing!', 'confidence_score': -0.04807447, 'metadata': {}}
+    [
+        {
+            'content_id': '8a4e86c1ed871aa5', 
+            'text': 'Kevin Durant is the best basketball player in the world.', 
+            'confidence_score': 0.22862443, 
+            'labels': {}
+        },
+        {
+            'content_id': 'cca837cf4d0654aa', 
+            'text': 'Indexify is a retrieval service for LLM agents!',
+            'confidence_score': -0.012608088, 
+            'labels': {}
+        },
+        {
+            'content_id': 'ad2540d8cf3fb9b7', 
+            'text': 'Indexify is amazing!', 
+            'confidence_score': -0.048074536, 
+            'labels': {}
+        }
+    ]
     ```
 
 ### Automatic extraction and indexing
@@ -236,29 +259,35 @@ Now let's rerun our query for documents related to "sports":
     Here's the new response:
 
     ```json
-    {"results": [
-        {
-            "text": "Kevin Durant is the best basketball player in the world.",
-            "confidence_score": 0.22862448,
-            "metadata": {}
-        },
-        {
-            "text": "Steph Curry is also an amazing player!",
-            "confidence_score": 0.17857659,
-            "metadata": {}
-        },
-        {
-            "text": "Indexify is a retrieval service for LLM agents!",
-            "confidence_score": -0.012608046,
-            "metadata": {}
-        }
-    ]}
+    {
+        "results": [
+            {
+                "content_id": "8a4e86c1ed871aa5",
+                "text": "Kevin Durant is the best basketball player in the world.",
+                "confidence_score": 0.22862443,
+                "labels": {}
+            },
+            {
+                "content_id": "fcb76d63e3324d9c",
+                "text": "Steph Curry is also an amazing player!",
+                "confidence_score": 0.17857653,
+                "labels": {}
+            },
+            {
+                "content_id": "cca837cf4d0654aa",
+                "text": "Indexify is a retrieval service for LLM agents!",
+                "confidence_score": -0.012608088,
+                "labels": {}
+            }
+        ]
+    }
+
     ```
 
 === "python"
 
     ```python
-    search_results = repo.search_index("embeddings", "sports", 3)
+    search_results = repo.search_index("minil6.embedding", "sports", 3)
     print('Updated search results:', *search_results, sep='\n')
     ```
 
@@ -266,9 +295,26 @@ Now let's rerun our query for documents related to "sports":
 
     ```
     Updated search results: 
-    {'text': 'Kevin Durant is the best basketball player in the world.', 'confidence_score': 0.22862448, 'metadata': {}}
-    {'text': 'Steph Curry is also an amazing player!', 'confidence_score': 0.17857659, 'metadata': {}}
-    {'text': 'Indexify is a retrieval service for LLM agents!', 'confidence_score': -0.012608046, 'metadata': {}}
+    [
+        {
+            'content_id': '8a4e86c1ed871aa5', 
+            'text': 'Kevin Durant is the best basketball player in the world.',
+            'confidence_score': 0.22862443, 
+            'labels': {}
+        }, 
+        {
+            'content_id': 'fcb76d63e3324d9c', 
+            'text': 'Steph Curry is also an amazing player!', 
+            'confidence_score': 0.17857653, 
+            'labels': {}
+        }, 
+        {
+            'content_id': 'cca837cf4d0654aa', 
+            'text': 'Indexify is a retrieval service for LLM agents!',
+            'confidence_score': -0.012608088, 
+            'labels': {}
+        }
+    ]
     ```
 
 We can see the new document we added about Steph Curry is now included in the search results. Indexify automatically ran our extractors when we added the new document and updated the relevant indexes. Extractors will only match content with the same mime type as the extractor. For example, the embedding extractor will only match text documents.
@@ -308,22 +354,19 @@ Now you can add extractor bindings with filters which match the URL and index co
     curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
-            "extractor": "tensorlake/minilm-l6-extractor",
+            "extractor": "tensorlake/minilm-l6",
             "name": "star_trek",
-            "filters": [
-                {
-                    "eq": {
-                        "url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
-                    }
-                }
-            ]
+            "filters": {
+                "source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
+            }
         }'
     ```
 === "python"
 
     ```python
-    filter = FilterBuilder().include("url", "https://memory-alpha.fandom.com/wiki/USS_Cayuga").build()
-    repo.bind_extractor("tensorlake/minilm-l6-extractor", "star_trek", filter=filter)
+    repo.bind_extractor("tensorlake/minilm-l6", "star_trek", filters={
+        "source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
+    })
 
     print(repo.extractor_bindings)
     ```
