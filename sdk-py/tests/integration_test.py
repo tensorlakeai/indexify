@@ -31,6 +31,7 @@ class TestIntegrationTest(unittest.TestCase):
         repository_name = str(uuid4())
         self.client.create_repository(repository_name)
         repository = self.client.get_repository(repository_name)
+
         repository.add_documents(
             Document(
                 text="This is a test",
@@ -51,6 +52,15 @@ class TestIntegrationTest(unittest.TestCase):
                 ),
             ]
         )
+
+        # Add single string
+        repository.add_documents("test")
+
+        # Add multiple strings
+        repository.add_documents(["one", "two", "three"])
+
+        # Add mixed
+        repository.add_documents(["string", Document("document string", {})])
 
     def test_search(self):
         repository_name = str(uuid4())
