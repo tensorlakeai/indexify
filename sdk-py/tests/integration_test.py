@@ -59,7 +59,7 @@ class TestIntegrationTest(unittest.TestCase):
         # Add multiple strings
         repository.add_documents(["one", "two", "three"])
 
-        # Add multiple strings
+        # Add mixed
         repository.add_documents(["string", Document("document string", {})])
 
     def test_search(self):
