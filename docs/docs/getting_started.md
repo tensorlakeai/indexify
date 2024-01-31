@@ -64,13 +64,17 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     ])
     ```
 
-#### You could upload files to Indexify also
+#### You can also upload files to Indexify
 === "curl"
     ```
     curl -v http://localhost:8900/repositories/default/upload_file \
     -F "files=@kd.txt"
     ```
-
+=== "python"
+    ```python
+    repo = client.get_repository("default")
+    repo.upload_file("kd.txt")
+    ```
 #### Look at the metadata of the content which has been ingested 
 Sometimes you might want to read all the metadata of the content for use in another application or debugging.
 === "curl"
@@ -331,7 +335,7 @@ Sometimes you might want to restrict the content from a data repository that's e
     -d '{"documents": [ 
             {"text": "The Cayuga was launched in 2245.", 
              "metadata": 
-                {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
+                {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
             }
         ]}' 
     ```
@@ -341,7 +345,7 @@ Sometimes you might want to restrict the content from a data repository that's e
     repo.add_documents([
         {"text": "The Cayuga was launched in 2245.", 
          "metadata": 
-            {"url": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
+            {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
         }
     ])
     ```
