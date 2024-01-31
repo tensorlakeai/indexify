@@ -25,17 +25,21 @@ class IndexifyClient:
     assert client.heartbeat() == True
     ```
     """
-    def __init__(self,
-                 service_url: str = DEFAULT_SERVICE_URL,
-                 *args,
-                 **kwargs
-                 ):
+
+    def __init__(self, service_url: str = DEFAULT_SERVICE_URL, *args, **kwargs):
         self._service_url = service_url
         self._client = httpx.Client(*args, **kwargs)
 
     @classmethod
-    def with_mtls(cls, cert_path: str, key_path: str, ca_bundle_path: Optional[str] = None,
-                 service_url: str = DEFAULT_SERVICE_URL, *args, **kwargs) -> "IndexifyClient":
+    def with_mtls(
+        cls,
+        cert_path: str,
+        key_path: str,
+        ca_bundle_path: Optional[str] = None,
+        service_url: str = DEFAULT_SERVICE_URL,
+        *args,
+        **kwargs,
+    ) -> "IndexifyClient":
         """
         Create a client with mutual TLS authentication. Also enables HTTP/2,
         which is required for mTLS.
@@ -63,7 +67,14 @@ class IndexifyClient:
 
         client_certs = (cert_path, key_path)
         verify_option = ca_bundle_path if ca_bundle_path else True
-        client = IndexifyClient(*args, **kwargs, service_url=service_url, http2=True, cert=client_certs, verify=verify_option)
+        client = IndexifyClient(
+            *args,
+            **kwargs,
+            service_url=service_url,
+            http2=True,
+            cert=client_certs,
+            verify=verify_option,
+        )
         return client
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
@@ -163,6 +174,7 @@ class IndexifyClient:
             "labels": {},
         }
         self.post(f"repositories", json=req)
+        return self.get_repository(name)
 
     def get_repository(self, name: str) -> Repository:
         """
@@ -175,7 +187,9 @@ class IndexifyClient:
         extractor_bindings = []
         for eb in resp_json["repository"]["extractor_bindings"]:
             extractor_bindings.append(ExtractorBinding.from_dict(eb))
-        return Repository(name, self._service_url, extractor_bindings=extractor_bindings)
+        return Repository(
+            name, self._service_url, extractor_bindings=extractor_bindings
+        )
 
     def extractors(self) -> List[Extractor]:
         """
@@ -187,4 +201,3 @@ class IndexifyClient:
         for ed in extractors_dict:
             extractors.append(Extractor.from_dict(ed))
         return extractors
-

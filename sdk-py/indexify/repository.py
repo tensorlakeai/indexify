@@ -14,6 +14,7 @@ from .extractor_binding import ExtractorBinding
 
 Document = namedtuple("Document", ["text", "metadata"])
 
+
 class Repository:
     def __init__(
         self,
@@ -25,7 +26,7 @@ class Repository:
         self.name = name
         self._service_url = service_url
         self.extractor_bindings = extractor_bindings
-        self.labels = labels 
+        self.labels = labels
 
     async def run_extractors(self) -> dict:
         response = httpx.post(f"{self._service_url}/run_extractors")
@@ -74,23 +75,26 @@ class Repository:
         }
 
         request_body = json.dumps(req, default=json_set_default)
-        print(request_body)
         response = httpx.post(
             f"{self._service_url}/repositories/{self.name}/extractor_bindings",
             data=request_body,
             headers={"Content-Type": "application/json"},
         )
+
+        # update self.extractor_bindings
+        self.get_extractor_bindings()
+
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ApiException(exc.response.text)
         return
-    
+
     def indexes(self) -> List[Index]:
         response = httpx.get(f"{self._service_url}/repositories/{self.name}/indexes")
         response.raise_for_status()
         return response.json()["indexes"]
-    
+
     def upload_file(self, path: str):
         with open(path, "rb") as f:
             response = httpx.post(
@@ -109,16 +113,21 @@ class Repository:
 
     @classmethod
     def _from_json(cls, service_url: str, repository_json: dict):
-        extractor_bindings = []
-        for eb in repository_json["repository"]["extractor_bindings"]:
-            extractor_bindings.append(ExtractorBinding.from_dict(eb))
         metadata = repository_json["repository"]["metadata"]
         return Repository(
             name=repository_json["repository"]["name"],
             service_url=service_url,
-            extractor_bindings=extractor_bindings,
             metadata=metadata,
         )
+
+    def get_extractor_bindings(self):
+        response = httpx.get(f"{self._service_url}/repositories/{self.name}")
+        response.raise_for_status()
+
+        self.extractor_bindings = []
+        for eb in response.json()["repository"]["extractor_bindings"]:
+            self.extractor_bindings.append(ExtractorBinding.from_dict(eb))
+        return self.extractor_bindings
 
     def query_attribute(self, index_name: str, content_id: str = None) -> dict:
         params = {"index": index_name}
