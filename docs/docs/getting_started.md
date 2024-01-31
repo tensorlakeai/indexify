@@ -58,9 +58,9 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     ```python
     repo = client.get_repository("default")
     repo.add_documents([
-        {"text": "Indexify is amazing!"},
-        {"text": "Indexify is a retrieval service for LLM agents!"},
-        {"text": "Kevin Durant is the best basketball player in the world."}
+        "Indexify is amazing!",
+        "Indexify is a retrieval service for LLM agents!",
+        "Kevin Durant is the best basketball player in the world."
     ])
     ```
 
@@ -239,9 +239,7 @@ Indexify automatically watches your data repository and runs your extractors whe
 === "python"
 
     ```python
-    repo.add_documents([
-        {"text": "Steph Curry is also an amazing player!"}
-    ])
+    repo.add_documents("Steph Curry is also an amazing player!")
     ```
 
 #### Query the embedding index

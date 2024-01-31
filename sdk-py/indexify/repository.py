@@ -51,6 +51,10 @@ class Repository:
                         "List items must be either Document instances or strings."
                     )
             documents = new_documents
+        else:
+            raise TypeError(
+                "Invalid type for documents. Expected Document, str, or list of these."
+            )
 
         req = {"documents": documents}
         response = httpx.post(
