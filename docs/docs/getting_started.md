@@ -65,6 +65,13 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     ```
 
 #### You can also upload files to Indexify
+=== "python"
+
+    ```python
+    repo = client.get_repository("default")
+    repo.upload_file("kd.txt")
+    ```
+    
 === "curl"
 
     ```
@@ -72,12 +79,6 @@ Data Repositories are logical buckets that store content. Indexify starts with a
     -F "files=@kd.txt"
     ```
 
-=== "python"
-
-    ```python
-    repo = client.get_repository("default")
-    repo.upload_file("kd.txt")
-    ```
 #### Look at the metadata of the content which has been ingested 
 Sometimes you might want to read all the metadata of the content for use in another application or debugging.
 
