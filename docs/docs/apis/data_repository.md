@@ -15,7 +15,7 @@ A data repository can be created by specifying a unique name, and any additional
     client.create_repository(
         name="research",
         extractor_bindings=[{"extractor": "tensorlake/minilm-l6", "name": "minilm-l6"}],
-        labels={"sensitive": True},
+        labels={"sensitive": "true"},
     )
     ```
 
@@ -33,7 +33,7 @@ A data repository can be created by specifying a unique name, and any additional
               "name": "minilm-l6"
             }
           ],
-          "labels": {"sensitive": true}
+          "labels": {"sensitive": "true"}
         }
     '
     ```
@@ -66,7 +66,7 @@ A data repository can be created by specifying a unique name, and any additional
             }
           ],
           "labels": {
-            "sensitive": true
+            "sensitive": "true"
           }
         }
       ]
