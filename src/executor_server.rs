@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
@@ -9,8 +8,7 @@ use anyhow::Result;
 use axum::{
     extract::State,
     routing::{get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
@@ -219,33 +217,30 @@ fn run_extractors(
                             continue;
                         }
                         let task = task.unwrap();
-                        let content_by_index = split_content_list_by_index_names(task_result.extracted_content.clone(), task.output_index_table_mapping.clone());
-                        for (index_name, content_list) in content_by_index {
-                            let req = WriteExtractedContent{
-                                parent_content_id: task.content_metadata.id.clone(),
-                                task_id: task.id.clone(),
-                                repository: task.repository.clone(),
-                                content_list: content_list.clone(),
-                                index_table_name: Some(index_name.clone()),
-                                executor_id: executor.executor_id.clone(),
-                                task_outcome: task_result.outcome.clone(),
-                                extractor_binding: task.extractor_binding.clone(),
-                            };
-                            let write_result = reqwest::Client::new()
-                            .post(&ingestion_api)
-                            .json(&req)
-                            .send()
-                            .await;
-                            if let Err(err) = write_result {
-                                error!("unable to write extracted content: {}", err.to_string());
-                                continue;
-                            }
-                            if let Err(err) = write_result {
-                                error!("unable to write extracted content: {}", err.to_string());
-                                continue;
-                            }
-                            task_store.clear_completed_task(&task.id);
+                        let req = WriteExtractedContent{
+                            parent_content_id: task.content_metadata.id.clone(),
+                            task_id: task.id.clone(),
+                            repository: task.repository.clone(),
+                            content_list: task_result.extracted_content.clone(),
+                            output_to_index_table_mapping: task.output_index_table_mapping.clone(),
+                            executor_id: executor.executor_id.clone(),
+                            task_outcome: task_result.outcome.clone(),
+                            extractor_binding: task.extractor_binding.clone(),
+                        };
+                        let write_result = reqwest::Client::new()
+                        .post(&ingestion_api)
+                        .json(&req)
+                        .send()
+                        .await;
+                        if let Err(err) = write_result {
+                            error!("unable to write extracted content: {}", err.to_string());
+                            continue;
                         }
+                        if let Err(err) = write_result {
+                            error!("unable to write extracted content: {}", err.to_string());
+                            continue;
+                        }
+                        task_store.clear_completed_task(&task.id);
                     }
                 }
             };
@@ -290,28 +285,4 @@ async fn shutdown_signal() {
         },
     }
     info!("signal received, shutting down server gracefully");
-}
-
-fn split_content_list_by_index_names(
-    content_list: Vec<internal_api::Content>,
-    index_mapping: HashMap<String, String>,
-) -> HashMap<String, Vec<internal_api::Content>> {
-    let mut content_map: HashMap<String, Vec<internal_api::Content>> = HashMap::new();
-    for content in &content_list {
-        if content.features.is_empty() {
-            content_map
-                .entry("".to_string())
-                .or_default()
-                .push(content.clone());
-            continue;
-        }
-        for feature in &content.features {
-            let index_name = index_mapping.get(&feature.name).unwrap();
-            content_map
-                .entry(index_name.clone())
-                .or_default()
-                .push(content.clone());
-        }
-    }
-    content_map
 }

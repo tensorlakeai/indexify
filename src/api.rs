@@ -462,7 +462,7 @@ pub struct WriteExtractedContent {
     pub content_list: Vec<internal_api::Content>,
     pub task_id: String,
     pub repository: String,
-    pub index_table_name: Option<String>,
+    pub output_to_index_table_mapping: HashMap<String, String>,
     pub parent_content_id: String,
     pub executor_id: String,
     pub task_outcome: internal_api::TaskOutcome,

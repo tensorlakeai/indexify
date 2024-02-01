@@ -399,7 +399,6 @@ impl DataRepositoryManager {
         &self,
         extracted_content: api::WriteExtractedContent,
     ) -> Result<()> {
-        let index_table_name = extracted_content.index_table_name.clone();
         let mut new_content_metadata = Vec::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
@@ -413,11 +412,13 @@ impl DataRepositoryManager {
                 )
                 .await?;
             new_content_metadata.push(content_metadata.clone());
-            if index_table_name.as_ref().is_none() {
-                continue;
-            }
-            let index_table_name = index_table_name.as_ref().unwrap();
             for feature in content.features {
+                let index_table_name = extracted_content.output_to_index_table_mapping.get(&feature.name);
+                if index_table_name.is_none() {
+                    error!("unable to find index table name for feature {}", feature.name);
+                    continue;
+                }
+                let index_table_name = index_table_name.unwrap();
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
                         let embedding_payload: internal_api::Embedding =
