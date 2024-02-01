@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 pub use sled_store::SledStore;
 use sled_store::*;
 
-use self::impl_sled_storable::TaskByContentTypeIndex;
+use self::impl_sled_storable::UnfinishedTasksByContentTypeIndex;
 
 use super::{NodeId, TypeConfig};
 
@@ -182,7 +182,7 @@ pub struct StateMachine {
 
     pub index_table: HashMap<String, internal_api::Index>,
 
-    pub unfinished_tasks_by_content_type: TaskByContentTypeIndex,
+    pub unfinished_tasks_by_content_type: UnfinishedTasksByContentTypeIndex,
 }
 
 #[async_trait]

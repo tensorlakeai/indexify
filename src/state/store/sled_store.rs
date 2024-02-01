@@ -562,6 +562,18 @@ impl StateMachine {
                                 )
                             })?;
                 }
+                "unfinished_tasks_by_content_type" => {
+                    state_machine.unfinished_tasks_by_content_type =
+                        UnfinishedTasksByContentTypeIndex::load_from_sled_value(value)
+                            .map_err(|e| {
+                                err_kind.build_with_tree_and_key(
+                                    "failed to load unfinished_tasks_by_content_type",
+                                    e,
+                                    SledStoreTree::StateMachine,
+                                    key.clone(),
+                                )
+                            })?;
+                }
                 _ => {
                     return Err(StoreError::new(
                         StoreErrorKind::ParseError,
@@ -709,6 +721,12 @@ impl StateMachine {
                 self.index_table
                     .to_saveable_value()
                     .map_err(|e| err_fn(e, "index_table".to_string()))?,
+            )?;
+            tx.insert(
+                "unfinished_tasks_by_content_type",
+                self.unfinished_tasks_by_content_type
+                    .to_saveable_value()
+                    .map_err(|e| err_fn(e, "unfinished_tasks_by_content_type".to_string()))?,
             )?;
             Ok(())
         })
