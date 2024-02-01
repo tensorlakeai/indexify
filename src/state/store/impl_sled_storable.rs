@@ -56,8 +56,9 @@ pub trait SledStorable: Serialize + for<'de> Deserialize<'de> + SledStorableTest
     }
 }
 
-/// There's already an implementation of `SledStorable` for HashMap<String, HashSet<String> below.
-/// TODO: replace this with direct access to the sled store
+/// There's already an implementation of `SledStorable` for HashMap<String,
+/// HashSet<String> below. TODO: replace this with direct access to the sled
+/// store
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct UnfinishedTasksByContentTypeIndex(pub HashMap<String, HashSet<TaskId>>);
 

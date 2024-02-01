@@ -564,15 +564,16 @@ impl StateMachine {
                 }
                 "unfinished_tasks_by_content_type" => {
                     state_machine.unfinished_tasks_by_content_type =
-                        UnfinishedTasksByContentTypeIndex::load_from_sled_value(value)
-                            .map_err(|e| {
+                        UnfinishedTasksByContentTypeIndex::load_from_sled_value(value).map_err(
+                            |e| {
                                 err_kind.build_with_tree_and_key(
                                     "failed to load unfinished_tasks_by_content_type",
                                     e,
                                     SledStoreTree::StateMachine,
                                     key.clone(),
                                 )
-                            })?;
+                            },
+                        )?;
                 }
                 _ => {
                     return Err(StoreError::new(
