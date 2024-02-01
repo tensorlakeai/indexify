@@ -12,9 +12,19 @@ A data repository can be created by specifying a unique name, and any additional
 === "python"
 
     ```python
+    from indexify import ExtractorBinding
+
+    minilm_binding = ExtractorBinding(
+        extractor="tensorlake/minilm-l6",
+        name="minilm-l6",
+        content_source="source",
+        filters={},
+        input_params={},
+    )
+    
     client.create_repository(
         name="research",
-        extractor_bindings=[{"extractor": "tensorlake/minilm-l6", "name": "minilm-l6"}],
+        extractor_bindings=[minilm_binding],
         labels={"sensitive": "true"},
     )
     ```
