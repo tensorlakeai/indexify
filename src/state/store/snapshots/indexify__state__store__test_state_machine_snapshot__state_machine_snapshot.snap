@@ -1,6 +1,5 @@
 ---
 source: src/state/store/mod.rs
-assertion_line: 873
 expression: sm
 ---
 StateMachine(
@@ -222,4 +221,9 @@ StateMachine(
       extractor: "test_extractor",
     ),
   },
+  unfinished_tasks_by_content_type: TaskByContentTypeIndex({
+    "test": [
+      "test",
+    ],
+  }),
 )

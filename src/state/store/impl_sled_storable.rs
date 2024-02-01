@@ -56,6 +56,11 @@ pub trait SledStorable: Serialize + for<'de> Deserialize<'de> + SledStorableTest
     }
 }
 
+/// There's already an implementation of `SledStorable` for HashMap<String, HashSet<String> below.
+/// TODO: replace this with direct access to the sled store
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct TaskByContentTypeIndex(pub HashMap<String, HashSet<TaskId>>);
+
 impl SledStorable for Vote<NodeId> {}
 impl SledStorable for StoredSnapshot {}
 impl SledStorable for Entry<TypeConfig> {}
@@ -76,6 +81,7 @@ impl SledStorable for HashMap<RepositoryId, HashSet<internal_api::Index>> {}
 impl SledStorable for HashMap<String, internal_api::Index> {}
 impl SledStorable for StateMachine {}
 impl SledStorable for SnapshotMeta<u64, BasicNode> {}
+impl SledStorable for TaskByContentTypeIndex {}
 
 // factories for testing
 impl SledStorableTestFactory for StateMachine {
@@ -105,6 +111,7 @@ impl SledStorableTestFactory for StateMachine {
             repository_extractors:
                 HashMap::<RepositoryId, HashSet<internal_api::Index>>::spawn_instance_for_store_test(),
             index_table: HashMap::<String, internal_api::Index>::spawn_instance_for_store_test(),
+            unfinished_tasks_by_content_type: TaskByContentTypeIndex::spawn_instance_for_store_test(),
         }
     }
 }
@@ -441,6 +448,18 @@ impl SledStorableTestFactory for HashMap<String, HashSet<String>> {
     }
 }
 
+impl SledStorableTestFactory for TaskByContentTypeIndex {
+    fn spawn_instance_for_store_test() -> Self {
+        let mut hm = HashMap::new();
+        hm.insert("test".to_string(), {
+            let mut hs = HashSet::new();
+            hs.insert("test".to_string());
+            hs
+        });
+        TaskByContentTypeIndex(hm)
+    }
+}
+
 trait SledTestObject: SledStorable + SledStorableTestFactory + Debug + PartialEq {}
 
 #[allow(unused_macros)]
@@ -498,6 +517,7 @@ mod sled_tests {
     type TestEntryTypeConfig = Entry<TypeConfig>;
     type TestSnapshotIndex = SnapshotIndex;
     type TestSnapshotMeta = SnapshotMeta<u64, BasicNode>;
+    type TestTaskByContentTypeIndex = TaskByContentTypeIndex;
 
     test_sled_storeable!(TestStateMachine);
     test_sled_storeable!(TestLogId);
@@ -522,4 +542,5 @@ mod sled_tests {
     test_sled_storeable!(TestSnapshotMeta);
     test_sled_storeable!(TestEntryTypeConfig);
     test_sled_storeable!(TestSnapshotIndex);
+    test_sled_storeable!(TestTaskByContentTypeIndex);
 }

@@ -38,6 +38,8 @@ use serde::{Deserialize, Serialize};
 pub use sled_store::SledStore;
 use sled_store::*;
 
+use self::impl_sled_storable::TaskByContentTypeIndex;
+
 use super::{NodeId, TypeConfig};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -179,6 +181,8 @@ pub struct StateMachine {
     pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
 
     pub index_table: HashMap<String, internal_api::Index>,
+
+    pub unfinished_tasks_by_content_type: TaskByContentTypeIndex,
 }
 
 #[async_trait]
@@ -505,9 +509,20 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                     Request::CreateTasks { tasks } => {
                         for task in tasks {
                             sm.tasks.insert(task.id.clone(), task.clone());
+                            sm.unfinished_tasks_by_content_type.0.entry(task.content_metadata.content_type.clone()).or_default().insert(task.id.clone());
                             sm.unassigned_tasks.insert(task.id.clone());
                         }
                         sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
+                        sm.overwrite_sled_kv(
+                            &state_machine_tree,
+                            "unfinished_tasks_by_content_type",
+                            sm.unfinished_tasks_by_content_type.clone(),
+                        )?;
+                        sm.overwrite_sled_kv(
+                            &state_machine_tree,
+                            "unassigned_tasks",
+                            sm.unassigned_tasks.clone(),
+                        )?;
                         res.push(Response { value: None })
                     }
                     Request::AssignTask { assignments } => {
@@ -686,6 +701,7 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                         sm.tasks.insert(task.id.clone(), task.clone());
                         if *mark_finished {
                             sm.unassigned_tasks.remove(&task.id);
+                            sm.unfinished_tasks_by_content_type.0.entry(task.content_metadata.content_type.clone()).or_default().remove(&task.id);
                             if let Some(executor_id) = executor_id {
                                 sm.task_assignments
                                     .entry(executor_id.clone())
@@ -709,6 +725,11 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             &state_machine_tree,
                             "unassigned_tasks",
                             sm.unassigned_tasks.clone(),
+                        )?;
+                        sm.overwrite_sled_kv(
+                            &state_machine_tree,
+                            "unfinished_tasks_by_content_type",
+                            sm.unfinished_tasks_by_content_type.clone(),
                         )?;
                         res.push(Response { value: None })
                     }
