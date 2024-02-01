@@ -160,12 +160,12 @@ class Repository:
             self.extractor_bindings.append(ExtractorBinding.from_dict(eb))
         return self.extractor_bindings
 
-    def query_attribute(self, index_name: str, content_id: str = None) -> dict:
+    def query_metadata(self, index_name: str, content_id: str = None) -> dict:
         params = {"index": index_name}
         if content_id:
             params.update({"content_id": content_id})
         response = httpx.get(
-            f"{self._service_url}/repositories/{self.name}/attributes", params=params
+            f"{self._service_url}/repositories/{self.name}/metadata", params=params
         )
         response.raise_for_status()
         return response.json()["attributes"]
