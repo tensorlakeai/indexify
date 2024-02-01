@@ -117,6 +117,21 @@ class TestIntegrationTest(unittest.TestCase):
             name,
         )
 
+    def test_query_metadata(self):
+        repository_name = str(uuid4())
+        extractor_name = str(uuid4())
+        self.client.create_repository(repository_name)
+        repository = self.client.get_repository(repository_name)
+        repository.bind_extractor(
+            "tensorlake/minilm-l6",
+            extractor_name,
+        )
+
+        for index in repository.indexes():
+            index_name = index.get("name")
+            repository.query_metadata(index_name)
+            # TODO: validate response - currently broken
+
     def test_extractor_input_params(self):
         name = str(uuid4())
         repository_name = "binding-test-repository"
