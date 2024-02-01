@@ -70,7 +70,7 @@ A data repository can be created by specifying a unique name, and any additional
           "extractor_bindings": [
             {
               "extractor": "diptanu/minilm-l6-extractor",
-              "name": "minilm61",
+              "name": "minilml6",
               "filters": [],
               "input_params": {}
             }

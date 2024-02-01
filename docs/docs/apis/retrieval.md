@@ -11,12 +11,19 @@ Vector Indexes are created by running embedding models on content. They allow do
 
 The following example searches the repository `default` for the index `embeddings` for the query `good` and returns the top `k` results.
 
+=== "python"
+
+      ```python
+      repository.search_index("minilml6.embedding","good", 3)
+      ```
+
 === "curl"
-      ``` shell
+
+      ```shell
       curl -v -X POST http://localhost:8900/repositories/default/search \
       -H "Content-Type: application/json" \
       -d '{
-            "index": "embeddings",
+            "index": "minilml6.embedding",
             "query": "good", 
             "k": 1
       }'
