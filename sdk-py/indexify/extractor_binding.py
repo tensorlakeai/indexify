@@ -16,7 +16,6 @@ class ExtractorBinding:
         return self.__repr__()
 
     def to_dict(self) -> dict:
-        # This method converts the dataclass instance to a dictionary.
         return asdict(self)
 
     @classmethod
