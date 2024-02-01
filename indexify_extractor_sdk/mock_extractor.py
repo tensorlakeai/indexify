@@ -2,11 +2,13 @@ from .base_extractor import Extractor, Content, Feature
 
 from typing import List
 
-from pydantic import BaseModel
-
 import json
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 
-class InputParams(BaseModel):
+@dataclass_json
+@dataclass
+class InputParams:
     a: int = 0
     b: str = ""
 
