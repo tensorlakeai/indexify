@@ -1,7 +1,13 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
+use indexify_proto::indexify_raft::{
+    raft_api_client::RaftApiClient,
+    raft_api_server::RaftApi,
+    RaftReply,
+    RaftRequest,
+};
+use openraft::BasicNode;
 use tonic::{Request, Response, Status};
 
 use super::Raft;
@@ -9,11 +15,12 @@ use crate::grpc_helper::GrpcHelper;
 
 pub struct RaftGrpcServer {
     raft: Arc<Raft>,
+    nodes: Arc<BTreeMap<u64, BasicNode>>,
 }
 
 impl RaftGrpcServer {
-    pub fn new(raft: Arc<Raft>) -> Self {
-        Self { raft }
+    pub fn new(raft: Arc<Raft>, nodes: Arc<BTreeMap<u64, BasicNode>>) -> Self {
+        Self { raft, nodes }
     }
 }
 
@@ -26,14 +33,17 @@ impl RaftApi for RaftGrpcServer {
             .await
             .ok_or(Status::unavailable("leader not found"))?;
 
-        let request = GrpcHelper::parse_req(request)?;
-        let resp = self
-            .raft
-            .client_write(request) // TODO: Get the raft store and find the leader endpoint from there
-            .await
-            .map_err(GrpcHelper::internal_err)?;
-
-        GrpcHelper::ok_response(resp)
+        RaftApiClient::connect(format!(
+            "http://{}",
+            self.nodes
+                .get(&leader_node_id)
+                .ok_or(Status::unavailable("leader not found"))?
+                .addr
+        ))
+        .await
+        .map_err(|message| Status::internal(message.to_string()))?
+        .forward(request)
+        .await
     }
 
     async fn install_snapshot(
