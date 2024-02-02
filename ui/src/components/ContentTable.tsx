@@ -3,7 +3,7 @@ import { IIndex } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box } from "@mui/system";
 
-const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
+const ContentTable = ({ indexes }: { indexes: IIndex[] }) => {
   const columns: GridColDef[] = [
     {
       field: "name",
@@ -29,7 +29,7 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
-            No Indexes Found
+            No Content Found
           </Alert>
         </Box>
       );
@@ -55,11 +55,10 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
 
   return (
     <>
-      {" "}
-      <Typography variant="h4">Indexes</Typography>
+      <Typography variant="h4">Content</Typography>
       {renderContent()}
     </>
   );
 };
 
-export default IndexTable;
+export default ContentTable;

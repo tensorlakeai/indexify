@@ -22,3 +22,15 @@ export interface IIndex {
   name: string;
   schema: Record<string, string | number>;
 }
+
+export interface IContent {
+  content_type: string;
+  created_at: number;
+  id: string;
+  labels: Record<string, string>;
+  name: string;
+  parent_id: string;
+  repository: string;
+  source: string;
+  storage_url: string;
+}

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { IIndex } from "./types";
+import { IContent, IIndex } from "./types";
 class Repository {
   private serviceUrl: string;
   public name: string;
@@ -14,6 +14,13 @@ class Repository {
       `${this.serviceUrl}/repositories/${this.name}/indexes`
     );
     return resp.data.indexes;
+  }
+
+  async getContent(): Promise<IContent[]> {
+    const resp = await axios.get(
+      `${this.serviceUrl}/repositories/${this.name}/content`
+    );
+    return resp.data.content_list;
   }
 }
 
