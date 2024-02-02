@@ -99,7 +99,7 @@ Content can be filtered:
 === "python"
 
     ```
-    repo.get_content({"parent_id":"some_parent_id", "labels_eq":"key1:value1,key2:value2"})
+    repo.get_content(parent_id="some_parent_id", labels_eq="key1:value1,key2:value2")
     ```
 
 === "curl"
