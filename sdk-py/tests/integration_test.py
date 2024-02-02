@@ -65,9 +65,19 @@ class TestIntegrationTest(unittest.TestCase):
     def test_get_content(self):
         repository_name = str(uuid4())
         repo = self.client.create_repository(repository_name)
-        repo.add_documents(["one", "two", "three"])
+        repo.add_documents(
+            [Document(text="one", labels={"l1": "test"}), "two", "three"]
+        )
         content = repo.get_content()
         assert len(content) == 3
+
+        # parent doesn't exist
+        content = repo.get_content(parent_id="idontexist")
+        assert len(content) == 0
+
+        # filter label
+        content = repo.get_content(labels_eq="l1:test")
+        assert len(content) == 1
 
     def test_search(self):
         repository_name = str(uuid4())
@@ -116,6 +126,21 @@ class TestIntegrationTest(unittest.TestCase):
             "tensorlake/minilm-l6",
             name,
         )
+
+    def test_query_metadata(self):
+        repository_name = str(uuid4())
+        extractor_name = str(uuid4())
+        self.client.create_repository(repository_name)
+        repository = self.client.get_repository(repository_name)
+        repository.bind_extractor(
+            "tensorlake/minilm-l6",
+            extractor_name,
+        )
+
+        for index in repository.indexes():
+            index_name = index.get("name")
+            repository.query_metadata(index_name)
+            # TODO: validate response - currently broken
 
     def test_extractor_input_params(self):
         name = str(uuid4())

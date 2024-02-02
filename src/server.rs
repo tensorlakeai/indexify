@@ -708,7 +708,7 @@ async fn index_search(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repository/{repository_name}/attributes",
+    path = "/repository/{repository_name}/metadata",
     tag = "indexify",
     params(MetadataRequest),
     responses(

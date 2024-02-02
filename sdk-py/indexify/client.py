@@ -170,6 +170,12 @@ class IndexifyClient:
         """
         Create a new repository.
         """
+        bindings = []
+        for bd in extractor_bindings:
+            if isinstance(bd, ExtractorBinding):
+                bindings.append(bd.asdict())
+            else:
+                bindings.append(bd)
         req = {
             "name": name,
             "extractor_bindings": extractor_bindings,
