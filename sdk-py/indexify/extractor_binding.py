@@ -1,12 +1,13 @@
 from dataclasses import dataclass, asdict
 
 
+
 @dataclass
 class ExtractorBinding:
     extractor: str
     name: str
     content_source: str
-    filters: dict
+    filters_eq: dict
     input_params: dict
 
     def __repr__(self) -> str:
@@ -20,4 +21,5 @@ class ExtractorBinding:
 
     @classmethod
     def from_dict(cls, json: dict):
+        print("json", json)
         return ExtractorBinding(**json)

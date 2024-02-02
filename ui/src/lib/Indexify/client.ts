@@ -1,5 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from "axios";
 import Repository from "./repository";
+import Extractor from "./extractor";
+import { IExtractor, IRepository } from "./types";
 
 const DEFAULT_SERVICE_URL = "http://localhost:8900"; // Set your default service URL
 
@@ -42,10 +44,23 @@ class IndexifyClient {
 
   async repositories(): Promise<Repository[]> {
     const response = await this.get("repositories");
-    const repositoriesData = response.data.repositories as any[];
+    const repositoriesData = response.data.repositories as IRepository[];
     return repositoriesData.map(
-      (rd) => new Repository(rd.name, this.serviceUrl)
+      (data) => new Repository(this.serviceUrl, data.name)
     );
+  }
+
+  async getRepository(name: string): Promise<Repository> {
+    const response = await this.get(`repositories/${name}`);
+    const data = response.data.repository as IRepository;
+    console.log("get repository", data);
+    return new Repository(this.serviceUrl, data.name);
+  }
+
+  async extractors(): Promise<Extractor[]> {
+    const response = await this.get("extractors");
+    const extractorsData = response.data.extractors as IExtractor[];
+    return extractorsData.map((data) => new Extractor(data));
   }
 }
 

@@ -4,21 +4,32 @@ import "./index.css";
 
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
-import Dashboard from "./routes/root";
+import Root from "./routes/root";
 import { ErrorPage } from "./error-page";
+import Repositories from "./routes/repositories";
+import Extractors from "./routes/extractors";
+import Repository, { loader as repositoryLoader } from "./routes/repository";
 
 const router = createBrowserRouter([
   {
-    path: "/*",
-    element: <Dashboard />,
+    path: "/",
+    element: <Root />,
     errorElement: <ErrorPage />,
-    // children: [
-    //   {
-    //     path: "test",
-    //     element: <Team />,
-    //     loader: teamLoader,
-    //   },
-    // ],
+    children: [
+      {
+        path: "/repositories",
+        element: <Repositories />,
+      },
+      {
+        path: "/repositories/:repositoryname",
+        element: <Repository />,
+        loader: repositoryLoader,
+      },
+      {
+        path: "/extractors",
+        element: <Extractors />,
+      },
+    ],
   },
 ]);
 
