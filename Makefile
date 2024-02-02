@@ -41,7 +41,7 @@ build-base-extractor: ## Build base extractor container
 build-base-extractor-push: build-base-builder-multistage ## Build and push base extractor container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.extractor_base --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
 
-push-container: build-base-builder-multistage ## Push container to docker hub
+push-container: ## Push container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 entity: ## Generate entity

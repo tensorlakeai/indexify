@@ -8,7 +8,6 @@ services:
   indexify:
     image: tensorlake/indexify
     entrypoint: [ "/indexify/docker_compose_start.sh" ]
-    pull_policy: always
     ports:
       - 8900:8900
       - 8950:8950
@@ -47,10 +46,17 @@ services:
   embedding-extractor:
     image: tensorlake/minilm-l6
     command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
-    pull_policy: always
     networks:
       server:
         ipv4_address: 172.21.0.9
+    volumes:
+      - data:/tmp/indexify-blob-storage
+  wikipedia-extractor:
+    image: tensorlake/wikipedia
+    command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    networks:
+      server:
+        ipv4_address: 172.21.0.13
     volumes:
       - data:/tmp/indexify-blob-storage
   redis: # (optional) used for caching
