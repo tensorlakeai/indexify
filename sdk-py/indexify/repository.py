@@ -144,7 +144,17 @@ class Repository:
             labels=labels,
         )
 
-    def get_content(self, params: dict = {}):
+    def get_content(
+        self,
+        parent_id: str = None,
+        labels_eq: str = None,
+    ):
+        params = {}
+        if parent_id:
+            params.update({"parent_id": parent_id})
+        if labels_eq:
+            params.update({"labels_eq": labels_eq})
+
         response = httpx.get(
             f"{self._service_url}/repositories/{self.name}/content", params=params
         )
