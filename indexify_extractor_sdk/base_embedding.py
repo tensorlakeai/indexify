@@ -1,8 +1,8 @@
 from abc import abstractmethod
-import json
 from typing import Any, Callable, List, Literal
-from pydantic import BaseModel
 from langchain import text_splitter
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 
 from .base_extractor import (
     Content,
@@ -11,7 +11,9 @@ from .base_extractor import (
 )
 
 
-class EmbeddingInputParams(BaseModel):
+@dataclass_json
+@dataclass
+class EmbeddingInputParams:
     overlap: int = 0
     chunk_size: int = 0
     text_splitter: Literal["char", "recursive"] = "recursive"

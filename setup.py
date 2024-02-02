@@ -30,8 +30,10 @@ VERSION = main_ns["__version__"]
 REQUIRED = [
     "torch",
     "langchain",
-    "pydantic",
     "transformers",
+    "dataclasses-json",
+    "marshmallow",
+    "marshmallow-jsonschema",
 ]
 
 # What packages are optional?
