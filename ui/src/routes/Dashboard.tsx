@@ -17,7 +17,8 @@ import Link from "@mui/material/Link";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import NotificationsIcon from "@mui/icons-material/Notifications";
-import { mainListItems, secondaryListItems } from "./listItems";
+import { mainListItems, secondaryListItems } from "../components/listItems";
+import IndexifyClient from "../lib/Indexify/client";
 
 function Copyright(props: any) {
   return (
@@ -91,6 +92,13 @@ const Drawer = styled(MuiDrawer, {
 const defaultTheme = createTheme();
 
 export default function Dashboard() {
+  const client = new IndexifyClient();
+  client.repositories().then((res) => {
+    res.forEach((repository) => {
+      console.log("got repository", repository);
+    });
+  });
+  //
   const [open, setOpen] = React.useState(true);
   const toggleDrawer = () => {
     setOpen(!open);
@@ -209,3 +217,9 @@ export default function Dashboard() {
     </ThemeProvider>
   );
 }
+
+// const rootLoader = ({ request: }) => {
+//   console.log("root loader");
+// };
+
+// export { rootLoader };
