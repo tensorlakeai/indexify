@@ -152,19 +152,29 @@ pub struct StateMachine {
 
     pub last_membership: StoredMembership<NodeId, BasicNode>,
 
+    // Source of truth 
     pub executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
 
     pub tasks: HashMap<TaskId, internal_api::Task>,
-
-    pub unassigned_tasks: HashSet<TaskId>,
 
     pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
 
     pub extraction_events: HashMap<ExtractionEventId, internal_api::ExtractionEvent>,
 
-    pub unprocessed_extraction_events: HashSet<ExtractionEventId>,
-
     pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
+
+    pub extractor_bindings: HashMap<String, internal_api::ExtractorBinding>,
+
+    pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
+
+    pub repositories: HashSet<String>,
+
+    pub index_table: HashMap<String, internal_api::Index>,
+
+    // Reverse Indexes
+    pub unassigned_tasks: HashSet<TaskId>,
+
+    pub unprocessed_extraction_events: HashSet<ExtractionEventId>,
 
     pub content_repository_table: HashMap<RepositoryId, HashSet<ContentId>>,
 
@@ -172,13 +182,7 @@ pub struct StateMachine {
 
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
-    pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
-
-    pub repositories: HashSet<String>,
-
     pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
-
-    pub index_table: HashMap<String, internal_api::Index>,
 }
 
 #[async_trait]
@@ -461,21 +465,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             extractor: extractor.clone(),
                         };
                         sm.executors.insert(executor_id.clone(), executor_info);
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extractors",
-                            sm.extractors.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extractor_executors_table",
-                            sm.extractor_executors_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "executors",
-                            sm.executors.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::RemoveExecutor { executor_id } => {
@@ -489,17 +478,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                                 .or_default();
                             executors.remove(executor_meta.extractor.name.as_str());
                         }
-                        // update the state machine in sled
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "executors",
-                            sm.executors.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extractor_executors_table",
-                            sm.extractor_executors_table.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::CreateTasks { tasks } => {
@@ -507,7 +485,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             sm.tasks.insert(task.id.clone(), task.clone());
                             sm.unassigned_tasks.insert(task.id.clone());
                         }
-                        sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
                         res.push(Response { value: None })
                     }
                     Request::AssignTask { assignments } => {
@@ -518,31 +495,11 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                                 .insert(task_id.clone());
                             sm.unassigned_tasks.remove(task_id);
                         }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "task_assignments",
-                            sm.task_assignments.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unassigned_tasks",
-                            sm.unassigned_tasks.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::AddExtractionEvent { event } => {
                         sm.extraction_events.insert(event.id.clone(), event.clone());
                         sm.unprocessed_extraction_events.insert(event.id.clone());
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::MarkExtractionEventProcessed { event_id, ts_secs } => {
@@ -555,17 +512,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                         if let Some(event) = event {
                             sm.extraction_events.insert(event_id.clone(), event);
                         }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
-
                         res.push(Response { value: None })
                     }
                     Request::CreateContent {
@@ -587,27 +533,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             sm.extraction_events.insert(event.id.clone(), event.clone());
                             sm.unprocessed_extraction_events.insert(event.id.clone());
                         }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "content_table",
-                            sm.content_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "content_repository_table",
-                            sm.content_repository_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
-
                         res.push(Response { value: None })
                     }
                     Request::CreateBinding {
@@ -628,30 +553,10 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             sm.unprocessed_extraction_events
                                 .insert(extraction_event.id.clone());
                         }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "bindings_table",
-                            sm.bindings_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::CreateRepository { name } => {
                         sm.repositories.insert(name.clone());
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "repositories",
-                            sm.repositories.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::CreateIndex {
@@ -664,16 +569,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             .or_default()
                             .insert(index.clone());
                         sm.index_table.insert(id.clone(), index.clone());
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "repository_extractors",
-                            sm.repository_extractors.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "index_table",
-                            sm.index_table.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                     Request::UpdateTask {
@@ -704,12 +599,6 @@ impl RaftStorage<TypeConfig> for Arc<SledStore> {
                             sm.extraction_events.insert(event.id.clone(), event.clone());
                             sm.unprocessed_extraction_events.insert(event.id.clone());
                         }
-                        sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unassigned_tasks",
-                            sm.unassigned_tasks.clone(),
-                        )?;
                         res.push(Response { value: None })
                     }
                 },

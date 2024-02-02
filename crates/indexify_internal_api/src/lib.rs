@@ -13,6 +13,7 @@ use strum::{Display, EnumString};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct Index {
+    // TODO FIXME: Add the Index ID
     pub repository: String,
     pub name: String,
     pub table_name: String,
@@ -351,6 +352,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
+    // Repository name == Repository ID
     pub repository: String,
     pub name: String,
     pub content_type: String,

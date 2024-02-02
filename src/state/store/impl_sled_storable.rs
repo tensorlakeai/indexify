@@ -86,6 +86,7 @@ impl SledStorableTestFactory for StateMachine {
             executors: HashMap::<ExecutorId, internal_api::ExecutorMetadata>::spawn_instance_for_store_test(),
             tasks: HashMap::<TaskId, internal_api::Task>::spawn_instance_for_store_test(),
             unassigned_tasks: HashSet::<TaskId>::spawn_instance_for_store_test(),
+            extractor_bindings: HashMap::new(),
             task_assignments: HashMap::<ExecutorId, HashSet<TaskId>>::spawn_instance_for_store_test(
             ),
             extraction_events:
