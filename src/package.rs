@@ -258,7 +258,7 @@ RUN update-ca-certificates
 
 RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3.11-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
@@ -307,7 +307,7 @@ RUN update-ca-certificates
 
 RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3.11-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
@@ -361,7 +361,7 @@ RUN update-ca-certificates
 
 RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3.11-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
@@ -414,7 +414,7 @@ RUN update-ca-certificates
 
 RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3.11-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
@@ -467,7 +467,7 @@ RUN update-ca-certificates
 
 RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    apt-get install -y lsb-release libssl-dev apt-transport-https python3 python3-dev python3-pip && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3.11-pip && \
     apt-get install -y indexify && \
     apt-get install -y  libpq-dev libssl-dev && \
     apt-get -y clean
