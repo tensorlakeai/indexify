@@ -8,7 +8,8 @@ use anyhow::Result;
 use axum::{
     extract::{DefaultBodyLimit, State},
     routing::{get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;

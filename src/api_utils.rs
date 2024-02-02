@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
-pub fn validate_label_key(key: &str) -> Result<(), String> {
+pub fn validate_label_key(key: &str) -> Result<()> {
     let validations = [
         (key.is_ascii(), "must be ASCII"),
         (key.len() <= 63, "must be 63 characters or less"),
@@ -35,7 +36,7 @@ pub fn validate_label_key(key: &str) -> Result<(), String> {
     if err_msgs.is_empty() {
         Ok(())
     } else {
-        Err(format!(
+        Err(anyhow!(
             "label key invalid - {} - found key : \"{}\"",
             err_msgs.join(", "),
             key
@@ -43,7 +44,7 @@ pub fn validate_label_key(key: &str) -> Result<(), String> {
     }
 }
 
-pub fn validate_label_value(value: &str) -> Result<(), String> {
+pub fn validate_label_value(value: &str) -> Result<()> {
     // empty string is ok
     if value.is_empty() {
         return Ok(());
@@ -83,7 +84,7 @@ pub fn validate_label_value(value: &str) -> Result<(), String> {
     if err_msgs.is_empty() {
         Ok(())
     } else {
-        Err(format!(
+        Err(anyhow!(
             "label value invalid - {} - found value : \"{}\"",
             err_msgs.join(", "),
             value
@@ -91,7 +92,7 @@ pub fn validate_label_value(value: &str) -> Result<(), String> {
     }
 }
 
-pub fn parse_validate_label_raw(raw: &str) -> Result<(String, String), String> {
+pub fn parse_validate_label_raw(raw: &str) -> Result<(String, String)> {
     let mut split = raw.split(':');
 
     let mut err_msgs = vec![];
@@ -114,7 +115,7 @@ pub fn parse_validate_label_raw(raw: &str) -> Result<(String, String), String> {
         let value = split.next().unwrap_or("").to_string();
         Ok((key, value))
     } else {
-        Err(format!(
+        Err(anyhow!(
             "query invalid - {} - raw : \"{}\"",
             err_msgs.join(", "),
             raw
@@ -258,7 +259,7 @@ where
     let mut labels_eq = HashMap::new();
     for label in labels {
         let (key, value) = parse_validate_label_raw(label)
-            .map_err(|e| err_formatter("query invalid".to_string(), e))?;
+            .map_err(|e| err_formatter("query invalid".to_string(), e.to_string()))?;
 
         // if the key already exists, then it's a duplicate
         if labels_eq.contains_key(&key) {
@@ -268,9 +269,9 @@ where
             ));
         }
         validate_label_key(key.as_str())
-            .map_err(|e| err_formatter("key invalid".to_string(), e))?;
+            .map_err(|e| err_formatter("key invalid".to_string(), e.to_string()))?;
         validate_label_value(value.as_str())
-            .map_err(|e| err_formatter("value invalid".to_string(), e))?;
+            .map_err(|e| err_formatter("value invalid".to_string(), e.to_string()))?;
 
         labels_eq.insert(key, value);
     }
