@@ -44,7 +44,7 @@ class MockExtractorNoInputParams(Extractor):
     def __init__(self):
         super().__init__()
 
-    def extract(self, content: Content, params=None) -> List[Content]:
+    def extract(self, content: Content, params: InputParams) -> List[Content]:
         return [
             Content.from_text(
                 text="Hello World", features=[Feature.embedding(values=[1, 2, 3])]
