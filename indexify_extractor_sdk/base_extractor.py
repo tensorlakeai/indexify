@@ -96,7 +96,7 @@ class Extractor(ABC):
 
     @abstractmethod
     def extract(
-        self, content: Content, params) -> List[Content]:
+        self, content: Content, params: None) -> List[Content]:
         """
         Extracts information from the content.
         """
@@ -119,9 +119,9 @@ class ExtractorWrapper:
 
     def extract(self, content: List[Content], params: str) -> List[List[Content]]:
         params_dict = json.loads(params)
-        param_instance = (
-            self._param_cls.from_dict(params_dict) if self._param_cls else None
-        )
+        param_instance = None
+        if self._param_cls is not type(None):
+            param_instance = self._param_cls.from_dict(params_dict)
 
         # This is because the rust side does batching and on python we don't batch
         out = []

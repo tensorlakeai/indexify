@@ -16,7 +16,7 @@ from .base_extractor import (
 class EmbeddingInputParams:
     overlap: int = 0
     chunk_size: int = 0
-    text_splitter: Literal["char", "recursive"] = "recursive"
+    text_splitter: str = "recursive"
 
 
 class BaseEmbeddingExtractor(Extractor):
