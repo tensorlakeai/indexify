@@ -218,4 +218,4 @@ Indexify is a reactive structured extraction engine for un-structured data.
 """
 section = "utility"
 priority = "optional"
-depends = "$auto"
+depends = "$auto, python3.11"

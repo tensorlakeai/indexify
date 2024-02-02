@@ -11,7 +11,7 @@ RUN apt-get update
 
 RUN apt-get install -y \
     build-essential \
-    curl pkg-config python3 python3-dev python3-venv git
+    curl pkg-config python3.11 python3.11-dev python3.11-venv git
 
 RUN apt -y install protobuf-compiler protobuf-compiler-grpc sqlite3 libssl-dev
 

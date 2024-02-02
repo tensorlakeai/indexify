@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y lsb-release libssl-dev python3 python3-dev ca-certificates apt-transport-https
+RUN apt install -y lsb-release libssl-dev python3.11 python3.11-dev ca-certificates apt-transport-https
 
 RUN update-ca-certificates
 
