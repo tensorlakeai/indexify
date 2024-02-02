@@ -19,23 +19,18 @@ use crate::{api_utils, metadata_index, vectordbs};
 pub struct ExtractorBinding {
     pub extractor: String,
     pub name: String,
-    #[serde(default)]
-    pub filters: HashMap<String, serde_json::Value>,
+    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
+    pub filters_eq: Option<HashMap<String, String>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
 }
 
 impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
     fn from(value: ExtractorBinding) -> Self {
-        let mut filters = HashMap::new();
-        for filter in value.filters {
-            filters.insert(filter.0, filter.1.to_string());
-        }
-
         Self {
             extractor: value.extractor,
             name: value.name,
-            filters,
+            filters: value.filters_eq.unwrap_or_default(),
             input_params: value
                 .input_params
                 .map(|v| v.to_string())
@@ -60,11 +55,7 @@ impl TryFrom<indexify_coordinator::Repository> for DataRepository {
             extractor_bindings.push(ExtractorBinding {
                 extractor: binding.extractor,
                 name: binding.name,
-                filters: binding
-                    .filters
-                    .into_iter()
-                    .map(|(k, v)| (k, serde_json::from_str(&v).unwrap()))
-                    .collect(),
+                filters_eq: Some(binding.filters),
                 input_params: Some(serde_json::from_str(&binding.input_params)?),
                 content_source: Some(binding.content_source),
             });

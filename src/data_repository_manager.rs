@@ -413,9 +413,14 @@ impl DataRepositoryManager {
                 .await?;
             new_content_metadata.push(content_metadata.clone());
             for feature in content.features {
-                let index_table_name = extracted_content.output_to_index_table_mapping.get(&feature.name);
+                let index_table_name = extracted_content
+                    .output_to_index_table_mapping
+                    .get(&feature.name);
                 if index_table_name.is_none() {
-                    error!("unable to find index table name for feature {}", feature.name);
+                    error!(
+                        "unable to find index table name for feature {}",
+                        feature.name
+                    );
                     continue;
                 }
                 let index_table_name = index_table_name.unwrap();
