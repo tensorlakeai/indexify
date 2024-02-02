@@ -217,7 +217,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
-          docker buildx build --platform=linux/amd64,linux/arm64 . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.compose;
+          docker buildx build --platform=linux/amd64,linux/arm64 --load . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.compose;
           docker push tensorlake/indexify:latest;
           docker push tensorlake/indexify:stable;
 
