@@ -1,7 +1,8 @@
 import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
 import { IContent, IIndex } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
-import { Box } from "@mui/system";
+import { Box, Stack } from "@mui/system";
+import ArticleIcon from "@mui/icons-material/Article";
 import React from "react";
 import moment from "moment";
 
@@ -59,6 +60,7 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
     return (
       <Box sx={{ width: "100%" }}>
         <DataGrid
+          sx={{ backgroundColor: "white" }}
           autoHeight
           rows={content}
           columns={columns}
@@ -75,7 +77,15 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
 
   return (
     <>
-      <Typography variant="h4">Content</Typography>
+      <Stack
+        display={"flex"}
+        direction={"row"}
+        alignItems={"center"}
+        spacing={2}
+      >
+        <ArticleIcon />
+        <Typography variant="h3">Content</Typography>
+      </Stack>
       {renderContent()}
     </>
   );

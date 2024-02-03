@@ -1,7 +1,8 @@
 import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
 import { IIndex } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
-import { Box } from "@mui/system";
+import { Box, Stack } from "@mui/system";
+import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import React from "react";
 
 const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
@@ -43,6 +44,7 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
           }}
         >
           <DataGrid
+            sx={{ backgroundColor: "white" }}
             autoHeight
             getRowId={getRowId}
             rows={indexes}
@@ -61,7 +63,15 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
 
   return (
     <>
-      <Typography variant="h4">Indexes</Typography>
+      <Stack
+        display={"flex"}
+        direction={"row"}
+        alignItems={"center"}
+        spacing={2}
+      >
+        <ManageSearchIcon />
+        <Typography variant="h3">Indexes</Typography>
+      </Stack>
       {renderContent()}
     </>
   );

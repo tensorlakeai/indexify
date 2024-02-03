@@ -10,6 +10,9 @@ import Repositories from "./routes/repositories";
 import Extractors from "./routes/extractors";
 import Repository, { loader as repositoryLoader } from "./routes/repository";
 import HomePage from "./routes/home";
+import { ThemeProvider } from "@emotion/react";
+import theme from "./theme";
+import { Typography } from "@mui/material";
 
 const router = createBrowserRouter([
   {

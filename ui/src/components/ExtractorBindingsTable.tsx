@@ -1,8 +1,9 @@
 import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
-import { IContent, IExtractorBinding, IIndex } from "../lib/Indexify/types";
+import { IExtractorBinding } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
-import { Box } from "@mui/system";
+import { Box, Stack } from "@mui/system";
 import React from "react";
+import CompressIcon from "@mui/icons-material/Compress";
 
 const getRowId = (row: IExtractorBinding) => {
   return row.name;
@@ -52,7 +53,7 @@ const ExtractorBindingsTable = ({
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
-            No Content Found
+            No Bindings Found
           </Alert>
         </Box>
       );
@@ -64,6 +65,7 @@ const ExtractorBindingsTable = ({
         }}
       >
         <DataGrid
+          sx={{ backgroundColor: "white" }}
           autoHeight
           getRowId={getRowId}
           rows={bindings}
@@ -81,7 +83,15 @@ const ExtractorBindingsTable = ({
 
   return (
     <>
-      <Typography variant="h4">Extractor Bindings</Typography>
+      <Stack
+        display={"flex"}
+        direction={"row"}
+        alignItems={"center"}
+        spacing={2}
+      >
+        <CompressIcon />
+        <Typography variant="h3">Extractor Bindings</Typography>
+      </Stack>
       {renderContent()}
     </>
   );

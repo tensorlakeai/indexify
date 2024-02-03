@@ -33,7 +33,7 @@ const RepositoryPage = () => {
 
   return (
     <Stack direction="column" spacing={3}>
-      <Typography variant="h3" component="h1">
+      <Typography variant="h2" component="h1">
         {repository.name}
       </Typography>
       <ExtractorBindingsTable bindings={repository.extractorBindings} />

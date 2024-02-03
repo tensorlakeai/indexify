@@ -46,9 +46,10 @@ const RepositoriesPage = () => {
   return (
     <div>
       <Typography mb={3} variant="h3" component="h1">
-        Repositories
+        Namespaces
       </Typography>
       <DataGrid
+        sx={{ backgroundColor: "white" }}
         autoHeight
         getRowId={getRowId}
         rows={repositories}

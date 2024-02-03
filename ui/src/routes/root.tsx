@@ -9,14 +9,14 @@ import List from "@mui/material/List";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
-import Badge from "@mui/material/Badge";
 import Container from "@mui/material/Container";
 import Link from "@mui/material/Link";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import NotificationsIcon from "@mui/icons-material/Notifications";
 import { mainListItems, secondaryListItems } from "../components/listItems";
 import { Outlet } from "react-router-dom";
+import theme from "../theme";
+import { Stack } from "@mui/system";
 
 function Copyright(props: any) {
   return (
@@ -87,7 +87,6 @@ const Drawer = styled(MuiDrawer, {
 }));
 
 // TODO remove, this demo shouldn't need to reset the theme.
-const defaultTheme = createTheme();
 
 export default function Dashboard() {
   const [open, setOpen] = React.useState(true);
@@ -96,10 +95,14 @@ export default function Dashboard() {
   };
 
   return (
-    <ThemeProvider theme={defaultTheme}>
+    <ThemeProvider theme={theme}>
       <Box sx={{ display: "flex" }}>
         <CssBaseline />
-        <AppBar position="absolute" open={open}>
+        <AppBar
+          position="absolute"
+          open={open}
+          sx={{ backgroundColor: "white" }}
+        >
           <Toolbar
             sx={{
               pr: "24px", // keep right padding when drawer closed
@@ -115,19 +118,28 @@ export default function Dashboard() {
                 ...(open && { display: "none" }),
               }}
             >
-              <MenuIcon />
+              <MenuIcon sx={{ color: "#060D3F" }} />
             </IconButton>
-            <a href={"/"} style={{ textDecoration: "none", color: "white" }}>
-              <Typography
-                component="h1"
-                variant="h6"
-                color="inherit"
-                noWrap
-                sx={{ flexGrow: 1 }}
-              >
-                Indexify
-              </Typography>
-            </a>
+            <Stack
+              direction={"row"}
+              display={"flex"}
+              alignItems={"center"}
+              justifyContent={"center"}
+              spacing={2}
+            >
+              <img src="/logo.svg" />
+              <a href={"/"} style={{ textDecoration: "none", color: "white" }}>
+                <Typography
+                  component="h1"
+                  variant="h6"
+                  color="#060D3F"
+                  noWrap
+                  sx={{ flexGrow: 1 }}
+                >
+                  Indexify
+                </Typography>
+              </a>
+            </Stack>
             {/* <IconButton color="inherit">
               <Badge badgeContent={4} color="secondary">
                 <NotificationsIcon />
@@ -140,7 +152,7 @@ export default function Dashboard() {
             sx={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "flex-end",
               px: [1],
             }}
           >

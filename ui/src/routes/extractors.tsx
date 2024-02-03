@@ -49,6 +49,7 @@ const ExtractorsPage = () => {
       </Typography>
       <div style={{ height: 400, width: "100%" }}>
         <DataGrid
+          sx={{ backgroundColor: "white" }}
           getRowId={getRowId}
           rows={extractors}
           columns={columns}
