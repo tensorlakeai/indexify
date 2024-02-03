@@ -3,9 +3,12 @@ import IndexifyClient from "../lib/Indexify/client";
 import Repository from "../lib/Indexify/repository";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Typography } from "@mui/material";
-import { IContent, IIndex, IRepository } from "../lib/Indexify/types";
+import { IContent, IIndex } from "../lib/Indexify/types";
 import IndexTable from "../components/IndexTable";
 import ContentTable from "../components/ContentTable";
+import React from "react";
+import { Stack } from "@mui/system";
+import ExtractorBindingsTable from "../components/ExtractorBindingsTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const name = params.repositoryname;
@@ -17,24 +20,26 @@ export async function loader({ params }: LoaderFunctionArgs) {
     repository.indexes(),
     repository.getContent(),
   ]);
+  console.log("content", contentList);
   return { repository, indexes, contentList };
 }
 
 const RepositoryPage = () => {
-  const { repository, indexes } = useLoaderData() as {
+  const { repository, indexes, contentList } = useLoaderData() as {
     repository: Repository;
     indexes: IIndex[];
     contentList: IContent[];
   };
 
   return (
-    <div>
-      <Typography mb={3} variant="h3" component="h1">
+    <Stack direction="column" spacing={3}>
+      <Typography variant="h3" component="h1">
         {repository.name}
       </Typography>
+      <ExtractorBindingsTable bindings={repository.extractorBindings} />
       <IndexTable indexes={indexes} />
-      <ContentTable indexes={indexes} />
-    </div>
+      <ContentTable content={contentList} />
+    </Stack>
   );
 };
 

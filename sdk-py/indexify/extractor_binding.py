@@ -1,7 +1,6 @@
 from dataclasses import dataclass, asdict
 
 
-
 @dataclass
 class ExtractorBinding:
     extractor: str
@@ -21,5 +20,4 @@ class ExtractorBinding:
 
     @classmethod
     def from_dict(cls, json: dict):
-        print("json", json)
         return ExtractorBinding(**json)

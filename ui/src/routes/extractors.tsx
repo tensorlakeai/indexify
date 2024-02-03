@@ -3,6 +3,7 @@ import IndexifyClient from "../lib/Indexify/client";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Typography } from "@mui/material";
 import Extractor from "../lib/Indexify/extractor";
+import React from "react";
 
 const ExtractorsPage = () => {
   const client = new IndexifyClient();

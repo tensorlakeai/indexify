@@ -9,6 +9,7 @@ import { ErrorPage } from "./error-page";
 import Repositories from "./routes/repositories";
 import Extractors from "./routes/extractors";
 import Repository, { loader as repositoryLoader } from "./routes/repository";
+import HomePage from "./routes/home";
 
 const router = createBrowserRouter([
   {
@@ -16,6 +17,10 @@ const router = createBrowserRouter([
     element: <Root />,
     errorElement: <ErrorPage />,
     children: [
+      {
+        path: "/",
+        element: <HomePage />,
+      },
       {
         path: "/repositories",
         element: <Repositories />,

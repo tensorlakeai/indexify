@@ -2,6 +2,7 @@ import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
 import { IIndex } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box } from "@mui/system";
+import React from "react";
 
 const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
   const columns: GridColDef[] = [
@@ -36,8 +37,13 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
     }
     return (
       <>
-        <div style={{ height: 400, width: "100%" }}>
+        <div
+          style={{
+            width: "100%",
+          }}
+        >
           <DataGrid
+            autoHeight
             getRowId={getRowId}
             rows={indexes}
             columns={columns}
@@ -55,7 +61,6 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
 
   return (
     <>
-      {" "}
       <Typography variant="h4">Indexes</Typography>
       {renderContent()}
     </>

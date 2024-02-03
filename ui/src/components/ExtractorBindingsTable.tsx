@@ -1,53 +1,54 @@
 import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
-import { IContent, IIndex } from "../lib/Indexify/types";
+import { IContent, IExtractorBinding, IIndex } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box } from "@mui/system";
 import React from "react";
-import moment from "moment";
 
-const ContentTable = ({ content }: { content: IContent[] }) => {
+const getRowId = (row: IExtractorBinding) => {
+  return row.name;
+};
+
+const ExtractorBindingsTable = ({
+  bindings,
+}: {
+  bindings: IExtractorBinding[];
+}) => {
   const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 150 },
     {
       field: "name",
       headerName: "Name",
+      width: 300,
+    },
+    {
+      field: "extractor",
+      headerName: "Extractor",
       width: 200,
     },
     {
-      field: "content_type",
-      headerName: "ContentType",
+      field: "content_source",
+      headerName: "Content Source",
+      width: 150,
+    },
+    {
+      field: "filters_eq",
+      headerName: "Filters",
       width: 100,
-    },
-    {
-      field: "source",
-      headerName: "Source",
-      width: 140,
-    },
-    {
-      field: "labels",
-      headerName: "Labels",
-      width: 300,
       valueGetter: (params) => {
         return JSON.stringify(params.value);
       },
     },
     {
-      field: "storage_url",
-      headerName: "Storage URL",
-      width: 300,
-    },
-    {
-      field: "created_at",
-      headerName: "Created At",
+      field: "input_params",
+      headerName: "Input Params",
       width: 200,
       valueGetter: (params) => {
-        return moment(params.value * 1000).format("MM/DD/YYYY h:mm A");
+        return JSON.stringify(params.value);
       },
     },
   ];
 
   const renderContent = () => {
-    if (content.length == 0) {
+    if (bindings.length == 0) {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
@@ -57,10 +58,15 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
       );
     }
     return (
-      <Box sx={{ width: "100%" }}>
+      <Box
+        sx={{
+          width: "100%",
+        }}
+      >
         <DataGrid
           autoHeight
-          rows={content}
+          getRowId={getRowId}
+          rows={bindings}
           columns={columns}
           initialState={{
             pagination: {
@@ -75,10 +81,10 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
 
   return (
     <>
-      <Typography variant="h4">Content</Typography>
+      <Typography variant="h4">Extractor Bindings</Typography>
       {renderContent()}
     </>
   );
 };
 
-export default ContentTable;
+export default ExtractorBindingsTable;

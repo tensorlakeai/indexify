@@ -1,5 +1,6 @@
 export interface IRepository {
   name: string;
+  extractor_bindings: IExtractorBinding[];
 }
 
 export interface IEmbeddingSchema {
@@ -33,4 +34,12 @@ export interface IContent {
   repository: string;
   source: string;
   storage_url: string;
+}
+
+export interface IExtractorBinding {
+  content_source: string;
+  extractor: string;
+  filters_eq: Record<string, string>;
+  input_params: { [key: string]: any };
+  name: string;
 }

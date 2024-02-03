@@ -8,6 +8,7 @@ import {
   GridValueGetterParams,
 } from "@mui/x-data-grid";
 import { Typography } from "@mui/material";
+import React from "react";
 
 const RepositoriesPage = () => {
   const client = new IndexifyClient();
@@ -23,10 +24,18 @@ const RepositoriesPage = () => {
     {
       field: "name",
       headerName: "Name",
-      width: 200,
+      width: 400,
       renderCell: (params: GridRenderCellParams<Repository>) => (
         <a href={`/repositories/${params.value}`}>{params.value}</a>
       ),
+    },
+    {
+      field: "extractorBindings",
+      headerName: "Extractor Bindings",
+      width: 200,
+      valueGetter: (params) => {
+        return params.value.length;
+      },
     },
   ];
 
@@ -39,19 +48,18 @@ const RepositoriesPage = () => {
       <Typography mb={3} variant="h3" component="h1">
         Repositories
       </Typography>
-      <div style={{ height: 400, width: "100%" }}>
-        <DataGrid
-          getRowId={getRowId}
-          rows={repositories}
-          columns={columns}
-          initialState={{
-            pagination: {
-              paginationModel: { page: 0, pageSize: 5 },
-            },
-          }}
-          pageSizeOptions={[5, 10]}
-        />
-      </div>
+      <DataGrid
+        autoHeight
+        getRowId={getRowId}
+        rows={repositories}
+        columns={columns}
+        initialState={{
+          pagination: {
+            paginationModel: { page: 0, pageSize: 5 },
+          },
+        }}
+        pageSizeOptions={[5, 10]}
+      />
     </div>
   );
 };
