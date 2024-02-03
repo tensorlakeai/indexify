@@ -5,6 +5,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
     io::Cursor,
+    path::Path,
     sync::Arc,
 };
 
@@ -16,14 +17,15 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    storage::Adaptor,
     BasicNode,
+    TokioRuntime,
 };
-use store::{Request, Response};
+use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
         Mutex,
+        RwLock,
     },
     task::JoinHandle,
 };
@@ -31,12 +33,12 @@ use tracing::{error, info, warn};
 
 use self::{
     grpc_server::RaftGrpcServer,
-    store::{ExecutorId, StateChange, TaskId},
+    store::{state_machine_objects::IndexifyState, ExecutorId, StateChange, TaskId},
 };
 use crate::{
     coordinator_filters::matches_mime_type,
     server_config::ServerConfig,
-    state::store::SledStore,
+    state::store::new_storage,
     utils::timestamp_secs,
 };
 
@@ -47,15 +49,20 @@ pub mod store;
 
 pub type NodeId = u64;
 
+pub type SnapshotData = Cursor<Vec<u8>>;
+
 openraft::declare_raft_types!(
-    /// Declare the type configuration for example K/V store.
-    pub TypeConfig: D = Request, R = Response, NodeId = NodeId, Node = BasicNode,
-    Entry = openraft::Entry<TypeConfig>, SnapshotData = Cursor<Vec<u8>>
+    pub TypeConfig:
+        D = Request,
+        R = Response,
+        NodeId = NodeId,
+        Node = BasicNode,
+        Entry = openraft::Entry<TypeConfig>,
+        SnapshotData = SnapshotData,
+        AsyncRuntime = TokioRuntime
 );
 
-pub type LogStore = Adaptor<TypeConfig, Arc<SledStore>>;
-pub type StateMachineStore = Adaptor<TypeConfig, Arc<SledStore>>;
-pub type Raft = openraft::Raft<TypeConfig, Network, LogStore, StateMachineStore>;
+pub type Raft = openraft::Raft<TypeConfig>;
 
 pub type SharedState = Arc<App>;
 
@@ -63,6 +70,7 @@ pub mod typ {
     use openraft::BasicNode;
 
     use super::{NodeId, TypeConfig};
+    pub type Entry = openraft::Entry<TypeConfig>;
 
     pub type RPCError<E> = openraft::error::RPCError<NodeId, BasicNode, E>;
     pub type RemoteError<E> = openraft::error::RemoteError<NodeId, BasicNode, E>;
@@ -87,8 +95,9 @@ pub struct App {
     shutdown_tx: Sender<()>,
     pub leader_change_rx: Receiver<bool>,
     join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
-    pub store: Arc<SledStore>,
+    pub indexify_state: Arc<RwLock<IndexifyState>>,
     pub config: Arc<openraft::Config>,
+    state_change_rx: Receiver<StateChange>,
 }
 
 impl App {
@@ -105,8 +114,13 @@ impl App {
                 .validate()
                 .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
         );
-        let store = Arc::new(SledStore::new(server_config.sled.clone()).await);
-        let (log_store, state_machine) = Adaptor::new(store.clone());
+        let db_path = server_config.sled.path.clone().unwrap_or_default().clone();
+        let db_path: &Path = Path::new(db_path.as_str());
+        let (log_store, state_machine) = new_storage(db_path).await;
+        let state_change_rx = state_machine.state_change_rx.clone();
+
+        let indexify_state = state_machine.data.indexify_state.clone();
+
         let network = Network::new();
 
         let raft = openraft::Raft::new(
@@ -150,8 +164,9 @@ impl App {
             leader_change_rx,
             join_handles: Mutex::new(vec![]),
             nodes,
-            store,
+            indexify_state,
             config,
+            state_change_rx,
         });
 
         let raft_clone = app.raft.clone();
@@ -197,7 +212,7 @@ impl App {
     }
 
     pub fn get_state_change_watcher(&self) -> Receiver<StateChange> {
-        self.store.state_change_rx.clone()
+        self.state_change_rx.clone()
     }
 
     pub async fn stop(&self) -> Result<()> {
@@ -220,7 +235,7 @@ impl App {
     pub async fn unprocessed_extraction_events(
         &self,
     ) -> Result<Vec<internal_api::ExtractionEvent>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let mut events = vec![];
         for event_id in store.unprocessed_extraction_events.iter() {
             let event = store.extraction_events.get(event_id).ok_or(anyhow!(
@@ -246,7 +261,7 @@ impl App {
         content_metadata: &internal_api::ContentMetadata,
     ) -> Result<Vec<internal_api::ExtractorBinding>> {
         let bindings = {
-            let store = self.store.state_machine.read().await;
+            let store = self.indexify_state.read().await;
             store
                 .bindings_table
                 .get(&content_metadata.repository)
@@ -294,7 +309,7 @@ impl App {
         // get the extractor so we can check the mimetype
         let extractor = self.extractor_with_name(&binding.extractor).await?;
         let content_list = {
-            let store = self.store.state_machine.read().await;
+            let store = self.indexify_state.read().await;
             let content_list = store
                 .content_repository_table
                 .get(repository)
@@ -334,7 +349,7 @@ impl App {
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let mut tasks = vec![];
         for task_id in store.unassigned_tasks.iter() {
             let task = store
@@ -350,7 +365,7 @@ impl App {
         &self,
         extractor: &str,
     ) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let executor_ids = store
             .extractor_executors_table
             .get(extractor)
@@ -371,7 +386,7 @@ impl App {
         &self,
         repository: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let content_ids = store
             .content_repository_table
             .get(repository)
@@ -439,7 +454,7 @@ impl App {
         &self,
         extractor: &str,
     ) -> Result<internal_api::ExtractorDescription> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let binding = store
             .extractors
             .get(extractor)
@@ -451,7 +466,7 @@ impl App {
         &self,
         repository: &str,
     ) -> Result<Vec<internal_api::ExtractorBinding>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let bindings = store
             .bindings_table
             .get(repository)
@@ -473,7 +488,7 @@ impl App {
     }
 
     pub async fn list_repositories(&self) -> Result<Vec<internal_api::Repository>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let mut repositories = Vec::new();
         for repository_name in &store.repositories {
             let bindings = store
@@ -491,7 +506,7 @@ impl App {
     }
 
     pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Repository> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let bindings = store
             .bindings_table
             .get(repository)
@@ -523,13 +538,13 @@ impl App {
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let extractors = store.extractors.values().cloned().collect_vec();
         Ok(extractors)
     }
 
     pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let executors = store.executors.values().cloned().collect_vec();
         Ok(executors)
     }
@@ -566,7 +581,7 @@ impl App {
         &self,
         content_id: &str,
     ) -> Result<internal_api::ContentMetadata> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let content_metadata = store
             .content_table
             .get(content_id)
@@ -578,7 +593,7 @@ impl App {
         &self,
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let mut content_metadata_list = Vec::new();
         for content_id in content_ids {
             let content_metadata = store.content_table.get(&content_id);
@@ -598,7 +613,7 @@ impl App {
     }
 
     pub async fn tasks_for_executor(&self, executor_id: &str) -> Result<Vec<internal_api::Task>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let tasks = store
             .task_assignments
             .get(executor_id)
@@ -613,13 +628,13 @@ impl App {
     }
 
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
         Ok(task.clone())
     }
 
     pub async fn list_indexes(&self, repository: &str) -> Result<Vec<internal_api::Index>> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let indexes = store
             .repository_extractors
             .get(repository)
@@ -630,7 +645,7 @@ impl App {
     }
 
     pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
-        let store = self.store.state_machine.read().await;
+        let store = self.indexify_state.read().await;
         let index = store
             .index_table
             .get(id)

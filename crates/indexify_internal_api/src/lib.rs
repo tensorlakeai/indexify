@@ -378,6 +378,28 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     }
 }
 
+// FIXME - Make this visible to only tests
+impl Default for ContentMetadata {
+    fn default() -> Self {
+        Self {
+            id: "test_id".to_string(),
+            parent_id: "test_parent_id".to_string(),
+            repository: "test_repository".to_string(),
+            name: "test_name".to_string(),
+            content_type: "test_content_type".to_string(),
+            labels: {
+                let mut labels = HashMap::new();
+                labels.insert("key1".to_string(), "value1".to_string());
+                labels.insert("key2".to_string(), "value2".to_string());
+                labels
+            },
+            storage_url: "http://example.com/test_url".to_string(),
+            created_at: 1234567890, // example timestamp
+            source: "test_source".to_string(),
+        }
+    }
+}
+
 impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
     type Error = anyhow::Error;
 

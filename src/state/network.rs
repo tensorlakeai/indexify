@@ -1,7 +1,6 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use async_trait::async_trait;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -40,7 +39,6 @@ impl Network {
     }
 }
 
-#[async_trait]
 impl RaftNetworkFactory<TypeConfig> for Network {
     type Network = NetworkConnection;
 
@@ -74,7 +72,6 @@ impl NetworkConnection {
     }
 }
 
-#[async_trait]
 impl RaftNetwork<TypeConfig> for NetworkConnection {
     async fn send_append_entries(
         &mut self,

@@ -307,10 +307,18 @@ pub struct ServerCacheConfig {
 
 /// SledConfig is a struct that contains the configuration for the sled
 /// database, which is used for Raft storage.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SledConfig {
     /// path is the path to the sled database.
     pub path: Option<String>,
+}
+
+impl Default for SledConfig {
+    fn default() -> Self {
+        Self {
+            path: Some("/tmp/indexify-state".to_string()),
+        }
+    }
 }
 
 /// ServerCacheBackend is an enum that represents the different cache backends
