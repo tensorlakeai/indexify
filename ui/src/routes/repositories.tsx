@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import IndexifyClient from "../lib/Indexify/client";
 import Repository from "../lib/Indexify/repository";
-import {
-  DataGrid,
-  GridColDef,
-  GridRenderCellParams,
-  GridValueGetterParams,
-} from "@mui/x-data-grid";
+import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
 import { Typography } from "@mui/material";
 import React from "react";
+import CircleIcon from "@mui/icons-material/Circle";
+import { stringToColor } from "../utils/helpers";
+import { Stack } from "@mui/system";
 
 const RepositoriesPage = () => {
   const client = new IndexifyClient();
@@ -26,7 +24,19 @@ const RepositoriesPage = () => {
       headerName: "Name",
       width: 400,
       renderCell: (params: GridRenderCellParams<Repository>) => (
-        <a href={`/repositories/${params.value}`}>{params.value}</a>
+        <a href={`/repositories/${params.value}`}>
+          <Stack
+            display={"flex"}
+            direction={"row"}
+            alignItems={"center"}
+            spacing={1}
+          >
+            <CircleIcon
+              sx={{ width: "15px", color: stringToColor(params.value) }}
+            />
+            <Typography variant="body2">{params.value}</Typography>
+          </Stack>
+        </a>
       ),
     },
     {
@@ -56,10 +66,10 @@ const RepositoriesPage = () => {
         columns={columns}
         initialState={{
           pagination: {
-            paginationModel: { page: 0, pageSize: 5 },
+            paginationModel: { page: 0, pageSize: 20 },
           },
         }}
-        pageSizeOptions={[5, 10]}
+        pageSizeOptions={[5, 10, 20]}
       />
     </div>
   );
