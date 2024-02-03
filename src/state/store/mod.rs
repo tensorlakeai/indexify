@@ -1,114 +1,32 @@
-mod error;
-mod impl_sled_storable;
-mod sled_store;
+use std::{fmt::Debug, io::Cursor, ops::RangeBounds, path::Path, sync::Arc};
 
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    fmt::Debug,
-    io::Cursor,
-    ops::RangeBounds,
-    string::ToString,
-    sync::Arc,
-};
-
-use anyerror::AnyError;
-use error::*;
-use impl_sled_storable::SledStorable;
-pub use impl_sled_storable::SledStorableTestFactory;
-use indexify_internal_api as internal_api;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use openraft::{
-    async_trait::async_trait,
-    storage::{LogState, Snapshot},
+    storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
+    AnyError,
     BasicNode,
     Entry,
     EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
     LogId,
+    OptionalSend,
     RaftLogReader,
     RaftSnapshotBuilder,
-    RaftStorage,
-    RaftTypeConfig,
     SnapshotMeta,
     StorageError,
     StorageIOError,
     StoredMembership,
     Vote,
 };
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
 use serde::{Deserialize, Serialize};
-pub use sled_store::SledStore;
-use sled_store::*;
+use tokio::sync::RwLock;
 
-use super::{NodeId, TypeConfig};
+type Node = BasicNode;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum Request {
-    RegisterExecutor {
-        addr: String,
-        executor_id: String,
-        extractor: internal_api::ExtractorDescription,
-        ts_secs: u64,
-    },
-    CreateRepository {
-        name: String,
-    },
-    CreateTasks {
-        tasks: Vec<internal_api::Task>,
-    },
-    AssignTask {
-        assignments: HashMap<TaskId, ExecutorId>,
-    },
-    AddExtractionEvent {
-        event: internal_api::ExtractionEvent,
-    },
-    MarkExtractionEventProcessed {
-        event_id: String,
-        ts_secs: u64,
-    },
-    CreateContent {
-        content_metadata: Vec<internal_api::ContentMetadata>,
-        extraction_events: Vec<internal_api::ExtractionEvent>,
-    },
-    CreateBinding {
-        binding: internal_api::ExtractorBinding,
-        extraction_event: Option<internal_api::ExtractionEvent>,
-    },
-    CreateIndex {
-        index: internal_api::Index,
-        repository: String,
-        id: String,
-    },
-    UpdateTask {
-        task: internal_api::Task,
-        mark_finished: bool,
-        executor_id: Option<String>,
-        content_metadata: Vec<internal_api::ContentMetadata>,
-        extraction_events: Vec<internal_api::ExtractionEvent>,
-    },
-    RemoveExecutor {
-        executor_id: String,
-    },
-}
-
-/**
- * Here you will defined what type of answer you expect from reading the
- * data of a node. In this example it will return a optional value from a
- * given key in the `Request.Set`.
- *
- * TODO: Should we explain how to create multiple `AppDataResponse`?
- *
- */
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Response {
-    pub value: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
-pub struct StoredSnapshot {
-    pub meta: SnapshotMeta<NodeId, BasicNode>,
-
-    /// The data of the state machine at the time of this snapshot.
-    pub data: Vec<u8>,
-}
+use self::{requests::Request, state_machine_objects::IndexifyState};
+use super::{typ, NodeId, SnapshotData, TypeConfig};
 
 pub type RepositoryId = String;
 pub type TaskId = String;
@@ -116,6 +34,9 @@ pub type ContentId = String;
 pub type ExecutorId = String;
 pub type ExtractionEventId = String;
 pub type ExtractorName = String;
+
+pub mod requests;
+pub mod state_machine_objects;
 
 #[derive(Clone)]
 pub enum ChangeType {
@@ -131,739 +52,530 @@ pub struct StateChange {
     pub change_type: ChangeType,
 }
 
-/**
- * Here defines a state machine of the raft, this state represents a copy of
- * the data between each node. Note that we are using `serde` to serialize
- * the `data`, which has a implementation to be serialized. Note that for
- * this test we set both the key and value as String, but you could set any
- * type of value that has the serialization impl.
- *
- * IMPORTANT: All fields of StateMachine must:
- * - have SledStorable implemented
- * - have a test in ./impl_sled_storable.rs
- * - be handled in the StateMachine::try_from_sled_tree fn
- * - be handled in the StateMachine::try_save_to_sled_tree fn
- *
- * TODO: make the StateMachine migrate-able
- */
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
-pub struct StateMachine {
-    pub last_applied_log: Option<LogId<NodeId>>,
-
-    pub last_membership: StoredMembership<NodeId, BasicNode>,
-
-    pub executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
-
-    pub tasks: HashMap<TaskId, internal_api::Task>,
-
-    pub unassigned_tasks: HashSet<TaskId>,
-
-    pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
-
-    pub extraction_events: HashMap<ExtractionEventId, internal_api::ExtractionEvent>,
-
-    pub unprocessed_extraction_events: HashSet<ExtractionEventId>,
-
-    pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
-
-    pub content_repository_table: HashMap<RepositoryId, HashSet<ContentId>>,
-
-    pub bindings_table: HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>>,
-
-    pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
-
-    pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
-
-    pub repositories: HashSet<String>,
-
-    pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
-
-    pub index_table: HashMap<String, internal_api::Index>,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Response {
+    pub value: Option<String>,
 }
 
-#[async_trait]
-impl RaftLogReader<TypeConfig> for Arc<SledStore> {
-    async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, StorageError<NodeId>> {
-        let last_purged = self
-            .get_last_purged_log_id()
-            .map_err(|e| StorageError::IO {
-                source: StorageIOError::read_logs(&e),
-            })?;
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct StoredSnapshot {
+    pub meta: SnapshotMeta<NodeId, Node>,
 
-        let last_log = self
-            .get_last_log()
-            .map_err(|e| StorageError::IO {
-                source: StorageIOError::read_logs(&e),
-            })?
-            .map(|(log_id, _)| log_id);
-
-        let last_log_id = match (last_purged, last_log) {
-            // If we have both last_purged and last_log, we take the max of the two
-            (Some(purged), Some(log)) => std::cmp::max(purged, log),
-            // If we only have last log, we use that
-            (None, Some(log)) => log,
-            // If we only have last purged, we use that
-            (Some(purged), None) => purged,
-            // If we have no log at all, we return None
-            (None, None) => {
-                return Ok(LogState {
-                    last_purged_log_id: None,
-                    last_log_id: None,
-                })
-            }
-        };
-
-        Ok(LogState {
-            last_purged_log_id: last_purged,
-            last_log_id: Some(last_log_id),
-        })
-    }
-
-    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + Send + Sync>(
-        &mut self,
-        range: RB,
-    ) -> Result<Vec<Entry<TypeConfig>>, StorageError<NodeId>> {
-        let start_bound = range.start_bound();
-        let start = match start_bound {
-            std::ops::Bound::Included(x) => LogKey::from(*x).to_raw_log_key(),
-            std::ops::Bound::Excluded(x) => LogKey::from(*x + 1).to_raw_log_key(),
-            std::ops::Bound::Unbounded => LogKey::from(0).to_raw_log_key(),
-        };
-
-        let logs_tree = self.open_tree(SledStoreTree::Logs);
-
-        logs_tree
-            .range::<&[u8], _>(start.as_slice()..)
-            .try_fold(vec![], |mut acc, res| {
-                let (raw_log_key, raw_entry) = res.map_err(|e| StorageError::IO {
-                    source: StorageIOError::read_logs(&e),
-                })?;
-
-                let log_key = LogKey::from(raw_log_key);
-                let entry = Entry::<TypeConfig>::load_from_sled_value(raw_entry).map_err(|e| {
-                    StorageError::IO {
-                        source: StorageIOError::read_logs(AnyError::from_dyn(&*e, None)),
-                    }
-                })?;
-
-                if range.contains(&log_key.into()) {
-                    acc.push(entry);
-                }
-
-                Ok(acc)
-            })
-    }
+    /// The data of the state machine at the time of this snapshot.
+    pub data: Vec<u8>,
 }
 
-#[async_trait]
-impl RaftSnapshotBuilder<TypeConfig> for Arc<SledStore> {
-    #[tracing::instrument(level = "trace", skip(self))]
+#[derive(Clone)]
+pub struct StateMachineStore {
+    pub data: StateMachineData,
+
+    /// snapshot index is not persisted in this example.
+    ///
+    /// It is only used as a suffix of snapshot id, and should be globally
+    /// unique. In practice, using a timestamp in micro-second would be good
+    /// enough.
+    snapshot_idx: u64,
+
+    /// State machine stores snapshot in db.
+    db: Arc<DB>,
+
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+}
+
+#[derive(Clone)]
+pub struct StateMachineData {
+    pub last_applied_log_id: Option<LogId<NodeId>>,
+
+    pub last_membership: StoredMembership<NodeId, Node>,
+
+    /// State built from applying the raft log
+    pub indexify_state: Arc<RwLock<IndexifyState>>,
+
+    state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
+}
+
+impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        let state_machine = self.state_machine.read().await;
-        let storeable_state_machine = state_machine
-            .to_saveable_value()
-            .map_err(build_snapshot_err)?;
+        let last_applied_log = self.data.last_applied_log_id;
+        let last_membership = self.data.last_membership.clone();
 
-        let last_applied_log = self
-            .get_last_applied_log()
-            .map_err(|e| build_snapshot_err(e.into()))?;
-        let last_membership = self
-            .get_last_membership()
-            .map_err(|e| build_snapshot_err(e.into()))?;
+        let indexify_state_json = {
+            let indexify_state = self.data.indexify_state.read().await;
+            serde_json::to_vec(&*indexify_state)
+                .map_err(|e| StorageIOError::read_state_machine(&e))?
+        };
 
-        let snapshot_idx = self
-            .get_snapshot_index()
-            .map_err(|e| build_snapshot_err(e.into()))?
-            .map_or(0, |idx| idx + 1);
-
-        let snapshot_id = last_applied_log
-            .as_ref()
-            .map(|last| format!("{}-{}-{}", last.leader_id, last.index, snapshot_idx))
-            .unwrap_or_else(|| format!("--{}", snapshot_idx));
+        let snapshot_id = if let Some(last) = last_applied_log {
+            format!("{}-{}-{}", last.leader_id, last.index, self.snapshot_idx)
+        } else {
+            format!("--{}", self.snapshot_idx)
+        };
 
         let meta = SnapshotMeta {
             last_log_id: last_applied_log,
-            last_membership: last_membership.unwrap_or_default(),
+            last_membership,
             snapshot_id,
         };
 
         let snapshot = StoredSnapshot {
             meta: meta.clone(),
-            data: storeable_state_machine.to_vec(),
+            data: indexify_state_json.clone(),
         };
 
-        self.set_current_snapshot(snapshot.clone())
-            .await
-            .map_err(|e| build_snapshot_err(e.into()))?;
+        self.set_current_snapshot_(snapshot)?;
 
         Ok(Snapshot {
             meta,
-            snapshot: Box::new(Cursor::new(snapshot.data)),
+            snapshot: Box::new(Cursor::new(indexify_state_json)),
         })
     }
 }
 
-#[async_trait]
-impl RaftStorage<TypeConfig> for Arc<SledStore> {
-    type LogReader = Self;
+impl StateMachineStore {
+    async fn new(db: Arc<DB>) -> Result<StateMachineStore, StorageError<NodeId>> {
+        let (tx, rx) = tokio::sync::watch::channel(StateChange {
+            id: "".to_string(),
+            change_type: ChangeType::NewContent,
+        });
+        let mut sm = Self {
+            data: StateMachineData {
+                last_applied_log_id: None,
+                last_membership: Default::default(),
+                state_change_tx: Arc::new(tx),
+                indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
+            },
+            snapshot_idx: 0,
+            db,
+            state_change_rx: rx,
+        };
+
+        let snapshot = sm.get_current_snapshot_()?;
+        if let Some(snap) = snapshot {
+            sm.update_state_machine_(snap).await?;
+        }
+
+        Ok(sm)
+    }
+
+    async fn update_state_machine_(
+        &mut self,
+        snapshot: StoredSnapshot,
+    ) -> Result<(), StorageError<NodeId>> {
+        let indexify_state: IndexifyState = serde_json::from_slice(&snapshot.data)
+            .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
+
+        self.data.last_applied_log_id = snapshot.meta.last_log_id;
+        self.data.last_membership = snapshot.meta.last_membership.clone();
+        let mut x = self.data.indexify_state.write().await;
+        *x = indexify_state;
+
+        Ok(())
+    }
+
+    fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
+        Ok(self
+            .db
+            .get_cf(self.store(), b"snapshot")
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::read(&e),
+            })?
+            .and_then(|v| serde_json::from_slice(&v).ok()))
+    }
+
+
+    // TODO - Write the snapshot to disk instead of the database
+    fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
+        self.db
+            .put_cf(
+                self.store(),
+                b"snapshot",
+                serde_json::to_vec(&snap).unwrap().as_slice(),
+            )
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+            })?;
+        self.flush(
+            ErrorSubject::Snapshot(Some(snap.meta.signature())),
+            ErrorVerb::Write,
+        )?;
+        Ok(())
+    }
+
+    fn flush(
+        &self,
+        subject: ErrorSubject<NodeId>,
+        verb: ErrorVerb,
+    ) -> Result<(), StorageIOError<NodeId>> {
+        self.db
+            .flush_wal(true)
+            .map_err(|e| StorageIOError::new(subject, verb, AnyError::new(&e)))?;
+        Ok(())
+    }
+
+    fn store(&self) -> &ColumnFamily {
+        self.db.cf_handle("store").unwrap()
+    }
+}
+
+impl RaftStateMachine<TypeConfig> for StateMachineStore {
     type SnapshotBuilder = Self;
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
-        self.insert_vote(*vote)
-            .await
-            .map_err(|e| save_vote_err(e.into()))
+    async fn applied_state(
+        &mut self,
+    ) -> Result<(Option<LogId<NodeId>>, StoredMembership<NodeId, Node>), StorageError<NodeId>> {
+        Ok((
+            self.data.last_applied_log_id,
+            self.data.last_membership.clone(),
+        ))
     }
 
-    async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
-        self.get_vote().map_err(|e| read_vote_err(e.into()))
-    }
-
-    #[tracing::instrument(level = "trace", skip(self, entries))]
-    async fn append_to_log<I>(&mut self, entries: I) -> Result<(), StorageError<NodeId>>
+    async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError<NodeId>>
     where
-        I: IntoIterator<Item = Entry<TypeConfig>> + Send,
+        I: IntoIterator<Item = typ::Entry> + OptionalSend,
+        I::IntoIter: OptionalSend,
     {
-        let logs_tree = self.open_tree(SledStoreTree::Logs);
-        let mut batch = sled::Batch::default();
-        for entry in entries.into_iter() {
-            let log_key = LogKey::from_log(&entry);
-            let log_value = entry.to_saveable_value().map_err(append_log_err)?;
-            batch.insert(&log_key.to_raw_log_key(), log_value);
-        }
-        logs_tree
-            .apply_batch(batch)
-            .map_err(|e| append_log_err(e.into()))?;
-        Ok(())
-    }
-
-    #[tracing::instrument(level = "debug", skip(self))]
-    async fn delete_conflict_logs_since(
-        &mut self,
-        log_id: LogId<NodeId>,
-    ) -> Result<(), StorageError<NodeId>> {
-        tracing::debug!("delete_conflict_logs_since: [{:?}, +oo)", log_id);
-
-        // fetch the logs tree
-        let logs_tree = self.open_tree(SledStoreTree::Logs);
-
-        // find all keys greater than the given log id
-        let keys: Vec<LogKey> = logs_tree
-            .range(LogKey::from_log_id(&log_id).to_raw_log_key()..)
-            .map(|res| res.expect("Failed to read log entry").0)
-            .map(LogKey::from)
-            .collect::<Vec<_>>();
-
-        // delete all keys greater than the given log id
-        // we aren't using a transaction here for performance reasons,
-        // but deleting the keys in reverse order should ensure that
-        // we don't leave any holes in the log
-        for key in keys.iter().rev() {
-            let tx_key = key.to_raw_log_key();
-            logs_tree
-                .remove(tx_key)
-                .map_err(|e| delete_conflict_logs_since_err(e.into()))?;
-        }
-
-        Ok(())
-    }
-
-    #[tracing::instrument(level = "debug", skip(self))]
-    async fn purge_logs_upto(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
-        tracing::debug!("delete_log: [{:?}, +oo)", log_id);
-
-        // fetch the logs tree
-        let logs_tree = self.open_tree(SledStoreTree::Logs);
-
-        // create a batch to delete all logs up to and including the given log id
-        let mut batch = sled::Batch::default();
-
-        let start = LogKey::from_log_id(&log_id).to_raw_log_key();
-        let end = LogKey::from(log_id.index + 1).to_raw_log_key();
-
-        // iterate over all logs up to and including the given log id
-        for result in logs_tree.range(start..end) {
-            let (raw_log_key, _) = result.map_err(|e| StorageError::IO {
-                source: StorageIOError::read_logs(&e),
-            })?;
-
-            let log_key = LogKey::from(raw_log_key);
-
-            // remove the log from the batch
-            batch.remove(&log_key.to_raw_log_key());
-        }
-
-        logs_tree
-            .apply_batch(batch)
-            .map_err(|e| purge_logs_upto_err(e.into()))?;
-
-        // set the last purged log id
-        let store_tree = self.open_tree(SledStoreTree::Store);
-        let key = StoreKey::LastPurgedLogId.to_string();
-        let value = log_id.to_saveable_value().map_err(purge_logs_upto_err)?;
-        store_tree
-            .insert(key, value)
-            .map_err(|e| purge_logs_upto_err(e.into()))?;
-
-        Ok(())
-    }
-
-    async fn last_applied_state(
-        &mut self,
-    ) -> Result<(Option<LogId<NodeId>>, StoredMembership<NodeId, BasicNode>), StorageError<NodeId>>
-    {
-        let last_applied_log = self
-            .get_last_applied_log()
-            .map_err(|e| last_applied_state_err(e.into()))?;
-        let last_membership = self
-            .get_last_membership()
-            .map_err(|e| last_applied_state_err(e.into()))?;
-        Ok((last_applied_log, last_membership.unwrap_or_default()))
-    }
-
-    #[tracing::instrument(level = "trace", skip(self, entries))]
-    async fn apply_to_state_machine(
-        &mut self,
-        entries: &[Entry<TypeConfig>],
-    ) -> Result<Vec<Response>, StorageError<NodeId>> {
-        let mut res = Vec::with_capacity(entries.len());
-
-        let mut sm = self.state_machine.write().await;
-
-        let state_machine_tree = self.open_tree(SledStoreTree::StateMachine);
-
+        let entries = entries.into_iter();
+        let mut replies = Vec::with_capacity(entries.size_hint().0);
+        let mut sm = self.data.indexify_state.write().await;
         let mut change_events: Vec<StateChange> = Vec::new();
 
-        for entry in entries {
-            tracing::debug!(%entry.log_id, "replicate to sm");
-
-            sm.last_applied_log = Some(entry.log_id);
-
-            match entry.payload {
-                EntryPayload::Blank => res.push(Response { value: None }),
-                EntryPayload::Normal(ref req) => match req {
-                    Request::RegisterExecutor {
-                        addr,
-                        executor_id,
-                        extractor,
-                        ts_secs,
-                    } => {
-                        sm.extractors
-                            .insert(extractor.name.clone(), extractor.clone());
-                        sm.extractor_executors_table
-                            .entry(extractor.name.clone())
-                            .or_default()
-                            .insert(executor_id.clone());
-                        let executor_info = internal_api::ExecutorMetadata {
-                            id: executor_id.clone(),
-                            last_seen: *ts_secs,
-                            addr: addr.clone(),
-                            extractor: extractor.clone(),
-                        };
-                        sm.executors.insert(executor_id.clone(), executor_info);
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extractors",
-                            sm.extractors.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extractor_executors_table",
-                            sm.extractor_executors_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "executors",
-                            sm.executors.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::RemoveExecutor { executor_id } => {
-                        // Remove this from the executors table
-                        let executor_meta = sm.executors.remove(executor_id);
-                        // Remove this from the extractor -> executors table
-                        if let Some(executor_meta) = executor_meta {
-                            let executors = sm
-                                .extractor_executors_table
-                                .entry(executor_meta.extractor.name.clone())
-                                .or_default();
-                            executors.remove(executor_meta.extractor.name.as_str());
-                        }
-                        // update the state machine in sled
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "executors",
-                            sm.executors.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extractor_executors_table",
-                            sm.extractor_executors_table.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::CreateTasks { tasks } => {
-                        for task in tasks {
-                            sm.tasks.insert(task.id.clone(), task.clone());
-                            sm.unassigned_tasks.insert(task.id.clone());
-                        }
-                        sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
-                        res.push(Response { value: None })
-                    }
-                    Request::AssignTask { assignments } => {
-                        for (task_id, executor_id) in assignments {
-                            sm.task_assignments
-                                .entry(executor_id.clone())
-                                .or_default()
-                                .insert(task_id.clone());
-                            sm.unassigned_tasks.remove(task_id);
-                        }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "task_assignments",
-                            sm.task_assignments.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unassigned_tasks",
-                            sm.unassigned_tasks.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::AddExtractionEvent { event } => {
-                        sm.extraction_events.insert(event.id.clone(), event.clone());
-                        sm.unprocessed_extraction_events.insert(event.id.clone());
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::MarkExtractionEventProcessed { event_id, ts_secs } => {
-                        sm.unprocessed_extraction_events.retain(|id| id != event_id);
-                        let event = sm.extraction_events.get(event_id).map(|event| {
-                            let mut event = event.to_owned();
-                            event.processed_at = Some(*ts_secs);
-                            event
-                        });
-                        if let Some(event) = event {
-                            sm.extraction_events.insert(event_id.clone(), event);
-                        }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
-
-                        res.push(Response { value: None })
-                    }
-                    Request::CreateContent {
-                        content_metadata,
-                        extraction_events,
-                    } => {
-                        for content in content_metadata {
-                            sm.content_table.insert(content.id.clone(), content.clone());
-                            sm.content_repository_table
-                                .entry(content.repository.clone())
-                                .or_default()
-                                .insert(content.id.clone());
-                            change_events.push(StateChange {
-                                id: content.id.clone(),
-                                change_type: ChangeType::NewContent,
-                            });
-                        }
-                        for event in extraction_events {
-                            sm.extraction_events.insert(event.id.clone(), event.clone());
-                            sm.unprocessed_extraction_events.insert(event.id.clone());
-                        }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "content_table",
-                            sm.content_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "content_repository_table",
-                            sm.content_repository_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
-
-                        res.push(Response { value: None })
-                    }
-                    Request::CreateBinding {
-                        binding,
-                        extraction_event,
-                    } => {
-                        sm.bindings_table
-                            .entry(binding.repository.clone())
-                            .or_default()
-                            .insert(binding.clone());
-                        change_events.push(StateChange {
-                            id: binding.id.clone(),
-                            change_type: ChangeType::NewBinding,
-                        });
-                        if let Some(extraction_event) = extraction_event {
-                            sm.extraction_events
-                                .insert(extraction_event.id.clone(), extraction_event.clone());
-                            sm.unprocessed_extraction_events
-                                .insert(extraction_event.id.clone());
-                        }
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "bindings_table",
-                            sm.bindings_table.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "extraction_events",
-                            sm.extraction_events.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unprocessed_extraction_events",
-                            sm.unprocessed_extraction_events.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::CreateRepository { name } => {
-                        sm.repositories.insert(name.clone());
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "repositories",
-                            sm.repositories.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::CreateIndex {
-                        index,
-                        repository,
-                        id,
-                    } => {
-                        sm.repository_extractors
-                            .entry(repository.clone())
-                            .or_default()
-                            .insert(index.clone());
-                        sm.index_table.insert(id.clone(), index.clone());
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "repository_extractors",
-                            sm.repository_extractors.clone(),
-                        )?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "index_table",
-                            sm.index_table.clone(),
-                        )?;
-                        res.push(Response { value: None })
-                    }
-                    Request::UpdateTask {
-                        task,
-                        mark_finished,
-                        executor_id,
-                        content_metadata,
-                        extraction_events,
-                    } => {
-                        sm.tasks.insert(task.id.clone(), task.clone());
-                        if *mark_finished {
-                            sm.unassigned_tasks.remove(&task.id);
-                            if let Some(executor_id) = executor_id {
-                                sm.task_assignments
-                                    .entry(executor_id.clone())
-                                    .or_default()
-                                    .remove(&task.id);
+        for ent in entries {
+            self.data.last_applied_log_id = Some(ent.log_id);
+            let resp_value = None;
+            match ent.payload {
+                EntryPayload::Blank => {}
+                EntryPayload::Normal(req) => {
+                    sm.apply(req.clone());
+                    match req {
+                        Request::CreateContent {
+                            content_metadata,
+                            extraction_events: _,
+                        } => {
+                            for content in content_metadata {
+                                change_events.push(StateChange {
+                                    id: content.id.clone(),
+                                    change_type: ChangeType::NewContent,
+                                });
                             }
                         }
-                        for content in content_metadata {
-                            sm.content_table.insert(content.id.clone(), content.clone());
-                            sm.content_repository_table
-                                .entry(content.repository.clone())
-                                .or_default()
-                                .insert(content.id.clone());
+                        Request::CreateBinding {
+                            binding,
+                            extraction_event: _,
+                        } => {
+                            change_events.push(StateChange {
+                                id: binding.id.clone(),
+                                change_type: ChangeType::NewBinding,
+                            });
                         }
-                        for event in extraction_events {
-                            sm.extraction_events.insert(event.id.clone(), event.clone());
-                            sm.unprocessed_extraction_events.insert(event.id.clone());
-                        }
-                        sm.overwrite_sled_kv(&state_machine_tree, "tasks", sm.tasks.clone())?;
-                        sm.overwrite_sled_kv(
-                            &state_machine_tree,
-                            "unassigned_tasks",
-                            sm.unassigned_tasks.clone(),
-                        )?;
-                        res.push(Response { value: None })
+                        _ => {}
                     }
-                },
-                EntryPayload::Membership(ref mem) => {
-                    sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
-                    sm.overwrite_sled_kv(
-                        &state_machine_tree,
-                        "last_membership",
-                        sm.last_membership.clone(),
-                    )?;
-                    res.push(Response { value: None })
                 }
-            };
-        }
+                EntryPayload::Membership(mem) => {
+                    self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
+                }
+            }
 
+            replies.push(Response { value: resp_value });
+        }
         for change_event in change_events {
-            if let Err(err) = self.state_change_tx.send(change_event) {
+            if let Err(err) = self.data.state_change_tx.send(change_event) {
                 tracing::error!("error sending state change event: {}", err);
             }
         }
-        Ok(res)
+        Ok(replies)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
+    async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
+        self.snapshot_idx += 1;
+        self.clone()
+    }
+
     async fn begin_receiving_snapshot(
         &mut self,
-    ) -> Result<Box<<TypeConfig as RaftTypeConfig>::SnapshotData>, StorageError<NodeId>> {
+    ) -> Result<Box<Cursor<Vec<u8>>>, StorageError<NodeId>> {
         Ok(Box::new(Cursor::new(Vec::new())))
     }
 
-    #[tracing::instrument(level = "trace", skip(self, snapshot))]
     async fn install_snapshot(
         &mut self,
-        meta: &SnapshotMeta<NodeId, BasicNode>,
-        snapshot: Box<<TypeConfig as RaftTypeConfig>::SnapshotData>,
+        meta: &SnapshotMeta<NodeId, Node>,
+        snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
-        tracing::info!(
-            { snapshot_size = snapshot.get_ref().len() },
-            "decoding snapshot for installation"
-        );
-
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
         };
 
-        // Update the state machine.
-        {
-            let updated_state_machine =
-                StateMachine::load_from_sled_value(new_snapshot.data.clone().into())
-                    .map_err(install_snapshot_err)?;
-            let mut state_machine = self.state_machine.write().await;
-            updated_state_machine
-                .try_save_to_sled_tree(&self.open_tree(SledStoreTree::StateMachine))
-                .map_err(|e| install_snapshot_err(e.into()))?;
-            *state_machine = updated_state_machine;
-        }
+        self.update_state_machine_(new_snapshot.clone()).await?;
 
-        // Update current snapshot.
-        self.set_current_snapshot(new_snapshot)
-            .await
-            .map_err(|e| install_snapshot_err(e.into()))?;
+        self.set_current_snapshot_(new_snapshot)?;
+
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
-        let result = self
+        let x = self.get_current_snapshot_()?;
+        Ok(x.map(|s| Snapshot {
+            meta: s.meta.clone(),
+            snapshot: Box::new(Cursor::new(s.data.clone())),
+        }))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LogStore {
+    db: Arc<DB>,
+}
+type StorageResult<T> = Result<T, StorageError<NodeId>>;
+
+/// converts an id to a byte vector for storing in the database.
+/// Note that we're using big endian encoding to ensure correct sorting of keys
+fn id_to_bin(id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(8);
+    buf.write_u64::<BigEndian>(id).unwrap();
+    buf
+}
+
+fn bin_to_id(buf: &[u8]) -> u64 {
+    (&buf[0..8]).read_u64::<BigEndian>().unwrap()
+}
+
+impl LogStore {
+    fn store(&self) -> &ColumnFamily {
+        self.db.cf_handle("store").unwrap()
+    }
+
+    fn logs(&self) -> &ColumnFamily {
+        self.db.cf_handle("logs").unwrap()
+    }
+
+    fn flush(
+        &self,
+        subject: ErrorSubject<NodeId>,
+        verb: ErrorVerb,
+    ) -> Result<(), StorageIOError<NodeId>> {
+        self.db
+            .flush_wal(true)
+            .map_err(|e| StorageIOError::new(subject, verb, AnyError::new(&e)))?;
+        Ok(())
+    }
+
+    fn get_last_purged_(&self) -> StorageResult<Option<LogId<u64>>> {
+        Ok(self
             .db
-            .get_current_snapshot()
-            .map_err(|e| get_current_snapshot_err(e.into()))?;
-        match result {
-            Some(snapshot) => {
-                let data = snapshot.data.clone();
-                Ok(Some(Snapshot {
-                    meta: snapshot.meta.clone(),
-                    snapshot: Box::new(Cursor::new(data)),
-                }))
-            }
-            None => Ok(None),
+            .get_cf(self.store(), b"last_purged_log_id")
+            .map_err(|e| StorageIOError::read(&e))?
+            .and_then(|v| serde_json::from_slice(&v).ok()))
+    }
+
+    fn set_last_purged_(&self, log_id: LogId<u64>) -> StorageResult<()> {
+        self.db
+            .put_cf(
+                self.store(),
+                b"last_purged_log_id",
+                serde_json::to_vec(&log_id).unwrap().as_slice(),
+            )
+            .map_err(|e| StorageIOError::write(&e))?;
+
+        self.flush(ErrorSubject::Store, ErrorVerb::Write)?;
+        Ok(())
+    }
+
+    fn set_committed_(
+        &self,
+        committed: &Option<LogId<NodeId>>,
+    ) -> Result<(), StorageIOError<NodeId>> {
+        let json = serde_json::to_vec(committed).unwrap();
+
+        self.db
+            .put_cf(self.store(), b"committed", json)
+            .map_err(|e| StorageIOError::write(&e))?;
+
+        self.flush(ErrorSubject::Store, ErrorVerb::Write)?;
+        Ok(())
+    }
+
+    fn get_committed_(&self) -> StorageResult<Option<LogId<NodeId>>> {
+        Ok(self
+            .db
+            .get_cf(self.store(), b"committed")
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::read(&e),
+            })?
+            .and_then(|v| serde_json::from_slice(&v).ok()))
+    }
+
+    fn set_vote_(&self, vote: &Vote<NodeId>) -> StorageResult<()> {
+        self.db
+            .put_cf(self.store(), b"vote", serde_json::to_vec(vote).unwrap())
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write_vote(&e),
+            })?;
+
+        self.flush(ErrorSubject::Vote, ErrorVerb::Write)?;
+        Ok(())
+    }
+
+    fn get_vote_(&self) -> StorageResult<Option<Vote<NodeId>>> {
+        Ok(self
+            .db
+            .get_cf(self.store(), b"vote")
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write_vote(&e),
+            })?
+            .and_then(|v| serde_json::from_slice(&v).ok()))
+    }
+}
+
+impl RaftLogReader<TypeConfig> for LogStore {
+    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + Send + Sync>(
+        &mut self,
+        range: RB,
+    ) -> StorageResult<Vec<Entry<TypeConfig>>> {
+        let start = match range.start_bound() {
+            std::ops::Bound::Included(x) => id_to_bin(*x),
+            std::ops::Bound::Excluded(x) => id_to_bin(*x + 1),
+            std::ops::Bound::Unbounded => id_to_bin(0),
+        };
+        self.db
+            .iterator_cf(
+                self.logs(),
+                rocksdb::IteratorMode::From(&start, Direction::Forward),
+            )
+            .map(|res| {
+                let (id, val) = res.unwrap();
+                let entry: StorageResult<Entry<_>> =
+                    serde_json::from_slice(&val).map_err(|e| StorageError::IO {
+                        source: StorageIOError::read_logs(&e),
+                    });
+                let id = bin_to_id(&id);
+
+                assert_eq!(Ok(id), entry.as_ref().map(|e| e.log_id.index));
+                (id, entry)
+            })
+            .take_while(|(id, _)| range.contains(id))
+            .map(|x| x.1)
+            .collect()
+    }
+}
+
+impl RaftLogStorage<TypeConfig> for LogStore {
+    type LogReader = Self;
+
+    async fn get_log_state(&mut self) -> StorageResult<LogState<TypeConfig>> {
+        let last = self
+            .db
+            .iterator_cf(self.logs(), rocksdb::IteratorMode::End)
+            .next()
+            .and_then(|res| {
+                let (_, ent) = res.unwrap();
+                Some(
+                    serde_json::from_slice::<Entry<TypeConfig>>(&ent)
+                        .ok()?
+                        .log_id,
+                )
+            });
+
+        let last_purged_log_id = self.get_last_purged_()?;
+
+        let last_log_id = match last {
+            None => last_purged_log_id,
+            Some(x) => Some(x),
+        };
+        Ok(LogState {
+            last_purged_log_id,
+            last_log_id,
+        })
+    }
+
+    async fn save_committed(
+        &mut self,
+        _committed: Option<LogId<NodeId>>,
+    ) -> Result<(), StorageError<NodeId>> {
+        self.set_committed_(&_committed)?;
+        Ok(())
+    }
+
+    async fn read_committed(&mut self) -> Result<Option<LogId<NodeId>>, StorageError<NodeId>> {
+        let c = self.get_committed_()?;
+        Ok(c)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
+        self.set_vote_(vote)
+    }
+
+    async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
+        self.get_vote_()
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    async fn append<I>(&mut self, entries: I, callback: LogFlushed<NodeId>) -> StorageResult<()>
+    where
+        I: IntoIterator<Item = Entry<TypeConfig>> + Send,
+        I::IntoIter: Send,
+    {
+        for entry in entries {
+            let id = id_to_bin(entry.log_id.index);
+            assert_eq!(bin_to_id(&id), entry.log_id.index);
+            self.db
+                .put_cf(
+                    self.logs(),
+                    id,
+                    serde_json::to_vec(&entry).map_err(|e| StorageIOError::write_logs(&e))?,
+                )
+                .map_err(|e| StorageIOError::write_logs(&e))?;
         }
+
+        callback.log_io_completed(Ok(()));
+
+        Ok(())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    async fn truncate(&mut self, log_id: LogId<NodeId>) -> StorageResult<()> {
+        tracing::debug!("delete_log: [{:?}, +oo)", log_id);
+
+        let from = id_to_bin(log_id.index);
+        let to = id_to_bin(0xff_ff_ff_ff_ff_ff_ff_ff);
+        self.db
+            .delete_range_cf(self.logs(), &from, &to)
+            .map_err(|e| StorageIOError::write_logs(&e).into())
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    async fn purge(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
+        tracing::debug!("delete_log: [0, {:?}]", log_id);
+
+        self.set_last_purged_(log_id)?;
+        let from = id_to_bin(0);
+        let to = id_to_bin(log_id.index + 1);
+        self.db
+            .delete_range_cf(self.logs(), &from, &to)
+            .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {
         self.clone()
     }
-
-    async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
-        self.clone()
-    }
 }
 
-fn build_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::WriteSnapshot
-        .build_with_source("build snapshot failed", e)
-        .into()
-}
-fn save_vote_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::WriteVote
-        .build_with_source("save vote failed", e)
-        .into()
-}
-fn read_vote_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::ReadVote
-        .build_with_source("read vote failed", e)
-        .into()
-}
-fn append_log_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::WriteLogs
-        .build_with_source("append log failed", e)
-        .into()
-}
-fn last_applied_state_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::ReadStateMachine
-        .build_with_source("last applied state failed", e)
-        .into()
-}
-fn purge_logs_upto_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::WriteLogs
-        .build_with_source("purge logs upto failed", e)
-        .into()
-}
-fn delete_conflict_logs_since_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::WriteLogs
-        .build_with_source("delete conflict logs since failed", e)
-        .into()
-}
-fn install_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::WriteSnapshot
-        .build_with_source("install snapshot failed", e)
-        .into()
-}
-fn get_current_snapshot_err(e: Box<dyn Error>) -> StorageError<NodeId> {
-    StoreErrorKind::ReadSnapshot
-        .build_with_source("get current snapshot failed", e)
-        .into()
-}
+pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineStore) {
+    let mut db_opts = Options::default();
+    db_opts.create_missing_column_families(true);
+    db_opts.create_if_missing(true);
 
-#[cfg(test)]
-mod test_state_machine_snapshot {
-    use insta;
+    let store = ColumnFamilyDescriptor::new("store", Options::default());
+    let logs = ColumnFamilyDescriptor::new("logs", Options::default());
 
-    use super::{impl_sled_storable::SledStorableTestFactory, *};
+    let db = DB::open_cf_descriptors(&db_opts, db_path, vec![store, logs]).unwrap();
+    let db = Arc::new(db);
 
-    #[test]
-    fn test_state_machine_snapshot() {
-        // if this test fails, it means the Schema of StateMachine has changed. It is
-        // imperative to ensure the new StateMachine is   compatible with the
-        // old one. This can be done by running raft against the old state machine db
-        let sm = StateMachine::spawn_instance_for_store_test();
-        insta::with_settings!({sort_maps => true}, {
-            insta::assert_ron_snapshot!(sm);
-        });
-    }
+    let log_store = LogStore { db: db.clone() };
+    let sm_store = StateMachineStore::new(db).await.unwrap();
+
+    (log_store, sm_store)
 }

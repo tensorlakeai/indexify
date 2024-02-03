@@ -33,11 +33,9 @@ mod test_list_content_filter {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::state::store::SledStorableTestFactory;
 
     #[test]
     fn test_list_content_filter() {
-        let default = internal_api::ContentMetadata::spawn_instance_for_store_test();
         let no_labels_filter = HashMap::new();
         let content = vec![
             internal_api::ContentMetadata {
@@ -49,14 +47,14 @@ mod test_list_content_filter {
                     labels.insert("key1".to_string(), "value1".to_string());
                     labels
                 },
-                ..default.clone()
+                ..Default::default()
             },
             internal_api::ContentMetadata {
                 id: "2".to_string(),
                 source: "source2".to_string(),
                 parent_id: "parent2".to_string(),
                 labels: HashMap::new(),
-                ..default.clone()
+                ..Default::default()
             },
             internal_api::ContentMetadata {
                 id: "3".to_string(),
@@ -68,14 +66,14 @@ mod test_list_content_filter {
                     labels.insert("key2".to_string(), "value2".to_string());
                     labels
                 },
-                ..default.clone()
+                ..Default::default()
             },
             internal_api::ContentMetadata {
                 id: "4".to_string(),
                 source: "source4".to_string(),
                 parent_id: "parent4".to_string(),
                 labels: HashMap::new(),
-                ..default.clone()
+                ..Default::default()
             },
         ];
 
@@ -195,10 +193,7 @@ pub fn matches_mime_type(supported_mimes: &[String], content_mime_type: &String)
 #[cfg(test)]
 mod test_extractor_mimetype_filter {
     use super::*;
-    use crate::{
-        extractor::{Extractor, ExtractorSchema},
-        state::store::SledStorableTestFactory,
-    };
+    use crate::extractor::{Extractor, ExtractorSchema};
 
     #[derive(Debug)]
     enum TestExtractor {
@@ -237,7 +232,7 @@ mod test_extractor_mimetype_filter {
     fn test_matches_mime_type() {
         let mimetype_matcher = |extractor: TestExtractor, content_mimetypes: Vec<(&str, bool)>| {
             for (content_mime, expected) in content_mimetypes {
-                let mut content = internal_api::ContentMetadata::spawn_instance_for_store_test();
+                let mut content = internal_api::ContentMetadata::default();
                 content.content_type = content_mime.to_string();
                 let matches = matches_mime_type(
                     &extractor.schemas().unwrap().input_mimes,

@@ -39,7 +39,7 @@ mime = { version = "0.3" }
 mime_guess = { version = "2" }
 moka = { version = "0.12", features = ["default", "future"] }
 nanoid = { version = "0.4" }
-openraft = { version = "0.8.8", features = ["serde"] }
+openraft = { git="https://github.com/datafuselabs/openraft.git", rev = "bde63c0", features = ["serde", "storage-v2"] }
 opensearch = { version = "2", default_features=false, features=["rustls-tls"] }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
 opentelemetry_sdk = "0.21"
@@ -68,6 +68,7 @@ redis = { version = "0.24", features = [
 redis-test = { version = "0.3", features = ["futures"] }
 regex = { version = "1" }
 reqwest = { version = "0.11", default-features = false, features = [ "json", "rustls-tls"] } 
+rocksdb = "0.20.1"
 rustls = { version = "0.22" }
 rustls-pemfile = { version = "2" }
 serde = { version = "1", features = ["derive"] }
@@ -159,6 +160,7 @@ redis = { workspace = true }
 redis-test = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+rocksdb = { workspace = true}
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true }

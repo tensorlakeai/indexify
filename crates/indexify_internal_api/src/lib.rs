@@ -13,6 +13,7 @@ use strum::{Display, EnumString};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct Index {
+    // TODO FIXME: Add the Index ID
     pub repository: String,
     pub name: String,
     pub table_name: String,
@@ -351,6 +352,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
+    // Repository name == Repository ID
     pub repository: String,
     pub name: String,
     pub content_type: String,
@@ -372,6 +374,28 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             created_at: value.created_at,
             repository: value.repository,
             source: value.source,
+        }
+    }
+}
+
+// FIXME - Make this visible to only tests
+impl Default for ContentMetadata {
+    fn default() -> Self {
+        Self {
+            id: "test_id".to_string(),
+            parent_id: "test_parent_id".to_string(),
+            repository: "test_repository".to_string(),
+            name: "test_name".to_string(),
+            content_type: "test_content_type".to_string(),
+            labels: {
+                let mut labels = HashMap::new();
+                labels.insert("key1".to_string(), "value1".to_string());
+                labels.insert("key2".to_string(), "value2".to_string());
+                labels
+            },
+            storage_url: "http://example.com/test_url".to_string(),
+            created_at: 1234567890, // example timestamp
+            source: "test_source".to_string(),
         }
     }
 }
