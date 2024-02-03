@@ -17,7 +17,7 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
     {
       field: "content_type",
       headerName: "ContentType",
-      width: 100,
+      width: 150,
     },
     {
       field: "source",
