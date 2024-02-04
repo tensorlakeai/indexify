@@ -6,7 +6,6 @@ from typing import get_type_hints
 
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
-from marshmallow_jsonschema import JSONSchema
 
 @dataclass_json
 @dataclass
@@ -143,7 +142,8 @@ class ExtractorWrapper:
         json_schema = {}
         json_schema["additionalProperties"] = False
         if self._param_cls and callable(getattr(self._param_cls, "schema", None)):
-            json_schema = JSONSchema().dump(self._param_cls.schema())
+            # FIXME Construct the JSON Schema of the input params
+            json_schema = {}
         for content in out_c:
             for feature in content.features:
                 if feature.feature_type == "embedding":

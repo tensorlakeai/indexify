@@ -379,6 +379,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
 }
 
 // FIXME - Make this visible to only tests
+#[cfg(test)]
 impl Default for ContentMetadata {
     fn default() -> Self {
         Self {

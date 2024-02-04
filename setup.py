@@ -33,7 +33,6 @@ REQUIRED = [
     "transformers",
     "dataclasses-json",
     "marshmallow",
-    "marshmallow-jsonschema",
 ]
 
 # What packages are optional?
