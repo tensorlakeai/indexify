@@ -63,14 +63,22 @@ pub struct RepositoryEndpointState {
             list_extractors,
             bind_extractor,
             metadata_lookup,
-            list_executors
+            list_executors,
+            extract_content,
+            list_content,
+            read_content,
+            upload_file,
+            write_extracted_content,
+            extract_content
         ),
         components(
             schemas(CreateRepository, CreateRepositoryResponse, IndexDistance,
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
-            MetadataResponse, ExtractedMetadata, ListExecutorsResponse)
+            MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
+            Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse
+        )
         ),
         tags(
             (name = "indexify", description = "Indexify API")
@@ -409,7 +417,7 @@ async fn list_repositories(
     path = "/repositories/{repository_name}",
     tag = "indexify",
     responses(
-        (status = 200, description = "repository with a given name"),
+        (status = 200, description = "repository with a given name", body=GetRepositoryResponse),
         (status = 404, description = "Repository not found"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to get repository")
     ),
@@ -506,6 +514,17 @@ async fn add_texts(
     Ok(Json(TextAdditionResponse::default()))
 }
 
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/repositories/{repository_name}/content",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Lists the contents in the repository", body = ListContentResponse),
+        (status = BAD_REQUEST, description = "Unable to list contents")
+    ),
+)]
+#[axum::debug_handler]
 async fn list_content(
     Path(repository_name): Path<String>,
     State(state): State<RepositoryEndpointState>,
@@ -524,6 +543,17 @@ async fn list_content(
     Ok(Json(ListContentResponse { content_list }))
 }
 
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/repositories/{repository_name}/content/{content_id}",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Reads a specific content in the repository", body = GetRawContentResponse),
+        (status = BAD_REQUEST, description = "Unable to read content")
+    ),
+)]
+#[axum::debug_handler]
 async fn read_content(
     Path((repository_name, content_id)): Path<(String, String)>,
     State(state): State<RepositoryEndpointState>,
@@ -537,6 +567,16 @@ async fn read_content(
 }
 
 #[tracing::instrument]
+#[utoipa::path(
+    post,
+    path = "/repositories/{repository_name}/upload_file",
+    request_body(content_type = "multipart/form-data", content = Vec<u8>),
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Uploads a file to the repository"),
+        (status = BAD_REQUEST, description = "Unable to upload file")
+    ),
+)]
 #[axum::debug_handler]
 async fn upload_file(
     Path(repository_name): Path<String>,
@@ -565,6 +605,17 @@ async fn upload_file(
     Ok(())
 }
 
+#[tracing::instrument]
+#[utoipa::path(
+    post,
+    path = "/write_content",
+    request_body = WriteExtractedContent,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Write Extracted Content to a Repository"),
+        (status = BAD_REQUEST, description = "Unable to add texts")
+    ),
+)]
 #[axum::debug_handler]
 async fn write_extracted_content(
     State(state): State<RepositoryEndpointState>,
@@ -626,6 +677,16 @@ async fn list_extractors(
     Ok(Json(ListExtractorsResponse { extractors }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/extractors/extract",
+    tag = "indexify",
+    request_body = ExtractRequest,
+    responses(
+        (status = 200, description = "Extract content from an extractor", body = ExtractResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
+    ),
+)]
 #[axum::debug_handler]
 async fn list_state_changes(
     State(state): State<RepositoryEndpointState>,
@@ -774,7 +835,7 @@ async fn index_search(
     tag = "indexify",
     params(MetadataRequest),
     responses(
-        (status = 200, description = "List of Events in a repository", body = AttributeLookupResponse),
+        (status = 200, description = "List of Events in a repository", body = MetadataResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
     ),
 )]
