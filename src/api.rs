@@ -464,3 +464,24 @@ pub struct WriteExtractedContent {
 pub struct GetRawContentResponse {
     pub content_list: Vec<Content>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListTasks {
+    pub repository: String,
+    pub extractor_binding: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListTasksResponse {
+    pub tasks: Vec<internal_api::Task>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListStateChanges {
+    pub start_at: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListStateChangesResponse {
+    pub state_changes: Vec<internal_api::StateChange>,
+}

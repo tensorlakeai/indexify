@@ -35,6 +35,10 @@ service CoordinatorService {
     rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
 
     rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse) {}
+
+    rpc ListStateChanges(ListStateChangesRequest) returns (ListStateChangesResponse) {}
+
+    rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -56,6 +60,30 @@ message UpdateTaskRequest {
     string task_id = 2;
     TaskOutcome outcome = 3;
     repeated ContentMetadata content_list = 4;
+}
+
+message ListStateChangesRequest {
+}
+
+message StateChange {
+    string id = 1;
+    string object_id = 2;
+    string change_type = 3;
+    uint64 created_at = 4;
+    uint64 processed_at = 5;
+}
+
+message ListStateChangesResponse {
+    repeated StateChange changes = 1;
+}
+
+message ListTasksRequest {
+    string repository = 1;
+    string extractor_binding = 2;
+}
+
+message ListTasksResponse {
+    repeated Task tasks = 1;
 }
 
 message UpdateTaskResponse {

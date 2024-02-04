@@ -482,7 +482,7 @@ impl App {
                 executor_id: executor_id.clone(),
                 content_metadata: content_meta_list.clone(),
             },
-            state_changes: state_changes,
+            state_changes,
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())

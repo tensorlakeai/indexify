@@ -16,6 +16,7 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
+use indexify_proto::indexify_coordinator::ListStateChangesRequest;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin,
@@ -186,6 +187,14 @@ impl Server {
             .route(
                 "/extractors",
                 get(list_extractors).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/state_changes",
+                get(list_state_changes).with_state(repository_endpoint_state.clone()),
+            )
+            .route(
+                "/tasks",
+                get(list_tasks).with_state(repository_endpoint_state.clone()),
             )
             .route(
                 "/extractors/extract",
@@ -615,6 +624,40 @@ async fn list_extractors(
         .into_iter()
         .collect();
     Ok(Json(ListExtractorsResponse { extractors }))
+}
+
+#[axum::debug_handler]
+async fn list_state_changes(
+    State(state): State<RepositoryEndpointState>,
+    Query(_query): Query<ListStateChanges>,
+) -> Result<Json<ListStateChangesResponse>, IndexifyAPIError> {
+    let state_changes = state
+        .coordinator_client
+        .get()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .list_state_changes(ListStateChangesRequest {})
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_inner()
+        .changes;
+
+    let state_changes: Vec<indexify_internal_api::StateChange> = state_changes
+        .into_iter()
+        .map(|c| c.try_into())
+        .filter(|c| c.is_ok())
+        .map(|c| c.unwrap())
+        .collect();
+
+    Ok(Json(ListStateChangesResponse { state_changes }))
+}
+
+#[tracing::instrument]
+async fn list_tasks(
+    State(state): State<RepositoryEndpointState>,
+    Query(query): Query<ListTasks>,
+) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
+    Ok(Json(ListTasksResponse { tasks: vec![] }))
 }
 
 #[axum::debug_handler]

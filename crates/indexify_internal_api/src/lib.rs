@@ -1,10 +1,11 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
+    fmt,
     hash::{Hash, Hasher},
     str::FromStr,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use indexify_proto::indexify_coordinator;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
@@ -463,12 +464,23 @@ impl From<Repository> for indexify_coordinator::Repository {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     NewContent,
     NewBinding,
     ExecutorAdded,
     ExecutorRemoved,
+}
+
+impl fmt::Display for ChangeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChangeType::NewContent => write!(f, "NewContent"),
+            ChangeType::NewBinding => write!(f, "NewBinding"),
+            ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
+            ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -500,6 +512,39 @@ impl StateChange {
             change_type,
             created_at,
             processed_at: None,
+        }
+    }
+}
+
+impl TryFrom<indexify_coordinator::StateChange> for StateChange {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::StateChange) -> Result<Self> {
+        let change_type = match value.change_type.as_str() {
+            "NewContent" => ChangeType::NewContent,
+            "NewBinding" => ChangeType::NewBinding,
+            "ExecutorAdded" => ChangeType::ExecutorAdded,
+            "ExecutorRemoved" => ChangeType::ExecutorRemoved,
+            _ => return Err(anyhow!("Invalid ChangeType")),
+        };
+        Ok(Self {
+            id: value.id,
+            object_id: value.object_id,
+            change_type,
+            created_at: value.created_at,
+            processed_at: Some(value.processed_at),
+        })
+    }
+}
+
+impl From<StateChange> for indexify_coordinator::StateChange {
+    fn from(value: StateChange) -> Self {
+        Self {
+            id: value.id,
+            object_id: value.object_id,
+            change_type: value.change_type.to_string(),
+            created_at: value.created_at,
+            processed_at: value.processed_at.unwrap_or(0),
         }
     }
 }
