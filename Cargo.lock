@@ -2125,6 +2125,7 @@ dependencies = [
  "anyhow",
  "indexify_proto",
  "mime",
+ "nanoid",
  "serde",
  "serde_json",
  "serde_with",

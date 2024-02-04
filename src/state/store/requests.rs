@@ -1,12 +1,25 @@
 use std::collections::HashMap;
 
 use indexify_internal_api as internal_api;
+use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Request {
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Request {
+    pub payload: RequestPayload,
+    pub state_changes: Vec<StateChange>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StateChangeProcessed {
+    pub state_change_id: String,
+    pub processed_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum RequestPayload {
     RegisterExecutor {
         addr: String,
         executor_id: String,
@@ -22,20 +35,11 @@ pub enum Request {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
-    AddExtractionEvent {
-        event: internal_api::ExtractionEvent,
-    },
-    MarkExtractionEventProcessed {
-        event_id: String,
-        ts_secs: u64,
-    },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
-        extraction_events: Vec<internal_api::ExtractionEvent>,
     },
     CreateBinding {
         binding: internal_api::ExtractorBinding,
-        extraction_event: Option<internal_api::ExtractionEvent>,
     },
     CreateIndex {
         index: internal_api::Index,
@@ -47,9 +51,11 @@ pub enum Request {
         mark_finished: bool,
         executor_id: Option<String>,
         content_metadata: Vec<internal_api::ContentMetadata>,
-        extraction_events: Vec<internal_api::ExtractionEvent>,
     },
     RemoveExecutor {
         executor_id: String,
+    },
+    MarkStateChangesProcessed {
+        state_changes: Vec<StateChangeProcessed>,
     },
 }

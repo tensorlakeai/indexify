@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 use indexify_proto::indexify_coordinator;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
@@ -281,27 +282,6 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         })
     }
 }
-
-#[derive(Serialize, Debug, Deserialize, Display, Clone, PartialEq)]
-pub enum ExtractionEventPayload {
-    ExtractorBindingAdded {
-        repository: String,
-        binding: ExtractorBinding,
-    },
-    CreateContent {
-        content: ContentMetadata,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct ExtractionEvent {
-    pub id: String,
-    pub repository: String,
-    pub payload: ExtractionEventPayload,
-    pub created_at: u64,
-    pub processed_at: Option<u64>,
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct ExtractorBinding {
     pub id: String,
@@ -378,8 +358,6 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     }
 }
 
-// FIXME - Make this visible to only tests
-#[cfg(test)]
 impl Default for ContentMetadata {
     fn default() -> Self {
         Self {
@@ -481,6 +459,47 @@ impl From<Repository> for indexify_coordinator::Repository {
                 .into_iter()
                 .map(|b| b.into())
                 .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Display)]
+pub enum ChangeType {
+    NewContent,
+    NewBinding,
+    ExecutorAdded,
+    ExecutorRemoved,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct StateChange {
+    pub id: String,
+    pub object_id: String,
+    pub change_type: ChangeType,
+    pub created_at: u64,
+    pub processed_at: Option<u64>,
+}
+
+impl Default for StateChange {
+    fn default() -> Self {
+        Self {
+            id: "".to_string(),
+            object_id: "".to_string(),
+            change_type: ChangeType::NewContent,
+            created_at: 0,
+            processed_at: None,
+        }
+    }
+}
+
+impl StateChange {
+    pub fn new(object_id: String, change_type: ChangeType, created_at: u64) -> Self {
+        Self {
+            id: nanoid!(16),
+            object_id,
+            change_type,
+            created_at,
+            processed_at: None,
         }
     }
 }

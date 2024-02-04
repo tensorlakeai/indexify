@@ -1,6 +1,7 @@
 use std::{fmt::Debug, io::Cursor, ops::RangeBounds, path::Path, sync::Arc};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use indexify_internal_api::StateChange;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -25,11 +26,12 @@ use tokio::sync::RwLock;
 
 type Node = BasicNode;
 
-use self::{requests::Request, state_machine_objects::IndexifyState};
+use self::state_machine_objects::IndexifyState;
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 
 pub type RepositoryId = String;
 pub type TaskId = String;
+pub type StateChangeId = String;
 pub type ContentId = String;
 pub type ExecutorId = String;
 pub type ExtractionEventId = String;
@@ -37,20 +39,6 @@ pub type ExtractorName = String;
 
 pub mod requests;
 pub mod state_machine_objects;
-
-#[derive(Clone)]
-pub enum ChangeType {
-    NewContent,
-    NewBinding,
-    ExecutorAdded,
-    ExecutorRemoved,
-}
-
-#[derive(Clone)]
-pub struct StateChange {
-    pub id: String,
-    pub change_type: ChangeType,
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
@@ -133,10 +121,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
 
 impl StateMachineStore {
     async fn new(db: Arc<DB>) -> Result<StateMachineStore, StorageError<NodeId>> {
-        let (tx, rx) = tokio::sync::watch::channel(StateChange {
-            id: "".to_string(),
-            change_type: ChangeType::NewContent,
-        });
+        let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
         let mut sm = Self {
             data: StateMachineData {
                 last_applied_log_id: None,
@@ -181,7 +166,6 @@ impl StateMachineStore {
             })?
             .and_then(|v| serde_json::from_slice(&v).ok()))
     }
-
 
     // TODO - Write the snapshot to disk instead of the database
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
@@ -245,30 +229,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
             match ent.payload {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => {
+                    change_events.extend(req.state_changes.clone());
                     sm.apply(req.clone());
-                    match req {
-                        Request::CreateContent {
-                            content_metadata,
-                            extraction_events: _,
-                        } => {
-                            for content in content_metadata {
-                                change_events.push(StateChange {
-                                    id: content.id.clone(),
-                                    change_type: ChangeType::NewContent,
-                                });
-                            }
-                        }
-                        Request::CreateBinding {
-                            binding,
-                            extraction_event: _,
-                        } => {
-                            change_events.push(StateChange {
-                                id: binding.id.clone(),
-                                change_type: ChangeType::NewBinding,
-                            });
-                        }
-                        _ => {}
-                    }
                 }
                 EntryPayload::Membership(mem) => {
                     self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);

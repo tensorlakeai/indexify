@@ -45,6 +45,7 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskRequest,
     UpdateTaskResponse,
 };
+use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
     select,
@@ -61,7 +62,7 @@ use tracing::{error, info};
 use crate::{
     coordinator::Coordinator,
     server_config::ServerConfig,
-    state::{self, store::StateChange},
+    state,
     tonic_streamer::DropReceiver,
     utils::timestamp_secs,
 };
