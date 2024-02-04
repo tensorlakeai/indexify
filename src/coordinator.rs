@@ -379,7 +379,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
-        fs::remove_dir_all(config.sled.clone().path.unwrap()).unwrap();
+        let _ = fs::remove_dir_all(config.sled.clone().path.unwrap());
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
