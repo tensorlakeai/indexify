@@ -470,10 +470,17 @@ impl CoordinatorService for CoordinatorServiceServer {
 
     async fn list_tasks(
         &self,
-        _req: Request<ListTasksRequest>,
+        req: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
+        let req = req.into_inner();
+        let tasks = self
+            .coordinator
+            .list_tasks(&req.repository, &req.extractor_binding)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let tasks = tasks.into_iter().map(|t| t.into()).collect();
         Ok(Response::new(indexify_coordinator::ListTasksResponse {
-            tasks: vec![],
+            tasks,
         }))
     }
 }
