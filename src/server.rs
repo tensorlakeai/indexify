@@ -16,7 +16,7 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
-use indexify_proto::indexify_coordinator::ListStateChangesRequest;
+use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin,
@@ -657,7 +657,26 @@ async fn list_tasks(
     State(state): State<RepositoryEndpointState>,
     Query(query): Query<ListTasks>,
 ) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
-    Ok(Json(ListTasksResponse { tasks: vec![] }))
+    let tasks = state
+        .coordinator_client
+        .get()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .list_tasks(ListTasksRequest {
+            repository: query.repository.clone(),
+            extractor_binding: query.extractor_binding.unwrap_or("".to_string()),
+        })
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_inner()
+        .tasks;
+    let tasks = tasks
+        .into_iter()
+        .map(|t| t.try_into())
+        .filter(|t| t.is_ok())
+        .map(|t| t.unwrap())
+        .collect();
+    Ok(Json(ListTasksResponse { tasks }))
 }
 
 #[axum::debug_handler]

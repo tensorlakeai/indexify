@@ -215,6 +215,21 @@ impl Coordinator {
         Ok(state_changes)
     }
 
+    pub async fn list_tasks(
+        &self,
+        repository: &str,
+        extractor_binding: &str,
+    ) -> Result<Vec<internal_api::Task>> {
+        let store = self.shared_state.indexify_state.read().await;
+        Ok(store
+            .tasks
+            .values()
+            .filter(|t| t.repository == repository)
+            .filter(|t| t.extractor_binding == extractor_binding)
+            .cloned()
+            .collect())
+    }
+
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
         info!("removing executor: {}", executor_id);
         self.shared_state.remove_executor(executor_id).await?;
