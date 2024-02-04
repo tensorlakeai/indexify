@@ -29,7 +29,7 @@ pub fn list_content_filter<'a>(
 }
 
 #[cfg(test)]
-mod test_list_content_filter {
+mod test {
     use std::collections::HashMap;
 
     use super::*;

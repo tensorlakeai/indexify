@@ -12,6 +12,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
+use internal_api::{ExtractorBinding, StateChange};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
@@ -33,7 +34,12 @@ use tracing::{error, info, warn};
 
 use self::{
     grpc_server::RaftGrpcServer,
-    store::{state_machine_objects::IndexifyState, ExecutorId, StateChange, TaskId},
+    store::{
+        requests::{RequestPayload, StateChangeProcessed},
+        state_machine_objects::IndexifyState,
+        ExecutorId,
+        TaskId,
+    },
 };
 use crate::{
     coordinator_filters::matches_mime_type,
@@ -232,25 +238,30 @@ impl App {
         Ok(())
     }
 
-    pub async fn unprocessed_extraction_events(
-        &self,
-    ) -> Result<Vec<internal_api::ExtractionEvent>> {
+    pub async fn unprocessed_state_change_events(&self) -> Result<Vec<StateChange>> {
         let store = self.indexify_state.read().await;
-        let mut events = vec![];
-        for event_id in store.unprocessed_extraction_events.iter() {
-            let event = store.extraction_events.get(event_id).ok_or(anyhow!(
+        let mut state_changes = vec![];
+        for event_id in store.unprocessed_state_changes.iter() {
+            let event = store.state_changes.get(event_id).ok_or(anyhow!(
                 "internal error: unprocessed event {} not found in events table",
                 event_id
             ))?;
-            events.push(event.clone());
+            state_changes.push(event.clone());
         }
-        Ok(events)
+        Ok(state_changes)
     }
 
-    pub async fn mark_extraction_event_processed(&self, event_id: &str) -> Result<()> {
-        let req = Request::MarkExtractionEventProcessed {
-            event_id: event_id.to_string(),
-            ts_secs: timestamp_secs(),
+    pub async fn mark_change_events_as_processed(&self, events: Vec<StateChange>) -> Result<()> {
+        let mut state_changes = vec![];
+        for event in events {
+            state_changes.push(StateChangeProcessed {
+                state_change_id: event.id,
+                processed_at: timestamp_secs(),
+            });
+        }
+        let req = Request {
+            payload: RequestPayload::MarkStateChangesProcessed { state_changes },
+            state_changes: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -258,8 +269,9 @@ impl App {
 
     pub async fn filter_extractor_binding_for_content(
         &self,
-        content_metadata: &internal_api::ContentMetadata,
-    ) -> Result<Vec<internal_api::ExtractorBinding>> {
+        content_id: &str,
+    ) -> Result<Vec<ExtractorBinding>> {
+        let content_metadata = self.get_conent_metadata(content_id).await?;
         let bindings = {
             let store = self.indexify_state.read().await;
             store
@@ -297,22 +309,33 @@ impl App {
         Ok(matched_bindings)
     }
 
+    pub async fn get_extractor_binding(&self, id: &str) -> Result<ExtractorBinding> {
+        let store = self.indexify_state.read().await;
+        let binding = store
+            .extractor_bindings
+            .get(id)
+            .ok_or(anyhow!("binding {} not found", id))?;
+        Ok(binding.clone())
+    }
+
     /// Returns the extractor bindings that match the content metadata
     /// If the content metadata does not match any extractor bindings, returns
     /// an empty list Any filtration of extractor bindings based on content
     /// metadata should be done in this function.
     pub async fn content_matching_binding(
         &self,
-        repository: &str,
-        binding: &internal_api::ExtractorBinding,
+        binding_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
+        let extractor_binding = self.get_extractor_binding(binding_id).await?;
         // get the extractor so we can check the mimetype
-        let extractor = self.extractor_with_name(&binding.extractor).await?;
+        let extractor = self
+            .extractor_with_name(&extractor_binding.extractor)
+            .await?;
         let content_list = {
             let store = self.indexify_state.read().await;
             let content_list = store
                 .content_repository_table
-                .get(repository)
+                .get(&extractor_binding.repository)
                 .cloned()
                 .unwrap_or_default();
             let mut content_meta_list = Vec::new();
@@ -331,17 +354,17 @@ impl App {
         };
         let mut matched_content_list = Vec::new();
         for content in content_list {
-            if content.source != binding.content_source {
+            if content.source != extractor_binding.content_source {
                 continue;
             }
-            let is_match = &binding.filters.iter().all(|(name, value)| {
+            let is_match = &extractor_binding.filters.iter().all(|(name, value)| {
                 content
                     .labels
                     .get(name)
                     .map(|v| v == value)
                     .unwrap_or(false)
             });
-            if binding.filters.is_empty() || *is_match {
+            if extractor_binding.filters.is_empty() || *is_match {
                 matched_content_list.push(content);
             }
         }
@@ -404,28 +427,36 @@ impl App {
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
+        let req = Request {
+            payload: RequestPayload::RemoveExecutor {
+                executor_id: executor_id.to_string(),
+            },
+            state_changes: vec![StateChange::new(
+                executor_id.to_string(),
+                internal_api::ChangeType::ExecutorRemoved,
+                timestamp_secs(),
+            )],
+        };
         let _resp = self
             .raft
-            .client_write(Request::RemoveExecutor {
-                executor_id: executor_id.to_string(),
-            })
+            .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
         Ok(())
     }
 
-    pub async fn create_binding(
-        &self,
-        binding: internal_api::ExtractorBinding,
-        extraction_event: internal_api::ExtractionEvent,
-    ) -> Result<()> {
-        let _resp = self
-            .raft
-            .client_write(Request::CreateBinding {
-                binding,
-                extraction_event: Some(extraction_event),
-            })
-            .await?;
+    pub async fn create_binding(&self, binding: ExtractorBinding) -> Result<()> {
+        let req = Request {
+            payload: RequestPayload::CreateBinding {
+                binding: binding.clone(),
+            },
+            state_changes: vec![StateChange::new(
+                binding.id.clone(),
+                internal_api::ChangeType::NewBinding,
+                timestamp_secs(),
+            )],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 
@@ -434,19 +465,18 @@ impl App {
         task: internal_api::Task,
         executor_id: Option<String>,
         content_meta_list: Vec<internal_api::ContentMetadata>,
-        extraction_events: Vec<internal_api::ExtractionEvent>,
     ) -> Result<()> {
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
-        let _resp = self
-            .raft
-            .client_write(Request::UpdateTask {
-                task,
+        let req = Request {
+            payload: RequestPayload::UpdateTask {
+                task: task.clone(),
                 mark_finished,
-                executor_id,
-                content_metadata: content_meta_list,
-                extraction_events,
-            })
-            .await?;
+                executor_id: executor_id.clone(),
+                content_metadata: content_meta_list.clone(),
+            },
+            state_changes: vec![],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 
@@ -462,10 +492,7 @@ impl App {
         Ok(binding.clone())
     }
 
-    pub async fn list_bindings(
-        &self,
-        repository: &str,
-    ) -> Result<Vec<internal_api::ExtractorBinding>> {
+    pub async fn list_bindings(&self, repository: &str) -> Result<Vec<ExtractorBinding>> {
         let store = self.indexify_state.read().await;
         let bindings = store
             .bindings_table
@@ -478,12 +505,13 @@ impl App {
     }
 
     pub async fn create_repository(&self, repository: &str) -> Result<()> {
-        let _resp = self
-            .raft
-            .client_write(Request::CreateRepository {
+        let req = Request {
+            payload: RequestPayload::CreateRepository {
                 name: repository.to_string(),
-            })
-            .await?;
+            },
+            state_changes: vec![],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 
@@ -525,15 +553,20 @@ impl App {
         executor_id: &str,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
-        let _resp = self
-            .raft
-            .client_write(Request::RegisterExecutor {
+        let req = Request {
+            payload: RequestPayload::RegisterExecutor {
                 addr: addr.to_string(),
                 executor_id: executor_id.to_string(),
                 extractor,
                 ts_secs: timestamp_secs(),
-            })
-            .await?;
+            },
+            state_changes: vec![StateChange::new(
+                executor_id.to_string(),
+                internal_api::ChangeType::ExecutorAdded,
+                timestamp_secs(),
+            )],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 
@@ -553,21 +586,29 @@ impl App {
         &self,
         assignments: HashMap<TaskId, ExecutorId>,
     ) -> Result<()> {
-        let _resp = self
-            .raft
-            .client_write(Request::AssignTask { assignments })
-            .await?;
+        let req = Request {
+            payload: RequestPayload::AssignTask { assignments },
+            state_changes: vec![],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 
     pub async fn create_content_batch(
         &self,
         content_metadata: Vec<internal_api::ContentMetadata>,
-        extraction_events: Vec<internal_api::ExtractionEvent>,
     ) -> Result<()> {
-        let req = Request::CreateContent {
-            content_metadata,
-            extraction_events,
+        let mut state_changes = vec![];
+        for content in &content_metadata {
+            state_changes.push(StateChange::new(
+                content.id.clone(),
+                internal_api::ChangeType::NewContent,
+                timestamp_secs(),
+            ));
+        }
+        let req = Request {
+            payload: RequestPayload::CreateContent { content_metadata },
+            state_changes,
         };
         let _ = self
             .raft
@@ -605,10 +646,11 @@ impl App {
     }
 
     pub async fn create_tasks(&self, tasks: Vec<internal_api::Task>) -> Result<()> {
-        let _resp = self
-            .raft
-            .client_write(Request::CreateTasks { tasks })
-            .await?;
+        let req = Request {
+            payload: RequestPayload::CreateTasks { tasks },
+            state_changes: vec![],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 
@@ -659,14 +701,15 @@ impl App {
         index: internal_api::Index,
         id: String,
     ) -> Result<()> {
-        let _resp = self
-            .raft
-            .client_write(Request::CreateIndex {
+        let req = Request {
+            payload: RequestPayload::CreateIndex {
                 repository: repository.to_string(),
                 index,
                 id,
-            })
-            .await?;
+            },
+            state_changes: vec![],
+        };
+        let _resp = self.raft.client_write(req).await?;
         Ok(())
     }
 }

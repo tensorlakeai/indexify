@@ -9,6 +9,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
+nanoid = { workspace = true }
 indexify_proto = { workspace = true }
 mime = { workspace = true }
 serde = { workspace = true }
