@@ -40,6 +40,9 @@ use indexify_proto::indexify_coordinator::{
     ListIndexesResponse,
     ListRepositoriesRequest,
     ListRepositoriesResponse,
+    ListStateChangesRequest,
+    ListTasksRequest,
+    ListTasksResponse,
     RegisterExecutorRequest,
     RegisterExecutorResponse,
     UpdateTaskRequest,
@@ -444,6 +447,34 @@ impl CoordinatorService for CoordinatorServiceServer {
                 content_list: content_metadata,
             },
         ))
+    }
+
+    async fn list_state_changes(
+        &self,
+        _req: Request<ListStateChangesRequest>,
+    ) -> Result<Response<indexify_coordinator::ListStateChangesResponse>, Status> {
+        let state_changes = self
+            .coordinator
+            .list_state_changes()
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .into_iter()
+            .map(|c| c.into())
+            .collect();
+        Ok(Response::new(
+            indexify_coordinator::ListStateChangesResponse {
+                changes: state_changes,
+            },
+        ))
+    }
+
+    async fn list_tasks(
+        &self,
+        _req: Request<ListTasksRequest>,
+    ) -> Result<Response<ListTasksResponse>, Status> {
+        Ok(Response::new(indexify_coordinator::ListTasksResponse {
+            tasks: vec![],
+        }))
     }
 }
 
