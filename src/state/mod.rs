@@ -466,6 +466,14 @@ impl App {
         executor_id: Option<String>,
         content_meta_list: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
+        let mut state_changes = vec![];
+        for content in &content_meta_list {
+            state_changes.push(StateChange::new(
+                content.id.clone(),
+                internal_api::ChangeType::NewContent,
+                timestamp_secs(),
+            ));
+        }
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
         let req = Request {
             payload: RequestPayload::UpdateTask {
@@ -474,7 +482,7 @@ impl App {
                 executor_id: executor_id.clone(),
                 content_metadata: content_meta_list.clone(),
             },
-            state_changes: vec![],
+            state_changes: state_changes,
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
