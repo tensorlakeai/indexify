@@ -69,7 +69,6 @@ pub struct RepositoryEndpointState {
             read_content,
             upload_file,
             write_extracted_content,
-            extract_content
         ),
         components(
             schemas(CreateRepository, CreateRepositoryResponse, IndexDistance,
