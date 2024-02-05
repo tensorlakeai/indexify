@@ -65,7 +65,18 @@ services:
       server:
         ipv4_address: 172.21.0.10
     profiles: ["redis"] # only create a redis service if the "redis" profile is enabled
-
-
+  ui:
+    build:
+      context: ui
+    command: npx serve build --single
+    volumes:
+      - ./ui/node_modules/:/app/node_modules/
+      - ./ui/tsconfig.json:/app/tsconfig.json
+      - ./ui/src:/app/src
+      - ./ui/public:/app/public
+      - ./ui/package.json:/app/package.json
+      - ./ui/package-lock.json:/app/package-lock.json
+    ports:
+      - 3000:3000
 volumes:
   data:

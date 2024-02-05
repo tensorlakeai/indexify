@@ -6,13 +6,12 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
 import Root from "./routes/root";
 import { ErrorPage } from "./error-page";
-import Repositories from "./routes/repositories";
-import Extractors from "./routes/extractors";
-import Repository, { loader as repositoryLoader } from "./routes/repository";
+import Repositories, {
+  loader as RepositoriesLoader,
+} from "./routes/repositories";
+import Extractors, { loader as ExtractorsLoader } from "./routes/extractors";
+import Repository, { loader as RepositoryLoader } from "./routes/repository";
 import HomePage from "./routes/home";
-import { ThemeProvider } from "@emotion/react";
-import theme from "./theme";
-import { Typography } from "@mui/material";
 
 const router = createBrowserRouter([
   {
@@ -23,19 +22,25 @@ const router = createBrowserRouter([
       {
         path: "/",
         element: <HomePage />,
+        errorElement: <ErrorPage />,
       },
       {
         path: "/repositories",
         element: <Repositories />,
+        loader: RepositoriesLoader,
+        errorElement: <ErrorPage />,
       },
       {
         path: "/repositories/:repositoryname",
         element: <Repository />,
-        loader: repositoryLoader,
+        loader: RepositoryLoader,
+        errorElement: <ErrorPage />,
       },
       {
         path: "/extractors",
         element: <Extractors />,
+        loader: ExtractorsLoader,
+        errorElement: <ErrorPage />,
       },
     ],
   },

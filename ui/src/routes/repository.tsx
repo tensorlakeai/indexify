@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import IndexifyClient from "../lib/Indexify/client";
 import Repository from "../lib/Indexify/repository";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
@@ -20,7 +19,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
     repository.indexes(),
     repository.getContent(),
   ]);
-  console.log("content", contentList);
   return { repository, indexes, contentList };
 }
 

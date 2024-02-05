@@ -1,19 +1,21 @@
-import { useEffect, useState } from "react";
 import IndexifyClient from "../lib/Indexify/client";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Typography } from "@mui/material";
 import Extractor from "../lib/Indexify/extractor";
 import React from "react";
+import { LoaderFunctionArgs, useLoaderData } from "react-router-dom";
+import { IExtractor } from "../lib/Indexify/types";
+
+export async function loader(args: LoaderFunctionArgs) {
+  const client = new IndexifyClient();
+  const extractors = await client.extractors();
+  return { extractors };
+}
 
 const ExtractorsPage = () => {
-  const client = new IndexifyClient();
-
-  const [extractors, setExtractors] = useState<Extractor[]>([]);
-  useEffect(() => {
-    client.extractors().then((extractors) => {
-      setExtractors(extractors);
-    });
-  }, []);
+  const { extractors } = useLoaderData() as {
+    extractors: IExtractor[];
+  };
 
   const columns: GridColDef[] = [
     { field: "name", headerName: "Name", width: 300 },
@@ -23,7 +25,6 @@ const ExtractorsPage = () => {
       headerName: "Input Parameters",
       width: 300,
       valueGetter: (params) => {
-        console.log(params);
         return JSON.stringify(params.value);
       },
     },
@@ -32,7 +33,6 @@ const ExtractorsPage = () => {
       headerName: "Outputs",
       width: 300,
       valueGetter: (params) => {
-        console.log(params);
         return JSON.stringify(params.row.input_params);
       },
     },

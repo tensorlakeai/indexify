@@ -30,7 +30,10 @@ class Repository {
     labels_eq?: string
   ): Promise<IContent[]> {
     const resp = await axios.get(
-      `${this.serviceUrl}/repositories/${this.name}/content`
+      `${this.serviceUrl}/repositories/${this.name}/content`,
+      {
+        params: { parent_id, labels_eq },
+      }
     );
     return resp.data.content_list;
   }

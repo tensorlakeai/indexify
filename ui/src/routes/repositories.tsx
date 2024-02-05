@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import IndexifyClient from "../lib/Indexify/client";
 import Repository from "../lib/Indexify/repository";
 import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
@@ -7,16 +6,16 @@ import React from "react";
 import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../utils/helpers";
 import { Stack } from "@mui/system";
+import { LoaderFunctionArgs, useLoaderData } from "react-router-dom";
+
+export async function loader(args: LoaderFunctionArgs) {
+  const client = new IndexifyClient();
+  const repositories = await client.repositories();
+  return { repositories };
+}
 
 const RepositoriesPage = () => {
-  const client = new IndexifyClient();
-
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  useEffect(() => {
-    client.repositories().then((repos) => {
-      setRepositories(repos);
-    });
-  }, []);
+  const { repositories } = useLoaderData() as { repositories: Repository[] };
 
   const columns: GridColDef[] = [
     {

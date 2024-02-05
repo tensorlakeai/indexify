@@ -1,5 +1,5 @@
 import * as React from "react";
-import { styled, createTheme, ThemeProvider } from "@mui/material/styles";
+import { styled, ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import MuiDrawer from "@mui/material/Drawer";
 import Box from "@mui/material/Box";
@@ -127,7 +127,7 @@ export default function Dashboard() {
               justifyContent={"center"}
               spacing={2}
             >
-              <img src="/logo.svg" />
+              <img src="/logo.svg" alt="logo" />
               <a href={"/"} style={{ textDecoration: "none", color: "white" }}>
                 <Typography
                   component="h1"
@@ -191,9 +191,3 @@ export default function Dashboard() {
     </ThemeProvider>
   );
 }
-
-// const rootLoader = ({ request: }) => {
-//   console.log("root loader");
-// };
-
-// export { rootLoader };

@@ -53,7 +53,6 @@ class IndexifyClient {
   async getRepository(name: string): Promise<Repository> {
     const response = await this.get(`repositories/${name}`);
     const data = response.data.repository as IRepository;
-    console.log("get repository", data);
     return new Repository(this.serviceUrl, data.name, data.extractor_bindings);
   }
 

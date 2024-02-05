@@ -10,7 +10,7 @@ const HomePage = () => {
       </Typography>
 
       <Typography variant="body1">
-        <a href="https://getindexify.ai" target="_blank">
+        <a href="https://getindexify.ai" target="_blank" rel="noreferrer">
           Read documentation
         </a>
       </Typography>

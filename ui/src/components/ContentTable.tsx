@@ -1,5 +1,5 @@
-import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
-import { IContent, IIndex } from "../lib/Indexify/types";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { IContent } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -48,7 +48,7 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
   ];
 
   const renderContent = () => {
-    if (content.length == 0) {
+    if (content.length === 0) {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">

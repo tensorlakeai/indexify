@@ -1,4 +1,4 @@
-import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IIndex } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
@@ -27,7 +27,7 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
   };
 
   const renderContent = () => {
-    if (indexes.length == 0) {
+    if (indexes.length === 0) {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">

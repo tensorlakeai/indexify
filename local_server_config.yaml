@@ -21,7 +21,7 @@ blob_storage:
   backend: disk
   # Path to the directory where the blob storage will store the data.
   disk:
-     path: /tmp/indexify-blob-storage
+    path: /tmp/indexify-blob-storage
 
   #backend: s3
   #s3:
@@ -36,18 +36,19 @@ blob_storage:
 #
 # The qdrant_config parameter specifies the configuration for the Qdrant
 # service.
-index_config:
-  index_store: Qdrant
-  qdrant_config:
-    addr: "http://127.0.0.1:6334"
+# index_config:
+#   index_store: Qdrant
+#   qdrant_config:
+#     addr: "http://127.0.0.1:6334"
 
-# # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
-# - index_store: PgEmbedding
-#   pg_vector_config:
-#     addr: postgres://postgres:postgres@localhost/indexify
-#     m: 16
-#     efconstruction: 64
-#     efsearch: 40
+index_config:
+  # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
+  index_store: PgVector
+  pg_vector_config:
+    addr: postgres://postgres:postgres@localhost/indexify
+    m: 16
+    efconstruction: 64
+    efsearch: 40
 
 # TLS configuration for the service. If this is not specified, the service will
 # run in HTTP mode.
@@ -55,9 +56,9 @@ index_config:
 # required certificates and keys.
 tls:
   api: false
-  ca_file: .dev-tls/ca.crt        # Path to the CA certificate
-  cert_file: .dev-tls/server.crt  # Path to the server certificate
-  key_file: .dev-tls/server.key   # Path to the server private key
+  ca_file: .dev-tls/ca.crt # Path to the CA certificate
+  cert_file: .dev-tls/server.crt # Path to the server certificate
+  key_file: .dev-tls/server.key # Path to the server private key
 
 node_id: 0
 peers:
