@@ -38,6 +38,8 @@ use self::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
         ExecutorId,
+        ExecutorIdRef,
+        ExtractorExecutorsMap,
         TaskId,
     },
 };
@@ -371,6 +373,24 @@ impl App {
         Ok(matched_content_list)
     }
 
+    pub async fn all_tasks(&self) -> Result<Vec<internal_api::Task>> {
+        let store = self.indexify_state.read().await;
+        Ok(store.tasks.values().cloned().collect_vec())
+    }
+
+    pub async fn get_tasks_by_ids(
+        &self,
+        task_ids: HashSet<TaskId>,
+    ) -> Result<Vec<internal_api::Task>, anyhow::Error> {
+        let task_ids = task_ids.into_iter().collect::<HashSet<_>>();
+        Ok(self
+            .all_tasks()
+            .await?
+            .into_iter()
+            .filter(|task| task_ids.contains(&task.id))
+            .collect::<Vec<internal_api::Task>>())
+    }
+
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let store = self.indexify_state.read().await;
         let mut tasks = vec![];
@@ -380,6 +400,23 @@ impl App {
                 .get(task_id)
                 .ok_or(anyhow!("internal error: task {} not found", task_id))?;
             tasks.push(task.clone());
+        }
+        Ok(tasks)
+    }
+
+    pub async fn get_unfinished_task_ids_by_content_type(
+        &self,
+        content_types: HashSet<String>,
+    ) -> Result<HashSet<TaskId>> {
+        let store = self.indexify_state.read().await;
+        let mut tasks = HashSet::new();
+        for content_type in content_types {
+            let task_ids = store
+                .unfinished_tasks_by_content_type
+                .get(&content_type)
+                .cloned()
+                .unwrap_or_default();
+            tasks.extend(task_ids);
         }
         Ok(tasks)
     }
@@ -403,6 +440,28 @@ impl App {
             executors.push(executor.clone());
         }
         Ok(executors)
+    }
+
+    pub async fn get_extractor_executors_map(&self) -> ExtractorExecutorsMap {
+        self.indexify_state
+            .read()
+            .await
+            .extractor_executors_table
+            .clone()
+    }
+
+    pub async fn get_task_ids_for_executor(
+        &self,
+        executor_id: ExecutorIdRef<'_>,
+    ) -> Result<HashSet<TaskId>, anyhow::Error> {
+        // look up the executor
+        let executor = self.get_executor_by_id(executor_id).await?;
+        // look up tasks matching the mimetype of the executor using the
+        // unfinished_tasks_by_content_type index
+        self.get_unfinished_task_ids_by_content_type(
+            executor.extractor.input_mime_types.into_iter().collect(),
+        )
+        .await
     }
 
     pub async fn list_content(
@@ -588,6 +647,18 @@ impl App {
         let store = self.indexify_state.read().await;
         let executors = store.executors.values().cloned().collect_vec();
         Ok(executors)
+    }
+
+    pub async fn get_executor_by_id(
+        &self,
+        executor_id: ExecutorIdRef<'_>,
+    ) -> Result<internal_api::ExecutorMetadata> {
+        let store = self.indexify_state.read().await;
+        let executor = store
+            .executors
+            .get(executor_id)
+            .ok_or(anyhow!("executor {} not found", executor_id))?;
+        Ok(executor.clone())
     }
 
     pub async fn commit_task_assignments(

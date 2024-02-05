@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     requests::{Request, RequestPayload},
     ContentId,
+    ContentType,
     ExecutorId,
     ExtractorName,
     RepositoryId,
@@ -46,6 +47,8 @@ pub struct IndexifyState {
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
+
+    pub unfinished_tasks_by_content_type: HashMap<ContentType, HashSet<TaskId>>,
 }
 
 impl IndexifyState {
@@ -91,6 +94,10 @@ impl IndexifyState {
                 for task in tasks {
                     self.tasks.insert(task.id.clone(), task.clone());
                     self.unassigned_tasks.insert(task.id.clone());
+                    self.unfinished_tasks_by_content_type
+                        .entry(task.content_metadata.source.clone())
+                        .or_default()
+                        .insert(task.id.clone());
                 }
             }
             RequestPayload::AssignTask { assignments } => {
@@ -143,6 +150,10 @@ impl IndexifyState {
                 self.tasks.insert(task.id.clone(), task.clone());
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);
+                    self.unfinished_tasks_by_content_type
+                        .entry(task.content_metadata.source.clone())
+                        .or_default()
+                        .remove(&task.id);
                     if let Some(executor_id) = executor_id {
                         self.task_assignments
                             .entry(executor_id.clone())

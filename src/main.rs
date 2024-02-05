@@ -14,6 +14,7 @@ pub mod package;
 pub mod server;
 pub mod server_config;
 pub mod state;
+pub mod task_allocator;
 
 mod api;
 mod api_utils;

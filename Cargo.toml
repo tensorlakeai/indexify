@@ -37,6 +37,7 @@ indexify_proto = { path = "crates/indexify_proto" }
 jsonschema = {version = "0.17", default_features=false, features=["draft202012"]}
 mime = { version = "0.3" }
 mime_guess = { version = "2" }
+mockall = { version = "0.12" }
 moka = { version = "0.12", features = ["default", "future"] }
 nanoid = { version = "0.4" }
 openraft = { git="https://github.com/datafuselabs/openraft.git", rev = "bde63c0", features = ["serde", "storage-v2"] }
@@ -140,6 +141,7 @@ itertools = { workspace = true }
 jsonschema = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
+mockall = { workspace = true }
 moka = { workspace = true }
 nanoid = { workspace = true }
 openraft = { workspace = true }

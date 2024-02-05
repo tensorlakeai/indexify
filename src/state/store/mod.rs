@@ -1,4 +1,11 @@
-use std::{fmt::Debug, io::Cursor, ops::RangeBounds, path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    io::Cursor,
+    ops::RangeBounds,
+    path::Path,
+    sync::Arc,
+};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use indexify_internal_api::StateChange;
@@ -34,8 +41,11 @@ pub type TaskId = String;
 pub type StateChangeId = String;
 pub type ContentId = String;
 pub type ExecutorId = String;
+pub type ExecutorIdRef<'a> = &'a str;
 pub type ExtractionEventId = String;
 pub type ExtractorName = String;
+pub type ContentType = String;
+pub type ExtractorExecutorsMap = HashMap<String, HashSet<String>>;
 
 pub mod requests;
 pub mod state_machine_objects;
