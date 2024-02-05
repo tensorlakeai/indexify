@@ -377,7 +377,7 @@ pub struct ContentMetadata {
     pub source: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, EnumString, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, EnumString)]
 pub enum FeatureType {
     #[strum(serialize = "embedding")]
     Embedding,
@@ -397,7 +397,7 @@ impl From<internal_api::FeatureType> for FeatureType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Feature {
     pub feature_type: FeatureType,
     pub name: String,
@@ -415,7 +415,7 @@ impl From<internal_api::Feature> for Feature {
 }
 
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Content {
     pub content_type: String,
     #[serde_as(as = "BytesOrString")]
@@ -436,19 +436,19 @@ impl From<internal_api::Content> for Content {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
     pub name: String,
     pub content: Content,
     pub input_params: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractResponse {
     pub content: Vec<Content>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WriteExtractedContent {
     pub content_list: Vec<internal_api::Content>,
     pub task_id: String,
@@ -460,7 +460,7 @@ pub struct WriteExtractedContent {
     pub extractor_binding: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GetRawContentResponse {
     pub content_list: Vec<Content>,
 }
