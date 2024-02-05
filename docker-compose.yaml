@@ -65,7 +65,11 @@ services:
       server:
         ipv4_address: 172.21.0.10
     profiles: ["redis"] # only create a redis service if the "redis" profile is enabled
-
-
+  ui:
+    build:
+      context: ui
+    command: npx serve build --single
+    ports:
+      - 3000:3000
 volumes:
   data:
