@@ -64,7 +64,6 @@ pub struct RepositoryEndpointState {
             bind_extractor,
             metadata_lookup,
             list_executors,
-            extract_content,
             list_content,
             read_content,
             upload_file,
