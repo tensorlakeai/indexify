@@ -15,23 +15,13 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@postgres/indexify
       - INDEXIFY_DB_URL=postgres://postgres:postgres@postgres/indexify
       - INDEXIFY_COORDINATOR_ADDR=localhost:8950
-      - INDEXIFY_INDEX_CONFIG.QDRANT_CONFIG.ADDR=http://qdrant:6334
     depends_on:
-      - qdrant
       - postgres
     networks:
       server:
         ipv4_address: 172.21.0.2
     volumes:
       - data:/tmp/indexify-blob-storage
-  qdrant:
-    image: qdrant/qdrant:v1.4.1
-    restart: always
-    ports:
-      - 6333
-    networks:
-      server:
-        ipv4_address: 172.21.0.8
   postgres:
     image: ankane/pgvector
     restart: always
