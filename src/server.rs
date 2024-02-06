@@ -16,6 +16,7 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -30,7 +31,6 @@ use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
-use indexify_internal_api as internal_api;
 
 use crate::{
     api::{self, *},
@@ -79,7 +79,7 @@ pub struct RepositoryEndpointState {
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
-            Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome, 
+            Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
             internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetRepositoryResponse
         )
         ),
