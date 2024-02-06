@@ -45,7 +45,7 @@ pub type ExecutorIdRef<'a> = &'a str;
 pub type ExtractionEventId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
-pub type ExtractorExecutorsMap = HashMap<String, HashSet<String>>;
+pub type ExtractorExecutorsMap = HashMap<ExtractorName, HashSet<ExecutorId>>;
 
 pub mod requests;
 pub mod state_machine_objects;

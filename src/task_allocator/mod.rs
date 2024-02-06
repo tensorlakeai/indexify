@@ -30,21 +30,6 @@ impl TaskAllocator {
         Ok(())
     }
 
-    /// Reschedule all tasks that match the executor's extractor, even if
-    /// they are already assigned to a different executor.
-    async fn reallocate_all_tasks_matching_executor(
-        &self,
-        executor_id: ExecutorId,
-    ) -> Result<(), anyhow::Error> {
-        let task_ids = self
-            .shared_state
-            .get_task_ids_for_executor(executor_id.as_str())
-            .await?;
-        let plan = self.planner.plan_allocations(task_ids).await?;
-        self.commit_task_assignments(plan.into()).await?;
-        Ok(())
-    }
-
     /// Reschedule all tasks that match an extractor, even if they are already
     /// assigned to a different executor.
     async fn reallocate_all_tasks_matching_extractor(
@@ -53,7 +38,7 @@ impl TaskAllocator {
     ) -> Result<(), anyhow::Error> {
         let task_ids = self
             .shared_state
-            .get_task_ids_for_extractor(extractor_name.as_str())
+            .unfinished_tasks_by_extractor(extractor_name.as_str())
             .await?;
         let plan = self.planner.plan_allocations(task_ids).await?;
         self.commit_task_assignments(plan.into()).await?;

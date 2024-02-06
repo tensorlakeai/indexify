@@ -8,6 +8,7 @@ use super::{
     requests::{Request, RequestPayload},
     ContentId,
     ExecutorId,
+    ExecutorIdRef,
     ExtractorName,
     RepositoryId,
     StateChangeId,
@@ -169,7 +170,7 @@ impl IndexifyState {
                             .remove(&task.id);
 
                         // decrement the load
-                        *self.executor_load.entry(executor_id.clone()).or_default() -= 1;
+                        self.decrement_load(&executor_id);
                     }
                 }
                 for content in content_metadata {
@@ -192,6 +193,17 @@ impl IndexifyState {
                         });
                 }
             }
+        }
+    }
+
+    fn decrement_load(&mut self, executor_id: ExecutorIdRef<'_>) {
+        let load = self
+            .executor_load
+            .entry(executor_id.to_string())
+            .or_default();
+        // if more than 0, decrement
+        if *load > 0 {
+            *load -= 1;
         }
     }
 }

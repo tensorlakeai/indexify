@@ -10,7 +10,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use futures::future;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{ExtractorBinding, StateChange};
@@ -374,22 +373,6 @@ impl App {
         Ok(matched_content_list)
     }
 
-    pub async fn all_tasks(&self) -> Result<Vec<internal_api::Task>> {
-        let store = self.indexify_state.read().await;
-        Ok(store.tasks.values().cloned().collect_vec())
-    }
-
-    pub async fn get_tasks_by_ids(
-        &self,
-        task_ids: HashSet<TaskId>,
-    ) -> Result<Vec<internal_api::Task>, anyhow::Error> {
-        let task_ids = task_ids.into_iter().collect::<HashSet<_>>();
-        future::join_all(task_ids.iter().map(|id| self.task_with_id(id)))
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-    }
-
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let store = self.indexify_state.read().await;
         let mut tasks = vec![];
@@ -401,18 +384,6 @@ impl App {
             tasks.push(task.clone());
         }
         Ok(tasks)
-    }
-
-    pub async fn executor_with_id(
-        &self,
-        executor_id: &str,
-    ) -> Result<internal_api::ExecutorMetadata> {
-        let store = self.indexify_state.read().await;
-        let executor = store
-            .executors
-            .get(executor_id)
-            .ok_or(anyhow!("executor {} not found", executor_id))?;
-        Ok(executor.clone())
     }
 
     pub async fn get_executors_for_extractor(
@@ -448,18 +419,7 @@ impl App {
         self.indexify_state.read().await.executor_load.clone()
     }
 
-    pub async fn get_task_ids_for_executor(
-        &self,
-        executor_id: ExecutorIdRef<'_>,
-    ) -> Result<HashSet<TaskId>, anyhow::Error> {
-        // look up the executor
-        let executor = self.get_executor_by_id(executor_id).await?;
-        // look up unfinished tasks matching the executor's extractor
-        self.get_task_ids_for_extractor(&executor.extractor.name.as_str())
-            .await
-    }
-
-    pub async fn get_task_ids_for_extractor(
+    pub async fn unfinished_tasks_by_extractor(
         &self,
         extractor: &str,
     ) -> Result<HashSet<TaskId>, anyhow::Error> {
@@ -469,7 +429,6 @@ impl App {
             .get(extractor)
             .cloned()
             .unwrap_or_default();
-        drop(sm);
         Ok(task_ids)
     }
 

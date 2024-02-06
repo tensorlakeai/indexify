@@ -3,6 +3,8 @@ use std::{
     collections::{BinaryHeap, HashMap, HashSet},
 };
 
+use tracing::error;
+
 use super::{plan::TaskAllocationPlan, AllocationPlanner, AllocationPlannerResult};
 use crate::state::{
     store::{ExtractorName, TaskId},
@@ -62,7 +64,6 @@ impl LoadAwareDistributor {
                 result.insert(extractor.clone(), filtered_task_ids);
             }
         }
-        drop(sm);
         result
     }
 }
@@ -87,19 +88,28 @@ impl AllocationPlanner for LoadAwareDistributor {
         let mut executors_load_heap: HashMap<String, BinaryHeap<Reverse<ExecutorLoad>>> =
             HashMap::new();
 
-        for extractor in tasks_by_extractor.keys() {
-            let executors = extractor_executors_map.get(extractor).unwrap();
-            for executor in executors.iter() {
-                let load = executor_load.get(executor).cloned().unwrap_or_default();
-                let heap = executors_load_heap
-                    .entry(extractor.clone())
-                    .or_insert_with(BinaryHeap::new);
-                heap.push(Reverse(ExecutorLoad {
-                    executor_id: executor.clone(),
-                    load,
-                }));
+        let sm = self.shared_state.indexify_state.read().await;
+        for executor in executor_load.keys() {
+            // get the extractors that this executor is bound to
+            let extractor_name = sm.executors.get(executor).map(|e| e.extractor.name.clone());
+            if let None = extractor_name {
+                error!("Error getting extractor name for executor: {}", executor);
+                continue;
             }
+            let extractor_name = extractor_name.unwrap();
+            // add the executor to the min-heap for the load of the extractor. create if it
+            // doesn't exist.
+            let load = executor_load.get(executor).cloned().unwrap_or_default();
+            let heap = executors_load_heap
+                .entry(extractor_name)
+                .or_insert_with(BinaryHeap::new);
+            heap.push(Reverse(ExecutorLoad {
+                executor_id: executor.clone(),
+                load,
+            }));
         }
+        // dropping here to free the lock before calculating allocations
+        drop(sm);
 
         for (extractor_name, task_ids) in tasks_by_extractor.iter() {
             if let Some(heap) = executors_load_heap.get_mut(extractor_name) {
