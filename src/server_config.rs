@@ -1,6 +1,5 @@
 use std::{
-    fmt,
-    fs,
+    fmt, fs,
     net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
 };
@@ -446,11 +445,11 @@ mod tests {
         let config = super::ServerConfig::from_path("sample_config.yaml").unwrap();
         assert_eq!(
             config.index_config.index_store,
-            super::IndexStoreKind::Qdrant
+            super::IndexStoreKind::PgVector
         );
         assert_eq!(
-            config.index_config.qdrant_config.unwrap().addr,
-            "http://qdrant:6334".to_string()
+            config.index_config.pg_vector_config.unwrap().addr,
+            "postgres://postgres:postgres@postgres/indexify".to_string()
         );
     }
 }
