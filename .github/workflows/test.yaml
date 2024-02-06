@@ -21,5 +21,12 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: 3.9
+    - name: Cache build artifacts
+      uses: actions/cache@v3
+      with:
+        key: python-build-cache
+        path: |
+          ~/.cache/pip
+          /usr/lib/python3/dist-packages
     - name: test
       run: ./run_tests.sh
