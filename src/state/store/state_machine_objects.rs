@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use super::{
     requests::{Request, RequestPayload},
     ContentId,
-    ContentType,
     ExecutorId,
     ExtractorName,
     RepositoryId,
@@ -48,7 +47,9 @@ pub struct IndexifyState {
 
     pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
 
-    pub unfinished_tasks_by_content_type: HashMap<ContentType, HashSet<TaskId>>,
+    pub unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
+
+    pub executor_load: HashMap<ExecutorId, usize>,
 }
 
 impl IndexifyState {
@@ -77,6 +78,8 @@ impl IndexifyState {
                     extractor: extractor.clone(),
                 };
                 self.executors.insert(executor_id.clone(), executor_info);
+                // initialize executor load at 0
+                self.executor_load.insert(executor_id.clone(), 0);
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 // Remove this from the executors table
@@ -89,13 +92,15 @@ impl IndexifyState {
                         .or_default();
                     executors.remove(executor_meta.extractor.name.as_str());
                 }
+                // Remove from the executor load table
+                self.executor_load.remove(&executor_id);
             }
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
                     self.tasks.insert(task.id.clone(), task.clone());
                     self.unassigned_tasks.insert(task.id.clone());
-                    self.unfinished_tasks_by_content_type
-                        .entry(task.content_metadata.source.clone())
+                    self.unfinished_tasks_by_extractor
+                        .entry(task.extractor.clone())
                         .or_default()
                         .insert(task.id.clone());
                 }
@@ -107,6 +112,8 @@ impl IndexifyState {
                         .or_default()
                         .insert(task_id.clone());
                     self.unassigned_tasks.remove(&task_id);
+                    // increment executor load
+                    *self.executor_load.entry(executor_id.clone()).or_default() += 1;
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {
@@ -150,15 +157,19 @@ impl IndexifyState {
                 self.tasks.insert(task.id.clone(), task.clone());
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);
-                    self.unfinished_tasks_by_content_type
-                        .entry(task.content_metadata.source.clone())
+                    self.unfinished_tasks_by_extractor
+                        .entry(task.extractor.clone())
                         .or_default()
                         .remove(&task.id);
                     if let Some(executor_id) = executor_id {
+                        // remove the task from the executor's task assignments
                         self.task_assignments
                             .entry(executor_id.clone())
                             .or_default()
                             .remove(&task.id);
+
+                        // decrement the load
+                        *self.executor_load.entry(executor_id.clone()).or_default() -= 1;
                     }
                 }
                 for content in content_metadata {

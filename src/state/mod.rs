@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use futures::future;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{ExtractorBinding, StateChange};
@@ -383,12 +384,10 @@ impl App {
         task_ids: HashSet<TaskId>,
     ) -> Result<Vec<internal_api::Task>, anyhow::Error> {
         let task_ids = task_ids.into_iter().collect::<HashSet<_>>();
-        Ok(self
-            .all_tasks()
-            .await?
+        future::join_all(task_ids.iter().map(|id| self.task_with_id(id)))
+            .await
             .into_iter()
-            .filter(|task| task_ids.contains(&task.id))
-            .collect::<Vec<internal_api::Task>>())
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
@@ -404,21 +403,16 @@ impl App {
         Ok(tasks)
     }
 
-    pub async fn get_unfinished_task_ids_by_content_type(
+    pub async fn executor_with_id(
         &self,
-        content_types: HashSet<String>,
-    ) -> Result<HashSet<TaskId>> {
+        executor_id: &str,
+    ) -> Result<internal_api::ExecutorMetadata> {
         let store = self.indexify_state.read().await;
-        let mut tasks = HashSet::new();
-        for content_type in content_types {
-            let task_ids = store
-                .unfinished_tasks_by_content_type
-                .get(&content_type)
-                .cloned()
-                .unwrap_or_default();
-            tasks.extend(task_ids);
-        }
-        Ok(tasks)
+        let executor = store
+            .executors
+            .get(executor_id)
+            .ok_or(anyhow!("executor {} not found", executor_id))?;
+        Ok(executor.clone())
     }
 
     pub async fn get_executors_for_extractor(
@@ -450,18 +444,33 @@ impl App {
             .clone()
     }
 
+    pub async fn get_executor_load(&self) -> HashMap<ExecutorId, usize> {
+        self.indexify_state.read().await.executor_load.clone()
+    }
+
     pub async fn get_task_ids_for_executor(
         &self,
         executor_id: ExecutorIdRef<'_>,
     ) -> Result<HashSet<TaskId>, anyhow::Error> {
         // look up the executor
         let executor = self.get_executor_by_id(executor_id).await?;
-        // look up tasks matching the mimetype of the executor using the
-        // unfinished_tasks_by_content_type index
-        self.get_unfinished_task_ids_by_content_type(
-            executor.extractor.input_mime_types.into_iter().collect(),
-        )
-        .await
+        // look up unfinished tasks matching the executor's extractor
+        self.get_task_ids_for_extractor(&executor.extractor.name.as_str())
+            .await
+    }
+
+    pub async fn get_task_ids_for_extractor(
+        &self,
+        extractor: &str,
+    ) -> Result<HashSet<TaskId>, anyhow::Error> {
+        let sm = self.indexify_state.read().await;
+        let task_ids = sm
+            .unfinished_tasks_by_extractor
+            .get(extractor)
+            .cloned()
+            .unwrap_or_default();
+        drop(sm);
+        Ok(task_ids)
     }
 
     pub async fn list_content(
