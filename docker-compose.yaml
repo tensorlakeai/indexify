@@ -58,7 +58,7 @@ services:
   ui:
     build:
       context: ui
-    command: npx serve build --single
+    command: npm run start
     ports:
       - 3000:3000
 volumes:

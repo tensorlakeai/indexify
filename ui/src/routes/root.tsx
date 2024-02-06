@@ -13,10 +13,34 @@ import Container from "@mui/material/Container";
 import Link from "@mui/material/Link";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import { mainListItems, secondaryListItems } from "../components/listItems";
-import { Outlet } from "react-router-dom";
+import { MainListItems } from "../components/listItems";
+import {
+  LoaderFunctionArgs,
+  Outlet,
+  redirect,
+  useLoaderData,
+} from "react-router-dom";
 import theme from "../theme";
 import { Stack } from "@mui/system";
+import MenuItem from "@mui/material/MenuItem";
+import Menu from "@mui/material/Menu";
+import { Button } from "@mui/material";
+import IndexifyClient from "../lib/Indexify/client";
+import DataObjectIcon from "@mui/icons-material/DataObject";
+import CircleIcon from "@mui/icons-material/Circle";
+import { stringToColor } from "../utils/helpers";
+
+export async function loader({ params }: LoaderFunctionArgs) {
+  const client = new IndexifyClient();
+  const namespaces = (await client.repositories()).map((repo) => repo.name);
+
+  if (!params.namespace || !namespaces.includes(params.namespace)) {
+    if (params.namespace !== "default") {
+      return redirect(`/${namespaces[0] ?? "default"}`);
+    }
+  }
+  return { namespaces, namespace: params.namespace };
+}
 
 function Copyright(props: any) {
   return (
@@ -86,9 +110,21 @@ const Drawer = styled(MuiDrawer, {
   },
 }));
 
-// TODO remove, this demo shouldn't need to reset the theme.
-
 export default function Dashboard() {
+  const { namespace, namespaces } = useLoaderData() as {
+    namespace: string;
+    namespaces: string[];
+  };
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+
+  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+
   const [open, setOpen] = React.useState(true);
   const toggleDrawer = () => {
     setOpen(!open);
@@ -124,8 +160,9 @@ export default function Dashboard() {
               direction={"row"}
               display={"flex"}
               alignItems={"center"}
-              justifyContent={"center"}
+              justifyContent={"flex-start"}
               spacing={2}
+              flexGrow={1}
             >
               <img src="/logo.svg" alt="logo" />
               <a href={"/"} style={{ textDecoration: "none", color: "white" }}>
@@ -140,11 +177,55 @@ export default function Dashboard() {
                 </Typography>
               </a>
             </Stack>
-            {/* <IconButton color="inherit">
-              <Badge badgeContent={4} color="secondary">
-                <NotificationsIcon />
-              </Badge>
-            </IconButton> */}
+
+            <Button
+              size="large"
+              aria-label="account of current user"
+              aria-controls="menu-appbar"
+              aria-haspopup="true"
+              onClick={handleMenu}
+              startIcon={
+                <DataObjectIcon sx={{ color: stringToColor(namespace) }} />
+              }
+            >
+              {namespace}
+            </Button>
+
+            <Menu
+              id="menu-appbar"
+              anchorEl={anchorEl}
+              anchorOrigin={{
+                vertical: "top",
+                horizontal: "right",
+              }}
+              keepMounted
+              transformOrigin={{
+                vertical: "top",
+                horizontal: "right",
+              }}
+              open={Boolean(anchorEl)}
+              onClose={handleClose}
+            >
+              <Typography mx={2} my={1} variant="h4">
+                Namespaces ({namespaces.length})
+              </Typography>
+              {namespaces.map((name) => {
+                return (
+                  <Link sx={{ textDecoration: "none" }} href={`/${name}`}>
+                    <MenuItem key={name} onClick={handleClose}>
+                      <CircleIcon
+                        sx={{
+                          width: "15px",
+                          color: stringToColor(name),
+                          mr: 1,
+                        }}
+                      />
+                      {name}
+                    </MenuItem>
+                  </Link>
+                );
+              })}
+            </Menu>
           </Toolbar>
         </AppBar>
         <Drawer variant="permanent" open={open}>
@@ -162,9 +243,9 @@ export default function Dashboard() {
           </Toolbar>
           <Divider />
           <List component="nav">
-            {mainListItems}
-            <Divider sx={{ my: 1 }} />
-            {secondaryListItems}
+            <MainListItems currentNamespace={namespace} />
+            {/* <Divider sx={{ my: 1 }} />
+            {secondaryListItems} */}
           </List>
         </Drawer>
         <Box

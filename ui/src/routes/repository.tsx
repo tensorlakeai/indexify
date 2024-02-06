@@ -1,16 +1,17 @@
 import IndexifyClient from "../lib/Indexify/client";
 import Repository from "../lib/Indexify/repository";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
-import { Typography } from "@mui/material";
+import { Box, Typography, Stack } from "@mui/material";
 import { IContent, IIndex } from "../lib/Indexify/types";
 import IndexTable from "../components/IndexTable";
 import ContentTable from "../components/ContentTable";
 import React from "react";
-import { Stack } from "@mui/system";
 import ExtractorBindingsTable from "../components/ExtractorBindingsTable";
+import CircleIcon from "@mui/icons-material/Circle";
+import { stringToColor } from "../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const name = params.repositoryname;
+  const name = params.namespace;
   const client = new IndexifyClient();
   if (name === undefined) return null;
 
@@ -31,9 +32,18 @@ const RepositoryPage = () => {
 
   return (
     <Stack direction="column" spacing={3}>
-      <Typography variant="h2" component="h1">
-        {repository.name}
-      </Typography>
+      <Box display={"flex"} alignItems={"center"}>
+        <CircleIcon
+          sx={{
+            width: "30px",
+            color: stringToColor(repository.name),
+            mr: 1,
+          }}
+        />
+        <Typography variant="h2" component="h1">
+          {repository.name}
+        </Typography>
+      </Box>
       <ExtractorBindingsTable bindings={repository.extractorBindings} />
       <IndexTable indexes={indexes} />
       <ContentTable content={contentList} />
