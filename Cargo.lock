@@ -2131,6 +2131,7 @@ dependencies = [
  "serde_with",
  "smart-default",
  "strum",
+ "utoipa",
 ]
 
 [[package]]

@@ -29,6 +29,7 @@ use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
+use indexify_internal_api as internal_api;
 
 use crate::{
     api::{self, *},
@@ -68,6 +69,8 @@ pub struct RepositoryEndpointState {
             read_content,
             upload_file,
             write_extracted_content,
+            list_tasks,
+            extract_content
         ),
         components(
             schemas(CreateRepository, CreateRepositoryResponse, IndexDistance,
@@ -75,7 +78,8 @@ pub struct RepositoryEndpointState {
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
             , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
-            Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse
+            Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome, 
+            internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetRepositoryResponse
         )
         ),
         tags(
@@ -712,6 +716,15 @@ async fn list_state_changes(
 }
 
 #[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/tasks",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Lists tasks", body = ListTasksResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
+    ),
+)]
 async fn list_tasks(
     State(state): State<RepositoryEndpointState>,
     Query(query): Query<ListTasks>,
@@ -738,6 +751,16 @@ async fn list_tasks(
     Ok(Json(ListTasksResponse { tasks }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/extractors/extract",
+    request_body = ExtractRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Extract content from extractors", body = ExtractResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
+    ),
+)]
 #[axum::debug_handler]
 async fn extract_content(
     State(repository_endpoint): State<RepositoryEndpointState>,
