@@ -1,4 +1,4 @@
-FROM --platform=amd64 node
+FROM node
 
 WORKDIR /app
 
@@ -9,4 +9,3 @@ RUN npm install
 COPY . .
 
 RUN npm run build
-

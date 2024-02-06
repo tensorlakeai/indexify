@@ -56,9 +56,8 @@ services:
         ipv4_address: 172.21.0.10
     profiles: ["redis"] # only create a redis service if the "redis" profile is enabled
   ui:
-    build:
-      context: ui
-    command: npm run start
+    image: tensorlake/indexify-ui
+    command: ["npm", "run", "start"]
     ports:
       - 3000:3000
 volumes:
