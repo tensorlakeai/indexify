@@ -49,6 +49,7 @@ pub type ExtractorExecutorsMap = HashMap<ExtractorName, HashSet<ExecutorId>>;
 
 pub mod requests;
 pub mod state_machine_objects;
+mod store_utils;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {

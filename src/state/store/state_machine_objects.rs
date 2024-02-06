@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     requests::{Request, RequestPayload},
+    store_utils::{decrement_load, increment_load},
     ContentId,
     ExecutorId,
-    ExecutorIdRef,
     ExtractorName,
     RepositoryId,
     StateChangeId,
@@ -113,8 +113,8 @@ impl IndexifyState {
                         .or_default()
                         .insert(task_id.clone());
                     self.unassigned_tasks.remove(&task_id);
-                    // increment executor load
-                    *self.executor_load.entry(executor_id.clone()).or_default() += 1;
+
+                    increment_load(&mut self.executor_load, &executor_id);
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {
@@ -169,8 +169,7 @@ impl IndexifyState {
                             .or_default()
                             .remove(&task.id);
 
-                        // decrement the load
-                        self.decrement_load(&executor_id);
+                        decrement_load(&mut self.executor_load, &executor_id);
                     }
                 }
                 for content in content_metadata {
@@ -193,17 +192,6 @@ impl IndexifyState {
                         });
                 }
             }
-        }
-    }
-
-    fn decrement_load(&mut self, executor_id: ExecutorIdRef<'_>) {
-        let load = self
-            .executor_load
-            .entry(executor_id.to_string())
-            .or_default();
-        // if more than 0, decrement
-        if *load > 0 {
-            *load -= 1;
         }
     }
 }
