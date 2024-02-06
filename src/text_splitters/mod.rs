@@ -253,3 +253,23 @@ mod tests {
         assert_eq!(chunks1.len(), 1);
     }
 }
+
+impl From<crate::api::IndexDistance> for IndexDistance {
+    fn from(value: IndexDistance) -> Self {
+        match value {
+            crate::api::IndexDistance::Dot => IndexDistance::Dot,
+            crate::api::IndexDistance::Cosine => IndexDistance::Cosine,
+            crate::api::IndexDistance::Euclidean => IndexDistance::Euclidean,
+        }
+    }
+}
+
+impl From<IndexDistance> for crate::api::IndexDistance {
+    fn from(val: IndexDistance) -> Self {
+        match val {
+            IndexDistance::Dot => crate::api::IndexDistance::Dot,
+            IndexDistance::Cosine => crate::api::IndexDistance::Cosine,
+            IndexDistance::Euclidean => crate::api::IndexDistance::Euclidean,
+        }
+    }
+}

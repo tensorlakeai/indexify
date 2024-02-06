@@ -7,7 +7,7 @@ build = "build.rs"
 resolver = "2"
 
 [workspace]
-members = [".", "crates/indexify_internal_api", "crates/indexify_proto"]
+members = [".", "crates/indexify_internal_api", "crates/indexify_proto", "crates/indexify_extractor", "crates/indexify_api"]
 
 [workspace.dependencies]
 anyerror = "*"
@@ -32,6 +32,8 @@ hostname = { version = "0.3" }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["service"] }
 itertools = "0.12"
+indexify_api = { path = "crates/indexify_api" }
+indexify_extractor = { path = "crates/indexify_extractor" }
 indexify_internal_api = { path = "crates/indexify_internal_api" }
 indexify_proto = { path = "crates/indexify_proto" }
 jsonschema = {version = "0.17", default_features=false, features=["draft202012"]}
@@ -134,6 +136,8 @@ h2 = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+indexify_api = { workspace = true }
+indexify_extractor = { workspace = true }
 indexify_proto = { workspace = true }
 indexify_internal_api = { workspace = true }
 itertools = { workspace = true }

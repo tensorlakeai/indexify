@@ -2053,6 +2053,8 @@ dependencies = [
  "hostname",
  "hyper 1.1.0",
  "hyper-util",
+ "indexify_api",
+ "indexify_extractor",
  "indexify_internal_api",
  "indexify_proto",
  "insta",
@@ -2116,6 +2118,41 @@ dependencies = [
  "utoipa-swagger-ui",
  "vergen",
  "walkdir",
+]
+
+[[package]]
+name = "indexify_api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.4",
+ "hyper 1.1.0",
+ "indexify_internal_api",
+ "indexify_proto",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smart-default",
+ "strum",
+ "utoipa",
+]
+
+[[package]]
+name = "indexify_extractor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "askama",
+ "async-trait",
+ "bollard",
+ "indexify_api",
+ "indexify_internal_api",
+ "mime",
+ "pyo3",
+ "serde",
+ "serde_json",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

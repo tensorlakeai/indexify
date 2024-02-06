@@ -4,10 +4,7 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 
 use super::ExtractorTS;
-use crate::{
-    api,
-    api::{ExtractorDescription, ExtractorOutputSchema, IndexDistance},
-};
+use indexify_api::{self as api, ExtractorDescription, ExtractorOutputSchema, IndexDistance};
 
 #[derive(Debug)]
 pub struct ExtractorRunner {

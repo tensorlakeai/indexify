@@ -63,7 +63,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_repositories(&self) -> Result<Vec<api::DataRepository>> {
+    pub async fn list_repositories(&self) -> Result<Vec<indexify_api::DataRepository>> {
         let req = indexify_coordinator::ListRepositoriesRequest {};
         let response = self
             .coordinator_client
@@ -74,7 +74,7 @@ impl DataRepositoryManager {
         let repositories = response.into_inner().repositories;
         let data_respoistories = repositories
             .into_iter()
-            .map(|r| api::DataRepository {
+            .map(|r| indexify_api::DataRepository {
                 name: r.name,
                 extractor_bindings: Vec::new(),
             })

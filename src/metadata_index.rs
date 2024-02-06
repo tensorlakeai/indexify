@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use crate::{
+    api,
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     utils::{timestamp_secs, PostgresIndexName},
@@ -180,5 +181,16 @@ impl MetadataIndexManager {
             extracted_attributes.push(attributes);
         }
         Ok(extracted_attributes)
+    }
+}
+
+impl From<ExtractedMetadata> for api::ExtractedMetadata {
+    fn from(value: ExtractedMetadata) -> Self {
+        Self {
+            id: value.id,
+            content_id: value.content_id,
+            metadata: value.metadata,
+            extractor_name: value.extractor_name,
+        }
     }
 }

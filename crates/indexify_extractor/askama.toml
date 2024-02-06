@@ -1,0 +1,4 @@
+[general]
+# Directories to search for templates, relative to the crate root.
+dirs = ["../../dockerfiles", "../../extractor_template"]
+whitespace = "preserve"

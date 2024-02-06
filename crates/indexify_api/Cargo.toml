@@ -1,0 +1,21 @@
+[package]
+name = "indexify_api"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+hyper = { workspace = true }
+indexify_internal_api = { workspace = true }
+indexify_proto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+smart-default = { workspace = true }
+strum = { workspace = true }
+utoipa = { workspace = true }

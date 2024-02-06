@@ -298,7 +298,7 @@ mod test_deserialize_labels_eq_filter {
     use hyper::Uri;
 
     use super::*;
-    use crate::api::ListContentFilters;
+    use crate::ListContentFilters;
 
     /// 1. ?source=foo&labels_eq=key:value
     #[test]
