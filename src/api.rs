@@ -77,7 +77,7 @@ pub struct CreateRepository {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateRepositoryResponse {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetRepositoryResponse {
     pub repository: DataRepository,
 }
@@ -360,6 +360,7 @@ impl IntoResponse for IndexifyAPIError {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
+
 pub struct ListContentResponse {
     pub content_list: Vec<ContentMetadata>,
 }
@@ -471,7 +472,7 @@ pub struct ListTasks {
     pub extractor_binding: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasksResponse {
     pub tasks: Vec<internal_api::Task>,
 }

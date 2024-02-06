@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
+use utoipa::{ToSchema, schema};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct Index {
@@ -188,7 +189,9 @@ pub struct Feature {
 }
 
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+// Specifying alternate name as utoipa has issues with namespaced schemas. See https://github.com/juhaku/utoipa/issues/569#issuecomment-1503466468
+#[schema(as = internal_api::Content)]
 pub struct Content {
     pub mime: String,
     #[serde_as(as = "BytesOrString")]
@@ -209,7 +212,8 @@ impl Content {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[schema(as = internal_api::TaskOutcome)]
 pub enum TaskOutcome {
     Unknown,
     Success,
@@ -236,7 +240,8 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[schema(as = internal_api::Task)]
 pub struct Task {
     pub id: String,
     pub extractor: String,
@@ -245,6 +250,7 @@ pub struct Task {
     pub repository: String,
     pub content_metadata: ContentMetadata,
     pub input_params: serde_json::Value,
+    #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
 }
 
@@ -329,7 +335,7 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
