@@ -44,6 +44,9 @@ build-base-extractor-push: build-base-builder-multistage ## Build and push base 
 push-container: ## Push container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
+build-ui: ## Build Indexify UI
+	docker build -f dockerfiles/Dockerfile.ui --tag ${DOCKER_USERNAME}/indexify-ui .
+
 entity: ## Generate entity
 	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
