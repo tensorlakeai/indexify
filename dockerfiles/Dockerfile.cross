@@ -5,7 +5,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
     g++-aarch64-linux-gnu \
-    libc6-dev-arm64-cross protobuf-compiler git
+    libc6-dev-arm64-cross protobuf-compiler git clang
 
 ENV CROSS_TOOLCHAIN_PREFIX=aarch64-linux-gnu-
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$CROSS_TOOLCHAIN_PREFIX"gcc \
