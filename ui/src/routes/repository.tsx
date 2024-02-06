@@ -10,7 +10,7 @@ import { Stack } from "@mui/system";
 import ExtractorBindingsTable from "../components/ExtractorBindingsTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const name = params.repositoryname;
+  const name = params.namespace;
   const client = new IndexifyClient();
   if (name === undefined) return null;
 
