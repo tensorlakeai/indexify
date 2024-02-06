@@ -11,7 +11,7 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use hyper::body::Incoming;
+use hyper::{body::Incoming, Method};
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
@@ -24,6 +24,7 @@ use tokio::{
     sync::Notify,
 };
 use tower::Service;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
@@ -131,6 +132,10 @@ impl Server {
             coordinator_client: coordinator_client.clone(),
         };
         let caches = Caches::new(self.config.cache.clone());
+        let cors = CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST])
+            .allow_origin(Any);
+
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
             .merge(metrics.routes())
@@ -209,6 +214,7 @@ impl Server {
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(Extension(caches))
+            .layer(cors)
             .layer(DefaultBodyLimit::disable());
 
         let (signal_tx, signal_rx) = tokio::sync::watch::channel(());
