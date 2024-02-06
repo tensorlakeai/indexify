@@ -84,6 +84,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - run: rustup update
       - run: rustup toolchain install nightly --component rustfmt
       - run: rustup target add aarch64-apple-darwin
       - name: Cache build artifacts
