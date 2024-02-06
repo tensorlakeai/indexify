@@ -26,7 +26,6 @@ import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
 import { Button } from "@mui/material";
 import IndexifyClient from "../lib/Indexify/client";
-import Repository from "../lib/Indexify/repository";
 import DataObjectIcon from "@mui/icons-material/DataObject";
 import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../utils/helpers";
@@ -36,7 +35,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (await client.repositories()).map((repo) => repo.name);
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
-    return redirect(`/${namespaces[0]}` ?? "/default");
+    if (params.namespace !== "default") {
+      return redirect(`/${namespaces[0] ?? "default"}`);
+    }
   }
   return { namespaces, namespace: params.namespace };
 }
@@ -183,7 +184,9 @@ export default function Dashboard() {
               aria-controls="menu-appbar"
               aria-haspopup="true"
               onClick={handleMenu}
-              startIcon={<DataObjectIcon />}
+              startIcon={
+                <DataObjectIcon sx={{ color: stringToColor(namespace) }} />
+              }
             >
               {namespace}
             </Button>
@@ -200,27 +203,26 @@ export default function Dashboard() {
                 vertical: "top",
                 horizontal: "right",
               }}
-              title="Namespace"
               open={Boolean(anchorEl)}
               onClose={handleClose}
             >
-              <Typography ml={2} my={1} variant="h4">
+              <Typography mx={2} my={1} variant="h4">
                 Namespaces ({namespaces.length})
               </Typography>
               {namespaces.map((name) => {
                 return (
-                  <MenuItem key={name} onClick={handleClose}>
-                    <CircleIcon
-                      sx={{
-                        width: "15px",
-                        color: stringToColor(name),
-                        mr: 1,
-                      }}
-                    />
-                    <Link sx={{ textDecoration: "none" }} href={`/${name}`}>
+                  <Link sx={{ textDecoration: "none" }} href={`/${name}`}>
+                    <MenuItem key={name} onClick={handleClose}>
+                      <CircleIcon
+                        sx={{
+                          width: "15px",
+                          color: stringToColor(name),
+                          mr: 1,
+                        }}
+                      />
                       {name}
-                    </Link>
-                  </MenuItem>
+                    </MenuItem>
+                  </Link>
                 );
               })}
             </Menu>
