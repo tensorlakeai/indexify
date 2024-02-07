@@ -19,7 +19,6 @@ axum-otel-metrics = "0.8"
 axum-tracing-opentelemetry = "0.16"
 backtrace = "0.3"
 base64 = "0.21.0"
-bincode = "1.3"
 bollard = { version = "0.15", features = ["buildkit"] }
 bytes = "1"
 byteorder = "1"
@@ -27,7 +26,6 @@ clap = { version = "4", features = ["derive"] }
 figment = { version = "0.10", features = ["yaml", "env"] }
 flexbuffers = { version = "2.0" }
 futures = { version = "0.3" }
-h2 = { version = "0.4.1" }
 hostname = { version = "0.3" }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["service"] }
@@ -42,17 +40,6 @@ nanoid = { version = "0.4" }
 openraft = { git="https://github.com/datafuselabs/openraft.git", rev = "bde63c0", features = ["serde", "storage-v2"] }
 opensearch = { version = "2", default_features=false, features=["rustls-tls"] }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
-opentelemetry_sdk = "0.21"
-opentelemetry-semantic-conventions = "0.13"
-opentelemetry-otlp = { version = "0.13", features = [
-    "http-proto",
-] }
-opentelemetry-stdout = { version = "0.2", features = [
-    "logs",
-    "metrics",
-    "trace",
-] }
-paste = { version = "1.0" }
 pgvector = { version = "0.3", features = ["sqlx"] }
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
@@ -65,7 +52,6 @@ redis = { version = "0.24", features = [
     "cluster",
     "cluster-async",
 ] }
-redis-test = { version = "0.3", features = ["futures"] }
 regex = { version = "1" }
 reqwest = { version = "0.11", default-features = false, features = [ "json", "rustls-tls"] } 
 rocksdb = "0.20.1"
@@ -75,13 +61,7 @@ serde = { version = "1", features = ["derive"] }
 serde_with = { version = "3.4.0" }
 serde_yaml = { version = "0.9" }
 serde_json = { version = "1" }
-simd-json = { version = "0.13", features = [
-    "serde_impl",
-    "runtime-detection",
-    "value-no-dup-keys",
-] }
 smart-default = { version = "0.7" }
-sled = { version = "0.34" }
 sqlx = { version = "0.7", features = [
     "runtime-tokio",
     "tls-rustls",
@@ -100,7 +80,6 @@ tower = { version = "0.4" }
 tower-http = {version = "0.5.1",default_features=false, features=["cors"]}
 tracing = { version = "0.1", features = ["log"] }
 tracing-core = "0.1"
-tracing-opentelemetry = { version = "0.22" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-unwrap = { version = "0.10" }
 url = "2"
@@ -123,7 +102,6 @@ axum = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
 base64 = { workspace = true }
-bincode = { workspace = true }
 bollard = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -131,7 +109,6 @@ clap = { workspace = true }
 figment = { workspace = true }
 flexbuffers = { workspace = true }
 futures = { workspace = true }
-h2 = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
@@ -146,19 +123,11 @@ nanoid = { workspace = true }
 openraft = { workspace = true }
 opensearch = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry-stdout = { workspace = true }
-paste = { workspace = true }
 pgvector = { workspace = true }
-prost = { workspace = true }
-prost-types = { workspace = true }
 pyo3 = { workspace = true }
 qdrant-client = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true }
-redis-test = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 rocksdb = { workspace = true}
@@ -168,8 +137,6 @@ serde = { workspace = true }
 serde_with = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
-simd-json = { workspace = true }
-sled = { workspace = true }
 smart-default = { workspace = true }
 sqlx = { workspace = true }
 strum = { workspace = true }
@@ -182,7 +149,6 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-core = { workspace = true }
-tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-unwrap = { workspace = true }
 url = { workspace = true }
@@ -197,7 +163,6 @@ tar = { workspace = true }
 walkdir = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1.34.0", features = ["ron"] }
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
 
 [build-dependencies]
