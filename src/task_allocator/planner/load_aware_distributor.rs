@@ -277,7 +277,7 @@ mod tests {
     use crate::{
         server_config::ServerConfig,
         state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
     };
 
     #[tokio::test]
@@ -373,16 +373,14 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        // Add a repository
-        coordinator
-            .create_repository(DEFAULT_TEST_REPOSITORY)
-            .await?;
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
         // Add content and ensure that we are creating a extraction event
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test".to_string(),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                repository: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "text/plain".to_string(),
@@ -414,7 +412,7 @@ mod tests {
                     id: "test-binding-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -423,7 +421,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -463,17 +461,15 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        // Add a repository
-        coordinator
-            .create_repository(DEFAULT_TEST_REPOSITORY)
-            .await?;
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
         // Add 50 text/plain content
         for i in 1..=50 {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "text/plain".to_string(),
@@ -490,7 +486,7 @@ mod tests {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "application/json".to_string(),
@@ -552,7 +548,7 @@ mod tests {
                     id: "text-binding-id".to_string(),
                     name: "text".to_string(),
                     extractor: "MockTextExtractor".to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -561,7 +557,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -574,7 +570,7 @@ mod tests {
                     id: "json-binding-id".to_string(),
                     name: "json".to_string(),
                     extractor: "MockJsonExtractor".to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -583,7 +579,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -638,17 +634,15 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        // Add a repository
-        coordinator
-            .create_repository(DEFAULT_TEST_REPOSITORY)
-            .await?;
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
         // Add 100 text/plain content
         for i in 1..=100 {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "text/plain".to_string(),
@@ -665,7 +659,7 @@ mod tests {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "application/json".to_string(),
@@ -727,7 +721,7 @@ mod tests {
                     id: "text-binding-id".to_string(),
                     name: "text".to_string(),
                     extractor: "MockTextExtractor".to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -736,7 +730,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -749,7 +743,7 @@ mod tests {
                     id: "json-binding-id".to_string(),
                     name: "json".to_string(),
                     extractor: "MockJsonExtractor".to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -758,7 +752,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -834,10 +828,8 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        // Add a repository
-        coordinator
-            .create_repository(DEFAULT_TEST_REPOSITORY)
-            .await?;
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
         let mut text_content = Vec::new();
         let mut json_content = Vec::new();
@@ -846,7 +838,7 @@ mod tests {
         for i in 1..=text_tasks {
             text_content.push(indexify_coordinator::ContentMetadata {
                 id: format!("test{}", i),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                repository: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "text/plain".to_string(),
@@ -860,7 +852,7 @@ mod tests {
         for i in (text_tasks + 1)..=(text_tasks + json_tasks) {
             json_content.push(indexify_coordinator::ContentMetadata {
                 id: format!("test{}", i),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                repository: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "application/json".to_string(),
@@ -956,7 +948,7 @@ mod tests {
                     id: "text-binding-id".to_string(),
                     name: "text".to_string(),
                     extractor: "MockTextExtractor".to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -965,7 +957,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -978,7 +970,7 @@ mod tests {
                     id: "json-binding-id".to_string(),
                     name: "json".to_string(),
                     extractor: "MockJsonExtractor".to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -987,7 +979,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },

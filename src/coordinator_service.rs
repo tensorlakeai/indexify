@@ -202,7 +202,7 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<CreateRepositoryResponse>, tonic::Status> {
         let request = request.into_inner();
         self.coordinator
-            .create_repository(&request.name)
+            .create_namespace(&request.name)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateRepositoryResponse {
@@ -217,7 +217,7 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<ListRepositoriesResponse>, tonic::Status> {
         let repositories = self
             .coordinator
-            .list_repositories()
+            .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let repositories = repositories
@@ -236,7 +236,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let repository = request.into_inner().name;
         let repository = self
             .coordinator
-            .get_repository(&repository)
+            .get_namespace(&repository)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 

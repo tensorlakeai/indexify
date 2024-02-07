@@ -10,16 +10,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{
-    self,
-    ContentMetadata,
-    CreateContentRequest,
-    CreateIndexRequest,
-    GetContentMetadataRequest,
-    Index,
-    ListIndexesRequest,
-    UpdateTaskRequest,
-};
+use indexify_proto::indexify_coordinator;
 use nanoid::nanoid;
 use tracing::{error, info};
 
@@ -33,20 +24,20 @@ use crate::{
     vector_index::{ScoredText, VectorIndexManager},
 };
 
-pub struct DataRepositoryManager {
+pub struct DataManager {
     vector_index_manager: Arc<VectorIndexManager>,
     metadata_index_manager: Arc<MetadataIndexManager>,
     blob_storage: BlobStorage,
     coordinator_client: Arc<CoordinatorClient>,
 }
 
-impl fmt::Debug for DataRepositoryManager {
+impl fmt::Debug for DataManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DataRepositoryManager").finish()
+        f.debug_struct("DataManager").finish()
     }
 }
 
-impl DataRepositoryManager {
+impl DataManager {
     pub async fn new(
         vector_index_manager: Arc<VectorIndexManager>,
         attribute_index_manager: Arc<MetadataIndexManager>,
@@ -63,7 +54,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_repositories(&self) -> Result<Vec<api::DataRepository>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
         let req = indexify_coordinator::ListRepositoriesRequest {};
         let response = self
             .coordinator_client
@@ -71,28 +62,28 @@ impl DataRepositoryManager {
             .await?
             .list_repositories(req)
             .await?;
-        let repositories = response.into_inner().repositories;
-        let data_respoistories = repositories
+        let namespaces = response.into_inner().repositories;
+        let data_namespaces = namespaces
             .into_iter()
-            .map(|r| api::DataRepository {
+            .map(|r| api::DataNamespace {
                 name: r.name,
                 extractor_bindings: Vec::new(),
             })
             .collect();
-        Ok(data_respoistories)
+        Ok(data_namespaces)
     }
 
     #[tracing::instrument]
-    pub async fn create(&self, repository: &api::DataRepository) -> Result<()> {
-        info!("creating data repository: {}", repository.name);
-        let bindings = repository
+    pub async fn create(&self, namespace: &api::DataNamespace) -> Result<()> {
+        info!("creating data namespace: {}", namespace.name);
+        let bindings = namespace
             .extractor_bindings
             .clone()
             .into_iter()
             .map(|b| b.into())
             .collect();
         let request = indexify_coordinator::CreateRepositoryRequest {
-            name: repository.name.clone(),
+            name: namespace.name.clone(),
             bindings,
         };
         let _resp = self
@@ -105,7 +96,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn get(&self, name: &str) -> Result<api::DataRepository> {
+    pub async fn get(&self, name: &str) -> Result<api::DataNamespace> {
         let req = indexify_coordinator::GetRepositoryRequest {
             name: name.to_string(),
         };
@@ -116,21 +107,21 @@ impl DataRepositoryManager {
             .get_repository(req)
             .await?
             .into_inner();
-        let repository = response.repository.ok_or(anyhow!("repository not found"))?;
-        repository.try_into()
+        let namespace = response.repository.ok_or(anyhow!("namespace not found"))?;
+        namespace.try_into()
     }
 
     pub async fn add_extractor_binding(
         &self,
-        repository: &str,
+        namespace: &str,
         extractor_binding: &api::ExtractorBinding,
     ) -> Result<Vec<String>> {
         info!(
-            "adding extractor bindings repository: {}, extractor: {}, binding: {}",
-            repository, extractor_binding.extractor, extractor_binding.name,
+            "adding extractor bindings namespace: {}, extractor: {}, binding: {}",
+            namespace, extractor_binding.extractor, extractor_binding.name,
         );
         let req = indexify_coordinator::ExtractorBindRequest {
-            repository: repository.to_string(),
+            repository: namespace.to_string(),
             binding: Some(extractor_binding.clone().into()),
             created_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
@@ -160,7 +151,7 @@ impl DataRepositoryManager {
                         .create_index(table_name, embedding_schema.clone())
                         .await?;
                     self.create_index_metadata(
-                        repository,
+                        namespace,
                         index_name,
                         table_name,
                         serde_json::to_value(embedding_schema)?,
@@ -173,7 +164,7 @@ impl DataRepositoryManager {
                     let _ = self
                         .metadata_index_manager
                         .create_index(
-                            repository,
+                            namespace,
                             &index_name,
                             table_name,
                             &extractor.name,
@@ -190,18 +181,18 @@ impl DataRepositoryManager {
 
     async fn create_index_metadata(
         &self,
-        repository: &str,
+        namespace: &str,
         index_name: &str,
         table_name: &str,
         schema: serde_json::Value,
         binding: &str,
         extractor: &str,
     ) -> Result<()> {
-        let index = CreateIndexRequest {
-            index: Some(Index {
+        let index = indexify_coordinator::CreateIndexRequest {
+            index: Some(indexify_coordinator::Index {
                 name: index_name.to_string(),
                 table_name: table_name.to_string(),
-                repository: repository.to_string(),
+                repository: namespace.to_string(),
                 schema: serde_json::to_value(schema).unwrap().to_string(),
                 extractor_binding: binding.to_string(),
                 extractor: extractor.to_string(),
@@ -219,13 +210,13 @@ impl DataRepositoryManager {
 
     pub async fn list_content(
         &self,
-        repository: &str,
+        namespace: &str,
         source_filter: &str,
         parent_id_filter: &str,
         labels_eq_filter: Option<&HashMap<String, String>>,
     ) -> Result<Vec<api::ContentMetadata>> {
         let req = indexify_coordinator::ListContentRequest {
-            repository: repository.to_string(),
+            repository: namespace.to_string(),
             source: source_filter.to_string(),
             parent_id: parent_id_filter.to_string(),
             labels_eq: labels_eq_filter.unwrap_or(&HashMap::new()).clone(),
@@ -247,7 +238,7 @@ impl DataRepositoryManager {
                 parent_id: c.parent_id,
                 created_at: c.created_at,
                 content_type: c.mime,
-                repository: c.repository,
+                namespace: c.repository,
                 labels: c.labels,
                 source: c.source,
             })
@@ -256,12 +247,12 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn add_texts(&self, repo_name: &str, content_list: Vec<api::Content>) -> Result<()> {
+    pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
             let content_metadata = self
-                .write_content(repo_name, text, None, None, "ingestion")
+                .write_content(namespace, text, None, None, "ingestion")
                 .await?;
-            let req = CreateContentRequest {
+            let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
             self.coordinator_client
@@ -281,10 +272,10 @@ impl DataRepositoryManager {
 
     pub async fn read_content(
         &self,
-        _repository: &str,
+        _namespace: &str,
         content_ids: Vec<String>,
     ) -> Result<Vec<Content>> {
-        let req = GetContentMetadataRequest {
+        let req = indexify_coordinator::GetContentMetadataRequest {
             content_list: content_ids,
         };
         let response = self
@@ -316,7 +307,7 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument(skip(self, data))]
-    pub async fn upload_file(&self, repository: &str, data: Bytes, name: &str) -> Result<()> {
+    pub async fn upload_file(&self, namespace: &str, data: Bytes, name: &str) -> Result<()> {
         let ext = Path::new(name)
             .extension()
             .unwrap_or_default()
@@ -330,10 +321,10 @@ impl DataRepositoryManager {
             features: vec![],
         };
         let content_metadata = self
-            .write_content(repository, content, Some(name), None, "ingestion")
+            .write_content(namespace, content, Some(name), None, "ingestion")
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
-        let req = CreateContentRequest {
+        let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata),
         };
         self.coordinator_client
@@ -352,17 +343,17 @@ impl DataRepositoryManager {
 
     async fn write_content(
         &self,
-        repository: &str,
+        namespace: &str,
         content: api::Content,
         file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
-    ) -> Result<ContentMetadata> {
+    ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
         let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
+        namespace.hash(&mut s);
         content.bytes.hash(&mut s);
         if let Some(f) = file_name {
             f.hash(&mut s);
@@ -373,7 +364,7 @@ impl DataRepositoryManager {
         }
         let id = format!("{:x}", s.finish());
         let storage_url = self
-            .write_to_blob_store(repository, &file_name, Bytes::from(content.bytes.clone()))
+            .write_to_blob_store(namespace, &file_name, Bytes::from(content.bytes.clone()))
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
         let labels = content
@@ -382,14 +373,14 @@ impl DataRepositoryManager {
             .into_iter()
             .map(|(k, v)| (k, v.to_string()))
             .collect();
-        Ok(ContentMetadata {
+        Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
             storage_url,
             parent_id: parent_id.unwrap_or_default(),
             created_at: current_ts_secs as i64,
             mime: content.content_type,
-            repository: repository.to_string(),
+            repository: namespace.to_string(),
             labels,
             source: source.to_string(),
         })
@@ -399,12 +390,13 @@ impl DataRepositoryManager {
         &self,
         extracted_content: api::WriteExtractedContent,
     ) -> Result<()> {
+        let namespace = extracted_content.namespace.clone();
         let mut new_content_metadata = Vec::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
             let content_metadata = self
                 .write_content(
-                    &extracted_content.repository,
+                    extracted_content.namespace.as_str(),
                     content.clone(),
                     None,
                     Some(extracted_content.parent_content_id.to_string()),
@@ -447,12 +439,12 @@ impl DataRepositoryManager {
                             &content_metadata.parent_id,
                             feature.data.clone(),
                             "extractor_name",
-                            &extracted_content.repository,
+                            &namespace,
                         );
                         info!("adding metadata to index {}", feature.data.to_string());
                         self.metadata_index_manager
                             .add_metadata(
-                                &extracted_content.repository,
+                                &namespace,
                                 &index_table_name.clone(),
                                 extracted_attributes,
                             )
@@ -465,7 +457,7 @@ impl DataRepositoryManager {
 
         let outcome: indexify_coordinator::TaskOutcome = extracted_content.task_outcome.into();
 
-        let req = UpdateTaskRequest {
+        let req = indexify_coordinator::UpdateTaskRequest {
             executor_id: extracted_content.executor_id,
             task_id: extracted_content.task_id,
             outcome: outcome as i32,
@@ -479,9 +471,9 @@ impl DataRepositoryManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<api::Index>> {
-        let req = ListIndexesRequest {
-            repository: repository.to_string(),
+    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<api::Index>> {
+        let req = indexify_coordinator::ListIndexesRequest {
+            repository: namespace.to_string(),
         };
         let resp = self
             .coordinator_client
@@ -507,13 +499,13 @@ impl DataRepositoryManager {
     #[tracing::instrument]
     pub async fn search(
         &self,
-        repository: &str,
+        namespace: &str,
         index_name: &str,
         query: &str,
         k: u64,
     ) -> Result<Vec<ScoredText>> {
         let req = indexify_coordinator::GetIndexRequest {
-            repository: repository.to_string(),
+            repository: namespace.to_string(),
             name: index_name.to_string(),
         };
         let index = self
@@ -533,12 +525,12 @@ impl DataRepositoryManager {
     #[tracing::instrument]
     pub async fn metadata_lookup(
         &self,
-        repository: &str,
+        namespace: &str,
         index_name: &str,
         content_id: Option<&String>,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
         let req = indexify_coordinator::GetIndexRequest {
-            repository: repository.to_string(),
+            repository: namespace.to_string(),
             name: index_name.to_string(),
         };
         let index = self
@@ -552,7 +544,7 @@ impl DataRepositoryManager {
             .ok_or(anyhow!("Index not found"))?;
 
         self.metadata_index_manager
-            .get_attributes(repository, &index.table_name, content_id)
+            .get_attributes(namespace, &index.table_name, content_id)
             .await
     }
 
@@ -578,7 +570,7 @@ impl DataRepositoryManager {
     #[tracing::instrument]
     async fn write_to_blob_store(
         &self,
-        repository: &str,
+        namespace: &str,
         name: &str,
         file: Bytes,
     ) -> Result<String, anyhow::Error> {
@@ -586,114 +578,3 @@ impl DataRepositoryManager {
         Ok(stored_file_path)
     }
 }
-
-//#[cfg(test)]
-//mod tests {
-//    use std::collections::HashMap;
-//
-//    use serde_json::json;
-//
-//    use super::*;
-//    use crate::{
-//        blob_storage::BlobStorageBuilder,
-//        persistence::{DataConnector, Event, ExtractorBinding, SourceType},
-//        test_util,
-//        test_util::db_utils::{DEFAULT_TEST_EXTRACTOR,
-// DEFAULT_TEST_REPOSITORY},    };
-//
-//    #[tokio::test]
-//    #[tracing_test::traced_test]
-//    async fn test_sync_repository() {
-//        let db = test_util::db_utils::create_db().await.unwrap();
-//        let (index_manager, ..) =
-// test_util::db_utils::create_index_manager(db.clone()).await;        let
-// blob_storage =
-// BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).
-// unwrap();        let repository_manager =
-//            DataRepositoryManager::new_with_db(db.clone(), index_manager,
-// blob_storage);        let mut meta = HashMap::new();
-//        meta.insert("foo".to_string(), json!(12));
-//        let repository = DataRepository {
-//            name: "test".to_string(),
-//            extractor_bindings: vec![ExtractorBinding::new(
-//                "test_extractor_binding",
-//                "test",
-//                DEFAULT_TEST_EXTRACTOR.to_string(),
-//                vec![],
-//                serde_json::json!({}),
-//            )],
-//            metadata: meta.clone(),
-//            data_connectors: vec![DataConnector {
-//                source: SourceType::GoogleContact {
-//                    metadata: Some("data_connector_meta".to_string()),
-//                },
-//            }],
-//        };
-//        repository_manager.create(&repository).await.unwrap();
-//        let repositories =
-// repository_manager.list_repositories().await.unwrap();        assert_eq!
-// (repositories.len(), 1);        assert_eq!(repositories[0].name, "test");
-//        assert_eq!(repositories[0].extractor_bindings.len(), 1);
-//        assert_eq!(repositories[0].data_connectors.len(), 1);
-//        assert_eq!(repositories[0].metadata, meta);
-//    }
-//
-//    #[tokio::test]
-//    #[tracing_test::traced_test]
-//    async fn test_events() {
-//        let db = test_util::db_utils::create_db().await.unwrap();
-//        let (index_manager, extractor_executor, coordinator) =
-//            test_util::db_utils::create_index_manager(db.clone()).await;
-//
-//        let blob_storage =
-//
-// BlobStorageBuilder::new_disk_storage("/tmp/indexify_test".to_string()).
-// unwrap();        let repository_manager =
-// Arc::new(DataRepositoryManager::new_with_db(            db.clone(),
-//            index_manager.clone(),
-//            blob_storage,
-//        ));
-//        info!("creating repository");
-//
-//        repository_manager
-//            .create(&test_util::db_utils::default_test_data_repository())
-//            .await
-//            .unwrap();
-//
-//        let messages: Vec<Event> = vec![
-//            Event::new("hello world", None, HashMap::new()),
-//            Event::new("hello friend", None, HashMap::new()),
-//            Event::new("how are you", None, HashMap::new()),
-//        ];
-//
-//        info!("adding messages to session");
-//        repository_manager
-//            .add_events(DEFAULT_TEST_REPOSITORY, messages.clone())
-//            .await
-//            .unwrap();
-//
-//        let retrieve_result = repository_manager
-//            .list_events(DEFAULT_TEST_REPOSITORY)
-//            .await
-//            .unwrap();
-//        assert_eq!(retrieve_result.len(), 3);
-//
-//        info!("manually syncing messages");
-//        coordinator.process_and_distribute_work().await.unwrap();
-//        let executor_id = extractor_executor.get_executor_info().id;
-//        let work_list = coordinator
-//            .shared_state
-//            .tasks_for_executor(&executor_id)
-//            .await
-//            .unwrap();
-//
-//        //extractor_executor.sync_repo_test(work_list).await.unwrap();
-//
-//        //let search_results = repository_manager
-//        //    .search(DEFAULT_TEST_REPOSITORY, "memory_session_embeddings",
-//        // "hello", 2)    .await
-//        //    .unwrap();
-//        //assert_eq!(search_results.len(), 2);
-//    }
-//}
-//

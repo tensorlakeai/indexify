@@ -23,7 +23,7 @@ mod caching;
 mod cmd;
 mod coordinator;
 mod coordinator_client;
-mod data_repository_manager;
+mod data_manager;
 mod executor;
 mod extractor_router;
 mod grpc_helper;

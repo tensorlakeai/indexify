@@ -36,7 +36,7 @@ use crate::{
     api::{self, *},
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
-    data_repository_manager::DataRepositoryManager,
+    data_manager::DataManager,
     extractor_router::ExtractorRouter,
     metadata_index::MetadataIndexManager,
     server_config::ServerConfig,
@@ -48,17 +48,17 @@ use crate::{
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
 
 #[derive(Clone, Debug)]
-pub struct RepositoryEndpointState {
-    repository_manager: Arc<DataRepositoryManager>,
+pub struct NamespaceEndpointState {
+    data_manager: Arc<DataManager>,
     coordinator_client: Arc<CoordinatorClient>,
 }
 
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            create_repository,
-            list_repositories,
-            get_repository,
+            create_namespace,
+            list_namespaces,
+            get_namespace,
             add_texts,
             list_indexes,
             index_search,
@@ -74,13 +74,13 @@ pub struct RepositoryEndpointState {
             extract_content
         ),
         components(
-            schemas(CreateRepository, CreateRepositoryResponse, IndexDistance,
+            schemas(CreateNamespace, CreateNamespaceResponse, IndexDistance,
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
-                DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListRepositoriesResponse, ListExtractorsResponse
-            , ExtractorDescription, DataRepository, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
+                DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
+            , ExtractorDescription, DataNamespace, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
-            internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetRepositoryResponse
+            internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetNamespaceResponse
         )
         ),
         tags(
@@ -122,8 +122,8 @@ impl Server {
             MetadataIndexManager::new(&self.config.db_url, coordinator_client.clone()).await?,
         );
 
-        let repository_manager = Arc::new(
-            DataRepositoryManager::new(
+        let data_manager = Arc::new(
+            DataManager::new(
                 vector_index_manager,
                 attribute_index_manager,
                 self.config.blob_storage.clone(),
@@ -131,8 +131,8 @@ impl Server {
             )
             .await?,
         );
-        let repository_endpoint_state = RepositoryEndpointState {
-            repository_manager: repository_manager.clone(),
+        let namespace_endpoint_state = NamespaceEndpointState {
+            data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
         };
         let caches = Caches::new(self.config.cache.clone());
@@ -148,72 +148,72 @@ impl Server {
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
-                "/repositories/:repository_name/extractor_bindings",
-                post(bind_extractor).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/extractor_bindings",
+                post(bind_extractor).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/indexes",
-                get(list_indexes).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/indexes",
+                get(list_indexes).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/add_texts",
-                post(add_texts).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/add_texts",
+                post(add_texts).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/content",
-                get(list_content).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/content",
+                get(list_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/content/:content_id",
-                get(read_content).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/content/:content_id",
+                get(read_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/upload_file",
-                post(upload_file).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/upload_file",
+                post(upload_file).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/search",
-                post(index_search).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/search",
+                post(index_search).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name/metadata",
-                get(metadata_lookup).with_state(repository_endpoint_state.clone()),
+                "/namespaces",
+                post(create_namespace).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories",
-                post(create_repository).with_state(repository_endpoint_state.clone()),
+                "/namespaces",
+                get(list_namespaces).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories",
-                get(list_repositories).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace",
+                get(get_namespace).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/repositories/:repository_name",
-                get(get_repository).with_state(repository_endpoint_state.clone()),
+                "/namespaces/:namespace/metadata",
+                get(metadata_lookup).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/executors",
-                get(list_executors).with_state(repository_endpoint_state.clone()),
+                get(list_executors).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/write_content",
-                post(write_extracted_content).with_state(repository_endpoint_state.clone()),
+                post(write_extracted_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
-                get(list_extractors).with_state(repository_endpoint_state.clone()),
+                get(list_extractors).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/state_changes",
-                get(list_state_changes).with_state(repository_endpoint_state.clone()),
+                get(list_state_changes).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/tasks",
-                get(list_tasks).with_state(repository_endpoint_state.clone()),
+                get(list_tasks).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/extractors/extract",
-                post(extract_content).with_state(repository_endpoint_state.clone()),
+                post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
             .layer(OtelAxumLayer::default())
             .layer(metrics)
@@ -361,115 +361,107 @@ async fn root() -> &'static str {
 #[axum::debug_handler]
 #[utoipa::path(
     post,
-    path = "/repositories",
-    request_body = CreateRepository,
+    path = "/namespaces",
+    request_body = CreateNamespace,
     tag = "indexify",
     responses(
-        (status = 200, description = "Repository synced successfully", body = CreateRepositoryResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
+        (status = 200, description = "Namespace synced successfully", body = CreateNamespaceResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
     ),
 )]
-async fn create_repository(
-    State(state): State<RepositoryEndpointState>,
-    Json(payload): Json<CreateRepository>,
-) -> Result<Json<CreateRepositoryResponse>, IndexifyAPIError> {
-    let data_repository = api::DataRepository {
+async fn create_namespace(
+    State(state): State<NamespaceEndpointState>,
+    Json(payload): Json<CreateNamespace>,
+) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
+    let data_namespace = api::DataNamespace {
         name: payload.name.clone(),
         extractor_bindings: payload.extractor_bindings.clone(),
     };
     state
-        .repository_manager
-        .create(&data_repository)
+        .data_manager
+        .create(&data_namespace)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to sync repository: {}", e),
+                format!("failed to sync namespace: {}", e),
             )
         })?;
-    Ok(Json(CreateRepositoryResponse {}))
+    Ok(Json(CreateNamespaceResponse {}))
 }
 
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repositories",
+    path = "/namespaces",
     tag = "indexify",
     responses(
-        (status = 200, description = "List of Data Repositories registered on the server", body = ListRepositoriesResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync repository")
+        (status = 200, description = "List of Data Namespaces registered on the server", body = ListNamespacesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
     ),
 )]
-async fn list_repositories(
-    State(state): State<RepositoryEndpointState>,
-) -> Result<Json<ListRepositoriesResponse>, IndexifyAPIError> {
-    let repositories = state
-        .repository_manager
-        .list_repositories()
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to list repositories: {}", e),
-            )
-        })?;
-    let data_repos = repositories.into_iter().collect();
-    Ok(Json(ListRepositoriesResponse {
-        repositories: data_repos,
+async fn list_namespaces(
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<ListNamespacesResponse>, IndexifyAPIError> {
+    let namespaces = state.data_manager.list_namespaces().await.map_err(|e| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to list namespaces: {}", e),
+        )
+    })?;
+    let data_namespaces: Vec<DataNamespace> = namespaces.into_iter().collect();
+    Ok(Json(ListNamespacesResponse {
+        namespaces: data_namespaces,
     }))
 }
 
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repositories/{repository_name}",
+    path = "/namespaces/{namespace}",
     tag = "indexify",
     responses(
-        (status = 200, description = "repository with a given name", body=GetRepositoryResponse),
-        (status = 404, description = "Repository not found"),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to get repository")
+        (status = 200, description = "namespace with a given name", body=GetNamespaceResponse),
+        (status = 404, description = "Namespace not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to get namespace")
     ),
 )]
-async fn get_repository(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
-) -> Result<Json<GetRepositoryResponse>, IndexifyAPIError> {
-    let data_repo = state
-        .repository_manager
-        .get(&repository_name)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to get repository: {}", e),
-            )
-        })?;
-    Ok(Json(GetRepositoryResponse {
-        repository: data_repo,
+async fn get_namespace(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<GetNamespaceResponse>, IndexifyAPIError> {
+    let data_namespace = state.data_manager.get(&namespace).await.map_err(|e| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to get namespace: {}", e),
+        )
+    })?;
+    Ok(Json(GetNamespaceResponse {
+        namespace: data_namespace,
     }))
 }
 
 #[utoipa::path(
     post,
-    path = "/repositories/{repository_name}/extractor_bindings",
+    path = "/namespace/{namespace}/extractor_bindings",
     request_body = ExtractorBindRequest,
     tag = "indexify",
     responses(
         (status = 200, description = "Extractor binded successfully", body = ExtractorBindResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to bind extractor to repository")
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to bind extractor to namespace")
     ),
 )]
 #[axum::debug_handler]
 async fn bind_extractor(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractorBindRequest>,
 ) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
     let index_names = state
-        .repository_manager
-        .add_extractor_binding(&repository_name, &payload.extractor_binding)
+        .data_manager
+        .add_extractor_binding(&namespace, &payload.extractor_binding)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -485,18 +477,18 @@ async fn bind_extractor(
 #[tracing::instrument]
 #[utoipa::path(
     post,
-    path = "/repositories/{repository_name}/add_texts",
+    path = "/namespaces/{namespace}/add_texts",
     request_body = TextAddRequest,
     tag = "indexify",
     responses(
-        (status = 200, description = "Texts were successfully added to the repository", body = TextAdditionResponse),
+        (status = 200, description = "Texts were successfully added to the namespace", body = TextAdditionResponse),
         (status = BAD_REQUEST, description = "Unable to add texts")
     ),
 )]
 #[axum::debug_handler]
 async fn add_texts(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
     let content = payload
@@ -510,8 +502,8 @@ async fn add_texts(
         })
         .collect();
     state
-        .repository_manager
-        .add_texts(&repository_name, content)
+        .data_manager
+        .add_texts(&namespace, content)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -525,23 +517,23 @@ async fn add_texts(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repositories/{repository_name}/content",
+    path = "/namespaces/{namespace}/content",
     tag = "indexify",
     responses(
-        (status = 200, description = "Lists the contents in the repository", body = ListContentResponse),
+        (status = 200, description = "Lists the contents in the namespace", body = ListContentResponse),
         (status = BAD_REQUEST, description = "Unable to list contents")
     ),
 )]
 #[axum::debug_handler]
 async fn list_content(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
     filter: Query<super::api::ListContentFilters>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
     let content_list = state
-        .repository_manager
+        .data_manager
         .list_content(
-            &repository_name,
+            &namespace,
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),
@@ -554,21 +546,21 @@ async fn list_content(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repositories/{repository_name}/content/{content_id}",
+    path = "/namespaces/{namespace}/content/{content_id}",
     tag = "indexify",
     responses(
-        (status = 200, description = "Reads a specific content in the repository", body = GetRawContentResponse),
+        (status = 200, description = "Reads a specific content in the namespace", body = GetRawContentResponse),
         (status = BAD_REQUEST, description = "Unable to read content")
     ),
 )]
 #[axum::debug_handler]
 async fn read_content(
-    Path((repository_name, content_id)): Path<(String, String)>,
-    State(state): State<RepositoryEndpointState>,
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<GetRawContentResponse>, IndexifyAPIError> {
     let content_list = state
-        .repository_manager
-        .read_content(&repository_name, vec![content_id])
+        .data_manager
+        .read_content(&namespace, vec![content_id])
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(GetRawContentResponse { content_list }))
@@ -577,18 +569,18 @@ async fn read_content(
 #[tracing::instrument]
 #[utoipa::path(
     post,
-    path = "/repositories/{repository_name}/upload_file",
+    path = "/namespaces/{namespace}/upload_file",
     request_body(content_type = "multipart/form-data", content = Vec<u8>),
     tag = "indexify",
     responses(
-        (status = 200, description = "Uploads a file to the repository"),
+        (status = 200, description = "Uploads a file to the namespace"),
         (status = BAD_REQUEST, description = "Unable to upload file")
     ),
 )]
 #[axum::debug_handler]
 async fn upload_file(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     while let Some(file) = files.next_field().await.unwrap() {
@@ -600,8 +592,8 @@ async fn upload_file(
             data.len()
         );
         state
-            .repository_manager
-            .upload_file(&repository_name, data, &name)
+            .data_manager
+            .upload_file(&namespace, data, &name)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
@@ -620,19 +612,16 @@ async fn upload_file(
     request_body = WriteExtractedContent,
     tag = "indexify",
     responses(
-        (status = 200, description = "Write Extracted Content to a Repository"),
+        (status = 200, description = "Write Extracted Content to a Namespace"),
         (status = BAD_REQUEST, description = "Unable to add texts")
     ),
 )]
 #[axum::debug_handler]
 async fn write_extracted_content(
-    State(state): State<RepositoryEndpointState>,
+    State(state): State<NamespaceEndpointState>,
     Json(payload): Json<WriteExtractedContent>,
 ) -> Result<Json<()>, IndexifyAPIError> {
-    let result = state
-        .repository_manager
-        .write_extracted_content(payload)
-        .await;
+    let result = state.data_manager.write_extracted_content(payload).await;
     if let Err(err) = &result {
         info!("failed to write extracted content: {:?}", err);
         return Err(IndexifyAPIError::new(
@@ -656,7 +645,7 @@ async fn write_extracted_content(
 )]
 #[axum::debug_handler]
 async fn list_executors(
-    State(_state): State<RepositoryEndpointState>,
+    State(_state): State<NamespaceEndpointState>,
 ) -> Result<Json<ListExecutorsResponse>, IndexifyAPIError> {
     Ok(Json(ListExecutorsResponse { executors: vec![] }))
 }
@@ -673,10 +662,10 @@ async fn list_executors(
 )]
 #[axum::debug_handler]
 async fn list_extractors(
-    State(state): State<RepositoryEndpointState>,
+    State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
     let extractors = state
-        .repository_manager
+        .data_manager
         .list_extractors()
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -697,7 +686,7 @@ async fn list_extractors(
 )]
 #[axum::debug_handler]
 async fn list_state_changes(
-    State(state): State<RepositoryEndpointState>,
+    State(state): State<NamespaceEndpointState>,
     Query(_query): Query<ListStateChanges>,
 ) -> Result<Json<ListStateChangesResponse>, IndexifyAPIError> {
     let state_changes = state
@@ -732,7 +721,7 @@ async fn list_state_changes(
     ),
 )]
 async fn list_tasks(
-    State(state): State<RepositoryEndpointState>,
+    State(state): State<NamespaceEndpointState>,
     Query(query): Query<ListTasks>,
 ) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
     let tasks = state
@@ -741,7 +730,7 @@ async fn list_tasks(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .list_tasks(ListTasksRequest {
-            repository: query.repository.clone(),
+            repository: query.namespace.clone(),
             extractor_binding: query.extractor_binding.unwrap_or("".to_string()),
         })
         .await
@@ -769,12 +758,12 @@ async fn list_tasks(
 )]
 #[axum::debug_handler]
 async fn extract_content(
-    State(repository_endpoint): State<RepositoryEndpointState>,
+    State(namespace_endpoint): State<NamespaceEndpointState>,
     Extension(caches): Extension<Caches>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
     let cache = caches.cache_extract_content.clone();
-    let extractor_router = ExtractorRouter::new(repository_endpoint.coordinator_client.clone())
+    let extractor_router = ExtractorRouter::new(namespace_endpoint.coordinator_client.clone())
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .with_cache(cache);
     let content_list = extractor_router
@@ -794,21 +783,21 @@ async fn extract_content(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repositories/{repository_name}/indexes",
+    path = "/namespaces/{namespace}/indexes",
     tag = "indexify",
     responses(
-        (status = 200, description = "List of indexes in a repository", body = ListIndexesResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in repository")
+        (status = 200, description = "List of indexes in a namespace", body = ListIndexesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in namespace")
     ),
 )]
 #[axum::debug_handler]
 async fn list_indexes(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<ListIndexesResponse>, IndexifyAPIError> {
     let indexes = state
-        .repository_manager
-        .list_indexes(&repository_name)
+        .data_manager
+        .list_indexes(&namespace)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .into_iter()
@@ -818,7 +807,7 @@ async fn list_indexes(
 
 #[utoipa::path(
     post,
-    path = "/repository/{repository_name}/search",
+    path = "/namespace/{namespace}/search",
     tag = "indexify",
     responses(
         (status = 200, description = "Index search results", body = IndexSearchResponse),
@@ -827,14 +816,14 @@ async fn list_indexes(
 )]
 #[axum::debug_handler]
 async fn index_search(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
     let results = state
-        .repository_manager
+        .data_manager
         .search(
-            &repository_name,
+            &namespace,
             &query.index,
             &query.query,
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
@@ -858,23 +847,23 @@ async fn index_search(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/repository/{repository_name}/metadata",
+    path = "/namespace/{namespace}/metadata",
     tag = "indexify",
     params(MetadataRequest),
     responses(
-        (status = 200, description = "List of Events in a repository", body = MetadataResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in repository")
+        (status = 200, description = "List of Events in a namespace", body = MetadataResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in namespace")
     ),
 )]
 #[axum::debug_handler]
 async fn metadata_lookup(
-    Path(repository_name): Path<String>,
-    State(state): State<RepositoryEndpointState>,
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
     Query(query): Query<MetadataRequest>,
 ) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
     let attributes = state
-        .repository_manager
-        .metadata_lookup(&repository_name, &query.index, query.content_id.as_ref())
+        .data_manager
+        .metadata_lookup(&namespace, &query.index, query.content_id.as_ref())
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

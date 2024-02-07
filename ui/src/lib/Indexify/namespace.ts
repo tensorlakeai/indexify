@@ -1,6 +1,6 @@
 import axios from "axios";
 import { IContent, IExtractorBinding, IIndex } from "./types";
-class Repository {
+class Namespace {
   private serviceUrl: string;
   public name: string;
   public extractorBindings: IExtractorBinding[];
@@ -20,7 +20,7 @@ class Repository {
 
   async indexes(): Promise<IIndex[]> {
     const resp = await axios.get(
-      `${this.serviceUrl}/repositories/${this.name}/indexes`
+      `${this.serviceUrl}/namespaces/${this.name}/indexes`
     );
     return resp.data.indexes;
   }
@@ -30,7 +30,7 @@ class Repository {
     labels_eq?: string
   ): Promise<IContent[]> {
     const resp = await axios.get(
-      `${this.serviceUrl}/repositories/${this.name}/content`,
+      `${this.serviceUrl}/namespaces/${this.name}/content`,
       {
         params: { parent_id, labels_eq },
       }
@@ -39,4 +39,4 @@ class Repository {
   }
 }
 
-export default Repository;
+export default Namespace;

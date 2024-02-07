@@ -41,12 +41,12 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct DataRepository {
+pub struct DataNamespace {
     pub name: String,
     pub extractor_bindings: Vec<ExtractorBinding>,
 }
 
-impl TryFrom<indexify_coordinator::Repository> for DataRepository {
+impl TryFrom<indexify_coordinator::Repository> for DataNamespace {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Repository) -> Result<Self> {
@@ -68,23 +68,23 @@ impl TryFrom<indexify_coordinator::Repository> for DataRepository {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
-pub struct CreateRepository {
+pub struct CreateNamespace {
     pub name: String,
     pub extractor_bindings: Vec<ExtractorBinding>,
     pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateRepositoryResponse {}
+pub struct CreateNamespaceResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct GetRepositoryResponse {
-    pub repository: DataRepository,
+pub struct GetNamespaceResponse {
+    pub namespace: DataNamespace,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ListRepositoriesResponse {
-    pub repositories: Vec<DataRepository>,
+pub struct ListNamespacesResponse {
+    pub namespaces: Vec<DataNamespace>,
 }
 
 #[derive(Display, EnumString, Debug, Serialize, Deserialize, Clone, Default, ToSchema)]
@@ -369,7 +369,7 @@ pub struct ListContentResponse {
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
-    pub repository: String,
+    pub namespace: String,
     pub name: String,
     pub content_type: String,
     pub labels: HashMap<String, String>,
@@ -453,7 +453,7 @@ pub struct ExtractResponse {
 pub struct WriteExtractedContent {
     pub content_list: Vec<internal_api::Content>,
     pub task_id: String,
-    pub repository: String,
+    pub namespace: String,
     pub output_to_index_table_mapping: HashMap<String, String>,
     pub parent_content_id: String,
     pub executor_id: String,
@@ -468,7 +468,7 @@ pub struct GetRawContentResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
-    pub repository: String,
+    pub namespace: String,
     pub extractor_binding: Option<String>,
 }
 

@@ -18,7 +18,7 @@ async function main() {
     });
     console.log(resp);
     var searchResp = await indexifyClient.indexify.indexSearch({
-        repository: "default",
+        namespace: "default",
         index: "default_index",
         query: "good",
         k: 1,

@@ -22,7 +22,7 @@ async function main() {
 
 
     var searchResp = await indexifyClient.indexify.indexSearch({
-        repository: "default",
+        namespace: "default",
         index: "default_index",
         query: "good",
         k: 1,

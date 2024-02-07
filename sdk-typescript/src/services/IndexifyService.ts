@@ -4,8 +4,8 @@
 import type { IndexAdditionResponse } from '../models/IndexAdditionResponse';
 import type { IndexSearchResponse } from '../models/IndexSearchResponse';
 import type { SearchRequest } from '../models/SearchRequest';
-import type { SyncRepository } from '../models/SyncRepository';
-import type { SyncRepositoryResponse } from '../models/SyncRepositoryResponse';
+import type { SyncNamespace } from '../models/SyncNamespace';
+import type { SyncNamespaceResponse } from '../models/SyncNamespaceResponse';
 import type { TextAddRequest } from '../models/TextAddRequest';
 
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -36,7 +36,7 @@ export class IndexifyService {
 
     /**
      * @param requestBody
-     * @returns IndexAdditionResponse Texts were successfully added to the repository
+     * @returns IndexAdditionResponse Texts were successfully added to the namespace
      * @throws ApiError
      */
     public addTexts(
@@ -44,7 +44,7 @@ export class IndexifyService {
     ): CancelablePromise<IndexAdditionResponse> {
         return this.httpRequest.request({
             method: 'POST',
-            url: '/repository/add_texts',
+            url: '/namespace/add_texts',
             body: requestBody,
             mediaType: 'application/json',
             errors: {
@@ -55,19 +55,19 @@ export class IndexifyService {
 
     /**
      * @param requestBody
-     * @returns SyncRepositoryResponse Repository synced successfully
+     * @returns SyncNamespaceResponse Namespace synced successfully
      * @throws ApiError
      */
-    public syncRepository(
-        requestBody: SyncRepository,
-    ): CancelablePromise<SyncRepositoryResponse> {
+    public syncNamespace(
+        requestBody: SyncNamespace,
+    ): CancelablePromise<SyncNamespaceResponse> {
         return this.httpRequest.request({
             method: 'POST',
-            url: '/repository/sync',
+            url: '/namespace/sync',
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                500: `Unable to sync repository`,
+                500: `Unable to sync namespace`,
             },
         });
     }

@@ -335,7 +335,7 @@ impl App {
         let content_list = {
             let store = self.indexify_state.read().await;
             let content_list = store
-                .content_repository_table
+                .content_namespace_table
                 .get(&extractor_binding.namespace)
                 .cloned()
                 .unwrap_or_default();
@@ -429,12 +429,12 @@ impl App {
 
     pub async fn list_content(
         &self,
-        repository: &str,
+        namespace: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let store = self.indexify_state.read().await;
         let content_ids = store
-            .content_repository_table
-            .get(repository)
+            .content_namespace_table
+            .get(namespace)
             .cloned()
             .unwrap_or_default();
         let mut content = Vec::new();
@@ -522,11 +522,11 @@ impl App {
         Ok(binding.clone())
     }
 
-    pub async fn list_bindings(&self, repository: &str) -> Result<Vec<ExtractorBinding>> {
+    pub async fn list_bindings(&self, namespace: &str) -> Result<Vec<ExtractorBinding>> {
         let store = self.indexify_state.read().await;
         let bindings = store
             .bindings_table
-            .get(repository)
+            .get(namespace)
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -534,10 +534,10 @@ impl App {
         Ok(bindings)
     }
 
-    pub async fn create_repository(&self, repository: &str) -> Result<()> {
+    pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
         let req = Request {
-            payload: RequestPayload::CreateRepository {
-                name: repository.to_string(),
+            payload: RequestPayload::CreateNamespace {
+                name: namespace.to_string(),
             },
             state_changes: vec![],
         };
@@ -545,36 +545,36 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Namespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
         let store = self.indexify_state.read().await;
-        let mut repositories = Vec::new();
-        for repository_name in &store.repositories {
+        let mut namespaces = Vec::new();
+        for namespace in &store.namespaces {
             let bindings = store
                 .bindings_table
-                .get(repository_name)
+                .get(namespace)
                 .cloned()
                 .unwrap_or_default();
-            let repository = internal_api::Namespace {
-                name: repository_name.clone(),
+            let namespace = internal_api::Namespace {
+                name: namespace.clone(),
                 extractor_bindings: bindings.into_iter().collect_vec(),
             };
-            repositories.push(repository);
+            namespaces.push(namespace);
         }
-        Ok(repositories)
+        Ok(namespaces)
     }
 
-    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Namespace> {
+    pub async fn namespace(&self, namespace: &str) -> Result<internal_api::Namespace> {
         let store = self.indexify_state.read().await;
         let bindings = store
             .bindings_table
-            .get(repository)
+            .get(namespace)
             .cloned()
             .unwrap_or_default();
-        let repository = internal_api::Namespace {
-            name: repository.to_string(),
+        let namespace = internal_api::Namespace {
+            name: namespace.to_string(),
             extractor_bindings: bindings.into_iter().collect_vec(),
         };
-        Ok(repository)
+        Ok(namespace)
     }
 
     pub async fn register_executor(
@@ -717,11 +717,11 @@ impl App {
         Ok(task.clone())
     }
 
-    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<internal_api::Index>> {
+    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
         let store = self.indexify_state.read().await;
         let indexes = store
-            .repository_extractors
-            .get(repository)
+            .namespace_extractors
+            .get(namespace)
             .cloned()
             .unwrap_or_default();
         let indexes = indexes.into_iter().collect_vec();
@@ -739,13 +739,13 @@ impl App {
 
     pub async fn create_index(
         &self,
-        repository: &str,
+        namespace: &str,
         index: internal_api::Index,
         id: String,
     ) -> Result<()> {
         let req = Request {
-            payload: RequestPayload::CreateIndex {
-                repository: repository.to_string(),
+            payload: RequestPayload::CreateIndexV2 {
+                namespace: namespace.to_string(),
                 index,
                 id,
             },
