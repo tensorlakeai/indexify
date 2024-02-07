@@ -414,7 +414,7 @@ mod tests {
                     id: "test-binding-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -552,7 +552,7 @@ mod tests {
                     id: "text-binding-id".to_string(),
                     name: "text".to_string(),
                     extractor: "MockTextExtractor".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -574,7 +574,7 @@ mod tests {
                     id: "json-binding-id".to_string(),
                     name: "json".to_string(),
                     extractor: "MockJsonExtractor".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -727,7 +727,7 @@ mod tests {
                     id: "text-binding-id".to_string(),
                     name: "text".to_string(),
                     extractor: "MockTextExtractor".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -749,7 +749,7 @@ mod tests {
                     id: "json-binding-id".to_string(),
                     name: "json".to_string(),
                     extractor: "MockJsonExtractor".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -956,7 +956,7 @@ mod tests {
                     id: "text-binding-id".to_string(),
                     name: "text".to_string(),
                     extractor: "MockTextExtractor".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -978,7 +978,7 @@ mod tests {
                     id: "json-binding-id".to_string(),
                     name: "json".to_string(),
                     extractor: "MockJsonExtractor".to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(

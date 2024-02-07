@@ -17,7 +17,7 @@ use utoipa::{schema, ToSchema};
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
 pub struct Index {
     // TODO FIXME: Add the Index ID
-    pub repository: String,
+    pub namespace: String,
     pub name: String,
     pub table_name: String,
     pub schema: String,
@@ -28,7 +28,7 @@ pub struct Index {
 impl Index {
     pub fn id(&self) -> String {
         let mut s = DefaultHasher::new();
-        self.repository.hash(&mut s);
+        self.namespace.hash(&mut s);
         self.name.hash(&mut s);
         format!("{:x}", s.finish())
     }
@@ -36,7 +36,7 @@ impl Index {
 
 impl Hash for Index {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.repository.hash(state);
+        self.namespace.hash(state);
         self.name.hash(state);
     }
 }
@@ -49,7 +49,7 @@ impl From<Index> for indexify_coordinator::Index {
             schema: value.schema,
             extractor: value.extractor,
             extractor_binding: value.extractor_binding,
-            repository: value.repository,
+            repository: value.namespace,
         }
     }
 }
@@ -62,7 +62,7 @@ impl From<indexify_coordinator::Index> for Index {
             schema: value.schema,
             extractor: value.extractor,
             extractor_binding: value.extractor_binding,
-            repository: value.repository,
+            namespace: value.repository,
         }
     }
 }
@@ -164,7 +164,7 @@ pub enum TaskState {
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct CreateWork {
-    pub repository_name: String,
+    pub namespace: String,
     pub content: Option<String>,
 }
 
@@ -247,7 +247,7 @@ pub struct Task {
     pub extractor: String,
     pub extractor_binding: String,
     pub output_index_table_mapping: HashMap<String, String>,
-    pub repository: String,
+    pub namespace: String,
     pub content_metadata: ContentMetadata,
     pub input_params: serde_json::Value,
     #[schema(value_type = internal_api::TaskOutcome)]
@@ -260,7 +260,7 @@ impl From<Task> for indexify_coordinator::Task {
         Self {
             id: value.id,
             extractor: value.extractor,
-            repository: value.repository,
+            repository: value.namespace,
             content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
             extractor_binding: value.extractor_binding,
@@ -280,7 +280,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         Ok(Self {
             id: value.id,
             extractor: value.extractor,
-            repository: value.repository,
+            namespace: value.repository,
             content_metadata,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
             extractor_binding: value.extractor_binding,
@@ -293,7 +293,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
 pub struct ExtractorBinding {
     pub id: String,
     pub name: String,
-    pub repository: String,
+    pub namespace: String,
     pub extractor: String,
     pub filters: HashMap<String, String>,
     pub input_params: serde_json::Value,
@@ -313,7 +313,7 @@ pub struct ExtractorBinding {
 
 impl std::hash::Hash for ExtractorBinding {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.repository.hash(state);
+        self.namespace.hash(state);
         self.name.hash(state);
     }
 }
@@ -339,8 +339,8 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
-    // Repository name == Repository ID
-    pub repository: String,
+    // Namespace name == Namespace ID
+    pub namespace: String,
     pub name: String,
     pub content_type: String,
     pub labels: HashMap<String, String>,
@@ -359,7 +359,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
-            repository: value.repository,
+            repository: value.namespace,
             source: value.source,
         }
     }
@@ -370,7 +370,7 @@ impl Default for ContentMetadata {
         Self {
             id: "test_id".to_string(),
             parent_id: "test_parent_id".to_string(),
-            repository: "test_repository".to_string(),
+            namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
             content_type: "test_content_type".to_string(),
             labels: {
@@ -398,7 +398,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
-            repository: value.repository,
+            namespace: value.repository,
             source: value.source,
         })
     }
@@ -452,13 +452,13 @@ impl TaskResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Repository {
+pub struct Namespace {
     pub name: String,
     pub extractor_bindings: Vec<ExtractorBinding>,
 }
 
-impl From<Repository> for indexify_coordinator::Repository {
-    fn from(value: Repository) -> Self {
+impl From<Namespace> for indexify_coordinator::Repository {
+    fn from(value: Namespace) -> Self {
         Self {
             name: value.name,
             bindings: value

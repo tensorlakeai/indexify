@@ -124,7 +124,7 @@ impl Coordinator {
         for content in content_list {
             let mut hasher = DefaultHasher::new();
             extractor_binding.name.hash(&mut hasher);
-            extractor_binding.repository.hash(&mut hasher);
+            extractor_binding.namespace.hash(&mut hasher);
             content.id.hash(&mut hasher);
             let id = format!("{:x}", hasher.finish());
             let task = internal_api::Task {
@@ -132,7 +132,7 @@ impl Coordinator {
                 extractor: extractor_binding.extractor.clone(),
                 extractor_binding: extractor_binding.name.clone(),
                 output_index_table_mapping: output_mapping.clone(),
-                repository: extractor_binding.repository.clone(),
+                namespace: extractor_binding.namespace.clone(),
                 content_metadata: content.clone(),
                 input_params: extractor_binding.input_params.clone(),
                 outcome: internal_api::TaskOutcome::Unknown,
@@ -192,11 +192,11 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Repository>> {
+    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Namespace>> {
         self.shared_state.list_repositories().await
     }
 
-    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Repository> {
+    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Namespace> {
         self.shared_state.get_repository(repository).await
     }
 
@@ -224,7 +224,7 @@ impl Coordinator {
         Ok(store
             .tasks
             .values()
-            .filter(|t| t.repository == repository)
+            .filter(|t| t.namespace == repository)
             .filter(|t| t.extractor_binding == extractor_binding)
             .cloned()
             .collect())
@@ -426,7 +426,7 @@ mod tests {
                     id: "test-binding-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(

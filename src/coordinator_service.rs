@@ -158,7 +158,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             id,
             extractor: extractor_binding.extractor,
             name: extractor_binding.name,
-            repository: request.repository,
+            namespace: request.repository,
             filters,
             input_params,
             output_index_name_mapping: output_index_name_mapping.clone(),
@@ -403,7 +403,7 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<Response<CreateIndexResponse>, Status> {
         let request = request.into_inner();
         let index: internal_api::Index = request.index.unwrap().into();
-        let repository = index.repository.clone();
+        let repository = index.namespace.clone();
         self.coordinator
             .create_index(&repository, index)
             .await

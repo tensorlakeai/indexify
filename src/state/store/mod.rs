@@ -1,11 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    io::Cursor,
-    ops::RangeBounds,
-    path::Path,
-    sync::Arc,
-};
+use std::{fmt::Debug, io::Cursor, ops::RangeBounds, path::Path, sync::Arc};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use indexify_internal_api::StateChange;

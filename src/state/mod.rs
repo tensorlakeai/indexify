@@ -277,7 +277,7 @@ impl App {
             let store = self.indexify_state.read().await;
             store
                 .bindings_table
-                .get(&content_metadata.repository)
+                .get(&content_metadata.namespace)
                 .cloned()
                 .unwrap_or_default()
         };
@@ -336,7 +336,7 @@ impl App {
             let store = self.indexify_state.read().await;
             let content_list = store
                 .content_repository_table
-                .get(&extractor_binding.repository)
+                .get(&extractor_binding.namespace)
                 .cloned()
                 .unwrap_or_default();
             let mut content_meta_list = Vec::new();
@@ -545,7 +545,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Repository>> {
+    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Namespace>> {
         let store = self.indexify_state.read().await;
         let mut repositories = Vec::new();
         for repository_name in &store.repositories {
@@ -554,7 +554,7 @@ impl App {
                 .get(repository_name)
                 .cloned()
                 .unwrap_or_default();
-            let repository = internal_api::Repository {
+            let repository = internal_api::Namespace {
                 name: repository_name.clone(),
                 extractor_bindings: bindings.into_iter().collect_vec(),
             };
@@ -563,14 +563,14 @@ impl App {
         Ok(repositories)
     }
 
-    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Repository> {
+    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Namespace> {
         let store = self.indexify_state.read().await;
         let bindings = store
             .bindings_table
             .get(repository)
             .cloned()
             .unwrap_or_default();
-        let repository = internal_api::Repository {
+        let repository = internal_api::Namespace {
             name: repository.to_string(),
             extractor_bindings: bindings.into_iter().collect_vec(),
         };
