@@ -135,8 +135,11 @@ impl LoadAwareDistributor {
     /// Logs an error if an executor referenced in the running task count is not
     /// found in the executors table, indicating a potential inconsistency
     /// in the application's state management.
-    async fn initialize_executor_load_min_heaps(&self) -> HashMap<String, MinHeap<ExecutorLoad>> {
-        let mut executors_load_min_heap: HashMap<String, MinHeap<ExecutorLoad>> = HashMap::new();
+    async fn initialize_executor_load_min_heaps_by_extractor(
+        &self,
+    ) -> HashMap<ExtractorName, MinHeap<ExecutorLoad>> {
+        let mut executors_load_min_heap: HashMap<ExtractorName, MinHeap<ExecutorLoad>> =
+            HashMap::new();
         // Retrieve the current running task count for each executor from the shared
         // state.
         let executor_running_task_count = self.shared_state.get_executor_running_task_count().await;
@@ -214,8 +217,10 @@ impl AllocationPlanner for LoadAwareDistributor {
 
         // Initialize a mapping from extractor names to priority queues (min-heaps) of
         // executors based on their load.
-        let mut executor_load_min_heaps: HashMap<ExecutorId, MinHeap<ExecutorLoad>> =
-            self.initialize_executor_load_min_heaps().await;
+        let mut executor_load_min_heaps_by_extractor: HashMap<
+            ExtractorName,
+            MinHeap<ExecutorLoad>,
+        > = self.initialize_executor_load_min_heaps_by_extractor().await;
 
         // Prepare the allocation plan structure to record task assignments.
         let mut plan = TaskAllocationPlan(HashMap::new());
@@ -224,7 +229,7 @@ impl AllocationPlanner for LoadAwareDistributor {
             // Attempt to retrieve the min-heap of executor loads for the current extractor.
             // If no heap is found (an invariant violation), log an error and skip to the
             // next extractor.
-            let heap = match executor_load_min_heaps.get_mut(extractor_name) {
+            let heap = match executor_load_min_heaps_by_extractor.get_mut(extractor_name) {
                 Some(heap) => heap,
                 None => {
                     // Logging at error level because this situation indicates a logic error
