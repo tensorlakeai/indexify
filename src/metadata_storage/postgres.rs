@@ -1,97 +1,35 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    fmt,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{fmt, sync::Arc};
+use async_trait::async_trait;
 
 use anyhow::Result;
-use indexify_proto::indexify_coordinator::{CreateIndexRequest, Index};
-use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
-use crate::{
-    coordinator_client::CoordinatorClient,
-    grpc_helper::GrpcHelper,
-    utils::{timestamp_secs, PostgresIndexName},
-};
+use super::{ExtractedMetadata, MetadataStorage};
+use crate::utils::{timestamp_secs, PostgresIndexName};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractedMetadata {
-    pub id: String,
-    pub content_id: String,
-    pub parent_content_id: String,
-    pub metadata: serde_json::Value,
-    pub extractor_name: String,
-}
-
-impl ExtractedMetadata {
-    pub fn new(
-        content_id: &str,
-        parent_content_id: &str,
-        metadata: serde_json::Value,
-        extractor_name: &str,
-        namespace: &str,
-    ) -> Self {
-        let mut s = DefaultHasher::new();
-        content_id.hash(&mut s);
-        extractor_name.hash(&mut s);
-        namespace.hash(&mut s);
-        metadata.to_string().hash(&mut s);
-        let id = format!("{:x}", s.finish());
-        Self {
-            id,
-            content_id: content_id.into(),
-            parent_content_id: parent_content_id.into(),
-            metadata,
-            extractor_name: extractor_name.into(),
-        }
-    }
-}
-
-pub struct MetadataIndexManager {
+pub struct PostgresIndexManager {
     pool: Pool<Postgres>,
-    coordinator_client: Arc<CoordinatorClient>,
 }
 
-impl fmt::Debug for MetadataIndexManager {
+impl fmt::Debug for PostgresIndexManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AttributeIndexManager").finish()
     }
 }
 
-impl MetadataIndexManager {
-    pub async fn new(db_addr: &str, coordinator_client: Arc<CoordinatorClient>) -> Result<Self> {
+impl PostgresIndexManager {
+    pub fn new(conn_url: &str) -> Result<Arc<Self>> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect(db_addr)
-            .await?;
-        Ok(Self {
-            pool,
-            coordinator_client,
-        })
+            .connect_lazy(conn_url)?;
+        Ok(Arc::new(Self { pool }))
     }
+}
 
-    pub async fn create_index(
-        &self,
-        namespace: &str,
-        index_name: &str,
-        table_name: &str,
-        extractor: &str,
-        extractor_binding: &str,
-        schema: serde_json::Value,
-    ) -> Result<String> {
+#[async_trait]
+impl MetadataStorage for PostgresIndexManager {
+    async fn create_index(&self, index_name: &str, table_name: &str) -> Result<String> {
         let table_name = PostgresIndexName::new(table_name);
-        let index = CreateIndexRequest {
-            index: Some(Index {
-                name: index_name.to_string(),
-                table_name: table_name.to_string(),
-                namespace: namespace.to_string(),
-                schema: schema.to_string(),
-                extractor: extractor.to_string(),
-                extractor_binding: extractor_binding.to_string(),
-            }),
-        };
         let query = format!(
             "CREATE TABLE IF NOT EXISTS {table_name} (
             id TEXT PRIMARY KEY,
@@ -105,17 +43,10 @@ impl MetadataIndexManager {
         );"
         );
         let _ = sqlx::query(&query).execute(&self.pool).await?;
-        let req = GrpcHelper::into_req(index);
-        let _resp = self
-            .coordinator_client
-            .get()
-            .await?
-            .create_index(req)
-            .await?;
         Ok(index_name.to_string())
     }
 
-    pub async fn add_metadata(
+    async fn add_metadata(
         &self,
         namespace: &str,
         index_name: &str,
@@ -137,7 +68,7 @@ impl MetadataIndexManager {
         Ok(())
     }
 
-    pub async fn get_attributes(
+    async fn get_metadata(
         &self,
         namespace: &str,
         index_table_name: &str,

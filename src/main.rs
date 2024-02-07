@@ -27,7 +27,7 @@ mod data_manager;
 mod executor;
 mod extractor_router;
 mod grpc_helper;
-mod metadata_index;
+mod metadata_storage;
 mod task_store;
 mod test_util;
 mod tls;
