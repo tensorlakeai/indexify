@@ -135,14 +135,14 @@ impl IndexifyState {
                     self.content_table
                         .insert(content.id.clone(), content.clone());
                     self.content_repository_table
-                        .entry(content.repository.clone())
+                        .entry(content.namespace.clone())
                         .or_default()
                         .insert(content.id.clone());
                 }
             }
             RequestPayload::CreateBinding { binding } => {
                 self.bindings_table
-                    .entry(binding.repository.clone())
+                    .entry(binding.namespace.clone())
                     .or_default()
                     .insert(binding.clone());
                 self.extractor_bindings
@@ -192,7 +192,7 @@ impl IndexifyState {
                     self.content_table
                         .insert(content.id.clone(), content.clone());
                     self.content_repository_table
-                        .entry(content.repository.clone())
+                        .entry(content.namespace.clone())
                         .or_default()
                         .insert(content.id.clone());
                 }
