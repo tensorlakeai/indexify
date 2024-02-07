@@ -70,8 +70,6 @@ pub struct StoredSnapshot {
 
 #[derive(Clone)]
 pub struct StateMachineStore {
-    pub version: SnapshotVersion,
-
     pub data: StateMachineData,
 
     /// snapshot index is not persisted in this example.
@@ -125,7 +123,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
         let snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: indexify_state_json.clone(),
-        }
+        };
 
         self.set_current_snapshot_(snapshot)?;
 
