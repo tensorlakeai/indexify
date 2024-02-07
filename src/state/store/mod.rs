@@ -29,11 +29,15 @@ use openraft::{
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
 use tokio::sync::RwLock;
 
 type Node = BasicNode;
 
-use self::state_machine_objects::IndexifyState;
+use self::{
+    migrate::{SnapshotVersion, CURRENT_SNAPSHOT_VERSION},
+    state_machine_objects::IndexifyState,
+};
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 
 pub type RepositoryId = String;
@@ -46,6 +50,7 @@ pub type ExtractionEventId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
 
+pub mod migrate;
 pub mod requests;
 pub mod state_machine_objects;
 mod store_utils;
@@ -65,6 +70,8 @@ pub struct StoredSnapshot {
 
 #[derive(Clone)]
 pub struct StateMachineStore {
+    pub version: SnapshotVersion,
+
     pub data: StateMachineData,
 
     /// snapshot index is not persisted in this example.
@@ -118,7 +125,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
         let snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: indexify_state_json.clone(),
-        };
+        }
 
         self.set_current_snapshot_(snapshot)?;
 
@@ -159,6 +166,10 @@ impl StateMachineStore {
         let indexify_state: IndexifyState = serde_json::from_slice(&snapshot.data)
             .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
 
+        // let snapshot_version = indexify_state.version;
+        // migrate state machine here.
+
+        // self.data.state_machine_version = CURRENT_SNAPSHOT_VERSION;
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
         self.data.last_membership = snapshot.meta.last_membership.clone();
         let mut x = self.data.indexify_state.write().await;
