@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     requests::{Request, RequestPayload},
+    store_utils::{decrement_running_task_count, increment_running_task_count},
     ContentId,
     ExecutorId,
     ExtractorName,
@@ -35,17 +36,30 @@ pub struct IndexifyState {
     pub index_table: HashMap<String, internal_api::Index>,
 
     // Reverse Indexes
+    /// The tasks that are currently unassigned
     pub unassigned_tasks: HashSet<TaskId>,
 
+    /// State changes that have not been processed yet
     pub unprocessed_state_changes: HashSet<StateChangeId>,
 
+    /// Repository -> Content ID
     pub content_repository_table: HashMap<RepositoryId, HashSet<ContentId>>,
 
+    /// Repository -> Extractor bindings
     pub bindings_table: HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>>,
 
+    /// Extractor -> Executors table
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
+    /// Repository -> Extractors index
     pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
+
+    /// Tasks that are currently unfinished, by extractor. Once they are
+    /// finished, they are removed from this set.
+    pub unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
+
+    /// Number of tasks currently running on each executor
+    pub executor_running_task_count: HashMap<ExecutorId, usize>,
 }
 
 impl IndexifyState {
@@ -74,6 +88,9 @@ impl IndexifyState {
                     extractor: extractor.clone(),
                 };
                 self.executors.insert(executor_id.clone(), executor_info);
+                // initialize executor load at 0
+                self.executor_running_task_count
+                    .insert(executor_id.clone(), 0);
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 // Remove this from the executors table
@@ -86,11 +103,17 @@ impl IndexifyState {
                         .or_default();
                     executors.remove(executor_meta.extractor.name.as_str());
                 }
+                // Remove from the executor load table
+                self.executor_running_task_count.remove(&executor_id);
             }
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
                     self.tasks.insert(task.id.clone(), task.clone());
                     self.unassigned_tasks.insert(task.id.clone());
+                    self.unfinished_tasks_by_extractor
+                        .entry(task.extractor.clone())
+                        .or_default()
+                        .insert(task.id.clone());
                 }
             }
             RequestPayload::AssignTask { assignments } => {
@@ -100,6 +123,11 @@ impl IndexifyState {
                         .or_default()
                         .insert(task_id.clone());
                     self.unassigned_tasks.remove(&task_id);
+
+                    increment_running_task_count(
+                        &mut self.executor_running_task_count,
+                        &executor_id,
+                    );
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {
@@ -143,11 +171,21 @@ impl IndexifyState {
                 self.tasks.insert(task.id.clone(), task.clone());
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);
+                    self.unfinished_tasks_by_extractor
+                        .entry(task.extractor.clone())
+                        .or_default()
+                        .remove(&task.id);
                     if let Some(executor_id) = executor_id {
+                        // remove the task from the executor's task assignments
                         self.task_assignments
                             .entry(executor_id.clone())
                             .or_default()
                             .remove(&task.id);
+
+                        decrement_running_task_count(
+                            &mut self.executor_running_task_count,
+                            &executor_id,
+                        );
                     }
                 }
                 for content in content_metadata {

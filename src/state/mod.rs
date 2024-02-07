@@ -38,6 +38,7 @@ use self::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
         ExecutorId,
+        ExecutorIdRef,
         TaskId,
     },
 };
@@ -405,6 +406,27 @@ impl App {
         Ok(executors)
     }
 
+    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+        self.indexify_state
+            .read()
+            .await
+            .executor_running_task_count
+            .clone()
+    }
+
+    pub async fn unfinished_tasks_by_extractor(
+        &self,
+        extractor: &str,
+    ) -> Result<HashSet<TaskId>, anyhow::Error> {
+        let sm = self.indexify_state.read().await;
+        let task_ids = sm
+            .unfinished_tasks_by_extractor
+            .get(extractor)
+            .cloned()
+            .unwrap_or_default();
+        Ok(task_ids)
+    }
+
     pub async fn list_content(
         &self,
         repository: &str,
@@ -588,6 +610,18 @@ impl App {
         let store = self.indexify_state.read().await;
         let executors = store.executors.values().cloned().collect_vec();
         Ok(executors)
+    }
+
+    pub async fn get_executor_by_id(
+        &self,
+        executor_id: ExecutorIdRef<'_>,
+    ) -> Result<internal_api::ExecutorMetadata> {
+        let store = self.indexify_state.read().await;
+        let executor = store
+            .executors
+            .get(executor_id)
+            .ok_or(anyhow!("executor {} not found", executor_id))?;
+        Ok(executor.clone())
     }
 
     pub async fn commit_task_assignments(
