@@ -4,7 +4,7 @@ use tracing::warn;
 
 use super::{ExecutorId, ExecutorIdRef};
 
-pub fn increment_load(
+pub fn increment_running_task_count(
     executor_load: &mut HashMap<ExecutorId, usize>,
     executor_id: ExecutorIdRef<'_>,
 ) {
@@ -12,7 +12,7 @@ pub fn increment_load(
     *load += 1;
 }
 
-pub fn decrement_load(
+pub fn decrement_running_task_count(
     executor_load: &mut HashMap<ExecutorId, usize>,
     executor_id: ExecutorIdRef<'_>,
 ) {
@@ -33,26 +33,26 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_increment_load() {
+    fn test_increment_running_task_count() {
         let mut executor_load = HashMap::new();
         let executor_id = "executor_id";
-        increment_load(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, &executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &1);
-        increment_load(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, &executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &2);
     }
 
     #[test]
-    fn test_decrement_load() {
+    fn test_decrement_running_task_count() {
         let mut executor_load = HashMap::new();
         let executor_id = "executor_id";
-        increment_load(&mut executor_load, &executor_id);
-        increment_load(&mut executor_load, &executor_id);
-        decrement_load(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, &executor_id);
+        decrement_running_task_count(&mut executor_load, &executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &1);
-        decrement_load(&mut executor_load, &executor_id);
+        decrement_running_task_count(&mut executor_load, &executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &0);
-        decrement_load(&mut executor_load, &executor_id);
+        decrement_running_task_count(&mut executor_load, &executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &0);
     }
 }

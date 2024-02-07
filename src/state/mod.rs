@@ -39,7 +39,6 @@ use self::{
         state_machine_objects::IndexifyState,
         ExecutorId,
         ExecutorIdRef,
-        ExtractorExecutorsMap,
         TaskId,
     },
 };
@@ -407,16 +406,12 @@ impl App {
         Ok(executors)
     }
 
-    pub async fn get_extractor_executors_map(&self) -> ExtractorExecutorsMap {
+    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
         self.indexify_state
             .read()
             .await
-            .extractor_executors_table
+            .executor_running_task_count
             .clone()
-    }
-
-    pub async fn get_executor_load(&self) -> HashMap<ExecutorId, usize> {
-        self.indexify_state.read().await.executor_load.clone()
     }
 
     pub async fn unfinished_tasks_by_extractor(
