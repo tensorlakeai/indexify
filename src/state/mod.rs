@@ -121,7 +121,12 @@ impl App {
                 .validate()
                 .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
         );
-        let db_path = server_config.sled.path.clone().unwrap_or_default().clone();
+        let db_path = server_config
+            .state_store
+            .path
+            .clone()
+            .unwrap_or_default()
+            .clone();
         let db_path: &Path = Path::new(db_path.as_str());
         let (log_store, state_machine) = new_storage(db_path).await;
         let state_change_rx = state_machine.state_change_rx.clone();

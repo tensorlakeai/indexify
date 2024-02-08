@@ -366,7 +366,7 @@ mod tests {
     use indexify_proto::indexify_coordinator;
 
     use crate::{
-        server_config::{ServerConfig, ServerPeer, SledConfig},
+        server_config::{ServerConfig, ServerPeer, StateStoreConfig},
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
     };
@@ -375,7 +375,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.sled.clone().path.unwrap());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
@@ -506,7 +506,7 @@ mod tests {
                 coordinator_addr: format!("localhost:{}", port),
                 raft_port: port + 1,
                 peers: peers.clone(),
-                sled: SledConfig {
+                state_store: StateStoreConfig {
                     path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
                 },
                 ..Default::default()
@@ -525,7 +525,7 @@ mod tests {
 
         let mut apps = Vec::new();
         for config in server_configs {
-            let _ = fs::remove_dir_all(config.sled.clone().path.unwrap());
+            let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
             let shared_state = App::new(config.clone()).await?;
             apps.push(shared_state);
         }

@@ -417,7 +417,7 @@ impl Default for ServerConfig {
                 node_id: 0,
             }],
             cache: ServerCacheConfig::default(),
-            sled: SledConfig::default(),
+            state_store: StateStoreConfig::default(),
         }
     }
 }
