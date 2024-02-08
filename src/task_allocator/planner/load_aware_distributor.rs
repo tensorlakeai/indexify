@@ -160,7 +160,7 @@ impl LoadAwareDistributor {
                     // Update or create the heap for the extractor and add the executor's load.
                     executors_load_min_heap
                         .entry(extractor_name)
-                        .or_insert_with(BinaryHeap::new)
+                        .or_default()
                         // use `Reverse` here to make it a min-heap
                         .push(Reverse(ExecutorLoad {
                             executor_id: executor_id.clone(),
@@ -346,7 +346,7 @@ mod tests {
     #[tokio::test]
     async fn test_plan_allocations_empty() {
         let config = Arc::new(ServerConfig::default());
-        let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
+        std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let _coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
@@ -368,7 +368,7 @@ mod tests {
     // #[tracing_test::traced_test]
     async fn test_allocate_task() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
-        let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
+        std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
@@ -456,7 +456,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_round_robin_distribution() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
-        let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
+        std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
@@ -630,7 +630,7 @@ mod tests {
     #[tokio::test]
     async fn test_balance_imbalanced_executors() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
-        let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
+        std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
@@ -825,7 +825,7 @@ mod tests {
         let text_tasks = total_tasks / 2;
         let json_tasks = total_tasks / 2;
         let config = Arc::new(ServerConfig::default());
-        let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
+        std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());

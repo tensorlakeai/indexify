@@ -279,9 +279,7 @@ where
     for (key, value) in labels_eq.clone() {
         // if the first part is empty, then it's invalid
         if key.is_empty() {
-            return Err(serde::de::Error::custom(format!(
-                "invalid labels_eq filter - must be in the form 'key:value' or 'key:' or ''"
-            )));
+            return Err(serde::de::Error::custom("invalid labels_eq filter - must be in the form 'key:value' or 'key:' or ''".to_string()));
         }
         // if the second part is empty, then it's an empty string value filter
         if value.is_empty() {

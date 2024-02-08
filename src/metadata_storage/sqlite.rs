@@ -154,7 +154,7 @@ mod tests {
             extractor_name: "test_extractor".into(),
         };
         let namespace = "test_namespace";
-        let _ = index_manager
+        index_manager
             .add_metadata(namespace, table_name, metadata.clone())
             .await
             .unwrap();

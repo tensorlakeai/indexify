@@ -155,7 +155,7 @@ impl Coordinator {
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let content = self.shared_state.list_content(namespace).await?.into_iter();
         list_content_filter(content, source, parent_id, labels_eq)
-            .map(|c| Ok(c))
+            .map(Ok)
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
     }
 

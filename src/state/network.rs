@@ -94,7 +94,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let raft_res = GrpcHelper::parse_raft_reply(resp)
             .map_err(|serde_err| new_net_err(&serde_err, || "parse append_entries reply"))?;
 
-        return raft_res.map_err(|e| self.to_rpc_err(e));
+        raft_res.map_err(|e| self.to_rpc_err(e))
     }
 
     async fn send_install_snapshot(
@@ -117,7 +117,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let raft_res = GrpcHelper::parse_raft_reply(resp)
             .map_err(|serde_err| new_net_err(&serde_err, || "parse install_snapshot reply"))?;
 
-        return raft_res.map_err(|e| self.to_rpc_err(e));
+        raft_res.map_err(|e| self.to_rpc_err(e))
     }
 
     async fn send_vote(
@@ -141,7 +141,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let raft_res = GrpcHelper::parse_raft_reply(resp)
             .map_err(|serde_err| new_net_err(&serde_err, || "parse vote reply"))?;
 
-        return raft_res.map_err(|e| self.to_rpc_err(e));
+        raft_res.map_err(|e| self.to_rpc_err(e))
     }
 }
 
