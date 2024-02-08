@@ -517,7 +517,7 @@ impl DataManager {
         &self,
         namespace: &str,
         index_name: &str,
-        content_id: Option<&String>,
+        content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
         let req = indexify_coordinator::GetIndexRequest {
             namespace: namespace.to_string(),

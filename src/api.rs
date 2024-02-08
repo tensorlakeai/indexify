@@ -318,7 +318,7 @@ pub struct ListContentFilters {
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct MetadataRequest {
-    pub content_id: Option<String>,
+    pub content_id: String,
     pub index: String,
 }
 

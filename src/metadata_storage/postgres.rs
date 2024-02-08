@@ -1,7 +1,7 @@
 use std::{fmt, sync::Arc};
-use async_trait::async_trait;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use super::{ExtractedMetadata, MetadataStorage};
@@ -72,28 +72,17 @@ impl MetadataStorage for PostgresIndexManager {
         &self,
         namespace: &str,
         index_table_name: &str,
-        content_id: Option<&String>,
+        content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>> {
         let index_table_name = PostgresIndexName::new(index_table_name);
-        let rows = match content_id {
-            Some(content_id) => {
-                let query = format!(
-                    "SELECT * FROM {index_table_name} WHERE namespace = $1 and content_id = $2"
-                );
-                sqlx::query(&query)
-                    .bind(namespace)
-                    .bind(content_id)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-            None => {
-                let query = format!("SELECT * FROM {index_table_name} WHERE namespace = $1");
-                sqlx::query(&query)
-                    .bind(namespace)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-        };
+        let query =
+            format!("SELECT * FROM {index_table_name} WHERE namespace = $1 and content_id = $2");
+        let rows = sqlx::query(&query)
+            .bind(namespace)
+            .bind(content_id)
+            .fetch_all(&self.pool)
+            .await?;
+
         let mut extracted_attributes = Vec::new();
         for row in rows {
             let id: String = row.get(0);

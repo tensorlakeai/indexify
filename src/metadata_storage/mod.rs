@@ -1,7 +1,11 @@
-use async_trait::async_trait;
-use std::{collections::hash_map::DefaultHasher, hash::{Hash, Hasher}, sync::Arc};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use self::{postgres::PostgresIndexManager, sqlite::SqliteIndexManager};
@@ -59,7 +63,7 @@ pub trait MetadataStorage {
         &self,
         namespace: &str,
         index_table_name: &str,
-        content_id: Option<&String>,
+        content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>>;
 }
 

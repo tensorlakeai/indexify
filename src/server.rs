@@ -124,7 +124,8 @@ impl Server {
             VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
                 .map_err(|e| anyhow!("unable to create vector index {}", e))?,
         );
-        let metadata_index_manager: MetadataStorageTS = metadata_storage::from_config(&self.config.metadata_storage)?;
+        let metadata_index_manager: MetadataStorageTS =
+            metadata_storage::from_config(&self.config.metadata_storage)?;
         let data_manager = Arc::new(
             DataManager::new(
                 vector_index_manager,
@@ -867,7 +868,7 @@ async fn metadata_lookup(
 ) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
     let attributes = state
         .data_manager
-        .metadata_lookup(&namespace, &query.index, query.content_id.as_ref())
+        .metadata_lookup(&namespace, &query.index, &query.content_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
