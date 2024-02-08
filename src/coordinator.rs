@@ -7,28 +7,35 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::StateChange;
+use internal_api::{StateChange, Task};
 use jsonschema::JSONSchema;
 use tokio::sync::watch::Receiver;
 use tracing::info;
 
-use crate::{coordinator_filters::*, state::SharedState};
+use crate::{coordinator_filters::*, state::SharedState, task_allocator::TaskAllocator};
 
 pub struct Coordinator {
     shared_state: SharedState,
+    task_allocator: TaskAllocator,
 }
 
 impl Coordinator {
     pub fn new(shared_state: SharedState) -> Arc<Self> {
-        Arc::new(Self { shared_state })
+        let task_allocator = TaskAllocator::new(shared_state.clone());
+        Arc::new(Self {
+            shared_state,
+            task_allocator,
+        })
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn process_extraction_events(&self) -> Result<(), anyhow::Error> {
-        let state_changes = self.shared_state.unprocessed_state_change_events().await?;
+    pub async fn process_extraction_events(
+        &self,
+        state_changes: &Vec<StateChange>,
+    ) -> Result<Vec<Task>, anyhow::Error> {
         info!("processing {} extraction events", state_changes.len());
         let mut tasks = Vec::new();
-        for change in &state_changes {
+        for change in state_changes {
             info!(
                 "processing change event: {}, type: {}, id: {}",
                 change.id, change.change_type, change.object_id
@@ -67,11 +74,7 @@ impl Coordinator {
             };
             info!("created {} tasks", tasks.len());
         }
-        self.shared_state.create_tasks(tasks).await?;
-        self.shared_state
-            .mark_change_events_as_processed(state_changes)
-            .await?;
-        Ok(())
+        Ok(tasks)
     }
 
     #[tracing::instrument(skip(self))]
@@ -319,12 +322,18 @@ impl Coordinator {
 
     #[tracing::instrument(skip(self))]
     pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
-        self.process_extraction_events().await?;
-
-        let task_assignments = self.distribute_work().await?;
+        let state_changes = self.shared_state.unprocessed_state_change_events().await?;
+        println!("state_changes: {:?}", state_changes);
+        let tasks = self.process_extraction_events(&state_changes).await?;
+        println!("tasks: {:?}", tasks);
+        self.shared_state.create_tasks(tasks.clone()).await?;
         self.shared_state
-            .commit_task_assignments(task_assignments)
-            .await
+            .mark_change_events_as_processed(state_changes)
+            .await?;
+
+        let task_ids = tasks.into_iter().map(|t| t.id).collect();
+
+        self.task_allocator.allocate_tasks(task_ids).await
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {

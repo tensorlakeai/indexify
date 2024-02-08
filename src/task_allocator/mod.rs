@@ -24,7 +24,7 @@ impl TaskAllocator {
         }
     }
 
-    async fn allocate_tasks(&self, task_ids: HashSet<TaskId>) -> Result<(), anyhow::Error> {
+    pub async fn allocate_tasks(&self, task_ids: HashSet<TaskId>) -> Result<(), anyhow::Error> {
         let plan = self.planner.plan_allocations(task_ids).await?;
         self.commit_task_assignments(plan.into()).await?;
         Ok(())
