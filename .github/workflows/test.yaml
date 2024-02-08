@@ -39,6 +39,6 @@ jobs:
       run: ./run_tests.sh
     - name: Clear up space
       run: |
-        docker stop --time 90 $(docker ps -aq);
-        docker rm --force $(docker ps -aq);
-        docker rmi --force $(docker images -aq);
+        docker stop --time 90 $(docker ps -aq) || true
+        docker rm --force $(docker ps -aq) || true
+        docker rmi --force $(docker images -aq) || true
