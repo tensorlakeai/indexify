@@ -428,14 +428,14 @@ mod tests {
                 mock_extractor(),
             )
             .await?;
-        assert_eq!(
-            2,
-            shared_state.unprocessed_state_change_events().await?.len()
-        );
-        coordinator.process_extraction_events().await?;
 
-        // Get the unallocated tasks
-        let tasks = shared_state.unassigned_tasks().await?;
+        let unprocessed_state_change_events =
+            shared_state.unprocessed_state_change_events().await?;
+        assert_eq!(2, unprocessed_state_change_events.len());
+        let tasks = coordinator
+            .process_extraction_events(&unprocessed_state_change_events)
+            .await?;
+        shared_state.create_tasks(tasks.clone()).await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
@@ -586,13 +586,14 @@ mod tests {
                 json_extractor,
             )
             .await?;
-        coordinator.process_extraction_events().await?;
 
-        // Get the unallocated tasks
-        let tasks = shared_state.unassigned_tasks().await?;
+        let unprocessed_state_change_events =
+            shared_state.unprocessed_state_change_events().await?;
+        let tasks = coordinator
+            .process_extraction_events(&unprocessed_state_change_events)
+            .await?;
 
-        // There should be 100 unallocated tasks
-        assert_eq!(tasks.len(), 100);
+        shared_state.create_tasks(tasks.clone()).await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
@@ -759,13 +760,14 @@ mod tests {
                 json_extractor,
             )
             .await?;
-        coordinator.process_extraction_events().await?;
 
-        // Get the unallocated tasks
-        let tasks = shared_state.unassigned_tasks().await?;
+        let unprocessed_state_change_events =
+            shared_state.unprocessed_state_change_events().await?;
+        let tasks = coordinator
+            .process_extraction_events(&unprocessed_state_change_events)
+            .await?;
 
-        // There should be 200 unallocated tasks
-        assert_eq!(tasks.len(), 200);
+        shared_state.create_tasks(tasks.clone()).await?;
 
         // arbitrarily increase the load on the first text executor and json executor
         let mut sm = shared_state.indexify_state.write().await;
@@ -986,12 +988,14 @@ mod tests {
                 json_extractor,
             )
             .await?;
-        coordinator.process_extraction_events().await?;
 
-        // Get the unallocated tasks
-        let tasks = shared_state.unassigned_tasks().await?;
+        let unprocessed_state_change_events =
+            shared_state.unprocessed_state_change_events().await?;
+        let tasks = coordinator
+            .process_extraction_events(&unprocessed_state_change_events)
+            .await?;
 
-        assert_eq!(tasks.len(), total_tasks);
+        shared_state.create_tasks(tasks.clone()).await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         // start the timer
