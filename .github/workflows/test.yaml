@@ -30,8 +30,10 @@ jobs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
+          ~/.cache/pip
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: ${{ runner.os }}-cargo-
+          /usr/local/lib/python3.9/dist-packages
+        key: test-cache
+        restore-keys: test-cache
     - name: test
       run: ./run_tests.sh
