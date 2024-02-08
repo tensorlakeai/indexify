@@ -145,16 +145,12 @@ impl Coordinator {
 
     pub async fn list_content(
         &self,
-        repository: &str,
+        namespace: &str,
         source: &str,
         parent_id: &str,
         labels_eq: &HashMap<String, String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content = self
-            .shared_state
-            .list_content(repository)
-            .await?
-            .into_iter();
+        let content = self.shared_state.list_content(namespace).await?.into_iter();
         list_content_filter(content, source, parent_id, labels_eq)
             .map(|c| Ok(c))
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
@@ -162,9 +158,9 @@ impl Coordinator {
 
     pub async fn list_bindings(
         &self,
-        repository: &str,
+        namespace: &str,
     ) -> Result<Vec<internal_api::ExtractorBinding>> {
-        self.shared_state.list_bindings(repository).await
+        self.shared_state.list_bindings(namespace).await
     }
 
     pub async fn update_task(
@@ -187,17 +183,17 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn create_repository(&self, repository: &str) -> Result<()> {
-        self.shared_state.create_repository(repository).await?;
+    pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
+        self.shared_state.create_namespace(namespace).await?;
         Ok(())
     }
 
-    pub async fn list_repositories(&self) -> Result<Vec<internal_api::Namespace>> {
-        self.shared_state.list_repositories().await
+    pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
+        self.shared_state.list_namespaces().await
     }
 
-    pub async fn get_repository(&self, repository: &str) -> Result<internal_api::Namespace> {
-        self.shared_state.get_repository(repository).await
+    pub async fn get_namespace(&self, namespace: &str) -> Result<internal_api::Namespace> {
+        self.shared_state.namespace(namespace).await
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
@@ -217,14 +213,14 @@ impl Coordinator {
 
     pub async fn list_tasks(
         &self,
-        repository: &str,
+        namespace: &str,
         extractor_binding: &str,
     ) -> Result<Vec<internal_api::Task>> {
         let store = self.shared_state.indexify_state.read().await;
         Ok(store
             .tasks
             .values()
-            .filter(|t| t.namespace == repository)
+            .filter(|t| t.namespace == namespace)
             .filter(|t| t.extractor_binding == extractor_binding)
             .cloned()
             .collect())
@@ -236,21 +232,21 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn list_indexes(&self, repository: &str) -> Result<Vec<internal_api::Index>> {
-        self.shared_state.list_indexes(repository).await
+    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
+        self.shared_state.list_indexes(namespace).await
     }
 
-    pub async fn get_index(&self, repository: &str, name: &str) -> Result<internal_api::Index> {
+    pub async fn get_index(&self, namespace: &str, name: &str) -> Result<internal_api::Index> {
         let mut s = DefaultHasher::new();
-        repository.hash(&mut s);
+        namespace.hash(&mut s);
         name.hash(&mut s);
         let id = format!("{:x}", s.finish());
         self.shared_state.get_index(&id).await
     }
 
-    pub async fn create_index(&self, repository: &str, index: internal_api::Index) -> Result<()> {
+    pub async fn create_index(&self, namespace: &str, index: internal_api::Index) -> Result<()> {
         let id = index.id();
-        self.shared_state.create_index(repository, index, id).await
+        self.shared_state.create_index(namespace, index, id).await
     }
 
     pub async fn get_extractor_coordinates(&self, extractor_name: &str) -> Result<Vec<String>> {
@@ -372,7 +368,7 @@ mod tests {
     use crate::{
         server_config::{ServerConfig, ServerPeer, SledConfig},
         state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_REPOSITORY},
+        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
     };
 
     #[tokio::test]
@@ -384,16 +380,14 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        // Add a repository
-        coordinator
-            .create_repository(DEFAULT_TEST_REPOSITORY)
-            .await?;
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
         // Add content and ensure that we are creating a extraction event
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test".to_string(),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                repository: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "text/plain".to_string(),
@@ -426,7 +420,7 @@ mod tests {
                     id: "test-binding-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    namespace: DEFAULT_TEST_REPOSITORY.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
                     output_index_name_mapping: HashMap::from([(
@@ -435,7 +429,7 @@ mod tests {
                     )]),
                     index_name_table_mapping: HashMap::from([(
                         "test.test_output".to_string(),
-                        "test_repository.test.test_output".to_string(),
+                        "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
                 },
@@ -464,7 +458,7 @@ mod tests {
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test2".to_string(),
-                repository: DEFAULT_TEST_REPOSITORY.to_string(),
+                repository: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "test".to_string(),
                 file_name: "test2".to_string(),
                 mime: "text/plain".to_string(),

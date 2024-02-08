@@ -5,14 +5,7 @@ use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    requests::{Request, RequestPayload},
-    store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    RepositoryId,
-    StateChangeId,
-    TaskId,
+    requests::{Request, RequestPayload}, store_utils::{decrement_running_task_count, increment_running_task_count}, ContentId, ExecutorId, BindingId, ExtractorName, NamespaceName, StateChangeId, TaskId
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -27,11 +20,11 @@ pub struct IndexifyState {
 
     pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
 
-    pub extractor_bindings: HashMap<String, internal_api::ExtractorBinding>,
+    pub extractor_bindings: HashMap<BindingId, internal_api::ExtractorBinding>,
 
     pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
 
-    pub repositories: HashSet<String>,
+    pub namespaces: HashSet<NamespaceName>,
 
     pub index_table: HashMap<String, internal_api::Index>,
 
@@ -42,17 +35,17 @@ pub struct IndexifyState {
     /// State changes that have not been processed yet
     pub unprocessed_state_changes: HashSet<StateChangeId>,
 
-    /// Repository -> Content ID
-    pub content_repository_table: HashMap<RepositoryId, HashSet<ContentId>>,
+    /// Namespace -> Content ID
+    pub content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
 
-    /// Repository -> Extractor bindings
-    pub bindings_table: HashMap<RepositoryId, HashSet<internal_api::ExtractorBinding>>,
+    /// Namespace -> Extractor bindings
+    pub bindings_table: HashMap<NamespaceName, HashSet<internal_api::ExtractorBinding>>,
 
     /// Extractor -> Executors table
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
-    /// Repository -> Extractors index
-    pub repository_extractors: HashMap<RepositoryId, HashSet<internal_api::Index>>,
+    /// Namespace -> Extractors index
+    pub namespace_extractors: HashMap<NamespaceName, HashSet<internal_api::Index>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
@@ -134,7 +127,7 @@ impl IndexifyState {
                 for content in content_metadata {
                     self.content_table
                         .insert(content.id.clone(), content.clone());
-                    self.content_repository_table
+                    self.content_namespace_table
                         .entry(content.namespace.clone())
                         .or_default()
                         .insert(content.id.clone());
@@ -148,16 +141,24 @@ impl IndexifyState {
                 self.extractor_bindings
                     .insert(binding.id.clone(), binding.clone());
             }
+            RequestPayload::CreateNamespace { name } |
+            // CreateRepository is deprecated but kept for backward compatibility so Raft can replay old logs
             RequestPayload::CreateRepository { name } => {
-                self.repositories.insert(name.clone());
+                self.namespaces.insert(name.clone());
             }
+            RequestPayload::CreateIndexV2 {
+                index,
+                namespace,
+                id,
+            } |
+            // CreateIndex is deprecated but kept for backward compatibility so Raft can replay old logs
             RequestPayload::CreateIndex {
                 index,
-                repository,
+                repository: namespace,
                 id,
             } => {
-                self.repository_extractors
-                    .entry(repository.clone())
+                self.namespace_extractors
+                    .entry(namespace.clone())
                     .or_default()
                     .insert(index.clone());
                 self.index_table.insert(id.clone(), index.clone());
@@ -191,7 +192,7 @@ impl IndexifyState {
                 for content in content_metadata {
                     self.content_table
                         .insert(content.id.clone(), content.clone());
-                    self.content_repository_table
+                    self.content_namespace_table
                         .entry(content.namespace.clone())
                         .or_default()
                         .insert(content.id.clone());

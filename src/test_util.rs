@@ -5,7 +5,7 @@ pub mod db_utils {
     use indexify_internal_api as internal_api;
     use serde_json::json;
 
-    pub const DEFAULT_TEST_REPOSITORY: &str = "test_repository";
+    pub const DEFAULT_TEST_NAMESPACE: &str = "test_namespace";
 
     pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
 

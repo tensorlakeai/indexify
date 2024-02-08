@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from "axios";
-import Repository from "./repository";
+import Namespace from "./namespace";
 import Extractor from "./extractor";
-import { IExtractor, IRepository } from "./types";
+import { IExtractor, INamespace } from "./types";
 
 const DEFAULT_SERVICE_URL = "http://localhost:8900"; // Set your default service URL
 
@@ -42,18 +42,18 @@ class IndexifyClient {
     return this.request("POST", endpoint);
   }
 
-  async repositories(): Promise<Repository[]> {
-    const response = await this.get("repositories");
-    const repositoriesData = response.data.repositories as IRepository[];
-    return repositoriesData.map(
-      (data) => new Repository(this.serviceUrl, data.name)
+  async namespaces(): Promise<Namespace[]> {
+    const response = await this.get("namespaces");
+    const namespacesData = response.data.namespaces as INamespace[];
+    return namespacesData.map(
+      (data) => new Namespace(this.serviceUrl, data.name)
     );
   }
 
-  async getRepository(name: string): Promise<Repository> {
-    const response = await this.get(`repositories/${name}`);
-    const data = response.data.repository as IRepository;
-    return new Repository(this.serviceUrl, data.name, data.extractor_bindings);
+  async getNamespace(name: string): Promise<Namespace> {
+    const response = await this.get(`namespaces/${name}`);
+    const data = response.data.namespace as INamespace;
+    return new Namespace(this.serviceUrl, data.name, data.extractor_bindings);
   }
 
   async extractors(): Promise<Extractor[]> {

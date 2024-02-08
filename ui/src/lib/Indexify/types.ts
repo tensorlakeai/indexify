@@ -1,4 +1,4 @@
-export interface IRepository {
+export interface INamespace {
   name: string;
   extractor_bindings: IExtractorBinding[];
 }
@@ -31,7 +31,7 @@ export interface IContent {
   labels: Record<string, string>;
   name: string;
   parent_id: string;
-  repository: string;
+  namespace: string;
   source: string;
   storage_url: string;
 }

@@ -31,12 +31,12 @@ impl ExtractedMetadata {
         parent_content_id: &str,
         metadata: serde_json::Value,
         extractor_name: &str,
-        repository: &str,
+        namespace: &str,
     ) -> Self {
         let mut s = DefaultHasher::new();
         content_id.hash(&mut s);
         extractor_name.hash(&mut s);
-        repository.hash(&mut s);
+        namespace.hash(&mut s);
         metadata.to_string().hash(&mut s);
         let id = format!("{:x}", s.finish());
         Self {
@@ -74,7 +74,7 @@ impl MetadataIndexManager {
 
     pub async fn create_index(
         &self,
-        repository: &str,
+        namespace: &str,
         index_name: &str,
         table_name: &str,
         extractor: &str,
@@ -86,7 +86,7 @@ impl MetadataIndexManager {
             index: Some(Index {
                 name: index_name.to_string(),
                 table_name: table_name.to_string(),
-                repository: repository.to_string(),
+                repository: namespace.to_string(),
                 schema: schema.to_string(),
                 extractor: extractor.to_string(),
                 extractor_binding: extractor_binding.to_string(),
@@ -117,7 +117,7 @@ impl MetadataIndexManager {
 
     pub async fn add_metadata(
         &self,
-        repository: &str,
+        namespace: &str,
         index_name: &str,
         metadata: ExtractedMetadata,
     ) -> Result<()> {
@@ -125,7 +125,7 @@ impl MetadataIndexManager {
         let query = format!("INSERT INTO {index_name} (id, repository_id, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
-            .bind(repository)
+            .bind(namespace)
             .bind(metadata.extractor_name)
             .bind(index_name.to_string())
             .bind(metadata.metadata)
@@ -139,7 +139,7 @@ impl MetadataIndexManager {
 
     pub async fn get_attributes(
         &self,
-        repository: &str,
+        namespace: &str,
         index_table_name: &str,
         content_id: Option<&String>,
     ) -> Result<Vec<ExtractedMetadata>> {
@@ -150,7 +150,7 @@ impl MetadataIndexManager {
                     "SELECT * FROM {index_table_name} WHERE repository_id = $1 and content_id = $2"
                 );
                 sqlx::query(&query)
-                    .bind(repository)
+                    .bind(namespace)
                     .bind(content_id)
                     .fetch_all(&self.pool)
                     .await?
@@ -158,7 +158,7 @@ impl MetadataIndexManager {
             None => {
                 let query = format!("SELECT * FROM {index_table_name} WHERE repository_id = $1");
                 sqlx::query(&query)
-                    .bind(repository)
+                    .bind(namespace)
                     .fetch_all(&self.pool)
                     .await?
             }

@@ -7,7 +7,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
 import Extractors, { loader as ExtractorsLoader } from "./routes/extractors";
-import Repository, { loader as RepositoryLoader } from "./routes/repository";
+import Namespace, { loader as NamespaceLoader } from "./routes/namespace";
 
 const router = createBrowserRouter([
   {
@@ -18,8 +18,8 @@ const router = createBrowserRouter([
     children: [
       {
         path: "/:namespace",
-        element: <Repository />,
-        loader: RepositoryLoader,
+        element: <Namespace />,
+        loader: NamespaceLoader,
         errorElement: <ErrorPage />,
       },
       {

@@ -26,7 +26,7 @@ pub enum RequestPayload {
         extractor: internal_api::ExtractorDescription,
         ts_secs: u64,
     },
-    CreateRepository {
+    CreateNamespace {
         name: String,
     },
     CreateTasks {
@@ -41,9 +41,9 @@ pub enum RequestPayload {
     CreateBinding {
         binding: internal_api::ExtractorBinding,
     },
-    CreateIndex {
+    CreateIndexV2 {
         index: internal_api::Index,
-        repository: String,
+        namespace: String,
         id: String,
     },
     UpdateTask {
@@ -57,5 +57,16 @@ pub enum RequestPayload {
     },
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,
+    },
+
+    // Below logs are deprecated but kept for backward capability so Raft can replay old logs
+    // once snapshots are current, these logs can be removed
+    CreateRepository {
+        name: String,
+    },
+    CreateIndex {
+        index: internal_api::Index,
+        repository: String,
+        id: String,
     },
 }

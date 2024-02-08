@@ -32,7 +32,7 @@ import { stringToColor } from "../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const client = new IndexifyClient();
-  const namespaces = (await client.repositories()).map((repo) => repo.name);
+  const namespaces = (await client.namespaces()).map((repo) => repo.name);
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
     if (params.namespace !== "default") {

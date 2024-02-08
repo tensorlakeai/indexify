@@ -29,13 +29,14 @@ type Node = BasicNode;
 use self::state_machine_objects::IndexifyState;
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 
-pub type RepositoryId = String;
+pub type NamespaceName = String;
 pub type TaskId = String;
 pub type StateChangeId = String;
 pub type ContentId = String;
 pub type ExecutorId = String;
 pub type ExecutorIdRef<'a> = &'a str;
 pub type ExtractionEventId = String;
+pub type BindingId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
 

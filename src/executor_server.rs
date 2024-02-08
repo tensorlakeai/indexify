@@ -222,7 +222,7 @@ fn run_extractors(
                         let req = WriteExtractedContent{
                             parent_content_id: task.content_metadata.id.clone(),
                             task_id: task.id.clone(),
-                            repository: task.namespace.clone(),
+                            namespace: task.namespace.clone(),
                             content_list: task_result.extracted_content.clone(),
                             output_to_index_table_mapping: task.output_index_table_mapping.clone(),
                             executor_id: executor.executor_id.clone(),

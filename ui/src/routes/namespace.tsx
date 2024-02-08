@@ -1,5 +1,5 @@
 import IndexifyClient from "../lib/Indexify/client";
-import Repository from "../lib/Indexify/repository";
+import Namespace from "../lib/Indexify/namespace";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Box, Typography, Stack } from "@mui/material";
 import { IContent, IIndex } from "../lib/Indexify/types";
@@ -15,17 +15,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const client = new IndexifyClient();
   if (name === undefined) return null;
 
-  const repository = await client.getRepository(name);
+  const namespace = await client.getNamespace(name);
   const [indexes, contentList] = await Promise.all([
-    repository.indexes(),
-    repository.getContent(),
+    namespace.indexes(),
+    namespace.getContent(),
   ]);
-  return { repository, indexes, contentList };
+  return { namespace, indexes, contentList };
 }
 
-const RepositoryPage = () => {
-  const { repository, indexes, contentList } = useLoaderData() as {
-    repository: Repository;
+const NamespacePage = () => {
+  const { namespace, indexes, contentList } = useLoaderData() as {
+    namespace: Namespace;
     indexes: IIndex[];
     contentList: IContent[];
   };
@@ -36,19 +36,19 @@ const RepositoryPage = () => {
         <CircleIcon
           sx={{
             width: "30px",
-            color: stringToColor(repository.name),
+            color: stringToColor(namespace.name),
             mr: 1,
           }}
         />
         <Typography variant="h2" component="h1">
-          {repository.name}
+          {namespace.name}
         </Typography>
       </Box>
-      <ExtractorBindingsTable bindings={repository.extractorBindings} />
+      <ExtractorBindingsTable bindings={namespace.extractorBindings} />
       <IndexTable indexes={indexes} />
       <ContentTable content={contentList} />
     </Stack>
   );
 };
 
-export default RepositoryPage;
+export default NamespacePage;
