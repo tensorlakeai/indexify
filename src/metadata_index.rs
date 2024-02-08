@@ -95,7 +95,7 @@ impl MetadataIndexManager {
         let query = format!(
             "CREATE TABLE IF NOT EXISTS {table_name} (
             id TEXT PRIMARY KEY,
-            repository_id TEXT,
+            namespace TEXT,
             extractor TEXT,
             index_name TEXT,
             data JSONB,
@@ -122,7 +122,7 @@ impl MetadataIndexManager {
         metadata: ExtractedMetadata,
     ) -> Result<()> {
         let index_name = PostgresIndexName::new(index_name);
-        let query = format!("INSERT INTO {index_name} (id, repository_id, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+        let query = format!("INSERT INTO {index_name} (id, namespace, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
             .bind(namespace)
@@ -147,7 +147,7 @@ impl MetadataIndexManager {
         let rows = match content_id {
             Some(content_id) => {
                 let query = format!(
-                    "SELECT * FROM {index_table_name} WHERE repository_id = $1 and content_id = $2"
+                    "SELECT * FROM {index_table_name} WHERE namespace = $1 and content_id = $2"
                 );
                 sqlx::query(&query)
                     .bind(namespace)
@@ -156,7 +156,7 @@ impl MetadataIndexManager {
                     .await?
             }
             None => {
-                let query = format!("SELECT * FROM {index_table_name} WHERE repository_id = $1");
+                let query = format!("SELECT * FROM {index_table_name} WHERE namespace = $1");
                 sqlx::query(&query)
                     .bind(namespace)
                     .fetch_all(&self.pool)

@@ -387,7 +387,7 @@ mod tests {
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test".to_string(),
-                repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "text/plain".to_string(),
@@ -458,7 +458,7 @@ mod tests {
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test2".to_string(),
-                repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "test".to_string(),
                 file_name: "test2".to_string(),
                 mime: "text/plain".to_string(),

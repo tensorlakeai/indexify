@@ -744,7 +744,7 @@ impl App {
         id: String,
     ) -> Result<()> {
         let req = Request {
-            payload: RequestPayload::CreateIndexV2 {
+            payload: RequestPayload::CreateIndex {
                 namespace: namespace.to_string(),
                 index,
                 id,
