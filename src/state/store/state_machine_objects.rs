@@ -5,7 +5,15 @@ use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    requests::{Request, RequestPayload}, store_utils::{decrement_running_task_count, increment_running_task_count}, ContentId, ExecutorId, BindingId, ExtractorName, NamespaceName, StateChangeId, TaskId
+    requests::{Request, RequestPayload},
+    store_utils::{decrement_running_task_count, increment_running_task_count},
+    BindingId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    NamespaceName,
+    StateChangeId,
+    TaskId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -44,7 +52,7 @@ pub struct IndexifyState {
     /// Extractor -> Executors table
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
-    /// Namespace -> Extractors index
+    /// Namespace -> Index index
     pub namespace_extractors: HashMap<NamespaceName, HashSet<internal_api::Index>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
@@ -141,20 +149,12 @@ impl IndexifyState {
                 self.extractor_bindings
                     .insert(binding.id.clone(), binding.clone());
             }
-            RequestPayload::CreateNamespace { name } |
-            // CreateRepository is deprecated but kept for backward compatibility so Raft can replay old logs
-            RequestPayload::CreateRepository { name } => {
+            RequestPayload::CreateNamespace { name } => {
                 self.namespaces.insert(name.clone());
             }
-            RequestPayload::CreateIndexV2 {
-                index,
-                namespace,
-                id,
-            } |
-            // CreateIndex is deprecated but kept for backward compatibility so Raft can replay old logs
             RequestPayload::CreateIndex {
                 index,
-                repository: namespace,
+                namespace,
                 id,
             } => {
                 self.namespace_extractors

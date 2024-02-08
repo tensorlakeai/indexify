@@ -46,10 +46,10 @@ pub struct DataNamespace {
     pub extractor_bindings: Vec<ExtractorBinding>,
 }
 
-impl TryFrom<indexify_coordinator::Repository> for DataNamespace {
+impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
     type Error = anyhow::Error;
 
-    fn try_from(value: indexify_coordinator::Repository) -> Result<Self> {
+    fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
         let mut extractor_bindings = Vec::new();
         for binding in value.bindings {
             extractor_bindings.push(ExtractorBinding {

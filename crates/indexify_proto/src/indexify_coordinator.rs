@@ -49,7 +49,7 @@ pub struct ListStateChangesResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListTasksRequest {
     #[prost(string, tag = "1")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub extractor_binding: ::prost::alloc::string::String,
 }
@@ -78,7 +78,7 @@ pub struct GetExtractorCoordinatesResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListIndexesRequest {
     #[prost(string, tag = "1")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -90,7 +90,7 @@ pub struct ListIndexesResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetIndexRequest {
     #[prost(string, tag = "1")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub name: ::prost::alloc::string::String,
 }
@@ -115,7 +115,7 @@ pub struct Index {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub table_name: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
@@ -195,7 +195,7 @@ pub struct Task {
     #[prost(string, tag = "2")]
     pub extractor: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "4")]
     pub content_metadata: ::core::option::Option<ContentMetadata>,
     #[prost(string, tag = "5")]
@@ -238,21 +238,21 @@ pub struct Extractor {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRepositoryRequest {
+pub struct GetNamespaceRequest {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRepositoryResponse {
+pub struct GetNamespaceResponse {
     #[prost(message, optional, tag = "1")]
-    pub repository: ::core::option::Option<Repository>,
+    pub namespace: ::core::option::Option<Namespace>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListContentRequest {
     #[prost(string, tag = "1")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub source: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
@@ -273,7 +273,7 @@ pub struct ListContentResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListBindingsRequest {
     #[prost(string, tag = "1")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -283,7 +283,7 @@ pub struct ListBindingsResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateRepositoryRequest {
+pub struct CreateNamespaceRequest {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
@@ -291,7 +291,7 @@ pub struct CreateRepositoryRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateRepositoryResponse {
+pub struct CreateNamespaceResponse {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(int64, tag = "2")]
@@ -299,20 +299,12 @@ pub struct CreateRepositoryResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListRepositoriesRequest {}
+pub struct ListNamespaceRequest {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListRepositoriesResponse {
+pub struct ListNamespaceResponse {
     #[prost(message, repeated, tag = "1")]
-    pub repositories: ::prost::alloc::vec::Vec<Repository>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DatRepository {
-    #[prost(string, tag = "1")]
-    pub name: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "2")]
-    pub bindings: ::prost::alloc::vec::Vec<ExtractorBinding>,
+    pub namespaces: ::prost::alloc::vec::Vec<Namespace>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -335,7 +327,7 @@ pub struct ExtractorBinding {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractorBindRequest {
     #[prost(string, tag = "1")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "3")]
     pub binding: ::core::option::Option<ExtractorBinding>,
     #[prost(int64, tag = "2")]
@@ -381,7 +373,7 @@ pub struct ContentMetadata {
     #[prost(int64, tag = "7")]
     pub created_at: i64,
     #[prost(string, tag = "8")]
-    pub repository: ::prost::alloc::string::String,
+    pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "9")]
     pub source: ::prost::alloc::string::String,
 }
@@ -400,7 +392,7 @@ pub struct CreateContentResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Repository {
+pub struct Namespace {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
@@ -670,11 +662,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn create_repository(
+        pub async fn create_ns(
             &mut self,
-            request: impl tonic::IntoRequest<super::CreateRepositoryRequest>,
+            request: impl tonic::IntoRequest<super::CreateNamespaceRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreateRepositoryResponse>,
+            tonic::Response<super::CreateNamespaceResponse>,
             tonic::Status,
         > {
             self.inner
@@ -688,23 +680,23 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateRepository",
+                "/indexify_coordinator.CoordinatorService/CreateNS",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "CreateRepository",
+                        "CreateNS",
                     ),
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn list_repositories(
+        pub async fn list_ns(
             &mut self,
-            request: impl tonic::IntoRequest<super::ListRepositoriesRequest>,
+            request: impl tonic::IntoRequest<super::ListNamespaceRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ListRepositoriesResponse>,
+            tonic::Response<super::ListNamespaceResponse>,
             tonic::Status,
         > {
             self.inner
@@ -718,23 +710,20 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/ListRepositories",
+                "/indexify_coordinator.CoordinatorService/ListNS",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "ListRepositories",
-                    ),
+                    GrpcMethod::new("indexify_coordinator.CoordinatorService", "ListNS"),
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn get_repository(
+        pub async fn get_ns(
             &mut self,
-            request: impl tonic::IntoRequest<super::GetRepositoryRequest>,
+            request: impl tonic::IntoRequest<super::GetNamespaceRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::GetRepositoryResponse>,
+            tonic::Response<super::GetNamespaceResponse>,
             tonic::Status,
         > {
             self.inner
@@ -748,15 +737,12 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/GetRepository",
+                "/indexify_coordinator.CoordinatorService/GetNS",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "GetRepository",
-                    ),
+                    GrpcMethod::new("indexify_coordinator.CoordinatorService", "GetNS"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1104,25 +1090,25 @@ pub mod coordinator_service_server {
             tonic::Response<super::ListBindingsResponse>,
             tonic::Status,
         >;
-        async fn create_repository(
+        async fn create_ns(
             &self,
-            request: tonic::Request<super::CreateRepositoryRequest>,
+            request: tonic::Request<super::CreateNamespaceRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreateRepositoryResponse>,
+            tonic::Response<super::CreateNamespaceResponse>,
             tonic::Status,
         >;
-        async fn list_repositories(
+        async fn list_ns(
             &self,
-            request: tonic::Request<super::ListRepositoriesRequest>,
+            request: tonic::Request<super::ListNamespaceRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ListRepositoriesResponse>,
+            tonic::Response<super::ListNamespaceResponse>,
             tonic::Status,
         >;
-        async fn get_repository(
+        async fn get_ns(
             &self,
-            request: tonic::Request<super::GetRepositoryRequest>,
+            request: tonic::Request<super::GetNamespaceRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::GetRepositoryResponse>,
+            tonic::Response<super::GetNamespaceResponse>,
             tonic::Status,
         >;
         async fn list_extractors(
@@ -1516,29 +1502,25 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/CreateRepository" => {
+                "/indexify_coordinator.CoordinatorService/CreateNS" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateRepositorySvc<T: CoordinatorService>(pub Arc<T>);
+                    struct CreateNSSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::CreateRepositoryRequest>
-                    for CreateRepositorySvc<T> {
-                        type Response = super::CreateRepositoryResponse;
+                    > tonic::server::UnaryService<super::CreateNamespaceRequest>
+                    for CreateNSSvc<T> {
+                        type Response = super::CreateNamespaceResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CreateRepositoryRequest>,
+                            request: tonic::Request<super::CreateNamespaceRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_repository(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
+                                <T as CoordinatorService>::create_ns(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -1550,7 +1532,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CreateRepositorySvc(inner);
+                        let method = CreateNSSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1566,29 +1548,25 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/ListRepositories" => {
+                "/indexify_coordinator.CoordinatorService/ListNS" => {
                     #[allow(non_camel_case_types)]
-                    struct ListRepositoriesSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct ListNSSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::ListRepositoriesRequest>
-                    for ListRepositoriesSvc<T> {
-                        type Response = super::ListRepositoriesResponse;
+                    > tonic::server::UnaryService<super::ListNamespaceRequest>
+                    for ListNSSvc<T> {
+                        type Response = super::ListNamespaceResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ListRepositoriesRequest>,
+                            request: tonic::Request<super::ListNamespaceRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_repositories(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
+                                <T as CoordinatorService>::list_ns(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -1600,7 +1578,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = ListRepositoriesSvc(inner);
+                        let method = ListNSSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1616,26 +1594,25 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/GetRepository" => {
+                "/indexify_coordinator.CoordinatorService/GetNS" => {
                     #[allow(non_camel_case_types)]
-                    struct GetRepositorySvc<T: CoordinatorService>(pub Arc<T>);
+                    struct GetNSSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::GetRepositoryRequest>
-                    for GetRepositorySvc<T> {
-                        type Response = super::GetRepositoryResponse;
+                    > tonic::server::UnaryService<super::GetNamespaceRequest>
+                    for GetNSSvc<T> {
+                        type Response = super::GetNamespaceResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::GetRepositoryRequest>,
+                            request: tonic::Request<super::GetNamespaceRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::get_repository(&inner, request)
-                                    .await
+                                <T as CoordinatorService>::get_ns(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -1647,7 +1624,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = GetRepositorySvc(inner);
+                        let method = GetNSSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

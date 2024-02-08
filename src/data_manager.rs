@@ -55,14 +55,9 @@ impl DataManager {
 
     #[tracing::instrument]
     pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
-        let req = indexify_coordinator::ListRepositoriesRequest {};
-        let response = self
-            .coordinator_client
-            .get()
-            .await?
-            .list_repositories(req)
-            .await?;
-        let namespaces = response.into_inner().repositories;
+        let req = indexify_coordinator::ListNamespaceRequest {};
+        let response = self.coordinator_client.get().await?.list_ns(req).await?;
+        let namespaces = response.into_inner().namespaces;
         let data_namespaces = namespaces
             .into_iter()
             .map(|r| api::DataNamespace {
@@ -82,7 +77,7 @@ impl DataManager {
             .into_iter()
             .map(|b| b.into())
             .collect();
-        let request = indexify_coordinator::CreateRepositoryRequest {
+        let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
             bindings,
         };
@@ -90,24 +85,24 @@ impl DataManager {
             .coordinator_client
             .get()
             .await?
-            .create_repository(request)
+            .create_ns(request)
             .await?;
         Ok(())
     }
 
     #[tracing::instrument]
     pub async fn get(&self, name: &str) -> Result<api::DataNamespace> {
-        let req = indexify_coordinator::GetRepositoryRequest {
+        let req = indexify_coordinator::GetNamespaceRequest {
             name: name.to_string(),
         };
         let response = self
             .coordinator_client
             .get()
             .await?
-            .get_repository(req)
+            .get_ns(req)
             .await?
             .into_inner();
-        let namespace = response.repository.ok_or(anyhow!("namespace not found"))?;
+        let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
         namespace.try_into()
     }
 
@@ -121,7 +116,7 @@ impl DataManager {
             namespace, extractor_binding.extractor, extractor_binding.name,
         );
         let req = indexify_coordinator::ExtractorBindRequest {
-            repository: namespace.to_string(),
+            namespace: namespace.to_string(),
             binding: Some(extractor_binding.clone().into()),
             created_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
@@ -192,7 +187,7 @@ impl DataManager {
             index: Some(indexify_coordinator::Index {
                 name: index_name.to_string(),
                 table_name: table_name.to_string(),
-                repository: namespace.to_string(),
+                namespace: namespace.to_string(),
                 schema: serde_json::to_value(schema).unwrap().to_string(),
                 extractor_binding: binding.to_string(),
                 extractor: extractor.to_string(),
@@ -216,7 +211,7 @@ impl DataManager {
         labels_eq_filter: Option<&HashMap<String, String>>,
     ) -> Result<Vec<api::ContentMetadata>> {
         let req = indexify_coordinator::ListContentRequest {
-            repository: namespace.to_string(),
+            namespace: namespace.to_string(),
             source: source_filter.to_string(),
             parent_id: parent_id_filter.to_string(),
             labels_eq: labels_eq_filter.unwrap_or(&HashMap::new()).clone(),
@@ -238,7 +233,7 @@ impl DataManager {
                 parent_id: c.parent_id,
                 created_at: c.created_at,
                 content_type: c.mime,
-                namespace: c.repository,
+                namespace: c.namespace,
                 labels: c.labels,
                 source: c.source,
             })
@@ -380,7 +375,7 @@ impl DataManager {
             parent_id: parent_id.unwrap_or_default(),
             created_at: current_ts_secs as i64,
             mime: content.content_type,
-            repository: namespace.to_string(),
+            namespace: namespace.to_string(),
             labels,
             source: source.to_string(),
         })
@@ -473,7 +468,7 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<api::Index>> {
         let req = indexify_coordinator::ListIndexesRequest {
-            repository: namespace.to_string(),
+            namespace: namespace.to_string(),
         };
         let resp = self
             .coordinator_client
@@ -505,7 +500,7 @@ impl DataManager {
         k: u64,
     ) -> Result<Vec<ScoredText>> {
         let req = indexify_coordinator::GetIndexRequest {
-            repository: namespace.to_string(),
+            namespace: namespace.to_string(),
             name: index_name.to_string(),
         };
         let index = self
@@ -530,7 +525,7 @@ impl DataManager {
         content_id: Option<&String>,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
         let req = indexify_coordinator::GetIndexRequest {
-            repository: namespace.to_string(),
+            namespace: namespace.to_string(),
             name: index_name.to_string(),
         };
         let index = self

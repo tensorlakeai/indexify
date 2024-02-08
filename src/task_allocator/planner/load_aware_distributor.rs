@@ -380,7 +380,7 @@ mod tests {
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                 id: "test".to_string(),
-                repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "text/plain".to_string(),
@@ -469,7 +469,7 @@ mod tests {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "text/plain".to_string(),
@@ -486,7 +486,7 @@ mod tests {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "application/json".to_string(),
@@ -642,7 +642,7 @@ mod tests {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "text/plain".to_string(),
@@ -659,7 +659,7 @@ mod tests {
             coordinator
                 .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
                     id: format!("test{}", i),
-                    repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     parent_id: "".to_string(),
                     file_name: "test".to_string(),
                     mime: "application/json".to_string(),
@@ -838,7 +838,7 @@ mod tests {
         for i in 1..=text_tasks {
             text_content.push(indexify_coordinator::ContentMetadata {
                 id: format!("test{}", i),
-                repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "text/plain".to_string(),
@@ -852,7 +852,7 @@ mod tests {
         for i in (text_tasks + 1)..=(text_tasks + json_tasks) {
             json_content.push(indexify_coordinator::ContentMetadata {
                 id: format!("test{}", i),
-                repository: DEFAULT_TEST_NAMESPACE.to_string(),
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
                 mime: "application/json".to_string(),
