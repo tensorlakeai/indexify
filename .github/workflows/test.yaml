@@ -32,8 +32,7 @@ jobs:
           ~/.cargo/git/db/
           ~/.cache/pip
           target/
-          /usr/local/lib/python3.9/dist-packages
-        key: test-cache
-        restore-keys: test-cache
+        key: test-keys-${{ hashFiles('Cargo.lock', 'setup.py', 'ui/package-lock.json') }}
+        restore-keys: test-keys-
     - name: test
       run: ./run_tests.sh
