@@ -28,10 +28,8 @@ jobs:
         path: |
           /tmp/pip-*
           ~/.cache/pip
-          /usr/lib/python3/dist-packages
-          ./target
+          /usr/lib/python3.9/dist-packages
           ./ui/node_modules
           ./ui/build
-          /tmp/.buildx-cache
     - name: test
       run: ./run_tests.sh
