@@ -34,7 +34,9 @@ fn default_raft_port() -> u64 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub enum MetadataStoreKind {
+    #[serde(alias = "postgres")]
     Postgres,
+    #[serde(alias = "sqlite")]
     Sqlite,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

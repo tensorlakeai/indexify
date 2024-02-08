@@ -13,7 +13,7 @@ use crate::server_config::{MetadataStoreConfig, MetadataStoreKind};
 pub mod postgres;
 pub mod sqlite;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExtractedMetadata {
     pub id: String,
     pub content_id: String,

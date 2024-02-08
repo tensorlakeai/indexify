@@ -55,6 +55,10 @@ index_config:
     efconstruction: 64
     efsearch: 40
 
+metadata_storage:
+  metadata_store: sqlite
+  conn_url: /tmp/indexify-metadata-index.db
+
 # If relative path is specified, it is relative to the project root directory
 # You should replace the values with your own values
 tls:
