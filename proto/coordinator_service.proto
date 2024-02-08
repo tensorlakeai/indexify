@@ -14,11 +14,11 @@ service CoordinatorService {
 
     rpc ListBindings(ListBindingsRequest) returns (ListBindingsResponse) {}
 
-    rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse) {}
+    rpc CreateNS(CreateNamespaceRequest) returns (CreateNamespaceResponse) {}
 
-    rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse) {}
+    rpc ListNS(ListNamespaceRequest) returns (ListNamespaceResponse) {}
 
-    rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse) {}
+    rpc GetNS(GetNamespaceRequest) returns (GetNamespaceResponse) {}
 
     rpc ListExtractors(ListExtractorsRequest) returns (ListExtractorsResponse) {}
 
@@ -78,7 +78,7 @@ message ListStateChangesResponse {
 }
 
 message ListTasksRequest {
-    string repository = 1;
+    string namespace = 1;
     string extractor_binding = 2;
 }
 
@@ -98,7 +98,7 @@ message GetExtractorCoordinatesResponse {
 }
 
 message ListIndexesRequest {
-    string repository = 1;
+    string namespace = 1;
 }
 
 message ListIndexesResponse {
@@ -106,7 +106,7 @@ message ListIndexesResponse {
 }
 
 message GetIndexRequest {
-    string repository = 1;
+    string namespace = 1;
     string name = 2;
 }
 
@@ -123,7 +123,7 @@ message CreateIndexResponse {
 
 message Index {
     string name = 1;
-    string repository = 2;
+    string namespace = 2;
     string table_name = 3;
     string schema = 4;
     string extractor_binding = 5;
@@ -172,7 +172,7 @@ message HeartbeatResponse {
 message Task {
     string id = 1;
     string extractor = 2;
-    string repository = 3;
+    string namespace = 3;
     ContentMetadata content_metadata = 4;
     string input_params = 5;
     string extractor_binding = 6;
@@ -196,16 +196,16 @@ message Extractor {
     repeated string input_mime_types = 5;
 }
 
-message GetRepositoryRequest {
+message GetNamespaceRequest {
     string name = 1;
 }
 
-message GetRepositoryResponse {
-    Repository repository = 1;
+message GetNamespaceResponse {
+    Namespace namespace = 1;
 }
 
 message ListContentRequest {
-    string repository = 1;
+    string namespace = 1;
     string source = 2;
     string parent_id = 3;
     map<string, string> labels_eq = 4;
@@ -216,34 +216,29 @@ message ListContentResponse {
 }
 
 message ListBindingsRequest {
-    string repository = 1;
+    string namespace = 1;
 }
 
 message ListBindingsResponse {
     repeated ExtractorBinding bindings = 1;
 }
 
-message CreateRepositoryRequest {
+message CreateNamespaceRequest {
     string name = 1;
     repeated ExtractorBinding bindings = 2;
 }
 
-message CreateRepositoryResponse {
+message CreateNamespaceResponse {
     string name = 1;
     int64 created_at = 2;
 }
 
 
-message ListRepositoriesRequest {
+message ListNamespaceRequest {
 }
 
-message ListRepositoriesResponse {
-    repeated Repository repositories = 1;
-}
-
-message DatRepository {
-    string name = 1;
-    repeated ExtractorBinding bindings = 2;
+message ListNamespaceResponse {
+    repeated Namespace repositories = 1;
 }
 
 message ExtractorBinding {
@@ -255,7 +250,7 @@ message ExtractorBinding {
 }
 
 message ExtractorBindRequest {
-    string repository = 1;
+    string namespace = 1;
     ExtractorBinding binding = 3;
     int64 created_at = 2;
 }
@@ -275,7 +270,7 @@ message ContentMetadata {
     map<string, string> labels = 5;
     string storage_url = 6;
     int64 created_at = 7;
-    string repository = 8;
+    string namespace = 8;
     string source = 9;
 }
 
@@ -287,7 +282,7 @@ message CreateContentResponse {
     string id = 1;
 }
 
-message Repository {
+message Namespace {
     string name = 1;
     repeated ExtractorBinding bindings = 2;
 }

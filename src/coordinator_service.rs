@@ -18,16 +18,12 @@ use indexify_proto::indexify_coordinator::{
     CreateContentResponse,
     CreateIndexRequest,
     CreateIndexResponse,
-    CreateRepositoryRequest,
-    CreateRepositoryResponse,
     ExtractorBindRequest,
     ExtractorBindResponse,
     GetContentMetadataRequest,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
-    GetRepositoryRequest,
-    GetRepositoryResponse,
     HeartbeatRequest,
     HeartbeatResponse,
     ListBindingsRequest,
@@ -38,8 +34,6 @@ use indexify_proto::indexify_coordinator::{
     ListExtractorsResponse,
     ListIndexesRequest,
     ListIndexesResponse,
-    ListRepositoriesRequest,
-    ListRepositoriesResponse,
     ListStateChangesRequest,
     ListTasksRequest,
     ListTasksResponse,
@@ -106,7 +100,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let req = request.into_inner();
         let content_list = self
             .coordinator
-            .list_content(&req.repository, &req.source, &req.parent_id, &req.labels_eq)
+            .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ListContentResponse {
@@ -124,7 +118,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let request = request.into_inner();
         let extractor_binding = request.binding.clone().unwrap();
         let mut s = DefaultHasher::new();
-        request.repository.hash(&mut s);
+        request.namespace.hash(&mut s);
         request.binding.unwrap().name.hash(&mut s);
         let id = s.finish().to_string();
         let input_params = serde_json::from_str(&extractor_binding.input_params)
@@ -148,7 +142,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             let index_name = format!("{}.{}", extractor_binding.name, output_name);
             let index_table_name = format!(
                 "{}.{}.{}",
-                request.repository, extractor_binding.name, output_name
+                request.namespace, extractor_binding.name, output_name
             );
             index_name_table_mapping.insert(index_name.clone(), index_table_name.clone());
             output_index_name_mapping.insert(output_name.clone(), index_name.clone());
@@ -158,7 +152,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             id,
             extractor: extractor_binding.extractor,
             name: extractor_binding.name,
-            namespace: request.repository,
+            namespace: request.namespace,
             filters,
             input_params,
             output_index_name_mapping: output_index_name_mapping.clone(),
@@ -185,7 +179,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let request = request.into_inner();
         let bindings = self
             .coordinator
-            .list_bindings(&request.repository)
+            .list_bindings(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let bindings = bindings
@@ -196,25 +190,27 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListBindingsResponse { bindings }))
     }
 
-    async fn create_repository(
+    async fn create_ns(
         &self,
-        request: tonic::Request<CreateRepositoryRequest>,
-    ) -> Result<tonic::Response<CreateRepositoryResponse>, tonic::Status> {
+        request: tonic::Request<indexify_coordinator::CreateNamespaceRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::CreateNamespaceResponse>, tonic::Status> {
         let request = request.into_inner();
         self.coordinator
             .create_namespace(&request.name)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateRepositoryResponse {
-            name: request.name,
-            created_at: 0,
-        }))
+        Ok(tonic::Response::new(
+            indexify_coordinator::CreateNamespaceResponse {
+                name: request.name,
+                created_at: 0,
+            },
+        ))
     }
 
-    async fn list_repositories(
+    async fn list_ns(
         &self,
-        _request: tonic::Request<ListRepositoriesRequest>,
-    ) -> Result<tonic::Response<ListRepositoriesResponse>, tonic::Status> {
+        _request: tonic::Request<indexify_coordinator::ListNamespaceRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::ListNamespaceResponse>, tonic::Status> {
         let repositories = self
             .coordinator
             .list_namespaces()
@@ -223,26 +219,28 @@ impl CoordinatorService for CoordinatorServiceServer {
         let repositories = repositories
             .into_iter()
             .map(|r| r.into())
-            .collect::<Vec<indexify_coordinator::Repository>>();
-        Ok(tonic::Response::new(ListRepositoriesResponse {
-            repositories,
-        }))
+            .collect::<Vec<indexify_coordinator::Namespace>>();
+        Ok(tonic::Response::new(
+            indexify_coordinator::ListNamespaceResponse { repositories },
+        ))
     }
 
-    async fn get_repository(
+    async fn get_ns(
         &self,
-        request: tonic::Request<GetRepositoryRequest>,
-    ) -> Result<tonic::Response<GetRepositoryResponse>, tonic::Status> {
-        let repository = request.into_inner().name;
-        let repository = self
+        request: tonic::Request<indexify_coordinator::GetNamespaceRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::GetNamespaceResponse>, tonic::Status> {
+        let namespace = request.into_inner().name;
+        let namespace = self
             .coordinator
-            .get_namespace(&repository)
+            .get_namespace(&namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
-        Ok(tonic::Response::new(GetRepositoryResponse {
-            repository: Some(repository.into()),
-        }))
+        Ok(tonic::Response::new(
+            indexify_coordinator::GetNamespaceResponse {
+                namespace: Some(namespace.into()),
+            },
+        ))
     }
 
     async fn list_extractors(
@@ -372,7 +370,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let request = request.into_inner();
         let indexes = self
             .coordinator
-            .list_indexes(&request.repository)
+            .list_indexes(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let indexes = indexes
@@ -389,7 +387,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let request = request.into_inner();
         let index = self
             .coordinator
-            .get_index(&request.repository, &request.name)
+            .get_index(&request.namespace, &request.name)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(GetIndexResponse {
@@ -403,9 +401,9 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<Response<CreateIndexResponse>, Status> {
         let request = request.into_inner();
         let index: internal_api::Index = request.index.unwrap().into();
-        let repository = index.namespace.clone();
+        let namespace = index.namespace.clone();
         self.coordinator
-            .create_index(&repository, index)
+            .create_index(&namespace, index)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateIndexResponse {}))
@@ -475,7 +473,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let req = req.into_inner();
         let tasks = self
             .coordinator
-            .list_tasks(&req.repository, &req.extractor_binding)
+            .list_tasks(&req.namespace, &req.extractor_binding)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let tasks = tasks.into_iter().map(|t| t.into()).collect();

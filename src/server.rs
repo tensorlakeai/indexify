@@ -737,7 +737,7 @@ async fn list_tasks(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .list_tasks(ListTasksRequest {
-            repository: query.namespace.clone(),
+            namespace: query.namespace.clone(),
             extractor_binding: query.extractor_binding.unwrap_or("".to_string()),
         })
         .await

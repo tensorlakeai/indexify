@@ -49,7 +49,7 @@ impl From<Index> for indexify_coordinator::Index {
             schema: value.schema,
             extractor: value.extractor,
             extractor_binding: value.extractor_binding,
-            repository: value.namespace,
+            namespace: value.namespace,
         }
     }
 }
@@ -62,7 +62,7 @@ impl From<indexify_coordinator::Index> for Index {
             schema: value.schema,
             extractor: value.extractor,
             extractor_binding: value.extractor_binding,
-            namespace: value.repository,
+            namespace: value.namespace,
         }
     }
 }
@@ -260,7 +260,7 @@ impl From<Task> for indexify_coordinator::Task {
         Self {
             id: value.id,
             extractor: value.extractor,
-            repository: value.namespace,
+            namespace: value.namespace,
             content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
             extractor_binding: value.extractor_binding,
@@ -280,7 +280,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         Ok(Self {
             id: value.id,
             extractor: value.extractor,
-            namespace: value.repository,
+            namespace: value.namespace,
             content_metadata,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
             extractor_binding: value.extractor_binding,
@@ -359,7 +359,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
-            repository: value.namespace,
+            namespace: value.namespace,
             source: value.source,
         }
     }
@@ -398,7 +398,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
-            namespace: value.repository,
+            namespace: value.namespace,
             source: value.source,
         })
     }
@@ -457,7 +457,7 @@ pub struct Namespace {
     pub extractor_bindings: Vec<ExtractorBinding>,
 }
 
-impl From<Namespace> for indexify_coordinator::Repository {
+impl From<Namespace> for indexify_coordinator::Namespace {
     fn from(value: Namespace) -> Self {
         Self {
             name: value.name,

@@ -86,7 +86,7 @@ impl MetadataIndexManager {
             index: Some(Index {
                 name: index_name.to_string(),
                 table_name: table_name.to_string(),
-                repository: namespace.to_string(),
+                namespace: namespace.to_string(),
                 schema: schema.to_string(),
                 extractor: extractor.to_string(),
                 extractor_binding: extractor_binding.to_string(),
