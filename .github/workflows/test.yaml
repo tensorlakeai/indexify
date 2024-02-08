@@ -32,7 +32,6 @@ jobs:
           ./target
           ./ui/node_modules
           ./ui/build
-          /var/lib/docker
           /tmp/.buildx-cache
     - name: test
       run: ./run_tests.sh

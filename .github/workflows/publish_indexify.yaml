@@ -258,7 +258,6 @@ jobs:
         with:
           key: docker-publish-build-cache
           path: |
-            /var/lib/docker
             /tmp/.buildx-cache
       - run: |
           docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.compose;
