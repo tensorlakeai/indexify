@@ -24,13 +24,13 @@ class IndexifyService {
     }
     /**
      * @param requestBody
-     * @returns IndexAdditionResponse Texts were successfully added to the namespace
+     * @returns IndexAdditionResponse Texts were successfully added to the repository
      * @throws ApiError
      */
     addTexts(requestBody) {
         return this.httpRequest.request({
             method: 'POST',
-            url: '/namespace/add_texts',
+            url: '/repository/add_texts',
             body: requestBody,
             mediaType: 'application/json',
             errors: {
@@ -40,17 +40,17 @@ class IndexifyService {
     }
     /**
      * @param requestBody
-     * @returns SyncNamespaceResponse Namespace synced successfully
+     * @returns SyncRepositoryResponse Repository synced successfully
      * @throws ApiError
      */
-    syncNamespace(requestBody) {
+    syncRepository(requestBody) {
         return this.httpRequest.request({
             method: 'POST',
-            url: '/namespace/sync',
+            url: '/repository/sync',
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                500: `Unable to sync namespace`,
+                500: `Unable to sync repository`,
             },
         });
     }

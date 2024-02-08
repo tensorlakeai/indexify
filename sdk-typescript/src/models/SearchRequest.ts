@@ -3,7 +3,7 @@
 /* eslint-disable */
 
 export type SearchRequest = {
-    namespace: string;
+    repository: string;
     index: string;
     'k'?: number | null;
     query: string;

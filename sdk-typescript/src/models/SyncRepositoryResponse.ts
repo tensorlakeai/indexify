@@ -2,4 +2,4 @@
 /* tslint:disable */
 /* eslint-disable */
 
-export type SyncNamespaceResponse = Record<string, any>;
+export type SyncRepositoryResponse = Record<string, any>;
