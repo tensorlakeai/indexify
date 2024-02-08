@@ -32,7 +32,13 @@ jobs:
           ~/.cargo/git/db/
           ~/.cache/pip
           target/
+          /usr/local/lib/python3.9/dist-packages
         key: test-keys-${{ hashFiles('Cargo.lock', 'setup.py', 'ui/package-lock.json') }}
         restore-keys: test-keys-
-    - name: test
+    - name: Test
       run: ./run_tests.sh
+    - name: Clear up space
+      run: |
+        docker stop --force $(docker ps -aq);
+        docker rm --force $(docker ps -aq);
+        docker rmi --force $(docker images -aq);

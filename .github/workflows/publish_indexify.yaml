@@ -219,7 +219,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
           docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.compose;
-          docker buildx build --platform=linux/amd64,linux/arm64 --push ui -t tensorlake/indexify-ui:latest -t tensorlake/indexify-ui:stable -f dockerfiles/Dockerfile.ui
 
           tag="";
           for i in $(echo ${{ needs.extract-version.outputs.version }} | tr '.' '\n')
@@ -230,5 +229,4 @@ jobs:
               tag="$tag.$i";
             fi
             docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify:$tag -f dockerfiles/Dockerfile.compose;
-            docker buildx build --platform=linux/amd64,linux/arm64 --push ui -t tensorlake/indexify-ui:$tag -f dockerfiles/Dockerfile.ui
           done
