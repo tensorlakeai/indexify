@@ -708,8 +708,7 @@ async fn list_state_changes(
     let state_changes: Vec<indexify_internal_api::StateChange> = state_changes
         .into_iter()
         .map(|c| c.try_into())
-        .filter(|c| c.is_ok())
-        .map(|c| c.unwrap())
+        .filter_map(|c| c.ok())
         .collect();
 
     Ok(Json(ListStateChangesResponse { state_changes }))
@@ -745,8 +744,7 @@ async fn list_tasks(
     let tasks = tasks
         .into_iter()
         .map(|t| t.try_into())
-        .filter(|t| t.is_ok())
-        .map(|t| t.unwrap())
+        .filter_map(|t| t.ok())
         .collect();
     Ok(Json(ListTasksResponse { tasks }))
 }

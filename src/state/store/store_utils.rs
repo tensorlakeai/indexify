@@ -36,9 +36,9 @@ mod test {
     fn test_increment_running_task_count() {
         let mut executor_load = HashMap::new();
         let executor_id = "executor_id";
-        increment_running_task_count(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &1);
-        increment_running_task_count(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &2);
     }
 
@@ -46,13 +46,13 @@ mod test {
     fn test_decrement_running_task_count() {
         let mut executor_load = HashMap::new();
         let executor_id = "executor_id";
-        increment_running_task_count(&mut executor_load, &executor_id);
-        increment_running_task_count(&mut executor_load, &executor_id);
-        decrement_running_task_count(&mut executor_load, &executor_id);
+        increment_running_task_count(&mut executor_load, executor_id);
+        increment_running_task_count(&mut executor_load, executor_id);
+        decrement_running_task_count(&mut executor_load, executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &1);
-        decrement_running_task_count(&mut executor_load, &executor_id);
+        decrement_running_task_count(&mut executor_load, executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &0);
-        decrement_running_task_count(&mut executor_load, &executor_id);
+        decrement_running_task_count(&mut executor_load, executor_id);
         assert_eq!(executor_load.get(executor_id).unwrap(), &0);
     }
 }

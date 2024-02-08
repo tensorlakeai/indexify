@@ -176,7 +176,7 @@ impl PythonExtractor {
                 .map_err(|e| anyhow!(e.to_string()))?;
             let mut metadata_schemas = HashMap::new();
             for (key, value) in metadata_schemas_temp.iter() {
-                let value: serde_json::Value = serde_json::from_str(&value)?;
+                let value: serde_json::Value = serde_json::from_str(value)?;
                 metadata_schemas.insert(key.clone(), value);
             }
             let embedding_schemas: HashMap<String, EmbeddingSchema> = description

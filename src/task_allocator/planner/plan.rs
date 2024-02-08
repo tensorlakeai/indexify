@@ -17,7 +17,7 @@ impl TaskAllocationPlan {
         for (task_id, executor_id) in self.0 {
             tasks_by_executor
                 .entry(executor_id)
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .insert(task_id);
         }
         tasks_by_executor

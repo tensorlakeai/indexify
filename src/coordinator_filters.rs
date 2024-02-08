@@ -79,8 +79,7 @@ mod test {
 
         // no filters
         let filtered_content =
-            list_content_filter(content.clone().into_iter(), "", "", &no_labels_filter)
-                .into_iter()
+            list_content_filter(content.clone(), "", "", &no_labels_filter)
                 .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 4);
         assert_eq!(filtered_content[0].id, "1");
@@ -90,12 +89,11 @@ mod test {
 
         // source filter
         let filtered_content = list_content_filter(
-            content.clone().into_iter(),
+            content.clone(),
             "source1",
             "",
             &no_labels_filter,
         )
-        .into_iter()
         .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id, "1");
@@ -103,24 +101,22 @@ mod test {
 
         // parent_id and source filter
         let filtered_content = list_content_filter(
-            content.clone().into_iter(),
+            content.clone(),
             "source1",
             "parent2",
             &no_labels_filter,
         )
-        .into_iter()
         .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id, "3");
 
         // parent_id filter
         let filtered_content = list_content_filter(
-            content.clone().into_iter(),
+            content.clone(),
             "",
             "parent2",
             &no_labels_filter,
         )
-        .into_iter()
         .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id, "2");
@@ -128,8 +124,7 @@ mod test {
 
         // labels filter - empty - skips the labels filter
         let filtered_content =
-            list_content_filter(content.clone().into_iter(), "", "", &no_labels_filter)
-                .into_iter()
+            list_content_filter(content.clone(), "", "", &no_labels_filter)
                 .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 4);
 
@@ -139,8 +134,7 @@ mod test {
             labels.insert("key1".to_string(), "value1".to_string());
             labels
         };
-        let filtered_content = list_content_filter(content.clone().into_iter(), "", "", &labels_eq)
-            .into_iter()
+        let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq)
             .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id, "1");
@@ -152,8 +146,7 @@ mod test {
             labels.insert("key2".to_string(), "value2".to_string());
             labels
         };
-        let filtered_content = list_content_filter(content.clone().into_iter(), "", "", &labels_eq)
-            .into_iter()
+        let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq)
             .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id, "3");
@@ -192,6 +185,8 @@ pub fn matches_mime_type(supported_mimes: &[String], content_mime_type: &String)
 
 #[cfg(test)]
 mod test_extractor_mimetype_filter {
+    use internal_api::ContentMetadata;
+
     use super::*;
     use crate::extractor::{Extractor, ExtractorSchema};
 
@@ -232,8 +227,10 @@ mod test_extractor_mimetype_filter {
     fn test_matches_mime_type() {
         let mimetype_matcher = |extractor: TestExtractor, content_mimetypes: Vec<(&str, bool)>| {
             for (content_mime, expected) in content_mimetypes {
-                let mut content = internal_api::ContentMetadata::default();
-                content.content_type = content_mime.to_string();
+                let content = ContentMetadata{
+                    content_type: content_mime.to_string(),
+                    ..Default::default()
+                };
                 let matches = matches_mime_type(
                     &extractor.schemas().unwrap().input_mimes,
                     &content.content_type,
@@ -249,17 +246,17 @@ mod test_extractor_mimetype_filter {
         mimetype_matcher(
             TestExtractor::TextPlain,
             vec![
-                (&mime::TEXT_PLAIN.to_string(), true),
-                (&mime::IMAGE_PNG.to_string(), false),
-                (&mime::APPLICATION_PDF.to_string(), false),
+                (mime::TEXT_PLAIN.as_ref(), true),
+                (mime::IMAGE_PNG.as_ref(), false),
+                (mime::APPLICATION_PDF.as_ref(), false),
             ],
         );
         mimetype_matcher(
             TestExtractor::Wildcard,
             vec![
-                (&mime::TEXT_PLAIN.to_string(), true),
-                (&mime::IMAGE_PNG.to_string(), true),
-                (&mime::APPLICATION_PDF.to_string(), true),
+                (mime::TEXT_PLAIN.as_ref(), true),
+                (mime::IMAGE_PNG.as_ref(), true),
+                (mime::APPLICATION_PDF.as_ref(), true),
             ],
         );
     }

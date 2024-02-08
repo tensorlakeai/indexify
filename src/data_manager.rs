@@ -150,13 +150,13 @@ impl DataManager {
                 internal_api::OutputSchema::Attributes(schema) => {
                     let _ = self
                         .metadata_index_manager
-                        .create_index(&index_name, table_name)
+                        .create_index(index_name, table_name)
                         .await?;
                     Ok(schema)
                 }
             }?;
             self.create_index_metadata(
-                &namespace,
+                namespace,
                 index_name,
                 table_name,
                 index_schema,
