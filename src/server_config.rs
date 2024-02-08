@@ -331,12 +331,12 @@ pub struct ServerCacheConfig {
 /// SledConfig is a struct that contains the configuration for the sled
 /// database, which is used for Raft storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SledConfig {
+pub struct StateStoreConfig {
     /// path is the path to the sled database.
     pub path: Option<String>,
 }
 
-impl Default for SledConfig {
+impl Default for StateStoreConfig {
     fn default() -> Self {
         Self {
             path: Some("/tmp/indexify-state".to_string()),
@@ -390,7 +390,7 @@ pub struct ServerConfig {
     #[serde(default)]
     pub cache: ServerCacheConfig,
     #[serde(default)]
-    pub sled: SledConfig,
+    pub state_store: StateStoreConfig,
 }
 
 impl Default for ServerConfig {

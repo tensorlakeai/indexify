@@ -78,6 +78,11 @@ cache:
   memory:
     max_size: 1000000
 
-sled:
-  # provide a path to the sled storage
-  path: /tmp/indexify-sled
+# provide a path to storing indexify's internal state
+state_store:
+  path: /tmp/indexify-state
+
+metadata_storage:
+  metadata_store: sqlite
+  conn_url: /tmp/indexify-metadata-index.db
+

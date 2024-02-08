@@ -82,5 +82,6 @@ cache:
   memory:
     max_size: 1000000
 
-sled:
-  path: /tmp/indexify-sled
+# provide a path to storing indexify's internal state
+state_store:
+  path: /tmp/indexify-state
