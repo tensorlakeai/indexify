@@ -34,6 +34,7 @@ jobs:
             /usr/local/cargo
             ~/.cargo
             ./target
+            ./ui/node_modules
       - run: cargo +nightly fmt --check
       - run: sudo apt update && sudo apt install protobuf-compiler protobuf-compiler-grpc
       - run: cargo install cargo-deb
@@ -64,6 +65,7 @@ jobs:
             /usr/local/cargo
             ~/.cargo
             ./target
+            ./ui/node_modules
       - run: cargo +nightly fmt --check
       - run: make build-release-aarch64
       - run: cargo install cargo-deb
@@ -95,6 +97,7 @@ jobs:
             /usr/local/cargo
             ~/.cargo
             ./target
+            ./ui/node_modules
       - run: cargo +nightly fmt --check
       - run: brew install protobuf
       - run: SDKROOT=$(xcrun -sdk macosx13.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx13.1 --show-sdk-platform-version) cargo build --release --target=aarch64-apple-darwin
@@ -118,6 +121,7 @@ jobs:
             /usr/local/cargo
             ~/.cargo
             ./target
+            ./ui/node_modules
       - run: cargo +nightly fmt --check
       - run: choco install protoc
       - run: cargo build --release
@@ -249,6 +253,13 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: Cache build artifacts
+      uses: actions/cache@v3
+      with:
+        key: docker-publish-build-cache
+        path: |
+          /var/lib/docker
+          /tmp/.buildx-cache
       - run: |
           docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.compose;
           docker buildx build --platform=linux/amd64,linux/arm64 --push ui -t tensorlake/indexify-ui:latest -t tensorlake/indexify-ui:stable -f dockerfiles/Dockerfile.ui

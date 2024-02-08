@@ -6,7 +6,7 @@ RUN apt -y install software-properties-common
 RUN add-apt-repository ppa:deadsnakes/ppa -y
 RUN apt -y remove python3.10
 
-RUN apt -y install build-essential make sudo cmake g++ sqlite3 python3.11 python3.11-distutils python3.11-venv python3.11-dev protobuf-compiler protobuf-compiler-grpc ca-certificates curl gnupg pkg-config libssl-dev vim docker-compose libclang-dev librocksdb-dev
+RUN apt -y install build-essential make sudo cmake g++ sqlite3 python3.11 python3.11-distutils python3.11-venv python3.11-dev protobuf-compiler protobuf-compiler-grpc ca-certificates curl gnupg pkg-config libssl-dev vim docker-compose libclang-dev librocksdb-dev postgresql
 
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable -y
@@ -14,12 +14,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 RUN /root/.cargo/bin/rustup toolchain install nightly
 
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-RUN export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
-RUN [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" && nvm install stable
+RUN bash -c 'export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")" && \. "$NVM_DIR/nvm.sh" && nvm install stable'
 
-RUN apt install postgresql
 RUN service postgresql start
-RUN sudo -u postgres psql -c "CREATE DATABASE indexify";
+RUN bash -c 'while sudo -u postgres psql -c "CREATE DATABASE indexify"; do sleep 2; done'
 
 RUN echo 'alias python=python3.11' >> ~/.bashrc
 RUN echo 'export PYTHON=python3.11' >> ~/.bashrc

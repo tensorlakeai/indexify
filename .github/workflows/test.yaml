@@ -24,9 +24,15 @@ jobs:
     - name: Cache build artifacts
       uses: actions/cache@v3
       with:
-        key: python-build-cache
+        key: test-build-cache
         path: |
+          /tmp/pip-*
           ~/.cache/pip
           /usr/lib/python3/dist-packages
+          ./target
+          ./ui/node_modules
+          ./ui/build
+          /var/lib/docker
+          /tmp/.buildx-cache
     - name: test
       run: ./run_tests.sh

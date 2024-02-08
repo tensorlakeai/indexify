@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             &["proto"],
         )
         .unwrap();
+    println!("cargo:rerun-if-changed=ui");
 
     // Build the UI
     Command::new("npm")
