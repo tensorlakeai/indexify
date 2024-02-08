@@ -20,13 +20,13 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
-    metadata_index::{ExtractedMetadata, MetadataIndexManager},
+    metadata_storage::{ExtractedMetadata, MetadataStorageTS},
     vector_index::{ScoredText, VectorIndexManager},
 };
 
 pub struct DataManager {
     vector_index_manager: Arc<VectorIndexManager>,
-    metadata_index_manager: Arc<MetadataIndexManager>,
+    metadata_index_manager: MetadataStorageTS,
     blob_storage: BlobStorage,
     coordinator_client: Arc<CoordinatorClient>,
 }
@@ -40,14 +40,14 @@ impl fmt::Debug for DataManager {
 impl DataManager {
     pub async fn new(
         vector_index_manager: Arc<VectorIndexManager>,
-        attribute_index_manager: Arc<MetadataIndexManager>,
+        metadata_index_manager: MetadataStorageTS,
         blob_storage_config: BlobStorageConfig,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
         let blob_storage = BlobStorage::new_with_config(blob_storage_config);
         Ok(Self {
             vector_index_manager,
-            metadata_index_manager: attribute_index_manager,
+            metadata_index_manager,
             blob_storage,
             coordinator_client,
         })
@@ -139,36 +139,31 @@ impl DataManager {
             let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
-            match output_schema {
+            let index_schema = match output_schema {
                 internal_api::OutputSchema::Embedding(embedding_schema) => {
                     let _ = self
                         .vector_index_manager
                         .create_index(table_name, embedding_schema.clone())
                         .await?;
-                    self.create_index_metadata(
-                        namespace,
-                        index_name,
-                        table_name,
-                        serde_json::to_value(embedding_schema)?,
-                        &extractor_binding.name,
-                        &extractor.name,
-                    )
-                    .await?;
+                    serde_json::to_value(&embedding_schema)
                 }
                 internal_api::OutputSchema::Attributes(schema) => {
                     let _ = self
                         .metadata_index_manager
-                        .create_index(
-                            namespace,
-                            &index_name,
-                            table_name,
-                            &extractor.name,
-                            &extractor_binding.name,
-                            schema,
-                        )
+                        .create_index(&index_name, table_name)
                         .await?;
+                    Ok(schema)
                 }
-            }
+            }?;
+            self.create_index_metadata(
+                &namespace,
+                index_name,
+                table_name,
+                index_schema,
+                &extractor_binding.name,
+                &extractor.name,
+            )
+            .await?;
         }
 
         Ok(index_names)
@@ -522,7 +517,7 @@ impl DataManager {
         &self,
         namespace: &str,
         index_name: &str,
-        content_id: Option<&String>,
+        content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
         let req = indexify_coordinator::GetIndexRequest {
             namespace: namespace.to_string(),
@@ -539,7 +534,7 @@ impl DataManager {
             .ok_or(anyhow!("Index not found"))?;
 
         self.metadata_index_manager
-            .get_attributes(namespace, &index.table_name, content_id)
+            .get_metadata(namespace, &index.table_name, content_id)
             .await
     }
 

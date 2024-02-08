@@ -33,6 +33,29 @@ fn default_raft_port() -> u64 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::Display)]
 #[strum(serialize_all = "kebab-case")]
+pub enum MetadataStoreKind {
+    #[serde(alias = "postgres")]
+    Postgres,
+    #[serde(alias = "sqlite")]
+    Sqlite,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataStoreConfig {
+    pub metadata_store: MetadataStoreKind,
+    pub conn_url: String,
+}
+
+impl Default for MetadataStoreConfig {
+    fn default() -> Self {
+        Self {
+            metadata_store: MetadataStoreKind::Sqlite,
+            conn_url: "/tmp/indexify_metadata.db".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::Display)]
+#[strum(serialize_all = "kebab-case")]
 pub enum IndexStoreKind {
     Qdrant,
     PgVector,
@@ -355,6 +378,7 @@ pub struct ServerConfig {
     pub coordinator_port: u64,
     pub raft_port: u64,
     pub index_config: VectorIndexConfig,
+    pub metadata_storage: MetadataStoreConfig,
     pub db_url: String,
     #[serde(default)]
     pub coordinator_addr: String,
@@ -377,6 +401,7 @@ impl Default for ServerConfig {
             coordinator_port: default_coordinator_port(),
             raft_port: default_raft_port(),
             index_config: VectorIndexConfig::default(),
+            metadata_storage: MetadataStoreConfig::default(),
             db_url: "postgres://postgres:postgres@localhost/indexify".into(),
             coordinator_addr: format!("localhost:{}", default_coordinator_port()),
             blob_storage: BlobStorageConfig {

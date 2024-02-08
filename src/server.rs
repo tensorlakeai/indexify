@@ -40,7 +40,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
     extractor_router::ExtractorRouter,
-    metadata_index::MetadataIndexManager,
+    metadata_storage::{self, MetadataStorageTS},
     server_config::ServerConfig,
     tls::build_mtls_acceptor,
     vector_index::VectorIndexManager,
@@ -124,14 +124,12 @@ impl Server {
             VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
                 .map_err(|e| anyhow!("unable to create vector index {}", e))?,
         );
-        let attribute_index_manager = Arc::new(
-            MetadataIndexManager::new(&self.config.db_url, coordinator_client.clone()).await?,
-        );
-
+        let metadata_index_manager: MetadataStorageTS =
+            metadata_storage::from_config(&self.config.metadata_storage)?;
         let data_manager = Arc::new(
             DataManager::new(
                 vector_index_manager,
-                attribute_index_manager,
+                metadata_index_manager,
                 self.config.blob_storage.clone(),
                 coordinator_client.clone(),
             )
@@ -870,7 +868,7 @@ async fn metadata_lookup(
 ) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
     let attributes = state
         .data_manager
-        .metadata_lookup(&namespace, &query.index, query.content_id.as_ref())
+        .metadata_lookup(&namespace, &query.index, &query.content_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 

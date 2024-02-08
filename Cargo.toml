@@ -72,6 +72,7 @@ rust-embed = { version = "8", features = [
 ] }
 rustls = { version = "0.22" }
 rustls-pemfile = { version = "2" }
+rusqlite = { version = "0.30.0", features = ["bundled", "serde_json"] }
 serde = { version = "1", features = ["derive"] }
 serde_with = { version = "3.4.0" }
 serde_yaml = { version = "0.9" }
@@ -151,6 +152,7 @@ rocksdb = { workspace = true }
 rust-embed = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_with = { workspace = true }
 serde_yaml = { workspace = true }
