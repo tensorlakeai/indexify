@@ -238,7 +238,7 @@ message ListNamespaceRequest {
 }
 
 message ListNamespaceResponse {
-    repeated Namespace repositories = 1;
+    repeated Namespace namespaces = 1;
 }
 
 message ExtractorBinding {

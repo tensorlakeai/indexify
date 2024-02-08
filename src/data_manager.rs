@@ -57,7 +57,7 @@ impl DataManager {
     pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
         let req = indexify_coordinator::ListNamespaceRequest {};
         let response = self.coordinator_client.get().await?.list_ns(req).await?;
-        let namespaces = response.into_inner().repositories;
+        let namespaces = response.into_inner().namespaces;
         let data_namespaces = namespaces
             .into_iter()
             .map(|r| api::DataNamespace {

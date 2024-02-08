@@ -211,17 +211,17 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         _request: tonic::Request<indexify_coordinator::ListNamespaceRequest>,
     ) -> Result<tonic::Response<indexify_coordinator::ListNamespaceResponse>, tonic::Status> {
-        let repositories = self
+        let namespaces = self
             .coordinator
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let repositories = repositories
+        let namespaces = namespaces
             .into_iter()
             .map(|r| r.into())
             .collect::<Vec<indexify_coordinator::Namespace>>();
         Ok(tonic::Response::new(
-            indexify_coordinator::ListNamespaceResponse { repositories },
+            indexify_coordinator::ListNamespaceResponse { namespaces },
         ))
     }
 

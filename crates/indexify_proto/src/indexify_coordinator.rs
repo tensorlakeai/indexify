@@ -304,7 +304,7 @@ pub struct ListNamespaceRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListNamespaceResponse {
     #[prost(message, repeated, tag = "1")]
-    pub repositories: ::prost::alloc::vec::Vec<Namespace>,
+    pub namespaces: ::prost::alloc::vec::Vec<Namespace>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
