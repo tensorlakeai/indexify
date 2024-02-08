@@ -1993,6 +1993,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rocksdb",
+ "rust-embed",
  "rustls 0.22.2",
  "rustls-pemfile 2.0.0",
  "serde",
@@ -3697,6 +3698,7 @@ version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cb0a25bfbb2d4b4402179c2cf030387d9990857ce08a32592c6238db9fa8665"
 dependencies = [
+ "mime_guess",
  "sha2",
  "walkdir",
 ]

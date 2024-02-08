@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
     http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Extension,
     Json,
@@ -11,13 +12,14 @@ use axum::{
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use hyper::{body::Incoming, Method};
+use hyper::{body::Incoming, Method, Uri};
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
+use rust_embed::RustEmbed;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin,
@@ -46,6 +48,10 @@ use crate::{
 };
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
+
+#[derive(RustEmbed)]
+#[folder = "$CARGO_MANIFEST_DIR/ui/build"]
+pub struct UiAssets;
 
 #[derive(Clone, Debug)]
 pub struct RepositoryEndpointState {
@@ -215,6 +221,7 @@ impl Server {
                 "/extractors/extract",
                 post(extract_content).with_state(repository_endpoint_state.clone()),
             )
+            .fallback(ui_handler)
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(Extension(caches))
@@ -881,6 +888,18 @@ async fn metadata_lookup(
     Ok(Json(MetadataResponse {
         attributes: attributes.into_iter().map(|r| r.into()).collect(),
     }))
+}
+
+#[axum::debug_handler]
+#[tracing::instrument(skip_all)]
+async fn ui_handler(uri: Uri) -> impl IntoResponse {
+    let content = UiAssets::get(uri.path().trim_start_matches('/'))
+        .unwrap_or_else(|| UiAssets::get("index.html").unwrap());
+    (
+        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+        content.data,
+    )
+        .into_response()
 }
 
 #[tracing::instrument]

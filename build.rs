@@ -1,4 +1,7 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    process::{Command, Stdio},
+};
 
 use vergen::EmitBuilder;
 
@@ -26,5 +29,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             &["proto"],
         )
         .unwrap();
+
+    // Build the UI
+    Command::new("npm")
+        .arg("ci")
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .current_dir("ui")
+        .output()
+        .expect("unable to run `npm ci`");
+    Command::new("npm")
+        .arg("run")
+        .arg("build")
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .current_dir("ui")
+        .output()
+        .expect("unable to run `npm run build`");
+
     Ok(())
 }
