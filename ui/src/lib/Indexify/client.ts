@@ -1,17 +1,48 @@
 import axios, { AxiosInstance, AxiosResponse } from "axios";
-import Namespace from "./namespace";
 import Extractor from "./extractor";
-import { IExtractor, INamespace } from "./types";
+import {
+  IContent,
+  IExtractor,
+  IExtractorBinding,
+  IIndex,
+  INamespace,
+} from "./types";
 
 const DEFAULT_SERVICE_URL = "http://localhost:8900"; // Set your default service URL
 
 class IndexifyClient {
   private serviceUrl: string;
   private client: AxiosInstance;
+  public namespace: string;
+  public extractorBindings: IExtractorBinding[];
 
-  constructor(serviceUrl: string = DEFAULT_SERVICE_URL) {
+  constructor(
+    serviceUrl: string = DEFAULT_SERVICE_URL,
+    namespace: string = "default",
+    extractorBindings: IExtractorBinding[]
+  ) {
     this.serviceUrl = serviceUrl;
-    this.client = axios.create();
+    this.namespace = namespace;
+    this.extractorBindings = extractorBindings;
+    this.client = axios.create({
+      baseURL: `${serviceUrl}/namespaces/${namespace}`,
+    });
+  }
+
+  static async createClient({
+    serviceUrl = DEFAULT_SERVICE_URL,
+    namespace = "default",
+  }: {
+    serviceUrl?: string;
+    namespace?: string;
+  } = {}): Promise<IndexifyClient> {
+    console.log("create client", serviceUrl, namespace);
+    const response = await axios.get(`${serviceUrl}/namespaces/${namespace}`);
+    return new IndexifyClient(
+      serviceUrl,
+      namespace,
+      response.data.namespace.extractor_bindings
+    );
   }
 
   private async request(
@@ -42,18 +73,24 @@ class IndexifyClient {
     return this.request("POST", endpoint);
   }
 
-  async namespaces(): Promise<Namespace[]> {
-    const response = await this.get("namespaces");
-    const namespacesData = response.data.namespaces as INamespace[];
-    return namespacesData.map(
-      (data) => new Namespace(this.serviceUrl, data.name)
-    );
+  static async namespaces(): Promise<INamespace[]> {
+    const response = await axios.get(`${DEFAULT_SERVICE_URL}/namespaces`);
+    return response.data.namespaces;
   }
 
-  async getNamespace(name: string): Promise<Namespace> {
-    const response = await this.get(`namespaces/${name}`);
-    const data = response.data.namespace as INamespace;
-    return new Namespace(this.serviceUrl, data.name, data.extractor_bindings);
+  async indexes(): Promise<IIndex[]> {
+    const resp = await this.client.get("indexes");
+    return resp.data.indexes;
+  }
+
+  async getContent(
+    parent_id?: string,
+    labels_eq?: string
+  ): Promise<IContent[]> {
+    const resp = await this.client.get("content", {
+      params: { parent_id, labels_eq },
+    });
+    return resp.data.content_list;
   }
 
   async extractors(): Promise<Extractor[]> {

@@ -31,8 +31,9 @@ import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const client = new IndexifyClient();
-  const namespaces = (await client.namespaces()).map((repo) => repo.name);
+  const namespaces = (await IndexifyClient.namespaces()).map(
+    (repo) => repo.name
+  );
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
     if (params.namespace !== "default") {
@@ -214,8 +215,12 @@ export default function Dashboard() {
               </Typography>
               {namespaces.map((name) => {
                 return (
-                  <a style={{ textDecoration: "none" }} href={`/ui/${name}`}>
-                    <MenuItem key={name} onClick={handleClose}>
+                  <a
+                    style={{ textDecoration: "none" }}
+                    key={name}
+                    href={`/ui/${name}`}
+                  >
+                    <MenuItem onClick={handleClose}>
                       <CircleIcon
                         sx={{
                           width: "15px",
