@@ -1,5 +1,4 @@
 import IndexifyClient from "../lib/Indexify/client";
-import Namespace from "../lib/Indexify/namespace";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Box, Typography, Stack } from "@mui/material";
 import { IContent, IIndex } from "../lib/Indexify/types";
@@ -11,21 +10,20 @@ import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const name = params.namespace;
-  const client = new IndexifyClient();
-  if (name === undefined) return null;
+  const { namespace } = params;
+  const client = await IndexifyClient.createClient({ namespace });
+  if (namespace === undefined) return null;
 
-  const namespace = await client.getNamespace(name);
   const [indexes, contentList] = await Promise.all([
-    namespace.indexes(),
-    namespace.getContent(),
+    client.indexes(),
+    client.getContent(),
   ]);
-  return { namespace, indexes, contentList };
+  return { client, indexes, contentList };
 }
 
 const NamespacePage = () => {
-  const { namespace, indexes, contentList } = useLoaderData() as {
-    namespace: Namespace;
+  const { client, indexes, contentList } = useLoaderData() as {
+    client: IndexifyClient;
     indexes: IIndex[];
     contentList: IContent[];
   };
@@ -36,15 +34,15 @@ const NamespacePage = () => {
         <CircleIcon
           sx={{
             width: "30px",
-            color: stringToColor(namespace.name),
+            color: stringToColor(client.namespace),
             mr: 1,
           }}
         />
         <Typography variant="h2" component="h1">
-          {namespace.name}
+          {client.namespace}
         </Typography>
       </Box>
-      <ExtractorBindingsTable bindings={namespace.extractorBindings} />
+      <ExtractorBindingsTable bindings={client.extractorBindings} />
       <IndexTable indexes={indexes} />
       <ContentTable content={contentList} />
     </Stack>

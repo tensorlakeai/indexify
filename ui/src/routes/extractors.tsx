@@ -7,7 +7,7 @@ import { LoaderFunctionArgs, useLoaderData } from "react-router-dom";
 import { IExtractor } from "../lib/Indexify/types";
 
 export async function loader(args: LoaderFunctionArgs) {
-  const client = new IndexifyClient();
+  const client = await IndexifyClient.createClient();
   const extractors = await client.extractors();
   return { extractors };
 }
