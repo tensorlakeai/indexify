@@ -28,12 +28,12 @@ impl Coordinator {
         })
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, state_changes))]
     pub async fn process_extraction_events(
         &self,
         state_changes: &Vec<StateChange>,
     ) -> Result<Vec<Task>, anyhow::Error> {
-        info!("processing {} extraction events", state_changes.len());
+        info!("processing {} state changes", state_changes.len());
         let mut tasks = Vec::new();
         for change in state_changes {
             info!(
@@ -323,9 +323,7 @@ impl Coordinator {
     #[tracing::instrument(skip(self))]
     pub async fn process_and_distribute_work(&self) -> Result<(), anyhow::Error> {
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
-        println!("state_changes: {:?}", state_changes);
         let tasks = self.process_extraction_events(&state_changes).await?;
-        println!("tasks: {:?}", tasks);
         self.shared_state.create_tasks(tasks.clone()).await?;
         self.shared_state
             .mark_change_events_as_processed(state_changes)
@@ -408,7 +406,6 @@ mod tests {
             .await?;
 
         let events = shared_state.unprocessed_state_change_events().await?;
-        println!("events: {:?}", events);
         assert_eq!(events.len(), 1);
 
         // Run scheduler without any bindings to make sure that the event is processed
