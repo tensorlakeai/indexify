@@ -57,7 +57,7 @@ const TasksTable = ({
       field: "content_metadata.storage_url",
       headerName: "Storage URL",
       valueGetter: (params) => params.row.content_metadata.storage_url,
-      width: 500,
+      width: 200,
     },
     {
       field: "content_metadata.source",
