@@ -12,13 +12,13 @@ export const MainListItems = ({
 }) => {
   return (
     <React.Fragment>
-      <ListItemButton href={`/${currentNamespace}`}>
+      <ListItemButton href={`/ui/${currentNamespace}`}>
         <ListItemIcon>
           <DataObjectIcon />
         </ListItemIcon>
         <ListItemText primary={"Namespace"} />
       </ListItemButton>
-      <ListItemButton href={`/${currentNamespace}/extractors`}>
+      <ListItemButton href={`/ui/${currentNamespace}/extractors`}>
         <ListItemIcon>
           <MemoryIcon />
         </ListItemIcon>
