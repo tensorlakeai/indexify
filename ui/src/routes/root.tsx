@@ -165,7 +165,10 @@ export default function Dashboard() {
               flexGrow={1}
             >
               <img src="/logo.svg" alt="logo" />
-              <a href={"/"} style={{ textDecoration: "none", color: "white" }}>
+              <a
+                href={"/ui"}
+                style={{ textDecoration: "none", color: "white" }}
+              >
                 <Typography
                   component="h1"
                   variant="h6"
@@ -211,7 +214,7 @@ export default function Dashboard() {
               </Typography>
               {namespaces.map((name) => {
                 return (
-                  <Link sx={{ textDecoration: "none" }} href={`/${name}`}>
+                  <a style={{ textDecoration: "none" }} href={`/ui/${name}`}>
                     <MenuItem key={name} onClick={handleClose}>
                       <CircleIcon
                         sx={{
@@ -222,7 +225,7 @@ export default function Dashboard() {
                       />
                       {name}
                     </MenuItem>
-                  </Link>
+                  </a>
                 );
               })}
             </Menu>
