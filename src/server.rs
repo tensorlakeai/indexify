@@ -219,7 +219,7 @@ impl Server {
                 "/extractors/extract",
                 post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
-            .route("/ui/*rest", ui_handler)
+            .route("/ui/*rest", get(ui_handler))
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(Extension(caches))
