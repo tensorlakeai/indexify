@@ -43,3 +43,16 @@ export interface IExtractorBinding {
   input_params: { [key: string]: any };
   name: string;
 }
+
+export interface ITask {
+  content_metadata: IContent;
+  extractor: string;
+  extractor_binding: string;
+  id: string;
+  input_params: Record<string, string>;
+  outcome: string;
+  output_index_table_mapping: {
+    embedding: string;
+  };
+  repository: string;
+}

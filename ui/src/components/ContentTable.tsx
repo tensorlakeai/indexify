@@ -5,6 +5,7 @@ import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
 import React from "react";
 import moment from "moment";
+import { Link } from "react-router-dom";
 
 const ContentTable = ({ content }: { content: IContent[] }) => {
   const columns: GridColDef[] = [
@@ -13,6 +14,16 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
       field: "name",
       headerName: "Name",
       width: 200,
+    },
+    {
+      field: "parent_id",
+      headerName: "Parent ID",
+      width: 200,
+      renderCell: (params) => (
+        <Link to={`/${params.row.namespace}/content/${params.value}`}>
+          {params.value}
+        </Link>
+      ),
     },
     {
       field: "content_type",

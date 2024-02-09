@@ -1,19 +1,17 @@
-import IndexifyClient from "../lib/Indexify/client";
+import IndexifyClient from "../../lib/Indexify/client";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Box, Typography, Stack } from "@mui/material";
-import { IContent, IIndex } from "../lib/Indexify/types";
-import IndexTable from "../components/IndexTable";
-import ContentTable from "../components/ContentTable";
+import { IContent, IIndex } from "../../lib/Indexify/types";
+import IndexTable from "../../components/IndexTable";
+import ContentTable from "../../components/ContentTable";
 import React from "react";
-import ExtractorBindingsTable from "../components/ExtractorBindingsTable";
+import ExtractorBindingsTable from "../../components/ExtractorBindingsTable";
 import CircleIcon from "@mui/icons-material/Circle";
-import { stringToColor } from "../utils/helpers";
+import { stringToColor } from "../../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const { namespace } = params;
   const client = await IndexifyClient.createClient({ namespace });
-  if (namespace === undefined) return null;
-
   const [indexes, contentList] = await Promise.all([
     client.indexes(),
     client.getContent(),
@@ -42,7 +40,10 @@ const NamespacePage = () => {
           {client.namespace}
         </Typography>
       </Box>
-      <ExtractorBindingsTable bindings={client.extractorBindings} />
+      <ExtractorBindingsTable
+        namespace={client.namespace}
+        extractorBindings={client.extractorBindings}
+      />
       <IndexTable indexes={indexes} />
       <ContentTable content={contentList} />
     </Stack>

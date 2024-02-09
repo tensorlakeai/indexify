@@ -6,6 +6,7 @@ import {
   IExtractorBinding,
   IIndex,
   INamespace,
+  ITask,
 } from "./types";
 
 const DEFAULT_SERVICE_URL = "http://localhost:8900"; // Set your default service URL
@@ -36,7 +37,6 @@ class IndexifyClient {
     serviceUrl?: string;
     namespace?: string;
   } = {}): Promise<IndexifyClient> {
-    console.log("create client", serviceUrl, namespace);
     const response = await axios.get(`${serviceUrl}/namespaces/${namespace}`);
     return new IndexifyClient(
       serviceUrl,
@@ -83,6 +83,12 @@ class IndexifyClient {
     return resp.data.indexes;
   }
 
+  async extractors(): Promise<Extractor[]> {
+    const response = await this.get("extractors");
+    const extractorsData = response.data.extractors as IExtractor[];
+    return extractorsData.map((data) => new Extractor(data));
+  }
+
   async getContent(
     parent_id?: string,
     labels_eq?: string
@@ -93,10 +99,15 @@ class IndexifyClient {
     return resp.data.content_list;
   }
 
-  async extractors(): Promise<Extractor[]> {
-    const response = await this.get("extractors");
-    const extractorsData = response.data.extractors as IExtractor[];
-    return extractorsData.map((data) => new Extractor(data));
+  async getTasks(extractor_binding: string): Promise<ITask[]> {
+    return axios
+      .get(`${this.serviceUrl}/tasks`, {
+        params: {
+          namespace: this.namespace,
+          extractor_binding,
+        },
+      })
+      .then((res) => res.data.tasks);
   }
 }
 
