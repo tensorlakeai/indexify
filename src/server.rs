@@ -219,7 +219,7 @@ impl Server {
                 "/extractors/extract",
                 post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
-            .fallback(ui_handler)
+            .route("/ui/*rest", ui_handler)
             .layer(OtelAxumLayer::default())
             .layer(metrics)
             .layer(Extension(caches))
@@ -877,8 +877,8 @@ async fn metadata_lookup(
 
 #[axum::debug_handler]
 #[tracing::instrument(skip_all)]
-async fn ui_handler(uri: Uri) -> impl IntoResponse {
-    let content = UiAssets::get(uri.path().trim_start_matches('/'))
+async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
+    let content = UiAssets::get(url.trim_start_matches('/'))
         .unwrap_or_else(|| UiAssets::get("index.html").unwrap());
     (
         [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
