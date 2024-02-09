@@ -79,8 +79,7 @@ mod test {
 
         // no filters
         let filtered_content =
-            list_content_filter(content.clone(), "", "", &no_labels_filter)
-                .collect::<Vec<_>>();
+            list_content_filter(content.clone(), "", "", &no_labels_filter).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 4);
         assert_eq!(filtered_content[0].id, "1");
         assert_eq!(filtered_content[1].id, "2");
@@ -88,44 +87,31 @@ mod test {
         assert_eq!(filtered_content[3].id, "4");
 
         // source filter
-        let filtered_content = list_content_filter(
-            content.clone(),
-            "source1",
-            "",
-            &no_labels_filter,
-        )
-        .collect::<Vec<_>>();
+        let filtered_content =
+            list_content_filter(content.clone(), "source1", "", &no_labels_filter)
+                .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id, "1");
         assert_eq!(filtered_content[1].id, "3");
 
         // parent_id and source filter
-        let filtered_content = list_content_filter(
-            content.clone(),
-            "source1",
-            "parent2",
-            &no_labels_filter,
-        )
-        .collect::<Vec<_>>();
+        let filtered_content =
+            list_content_filter(content.clone(), "source1", "parent2", &no_labels_filter)
+                .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id, "3");
 
         // parent_id filter
-        let filtered_content = list_content_filter(
-            content.clone(),
-            "",
-            "parent2",
-            &no_labels_filter,
-        )
-        .collect::<Vec<_>>();
+        let filtered_content =
+            list_content_filter(content.clone(), "", "parent2", &no_labels_filter)
+                .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id, "2");
         assert_eq!(filtered_content[1].id, "3");
 
         // labels filter - empty - skips the labels filter
         let filtered_content =
-            list_content_filter(content.clone(), "", "", &no_labels_filter)
-                .collect::<Vec<_>>();
+            list_content_filter(content.clone(), "", "", &no_labels_filter).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 4);
 
         // labels filter - exact match
@@ -134,8 +120,8 @@ mod test {
             labels.insert("key1".to_string(), "value1".to_string());
             labels
         };
-        let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq)
-            .collect::<Vec<_>>();
+        let filtered_content =
+            list_content_filter(content.clone(), "", "", &labels_eq).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id, "1");
 
@@ -146,8 +132,8 @@ mod test {
             labels.insert("key2".to_string(), "value2".to_string());
             labels
         };
-        let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq)
-            .collect::<Vec<_>>();
+        let filtered_content =
+            list_content_filter(content.clone(), "", "", &labels_eq).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id, "3");
     }
@@ -227,7 +213,7 @@ mod test_extractor_mimetype_filter {
     fn test_matches_mime_type() {
         let mimetype_matcher = |extractor: TestExtractor, content_mimetypes: Vec<(&str, bool)>| {
             for (content_mime, expected) in content_mimetypes {
-                let content = ContentMetadata{
+                let content = ContentMetadata {
                     content_type: content_mime.to_string(),
                     ..Default::default()
                 };
