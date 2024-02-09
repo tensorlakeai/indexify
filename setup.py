@@ -33,6 +33,9 @@ REQUIRED = [
     "transformers",
     "dataclasses-json",
     "marshmallow",
+    "pydantic",
+    "pydantic-settings",
+    "docker",
 ]
 
 # What packages are optional?

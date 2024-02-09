@@ -7,18 +7,16 @@ RUN update-ca-certificates
 
 RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
     apt-get update -y && \
-    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3.11-pip && \
-    apt-get install -y indexify && \
+    apt-get install -y lsb-release libssl-dev apt-transport-https python3.11 python3.11-dev python3-pip && \
     apt-get install -y  {{ system_dependencies }} && \
     apt-get -y clean
+
 
 RUN pip3 install --no-input {{ additional_pip_flags }} {{ python_dependencies }}
 
 WORKDIR /indexify
 
 COPY . /indexify/
-
-COPY indexify.yaml indexify.yaml
 
 {% if dev %}
 COPY indexify_extractor_sdk /indexify/indexify_extractor_sdk
