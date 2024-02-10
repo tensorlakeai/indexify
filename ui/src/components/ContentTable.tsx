@@ -46,7 +46,7 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
     {
       field: "storage_url",
       headerName: "Storage URL",
-      width: 300,
+      width: 200,
     },
     {
       field: "created_at",

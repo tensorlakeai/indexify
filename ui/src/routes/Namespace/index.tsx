@@ -8,20 +8,24 @@ import React from "react";
 import ExtractorBindingsTable from "../../components/ExtractorBindingsTable";
 import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../../utils/helpers";
+import ExtractorsTable from "../../components/ExtractorsTable";
+import Extractor from "../../lib/Indexify/extractor";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const { namespace } = params;
   const client = await IndexifyClient.createClient({ namespace });
-  const [indexes, contentList] = await Promise.all([
+  const [extractors, indexes, contentList] = await Promise.all([
+    client.extractors(),
     client.indexes(),
     client.getContent(),
   ]);
-  return { client, indexes, contentList };
+  return { client, extractors, indexes, contentList };
 }
 
 const NamespacePage = () => {
-  const { client, indexes, contentList } = useLoaderData() as {
+  const { client, extractors, indexes, contentList } = useLoaderData() as {
     client: IndexifyClient;
+    extractors: Extractor[];
     indexes: IIndex[];
     contentList: IContent[];
   };
@@ -46,6 +50,7 @@ const NamespacePage = () => {
       />
       <IndexTable indexes={indexes} />
       <ContentTable content={contentList} />
+      <ExtractorsTable extractors={extractors} />
     </Stack>
   );
 };

@@ -6,7 +6,6 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
-import Extractors, { loader as ExtractorsLoader } from "./routes/extractors";
 import Namespace, { loader as NamespaceLoader } from "./routes/Namespace";
 import ExtractorBindingPage, {
   loader as ExtractorBindingLoader,
@@ -30,22 +29,16 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/extractors",
-          element: <Extractors />,
-          loader: ExtractorsLoader,
-          errorElement: <ErrorPage />,
-        },
-        {
           path: "/:namespace/bindings/:bindingname",
           element: <ExtractorBindingPage />,
           loader: ExtractorBindingLoader,
-          errorElement: <ExtractorBindingPage />,
+          errorElement: <ErrorPage />,
         },
         {
           path: "/:namespace/content/:parentId",
           element: <ContentPage />,
           loader: ContentLoader,
-          errorElement: <ContentPage />,
+          errorElement: <ErrorPage />,
         },
       ],
     },
