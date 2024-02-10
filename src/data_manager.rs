@@ -18,7 +18,6 @@ use crate::{
     api::{self, Content, EmbeddingSchema},
     blob_storage::{BlobStorage, BlobStorageConfig, BlobStorageReader, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
-    extractor::ExtractedEmbeddings,
     grpc_helper::GrpcHelper,
     metadata_storage::{ExtractedMetadata, MetadataStorageTS},
     vector_index::{ScoredText, VectorIndexManager},
@@ -412,7 +411,7 @@ impl DataManager {
                             serde_json::from_value(feature.data).map_err(|e| {
                                 anyhow!("unable to get embedding from extracted data {}", e)
                             })?;
-                        let embeddings = ExtractedEmbeddings {
+                        let embeddings = internal_api::ExtractedEmbeddings {
                             content_id: content_metadata.id.to_string(),
                             embedding: embedding_payload.values,
                         };

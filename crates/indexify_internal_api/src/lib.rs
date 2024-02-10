@@ -557,3 +557,9 @@ impl From<StateChange> for indexify_coordinator::StateChange {
         }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ExtractedEmbeddings {
+    pub content_id: String,
+    pub embedding: Vec<f32>,
+}

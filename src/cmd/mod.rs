@@ -1,7 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 
 mod coordinator;
-mod extractor;
 mod init_config;
 mod server;
 
@@ -27,7 +26,6 @@ pub enum Commands {
     Server(server::Args),
     Coordinator(coordinator::Args),
     InitConfig(init_config::Args),
-    Extractor(extractor::Args),
 }
 
 /// The main CLI struct. This is the root of the CLI tree.
@@ -48,7 +46,6 @@ impl Cli {
             Commands::Server(args) => args.run(self.global_args).await,
             Commands::Coordinator(args) => args.run(self.global_args).await,
             Commands::InitConfig(args) => args.run(self.global_args).await,
-            Commands::Extractor(args) => args.run(self.global_args).await,
         }
     }
 }
