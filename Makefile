@@ -97,3 +97,6 @@ serve-docs: ## Serve documentation
 install: build-release ## Build the application and install it to the system
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(APPLICATION_NAME)
+
+package-ui:
+	cd ui && npm ci && npm run build
