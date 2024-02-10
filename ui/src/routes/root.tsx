@@ -107,7 +107,7 @@ export default function Dashboard() {
               spacing={2}
               flexGrow={1}
             >
-              <img src="/logo.svg" alt="logo" />
+              <img src="/ui/logo.svg" alt="logo" />
               <a
                 href={"/ui"}
                 style={{ textDecoration: "none", color: "white" }}
