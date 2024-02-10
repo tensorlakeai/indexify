@@ -12,7 +12,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (!namespace || !bindingname) return redirect("/");
 
   const client = await IndexifyClient.createClient();
-  const tasks = await client.getTasks(bindingname);
+  const tasks = (await client.getTasks(bindingname)).filter(
+    (task) => task.extractor_binding === bindingname
+  );
 
   return { tasks, bindingname, namespace };
 }
@@ -35,10 +37,10 @@ const ExtractorBindingPage = () => {
       </Breadcrumbs>
       <Box display={"flex"} alignItems={"center"}>
         <Typography variant="h2" component="h1">
-          {bindingname}
+          Binding - {bindingname}
         </Typography>
       </Box>
-      <TasksTable namespace={namespace} tasks={tasks} />
+      <TasksTable namespace={namespace} tasks={tasks} hideExtractorBinding />
     </Stack>
   );
 };

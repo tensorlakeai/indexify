@@ -9,7 +9,16 @@ import { Link } from "react-router-dom";
 
 const ContentTable = ({ content }: { content: IContent[] }) => {
   const columns: GridColDef[] = [
-    { field: "id", headerName: "ID", width: 150 },
+    {
+      field: "id",
+      headerName: "ID",
+      width: 170,
+      renderCell: (params) => (
+        <Link to={`/${params.row.namespace}/content/${params.value}`}>
+          {params.value}
+        </Link>
+      ),
+    },
     {
       field: "name",
       headerName: "Name",
@@ -19,11 +28,6 @@ const ContentTable = ({ content }: { content: IContent[] }) => {
       field: "parent_id",
       headerName: "Parent ID",
       width: 200,
-      renderCell: (params) => (
-        <Link to={`/${params.row.namespace}/content/${params.value}`}>
-          {params.value}
-        </Link>
-      ),
     },
     {
       field: "content_type",
