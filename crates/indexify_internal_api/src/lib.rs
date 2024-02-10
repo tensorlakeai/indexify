@@ -174,10 +174,13 @@ pub struct CreateWorkResponse {}
 #[derive(Debug, Serialize, Deserialize, Clone, EnumString)]
 pub enum FeatureType {
     #[strum(serialize = "embedding")]
+    #[serde(rename = "embedding")]
     Embedding,
     #[strum(serialize = "metadata")]
+    #[serde(rename = "metadata")]
     Metadata,
     #[strum(serialize = "unknown")]
+    #[serde(rename = "unknown")]
     Unknown,
 }
 

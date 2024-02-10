@@ -407,7 +407,7 @@ impl Default for ServerConfig {
             blob_storage: BlobStorageConfig {
                 s3: None,
                 disk: Some(DiskStorageConfig {
-                    path: "blobs".to_string(),
+                    path: "/tmp/indexify-blob-storage".to_string(),
                 }),
             },
             tls: None,

@@ -611,7 +611,7 @@ async fn upload_file(
     Ok(())
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(state, payload))]
 #[utoipa::path(
     post,
     path = "/write_content",
