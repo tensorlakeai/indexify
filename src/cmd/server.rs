@@ -14,7 +14,7 @@ use crate::{
 pub struct Args {
     /// path to the server config file
     #[arg(long, short = 'c')]
-    config_path: String,
+    config_path: Option<String>,
 
     #[arg(short, long)]
     dev_mode: bool,
@@ -28,8 +28,13 @@ impl Args {
         } = self;
 
         info!("starting indexify server, version: {}", crate::VERSION);
-        let config = ServerConfig::from_path(&config_path)
-            .unwrap_or_else(|e| panic!("failed to load config: {}, error: {:?}", config_path, e));
+        let config = if let Some(config_path) = config_path {
+            ServerConfig::from_path(&config_path)
+                .expect(&format!("failed to load config file `{}`", config_path))
+        } else {
+            info!("No config file provided. Using defaults");
+            ServerConfig::default()
+        };
 
         debug!("Server config is: {:?}", config);
         let server =

@@ -1,7 +1,4 @@
-use std::{
-    error::Error,
-    process::{Command, Stdio},
-};
+use std::error::Error;
 
 use vergen::EmitBuilder;
 
