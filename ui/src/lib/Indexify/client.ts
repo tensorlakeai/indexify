@@ -99,7 +99,7 @@ class IndexifyClient {
     return resp.data.content_list;
   }
 
-  async getTasks(extractor_binding: string): Promise<ITask[]> {
+  async getTasks(extractor_binding?: string): Promise<ITask[]> {
     return axios
       .get(`${this.serviceUrl}/tasks`, {
         params: {

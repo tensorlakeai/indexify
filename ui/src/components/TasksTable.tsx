@@ -10,33 +10,33 @@ import { Link } from "react-router-dom";
 const TasksTable = ({
   namespace,
   tasks,
+  hideContentId,
+  hideExtractorBinding,
 }: {
   namespace: string;
   tasks: ITask[];
+  hideContentId?: boolean;
+  hideExtractorBinding?: boolean;
 }) => {
-  const columns: GridColDef[] = [
+  let columns: GridColDef[] = [
     {
       field: "id",
-      headerName: "ID",
-      width: 170,
-    },
-    {
-      field: "content_metadata.id",
-      headerName: "Content ID",
-      valueGetter: (params) => params.row.content_metadata.id,
+      headerName: "Task ID",
       width: 170,
     },
     {
       field: "content_metadata.parent_id",
       headerName: "Parent ID",
-      renderCell: (params) => (
-        <Link
-          to={`/${namespace}/content/${params.row.content_metadata.parent_id}`}
-        >
-          {params.row.content_metadata.parent_id}
-        </Link>
-      ),
       width: 170,
+    },
+    {
+      field: "content_metadata.id",
+      headerName: "Content ID",
+      width: 170,
+      valueGetter: (params) => params.row.content_metadata.id,
+      renderCell: (params) => (
+        <Link to={`/${namespace}/content/${params.value}`}>{params.value}</Link>
+      ),
     },
     {
       field: "extractor_binding",
@@ -77,6 +77,15 @@ const TasksTable = ({
       width: 200,
     },
   ];
+
+  columns = columns.filter((col) => {
+    if (hideContentId && col.field === "content_metadata.id") {
+      return false;
+    } else if (hideExtractorBinding && col.field === "extractor_binding") {
+      return false;
+    }
+    return true;
+  });
 
   const renderContent = () => {
     if (tasks.length === 0) {
