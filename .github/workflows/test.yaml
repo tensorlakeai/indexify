@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install protoc
-      run: sudo apt install -y protobuf-compiler
+      run: sudo apt install -y protobuf-compiler npm
     - name: Set up Python 3.9
       uses: actions/setup-python@v2
       with:

@@ -24,6 +24,8 @@ done
 
 pip install .[test]
 
+make package-ui
+
 cargo test -- --test-threads 1
 
 echo "Ok, that is enough"
