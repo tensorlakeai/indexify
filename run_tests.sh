@@ -22,8 +22,6 @@ until curl --output /dev/null --silent --get --fail http://$QDRANT_HOST/collecti
   sleep 5
 done
 
-pip install .[test]
-
 make package-ui
 
 cargo test -- --test-threads 1
