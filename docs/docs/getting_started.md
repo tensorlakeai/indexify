@@ -36,9 +36,9 @@ Indexify comes with a Python client. It uses the HTTP APIs of Indexify under the
     client = IndexifyClient()
     ```
 
-### Namespaces
+### Adding Content
 
-Namespaces are logical buckets that store content. Indexify starts with a default namespace. We can start adding documents to it straight away.
+Indexify supports multiple ways of adding content through with it's API.
 
 #### Add some documents
 
@@ -131,9 +131,9 @@ Extractors are used to extract information from the documents. The extracted inf
     curl -X GET http://localhost:8900/extractors
     ```
 
-#### Bind some extractors to the namespace
+#### Bind some extractors
 
-To start extracting information from the documents, we need to bind some extractors to the namespace. Let's bind a named entity extractor so that we can retrieve some data in the form of key/value pairs, and an embedding extractor so that we can run semantic search over the raw text.
+To start extracting information from the documents, we need to bind some extractors. Let's bind a named entity extractor so that we can retrieve some data in the form of key/value pairs, and an embedding extractor so that we can run semantic search over the raw text.
 
 Every extractor we bind results in a corresponding index being created in Indexify to store the extracted information for fast retrieval. So we must also provide an index name for each extractor.
 
@@ -238,9 +238,9 @@ Let's look for documents related to "sports":
 
 ### Automatic extraction and indexing
 
-Indexify automatically watches your namespace and runs your extractors whenever new documents are added. Let's go through an example. 
+Indexify automatically watches for updates and runs your extractors whenever new documents are added. Let's go through an example. 
 
-#### Add a new document to the namespace
+#### Add a new document
 
 === "python"
 

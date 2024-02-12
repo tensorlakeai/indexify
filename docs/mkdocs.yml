@@ -32,7 +32,7 @@ nav:
     - Available Extractors: 'apis/available_extractors.md'
     - Develop Extractors: 'apis/develop_extractors.md'
   - APIs:
-    - Content Ingestion: 'apis/data_repository.md'
+    - Content Ingestion: 'apis/content_ingestion.md'
     - Retrieval: 'apis/retrieval.md'
   - Configuration: 'configuration.md'
   - Deployment: 'deployment.md'

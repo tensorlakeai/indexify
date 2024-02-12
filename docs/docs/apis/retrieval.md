@@ -1,6 +1,6 @@
 # Retrieval APIs
 
-Retrieval APIs allow querying the indexes, derived from the content added in namespaces. Currently there are two types of indexes supported:
+Retrieval APIs allow querying the indexes, derived from the content added. Currently there are two types of indexes supported:
 
 - Vector Indexes for Semantic Search 
 - Content Attribute Indexes
@@ -9,7 +9,7 @@ Retrieval APIs allow querying the indexes, derived from the content added in nam
 
 Vector Indexes are created by running embedding models on content. They allow doing semantic search on the indexes. The search results contain the chunks of text which matched the query and their corresponding scores.
 
-The following example searches the namespace `default` for the index `embeddings` for the query `good` and returns the top `k` results.
+The following example searches for the index `embeddings` for the query `good` and returns the top `k` results.
 
 === "python"
 
@@ -48,21 +48,21 @@ The schema of such indexes are defined by the extractors. The retrieval API for 
 
 In the future we will add support for searching these indexes as well using sparse vectors, or add them to knowledge graphs.
 
-The following example queries the namespace `default` for the index `entities` and returns all the metadata in the index.
+The following example queries the index `entities` and returns all the metadata in the index.
 
 === "python"
 
       ```python
-      client.query_metadata(index_name="entities")
+      client.query_metadata(index_name="entities", content_id="contentid")
       ```
 
 === "curl"
 
       ```shell
-      curl -v -X GET http://localhost:8900/namespaces/default/metadata\?index=entities
+      curl -v -X GET http://localhost:8900/namespaces/default/metadata\?index=entities\&content_id=contentid
       ```
 
-The following example queries the namespace `default` for the index `entities` and returns the metadata for the content id `foo`.
+The following example queries the index `entities` and returns the metadata for the content id `foo`.
 
 === "python"
 
