@@ -48,20 +48,6 @@ The schema of such indexes are defined by the extractors. The retrieval API for 
 
 In the future we will add support for searching these indexes as well using sparse vectors, or add them to knowledge graphs.
 
-The following example queries the index `entities` and returns all the metadata in the index.
-
-=== "python"
-
-      ```python
-      client.query_metadata(index_name="entities", content_id="contentid")
-      ```
-
-=== "curl"
-
-      ```shell
-      curl -v -X GET http://localhost:8900/namespaces/default/metadata\?index=entities\&content_id=contentid
-      ```
-
 The following example queries the index `entities` and returns the metadata for the content id `foo`.
 
 === "python"
