@@ -50,7 +50,7 @@ use crate::{
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
 
 #[derive(RustEmbed)]
-#[folder = "$CARGO_MANIFEST_DIR/ui/build"]
+#[folder = "ui/build"]
 pub struct UiAssets;
 
 #[derive(Clone, Debug)]

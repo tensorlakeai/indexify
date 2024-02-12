@@ -4,6 +4,7 @@ use anyhow::{anyhow, Error, Result};
 use base64::{engine::general_purpose, Engine as _};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
+use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
 
@@ -11,7 +12,6 @@ use crate::{
     api::{self},
     blob_storage::{BlobStorage, BlobStorageReader},
     coordinator_client::CoordinatorClient,
-    extractor::ExtractedEmbeddings,
     extractor_router::ExtractorRouter,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };

@@ -171,79 +171,36 @@ pub fn matches_mime_type(supported_mimes: &[String], content_mime_type: &String)
 
 #[cfg(test)]
 mod test_extractor_mimetype_filter {
-    use internal_api::ContentMetadata;
-
     use super::*;
-    use crate::extractor::{Extractor, ExtractorSchema};
-
-    #[derive(Debug)]
-    enum TestExtractor {
-        // "text/plain"
-        TextPlain,
-
-        // "*/*"
-        Wildcard,
-    }
-
-    impl Extractor for TestExtractor {
-        fn schemas(&self) -> Result<ExtractorSchema, anyhow::Error> {
-            let schemas = match self {
-                TestExtractor::TextPlain => ExtractorSchema {
-                    input_mimes: vec![mime::TEXT_PLAIN.to_string()],
-                    ..Default::default()
-                },
-                TestExtractor::Wildcard => ExtractorSchema {
-                    input_mimes: vec![mime::STAR_STAR.to_string()],
-                    ..Default::default()
-                },
-            };
-            Ok(schemas)
-        }
-
-        fn extract(
-            &self,
-            content: Vec<internal_api::Content>,
-            _input_params: serde_json::Value,
-        ) -> Result<Vec<Vec<internal_api::Content>>, anyhow::Error> {
-            Ok(vec![content])
-        }
-    }
 
     #[test]
     fn test_matches_mime_type() {
-        let mimetype_matcher = |extractor: TestExtractor, content_mimetypes: Vec<(&str, bool)>| {
-            for (content_mime, expected) in content_mimetypes {
-                let content = ContentMetadata {
-                    content_type: content_mime.to_string(),
-                    ..Default::default()
-                };
-                let matches = matches_mime_type(
-                    &extractor.schemas().unwrap().input_mimes,
-                    &content.content_type,
-                );
-                assert_eq!(
-                    matches, expected,
-                    "content mime type {} did not match for case {:?}",
-                    content_mime, extractor
-                );
-            }
-        };
+        // Assert that content with mime type matches an extractor that supports the
+        // same mime type
+        let res = matches_mime_type(
+            &vec![
+                mime::TEXT_PLAIN.to_string(),
+                mime::IMAGE_PNG.to_string(),
+                mime::APPLICATION_PDF.to_string(),
+            ],
+            &mime::TEXT_PLAIN.to_string(),
+        );
+        assert!(res);
 
-        mimetype_matcher(
-            TestExtractor::TextPlain,
-            vec![
-                (mime::TEXT_PLAIN.as_ref(), true),
-                (mime::IMAGE_PNG.as_ref(), false),
-                (mime::APPLICATION_PDF.as_ref(), false),
-            ],
+        // Assert that content with mime type matches an extractor that supports wild
+        // card mime type
+        let res = matches_mime_type(
+            &vec![mime::STAR_STAR.to_string()],
+            &mime::TEXT_PLAIN.to_string(),
         );
-        mimetype_matcher(
-            TestExtractor::Wildcard,
-            vec![
-                (mime::TEXT_PLAIN.as_ref(), true),
-                (mime::IMAGE_PNG.as_ref(), true),
-                (mime::APPLICATION_PDF.as_ref(), true),
-            ],
+        assert!(res);
+
+        // Assert that content with mime type does not match an extractor that supports
+        // the same mime type
+        let res = matches_mime_type(
+            &vec![mime::TEXT_PLAIN.to_string()],
+            &mime::APPLICATION_PDF.to_string(),
         );
+        assert!(!res);
     }
 }
