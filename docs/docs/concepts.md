@@ -1,6 +1,6 @@
 # Key Concepts
 
-A typical workflow using Indexify involves adding content to a data repository, wait for vector or JSON document indexes to be updated as extractors run on the content. As indexes are updated continously, you could retrieve updated information from them, via semantic search, K/V lookup or JSON path queries.
+A typical workflow using Indexify involves adding content to a namespace, wait for vector or JSON document indexes to be updated as extractors run on the content. As indexes are updated continously, you could retrieve updated information from them, via semantic search, K/V lookup or JSON path queries.
 
 ![High Level Concept](images/System_Architecture_Diagram.png)
 
@@ -18,5 +18,5 @@ A python class that can -
 ## Extractor Bindings
 Applies extractors in a streaming fashion to ingested or derived unstructured content, and Indexes are automatically updated with the extracted data. Think of bindings as calls to extractors, they are long lived and are being called every time there is new content in the system.
 
-## Data Repositories
-Data Repositories are logical abstractions for storing related content. Repositories allow partitioning data based on security and organizational boundaries.
+## Namespaces
+Namespaces are logical abstractions for storing related content. Namespaces allow partitioning data based on security and organizational boundaries.

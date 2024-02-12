@@ -36,17 +36,16 @@ Indexify comes with a Python client. It uses the HTTP APIs of Indexify under the
     client = IndexifyClient()
     ```
 
-### Data repository
+### Namespaces
 
-Data Repositories are logical buckets that store content. Indexify starts with a default data repository. We can start adding documents to it straight away.
+Namespaces are logical buckets that store content. Indexify starts with a default namespace. We can start adding documents to it straight away.
 
 #### Add some documents
 
 === "python"
 
     ```python
-    repo = client.get_repository("default")
-    repo.add_documents([
+    client.add_documents([
         "Indexify is amazing!",
         "Indexify is a retrieval service for LLM agents!",
         "Kevin Durant is the best basketball player in the world."
@@ -55,7 +54,7 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/add_texts \
+    curl -v -X POST http://localhost:8900/namespaces/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
             {"text": "Indexify is amazing!"},
@@ -68,14 +67,13 @@ Data Repositories are logical buckets that store content. Indexify starts with a
 === "python"
 
     ```python
-    repo = client.get_repository("default")
-    repo.upload_file("kd.txt")
+    client.upload_file("kd.txt")
     ```
     
 === "curl"
 
     ```
-    curl -v http://localhost:8900/repositories/default/upload_file \
+    curl -v http://localhost:8900/namespaces/default/upload_file \
     -F "files=@kd.txt"
     ```
 
@@ -85,13 +83,13 @@ Sometimes you might want to read all the metadata of the content for use in anot
 === "python"
 
     ```
-    repo.get_content()
+    client.get_content()
     ```
 
 === "curl"
 
     ```
-    curl -v http://localhost:8900/repositories/default/content
+    curl -v http://localhost:8900/namespaces/default/content
     ```
 
 Content can be filtered:
@@ -99,13 +97,13 @@ Content can be filtered:
 === "python"
 
     ```
-    repo.get_content(parent_id="some_parent_id", labels_eq="key1:value1,key2:value2")
+    client.get_content(parent_id="some_parent_id", labels_eq="key1:value1,key2:value2")
     ```
 
 === "curl"
 
     ```
-    curl -v http://localhost:8900/repositories/default/content?source=some_source&parent_id=some_parent_id&labels_eq=key1:value1,key2:value2
+    curl -v http://localhost:8900/namespaces/default/content?source=some_source&parent_id=some_parent_id&labels_eq=key1:value1,key2:value2
     ```
 === "api spec"
 
@@ -117,7 +115,7 @@ Content can be filtered:
 
 ### Using extractors
 
-Extractors are used to extract information from the documents in our repository. The extracted information can be structured (entities, keywords, etc.) or unstructured (embeddings) in nature, and is stored in an index for retrieval. 
+Extractors are used to extract information from the documents. The extracted information can be structured (entities, keywords, etc.) or unstructured (embeddings) in nature, and is stored in an index for retrieval. 
 
 #### Get available extractors
 
@@ -133,24 +131,24 @@ Extractors are used to extract information from the documents in our repository.
     curl -X GET http://localhost:8900/extractors
     ```
 
-#### Bind some extractors to the repository
+#### Bind some extractors to the namespace
 
-To start extracting information from the documents, we need to bind some extractors to the repository. Let's bind a named entity extractor so that we can retrieve some data in the form of key/value pairs, and an embedding extractor so that we can run semantic search over the raw text.
+To start extracting information from the documents, we need to bind some extractors to the namespace. Let's bind a named entity extractor so that we can retrieve some data in the form of key/value pairs, and an embedding extractor so that we can run semantic search over the raw text.
 
 Every extractor we bind results in a corresponding index being created in Indexify to store the extracted information for fast retrieval. So we must also provide an index name for each extractor.
 
 === "python"
 
     ```python
-    repo.bind_extractor("tensorlake/minilm-l6", "minil6")
+    client.bind_extractor("tensorlake/minilm-l6", "minil6")
 
-    bindings = repo.extractor_bindings
+    bindings = client.extractor_bindings
     ```
 
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
+    curl -v -X POST http://localhost:8900/namespaces/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "tensorlake/minilm-l6",
@@ -169,7 +167,7 @@ Let's look for documents related to "sports":
 === "python"
 
     ```python
-    search_results = repo.search_index("minil6.embedding", "sports", 3)
+    search_results = client.search_index("minil6.embedding", "sports", 3)
     print('Search results:', *search_results, sep='\n')
     ```
     
@@ -200,7 +198,7 @@ Let's look for documents related to "sports":
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/search \
+    curl -v -X POST http://localhost:8900/namespaces/default/search \
     -H "Content-Type: application/json" \
     -d '{
             "index": "minil6.embedding",
@@ -240,20 +238,20 @@ Let's look for documents related to "sports":
 
 ### Automatic extraction and indexing
 
-Indexify automatically watches your data repository and runs your extractors whenever new documents are added. Let's go through an example. 
+Indexify automatically watches your namespace and runs your extractors whenever new documents are added. Let's go through an example. 
 
-#### Add a new document to the repository
+#### Add a new document to the namespace
 
 === "python"
 
     ```python
-    repo.add_documents("Steph Curry is also an amazing player!")
+    client.add_documents("Steph Curry is also an amazing player!")
     ```
 
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/add_texts \
+    curl -v -X POST http://localhost:8900/namespaces/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
             {"text": "Steph Curry is also an amazing player!"}
@@ -267,7 +265,7 @@ Now let's rerun our query for documents related to "sports":
 === "python"
 
     ```python
-    search_results = repo.search_index("minil6.embedding", "sports", 3)
+    search_results = client.search_index("minil6.embedding", "sports", 3)
     print('Updated search results:', *search_results, sep='\n')
     ```
 
@@ -300,7 +298,7 @@ Now let's rerun our query for documents related to "sports":
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/search \
+    curl -v -X POST http://localhost:8900/namespaces/default/search \
     -H "Content-Type: application/json" \
     -d '{
             "index": "minil6.embedding",
@@ -342,23 +340,24 @@ We can see the new document we added about Steph Curry is now included in the se
 
 ### Specify filters for extractor bindings
 
-Sometimes you might want to restrict the content from a data repository that's extracted and added to an index. For example, you might only want to process the documents that are downloaded from a specific URL. Indexify provides an easy way to do this using filters.
+Sometimes you might want to restrict the content that's extracted and added to an index. For example, you might only want to process the documents that are downloaded from a specific URL. Indexify provides an easy way to do this using filters.
 
 === "python"
 
     ```python
-    repo.add_documents([
-        {"text": "The Cayuga was launched in 2245.", 
-         "labels": 
-            {"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
-        }
+    from indexify.client import Document
+    client.add_documents([
+        Document(
+            text="The Cayuga was launched in 2245.", 
+            labels={"source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"}
+        )
     ])
     ```
 
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/add_texts \
+    curl -v -X POST http://localhost:8900/namespaces/default/add_texts \
     -H "Content-Type: application/json" \
     -d '{"documents": [ 
             {"text": "The Cayuga was launched in 2245.", 
@@ -373,17 +372,17 @@ Now you can add extractor bindings with filters which match the URL and index co
 === "python"
 
     ```python
-    repo.bind_extractor("tensorlake/minilm-l6", "star_trek", filters={
+    client.bind_extractor("tensorlake/minilm-l6", "star_trek", filters={
         "source": "https://memory-alpha.fandom.com/wiki/USS_Cayuga"
     })
 
-    print(repo.extractor_bindings)
+    print(client.extractor_bindings)
     ```
 
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/repositories/default/extractor_bindings \
+    curl -v -X POST http://localhost:8900/namespaces/default/extractor_bindings \
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "tensorlake/minilm-l6",

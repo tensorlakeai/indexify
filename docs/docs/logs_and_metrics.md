@@ -24,7 +24,7 @@ docker run --rm --name jaeger \
   jaegertracing/all-in-one:1.49
 ```
 
-As you make specific API calls to your indexify application (such as "localhost:8900/repositories"), traces are populated, which you can then view spans and details in Jaeger.
+As you make specific API calls to your indexify application (such as "localhost:8900/namespaces"), traces are populated, which you can then view spans and details in Jaeger.
 
 ![Traces](docs/docs/images/jaeger/traces.png)
 ![Detailed Spans & Logs](docs/docs/images/jaeger/traces.png)
