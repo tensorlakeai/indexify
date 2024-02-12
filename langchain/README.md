@@ -13,15 +13,14 @@ client = IndexifyClient()
 
 
 # add docs
-from indexify.repository import Document
-repository = client.get_repository("default")
+from indexify.client import Document
 
-repository.bind_extractor(
+client.bind_extractor(
     "diptanu/minilm-l6-extractor",
     "minilm",
 )
 
-repository.add_documents(
+client.add_documents(
     [
         Document(
             text="Indexify is amazing!",
@@ -38,7 +37,7 @@ repository.add_documents(
 # implement retriever from indexify repo
 from retriever import IndexifyRetriever
 
-params = {"repository_name": "default", "name": "minilm-embedding", "top_k": 3}
+params = {"namespace": "default", "name": "minilm-embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 
 docs = retriever.get_relevant_documents("indexify")

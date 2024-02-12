@@ -1,6 +1,6 @@
 # Retrieval APIs
 
-Retrieval APIs allow querying the indexes, derived from the content added in data repositories. Currently there are two types of indexes supported:
+Retrieval APIs allow querying the indexes, derived from the content added in namespaces. Currently there are two types of indexes supported:
 
 - Vector Indexes for Semantic Search 
 - Content Attribute Indexes
@@ -9,18 +9,18 @@ Retrieval APIs allow querying the indexes, derived from the content added in dat
 
 Vector Indexes are created by running embedding models on content. They allow doing semantic search on the indexes. The search results contain the chunks of text which matched the query and their corresponding scores.
 
-The following example searches the repository `default` for the index `embeddings` for the query `good` and returns the top `k` results.
+The following example searches the namespace `default` for the index `embeddings` for the query `good` and returns the top `k` results.
 
 === "python"
 
       ```python
-      repository.search_index("minilml6.embedding","good", 3)
+      client.search_index("minilml6.embedding","good", 3)
       ```
 
 === "curl"
 
       ```shell
-      curl -v -X POST http://localhost:8900/repositories/default/search \
+      curl -v -X POST http://localhost:8900/namespaces/default/search \
       -H "Content-Type: application/json" \
       -d '{
             "index": "minilml6.embedding",
@@ -48,29 +48,29 @@ The schema of such indexes are defined by the extractors. The retrieval API for 
 
 In the future we will add support for searching these indexes as well using sparse vectors, or add them to knowledge graphs.
 
-The following example queries the repository `default` for the index `entities` and returns all the metadata in the index.
+The following example queries the namespace `default` for the index `entities` and returns all the metadata in the index.
 
 === "python"
 
       ```python
-      repo.query_metadata(index_name="entities")
+      client.query_metadata(index_name="entities")
       ```
 
 === "curl"
 
       ```shell
-      curl -v -X GET http://localhost:8900/repositories/default/metadata\?index=entities
+      curl -v -X GET http://localhost:8900/namespaces/default/metadata\?index=entities
       ```
 
-The following example queries the repository `default` for the index `entities` and returns the metadata for the content id `foo`.
+The following example queries the namespace `default` for the index `entities` and returns the metadata for the content id `foo`.
 
 === "python"
 
       ```python
-      repo.query_metadata(index_name="entities", content_id="foo")
+      client.query_metadata(index_name="entities", content_id="foo")
       ```
 
 === "curl"
       ``` shell
-      curl -v -X GET http://localhost:8900/repositories/default/metadata\?index=entities&content_id=foo
+      curl -v -X GET http://localhost:8900/namespaces/default/metadata\?index=entities&content_id=foo
       ```
