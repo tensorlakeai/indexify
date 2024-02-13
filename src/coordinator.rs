@@ -296,25 +296,28 @@ impl Coordinator {
         binding: internal_api::ExtractorBinding,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
-        let input_params_schema = JSONSchema::compile(&extractor.input_params).map_err(|e| {
-            anyhow!(
-                "unable to compile json schema for input params: {:?}, error: {:?}",
-                &extractor.input_params,
-                e
-            )
-        })?;
-        let extractor_params_schema = binding.input_params.clone();
-        let validation_result = input_params_schema.validate(&extractor_params_schema);
-        if let Err(errors) = validation_result {
-            let errors = errors
-                .into_iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<String>>();
-            return Err(anyhow!(
-                "unable to validate input params for extractor binding: {}, errors: {}",
-                &binding.name,
-                errors.join(",")
-            ));
+        if &extractor.input_params != &serde_json::Value::Null {
+            let input_params_schema =
+                JSONSchema::compile(&extractor.input_params).map_err(|e| {
+                    anyhow!(
+                        "unable to compile json schema for input params: {:?}, error: {:?}",
+                        &extractor.input_params,
+                        e
+                    )
+                })?;
+            let extractor_params_schema = binding.input_params.clone();
+            let validation_result = input_params_schema.validate(&extractor_params_schema);
+            if let Err(errors) = validation_result {
+                let errors = errors
+                    .into_iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<String>>();
+                return Err(anyhow!(
+                    "unable to validate input params for extractor binding: {}, errors: {}",
+                    &binding.name,
+                    errors.join(",")
+                ));
+            }
         }
         self.shared_state.create_binding(binding).await?;
         Ok(())
