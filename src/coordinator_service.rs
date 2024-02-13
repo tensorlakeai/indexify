@@ -123,13 +123,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         let id = s.finish().to_string();
         let input_params = serde_json::from_str(&extractor_binding.input_params)
             .map_err(|e| tonic::Status::aborted(format!("unable to parse input_params: {}", e)))?;
-        let mut filters = HashMap::new();
-        for filter in extractor_binding.filters {
-            let value = serde_json::from_str(&filter.1).map_err(|e| {
-                tonic::Status::aborted(format!("unable to parse filter value: {}", e))
-            })?;
-            filters.insert(filter.0, value);
-        }
 
         let extractor = self
             .coordinator
@@ -153,7 +146,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             extractor: extractor_binding.extractor,
             name: extractor_binding.name,
             namespace: request.namespace,
-            filters,
+            filters: extractor_binding.filters,
             input_params,
             output_index_name_mapping: output_index_name_mapping.clone(),
             index_name_table_mapping: index_name_table_mapping.clone(),
