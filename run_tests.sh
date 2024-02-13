@@ -22,6 +22,8 @@ until curl --output /dev/null --silent --get --fail http://$QDRANT_HOST/collecti
   sleep 5
 done
 
+apt update -y && apt install -y npm
+
 make package-ui
 
 cargo test -- --test-threads 1
