@@ -1,11 +1,8 @@
 import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { ITask } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import MemoryIcon from "@mui/icons-material/MemoryOutlined";
-import moment from "moment";
-import { Link } from "react-router-dom";
 import Extractor from "../lib/Indexify/extractor";
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
