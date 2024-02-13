@@ -1,6 +1,6 @@
 # Key Concepts
 
-A typical workflow using Indexify involves adding content to a namespace, wait for vector or JSON document indexes to be updated as extractors run on the content. As indexes are updated continously, you could retrieve updated information from them, via semantic search, K/V lookup or JSON path queries.
+A typical workflow using Indexify involves adding content, wait for vector or JSON document indexes to be updated as extractors run on the content. As indexes are updated continously, you could retrieve updated information from them, via semantic search, K/V lookup or JSON path queries.
 
 ![High Level Concept](images/System_Architecture_Diagram.png)
 

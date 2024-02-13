@@ -18,7 +18,6 @@ A namespace can be created by specifying a unique name, and any additional label
         extractor="tensorlake/minilm-l6",
         name="minilm-l6",
         content_source="source",
-        filters={},
         input_params={},
     )
     
@@ -71,7 +70,7 @@ A namespace can be created by specifying a unique name, and any additional label
             {
               "extractor": "diptanu/minilm-l6-extractor",
               "name": "minilml6",
-              "filters": [],
+              "filters_eq": {},
               "input_params": {}
             }
           ],
@@ -87,14 +86,14 @@ A namespace can be created by specifying a unique name, and any additional label
 Extractor Bindings are rules to instruct Indexify to run a particular extractor on content in a namespace. Bindings are evaluated when new content is added and extractors are run automatically on new or existing content. Bindings keep indexes updated as new content is ingested.
 Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
 
-For ex, the example below binds the extractor `MiniLML6` to all the content in the namespace `default` which has labels `url` as `https://www.example.com`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
+For ex, the example below binds the extractor `MiniLML6` to all the content in the namespace `default` which has labels `source` as `google`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
 
 === "python"
     ```python
     client.bind_extractor(
         extractor="tensorlake/minilm-l6",
         name="minil6",
-        filters={"url": "https://www.example.com"},
+        labels_eq="source:google",
     )
     ```
 
@@ -105,6 +104,6 @@ For ex, the example below binds the extractor `MiniLML6` to all the content in t
     -d '{
             "extractor": "tensorlake/minilm-l6",
             "name": "minil6",
-            "filters": {"url": "https://www.example.com"}
+            "filters_eq": "source:google"
         }'
     ```
