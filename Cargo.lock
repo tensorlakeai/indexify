@@ -2355,7 +2355,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.9.0"
-source = "git+https://github.com/datafuselabs/openraft.git?rev=bde63c0#bde63c009b336daf64858056a523001fccafb096"
+source = "git+https://github.com/datafuselabs/openraft.git?rev=c958647#c958647c3d7c9e615ca43e094472414747f4a491"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2756,7 +2756,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 [[package]]
 name = "openraft"
 version = "0.9.0"
-source = "git+https://github.com/datafuselabs/openraft.git?rev=bde63c0#bde63c009b336daf64858056a523001fccafb096"
+source = "git+https://github.com/datafuselabs/openraft.git?rev=c958647#c958647c3d7c9e615ca43e094472414747f4a491"
 dependencies = [
  "anyerror",
  "byte-unit",
