@@ -35,7 +35,7 @@ services:
         ipv4_address: 172.21.0.5
   embedding-extractor:
     image: tensorlake/minilm-l6
-    command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    command: ["join", "--coordinator", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
     networks:
       server:
         ipv4_address: 172.21.0.9
@@ -43,7 +43,7 @@ services:
       - data:/tmp/indexify-blob-storage
   wikipedia-extractor:
     image: tensorlake/wikipedia
-    command: ["extractor", "start", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    command: ["join", "--coordinator", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
     networks:
       server:
         ipv4_address: 172.21.0.13
