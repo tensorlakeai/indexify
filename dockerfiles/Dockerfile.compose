@@ -1,3 +1,7 @@
+FROM node:latest as ui-builder
+
+RUN cd ui/ && npm ci && npm run build
+
 FROM ubuntu:22.04
 
 RUN apt update
@@ -10,6 +14,8 @@ RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_r
     apt-get update -y && \
     apt-get install -y indexify && \
     apt-get -y clean
+
+COPY --from=ui-builder ./ui/build ./ui/build
 
 WORKDIR /indexify
 
