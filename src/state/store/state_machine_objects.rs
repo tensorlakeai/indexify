@@ -105,10 +105,18 @@ impl IndexifyState {
                         .extractor_executors_table
                         .entry(executor_meta.extractor.name.clone())
                         .or_default();
-                    executors.remove(executor_meta.extractor.name.as_str());
+                    executors.remove(&executor_meta.id);
                 }
                 // Remove from the executor load table
                 self.executor_running_task_count.remove(&executor_id);
+
+                // Remove all tasks assigned to this executor
+                let tasks = self.task_assignments.remove(&executor_id);
+                if let Some(tasks) = tasks {
+                    for task_id in tasks {
+                        self.unassigned_tasks.insert(task_id);
+                    }
+                }
             }
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {

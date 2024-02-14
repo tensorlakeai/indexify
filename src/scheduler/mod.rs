@@ -3,7 +3,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use anyhow::{Ok, Result};
+use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
 use tracing::info;
@@ -107,24 +107,27 @@ impl Scheduler {
         tasks: Vec<internal_api::Task>,
     ) -> Result<TaskAllocationPlan> {
         let task_ids = tasks.iter().map(|task| task.id.clone()).collect();
-        self.task_allocator.allocate_tasks(task_ids).await
+        self.task_allocator
+            .allocate_tasks(task_ids)
+            .await
+            .map_err(|e| anyhow!("allocate_tasks: {}", e))
     }
 
     pub async fn redistribute_tasks(
         &self,
         state_change: &StateChange,
     ) -> Result<TaskAllocationPlan> {
-        if state_change.change_type == internal_api::ChangeType::ExecutorRemoved ||
-            state_change.change_type == internal_api::ChangeType::ExecutorAdded
-        {
+        if state_change.change_type == internal_api::ChangeType::ExecutorAdded {
             let executor = self
                 .shared_state
                 .get_executor_by_id(&state_change.object_id)
-                .await?;
+                .await
+                .map_err(|e| anyhow!("redistribute_tasks: {}", e))?;
             return self
                 .task_allocator
                 .reallocate_all_tasks_matching_extractor(&executor.extractor.name)
-                .await;
+                .await
+                .map_err(|e| anyhow!("redistribute_tasks: {}", e));
         }
         Ok(TaskAllocationPlan(HashMap::new()))
     }
