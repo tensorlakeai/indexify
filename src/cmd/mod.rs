@@ -3,6 +3,7 @@ use clap::{Args, Parser, Subcommand};
 mod coordinator;
 mod init_config;
 mod server;
+mod init_compose;
 
 /// Global arguments for the CLI. These are arguments that are shared across all
 /// subcommands.
@@ -26,6 +27,7 @@ pub enum Commands {
     Server(server::Args),
     Coordinator(coordinator::Args),
     InitConfig(init_config::Args),
+    InitCompose(init_compose::Args),
 }
 
 /// The main CLI struct. This is the root of the CLI tree.
@@ -46,6 +48,7 @@ impl Cli {
             Commands::Server(args) => args.run(self.global_args).await,
             Commands::Coordinator(args) => args.run(self.global_args).await,
             Commands::InitConfig(args) => args.run(self.global_args).await,
+            Commands::InitCompose(args) => args.run(self.global_args).await,
         }
     }
 }
