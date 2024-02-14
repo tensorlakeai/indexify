@@ -1,4 +1,13 @@
 FROM tensorlake/builder AS builder
+
+FROM node:latest as ui-builder
+
+WORKDIR /app
+
+COPY ./ui .
+
+RUN npm ci && npm run build
+
 FROM ubuntu:22.04
 
 RUN apt update
@@ -10,6 +19,7 @@ RUN update-ca-certificates
 WORKDIR /indexify
 
 COPY --from=builder /indexify-build/target/release/indexify ./
+COPY --from=ui-builder ./app/build ./ui/build
 
 COPY sample_config.yaml ./config/indexify.yaml
 
