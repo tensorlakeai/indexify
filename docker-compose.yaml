@@ -41,13 +41,5 @@ services:
         ipv4_address: 172.21.0.9
     volumes:
       - data:/tmp/indexify-blob-storage
-  wikipedia-extractor:
-    image: tensorlake/wikipedia
-    command: ["join", "--coordinator", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
-    networks:
-      server:
-        ipv4_address: 172.21.0.13
-    volumes:
-      - data:/tmp/indexify-blob-storage
 volumes:
   data:
