@@ -25,11 +25,6 @@ const TasksTable = ({
       width: 170,
     },
     {
-      field: "content_metadata.parent_id",
-      headerName: "Parent ID",
-      width: 170,
-    },
-    {
       field: "content_metadata.id",
       headerName: "Content ID",
       width: 170,
