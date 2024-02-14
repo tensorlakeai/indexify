@@ -66,9 +66,9 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<Response<RaftReply>, Status> {
-        let ae_req = GrpcHelper::parse_req(request)?;
-        match self.raft.ensure_linearizable() {
+        match self.raft.ensure_linearizable().await {
             Ok(_) => {
+                let ae_req = GrpcHelper::parse_req(request)?;
                 let resp = self
                     .raft
                     .append_entries(ae_req)
@@ -80,17 +80,19 @@ impl RaftApi for RaftGrpcServer {
             Err(RaftError::APIError(CheckIsLeaderError::ForwardToLeader(leader))) => {
                 let leader_node = self
                     .nodes
-                    .get(leader.leader_id)
+                    .get(
+                        &leader
+                            .leader_id
+                            .ok_or(Status::unavailable("leader not found"))?,
+                    )
                     .ok_or(Status::unavailable("leader not found"))?;
 
-                let resp = RaftApiClient::connect(format!("http://{}", leader_node.addr))
+                RaftApiClient::connect(format!("http://{}", leader_node.addr))
                     .await
                     .map_err(|message| Status::internal(message.to_string()))?
-                    .append_entries(ae_req)
+                    .append_entries(request)
                     .await
-                    .map_err(GrpcHelper::internal_err)?;
-
-                GrpcHelper::ok_response(resp)
+                    .map_err(GrpcHelper::internal_err)
             }
             Err(other) => Err(GrpcHelper::internal_err(other)),
         }
