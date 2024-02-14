@@ -49,16 +49,5 @@ services:
         ipv4_address: 172.21.0.13
     volumes:
       - data:/tmp/indexify-blob-storage
-  redis: # (optional) used for caching
-    image: redis
-    networks:
-      server:
-        ipv4_address: 172.21.0.10
-    profiles: ["redis"] # only create a redis service if the "redis" profile is enabled
-  ui:
-    image: tensorlake/indexify-ui
-    command: ["npm", "run", "start"]
-    ports:
-      - 3000:3000
 volumes:
   data:
