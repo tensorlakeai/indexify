@@ -1,12 +1,8 @@
-FROM node:latest as ui-builder
-
-RUN cd ui/ && npm ci && npm run build
-
 FROM ubuntu:22.04
 
 RUN apt update
 
-RUN apt install -y lsb-release libssl-dev python3.11 python3.11-dev ca-certificates apt-transport-https
+RUN apt install -y lsb-release ca-certificates apt-transport-https
 
 RUN update-ca-certificates
 
@@ -14,8 +10,6 @@ RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_r
     apt-get update -y && \
     apt-get install -y indexify && \
     apt-get -y clean
-
-COPY --from=ui-builder ./ui/build ./ui/build
 
 WORKDIR /indexify
 

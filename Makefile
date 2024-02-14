@@ -25,7 +25,7 @@ clean: ## Clean rust build artifacts
 	cargo clean
 
 build-container: ## Build container
-	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
+	docker build -f dockerfiles/Dockerfile.server --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune
 
 build-container-dev: ## Build container for local development
@@ -33,7 +33,7 @@ build-container-dev: ## Build container for local development
 	docker build -f dockerfiles/Dockerfile.local --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 push-container: ## Push container to docker hub
-	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
+	docker buildx build -f dockerfiles/Dockerfile.server --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 build-ui: ## Build Indexify UI
 	docker build -f dockerfiles/Dockerfile.ui --tag ${DOCKER_USERNAME}/indexify-ui .
