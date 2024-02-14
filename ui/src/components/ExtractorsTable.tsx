@@ -73,7 +73,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         spacing={2}
       >
         <MemoryIcon />
-        <Typography variant="h3">Extractor Bindings</Typography>
+        <Typography variant="h3">Extractors</Typography>
       </Stack>
       {renderContent()}
     </>
