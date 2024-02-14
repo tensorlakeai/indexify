@@ -1,9 +1,9 @@
 use clap::{Args, Parser, Subcommand};
 
 mod coordinator;
+mod init_compose;
 mod init_config;
 mod server;
-mod init_compose;
 
 /// Global arguments for the CLI. These are arguments that are shared across all
 /// subcommands.

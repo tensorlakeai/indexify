@@ -1,13 +1,12 @@
-use clap::Args as ClapArgs;
 use askama::Template;
+use clap::Args as ClapArgs;
 
 use super::GlobalArgs;
-
 
 #[derive(Template)]
 #[template(path = "docker_compose.yaml.jinja2")]
 struct DockerComposeTemplate {
-   // Add fields here when we templatize this  
+    // Add fields here when we templatize this
 }
 
 #[derive(Debug, ClapArgs)]
@@ -24,7 +23,6 @@ impl Args {
         let path = std::path::Path::new(&path);
         let prefix = path.parent().expect("failed to get parent directory");
         std::fs::create_dir_all(prefix).expect("failed to create parent directory");
-
 
         let template = DockerComposeTemplate {};
         let compose_file = template.render().unwrap();
