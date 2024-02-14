@@ -105,14 +105,20 @@ impl Coordinator {
     pub async fn list_tasks(
         &self,
         namespace: &str,
-        extractor_binding: &str,
+        extractor_binding: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
+        println!("list_tasks {:?}", extractor_binding);
         let store = self.shared_state.indexify_state.read().await;
         Ok(store
             .tasks
             .values()
             .filter(|t| t.namespace == namespace)
-            .filter(|t| t.extractor_binding == extractor_binding)
+            .filter(|t| {
+                extractor_binding
+                    .as_ref()
+                    .map(|eb| eb == &t.extractor_binding)
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect())
     }

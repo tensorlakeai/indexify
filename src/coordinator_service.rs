@@ -465,9 +465,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
         let req = req.into_inner();
+        let extractor_binding = if req.extractor_binding.is_empty() {
+            None
+        } else {
+            Some(req.extractor_binding)
+        };
         let tasks = self
             .coordinator
-            .list_tasks(&req.namespace, &req.extractor_binding)
+            .list_tasks(&req.namespace, extractor_binding)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let tasks = tasks.into_iter().map(|t| t.into()).collect();

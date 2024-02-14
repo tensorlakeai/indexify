@@ -212,7 +212,7 @@ impl Server {
                 get(list_state_changes).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/tasks",
+                "/namespaces/:namespace/tasks",
                 get(list_tasks).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -718,6 +718,7 @@ async fn list_state_changes(
 #[tracing::instrument]
 #[utoipa::path(
     get,
+    path = "/namespaces/{namespace}/tasks",
     path = "/tasks",
     tag = "indexify",
     responses(
@@ -726,6 +727,7 @@ async fn list_state_changes(
     ),
 )]
 async fn list_tasks(
+    Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
     Query(query): Query<ListTasks>,
 ) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
@@ -735,7 +737,7 @@ async fn list_tasks(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .list_tasks(ListTasksRequest {
-            namespace: query.namespace.clone(),
+            namespace: namespace.clone(),
             extractor_binding: query.extractor_binding.unwrap_or("".to_string()),
         })
         .await

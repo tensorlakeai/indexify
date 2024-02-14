@@ -468,7 +468,6 @@ pub struct GetRawContentResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
-    pub namespace: String,
     pub extractor_binding: Option<String>,
 }
 
