@@ -100,14 +100,8 @@ class IndexifyClient {
   }
 
   async getTasks(extractor_binding?: string): Promise<ITask[]> {
-    return axios
-      .get(`${this.serviceUrl}/tasks`, {
-        params: {
-          namespace: this.namespace,
-          extractor_binding,
-        },
-      })
-      .then((res) => res.data.tasks);
+    const resp = await this.client.get("tasks", {params: {extractor_binding},});
+    return resp.data.tasks;
   }
 }
 
