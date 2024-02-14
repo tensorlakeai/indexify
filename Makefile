@@ -24,9 +24,6 @@ build-release-aarch64:
 clean: ## Clean rust build artifacts
 	cargo clean
 
-build-base-builder-multistage:
-	docker buildx build -f dockerfiles/Dockerfile.builder --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/builder .
-
 build-container: ## Build container
 	docker build -f dockerfiles/Dockerfile.compose --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune
@@ -35,20 +32,11 @@ build-container-dev: ## Build container for local development
 	docker build -f dockerfiles/Dockerfile.builder --tag ${DOCKER_USERNAME}/builder .
 	docker build -f dockerfiles/Dockerfile.local --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
-build-base-extractor: ## Build base extractor container
-	docker build -f dockerfiles/Dockerfile.extractor_base --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
-
-build-base-extractor-push: build-base-builder-multistage ## Build and push base extractor container to docker hub
-	docker buildx build -f dockerfiles/Dockerfile.extractor_base --platform=linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}-extractor-base .
-
 push-container: ## Push container to docker hub
 	docker buildx build -f dockerfiles/Dockerfile.compose --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 build-ui: ## Build Indexify UI
 	docker build -f dockerfiles/Dockerfile.ui --tag ${DOCKER_USERNAME}/indexify-ui .
-
-entity: ## Generate entity
-	sea-orm-cli generate entity -o src/entity --with-serde both --date-time-crate time
 
 fmt: ## Run rustfmt
 	rustup run nightly cargo fmt
