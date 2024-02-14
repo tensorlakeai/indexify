@@ -26,7 +26,7 @@ clean: ## Clean rust build artifacts
 
 build-container: ## Build container
 	docker build -f dockerfiles/Dockerfile.server --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
-	docker image prune
+	docker image prune -f
 
 build-container-dev: ## Build container for local development
 	docker build -f dockerfiles/Dockerfile.builder --tag ${DOCKER_USERNAME}/builder .
