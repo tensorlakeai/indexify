@@ -267,18 +267,32 @@ impl AllocationPlanner for LoadAwareDistributor {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{collections::HashMap, sync::Arc, time::Instant};
 
     use indexify_internal_api as internal_api;
-    use indexify_proto::indexify_coordinator;
-    use tokio::time::Instant;
+    
+    use internal_api::ContentMetadata;
+    use serde_json::json;
 
     use super::*;
     use crate::{
         server_config::ServerConfig,
         state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
+        test_util::db_utils::mock_extractor,
     };
+
+    fn create_task(id: &str, extractor: &str, binding: &str) -> internal_api::Task {
+        internal_api::Task {
+            id: id.to_string(),
+            extractor: extractor.to_string(),
+            extractor_binding: binding.to_string(),
+            output_index_table_mapping: HashMap::new(),
+            namespace: "default".to_string(),
+            content_metadata: ContentMetadata::default(),
+            input_params: json!(null),
+            outcome: internal_api::TaskOutcome::Unknown,
+        }
+    }
 
     #[tokio::test]
     async fn test_min_heap_ordering() {
@@ -371,83 +385,23 @@ mod tests {
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
-
-        // Add a namespace
-        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
-
-        // Add content and ensure that we are creating a extraction event
-        coordinator
-            .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                id: "test".to_string(),
-                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                parent_id: "".to_string(),
-                file_name: "test".to_string(),
-                mime: "text/plain".to_string(),
-                created_at: 0,
-                storage_url: "test".to_string(),
-                labels: HashMap::new(),
-                source: "ingestion".to_string(),
-            }])
-            .await?;
-
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 1);
-
-        // Run scheduler without any bindings to make sure that the event is processed
-        // and we don't have any tasks
-        coordinator.process_and_distribute_work().await?;
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 0);
-        let tasks = shared_state.unassigned_tasks().await?;
-        assert_eq!(tasks.len(), 0);
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
-        coordinator
+        shared_state
             .register_executor("localhost:8956", "test_executor_id", mock_extractor())
             .await?;
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "test-binding-id".to_string(),
-                    name: "test".to_string(),
-                    extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                mock_extractor(),
-            )
-            .await?;
 
-        let unprocessed_state_change_events =
-            shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(2, unprocessed_state_change_events.len());
-        let tasks = coordinator
-            .process_extraction_events(&unprocessed_state_change_events)
-            .await?;
-        shared_state.create_tasks(tasks.clone()).await?;
+        let task = create_task("test-task", &mock_extractor().name, "test-binding");
+        shared_state.create_tasks(vec![task.clone()]).await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
-            .plan_allocations(tasks.clone().into_iter().map(|t| t.id).collect())
+            .plan_allocations(HashSet::from([task.clone().id.clone()]))
             .await?;
 
         // Verify that the tasks are allocated
         assert_eq!(result.0.len(), 1);
-        assert_eq!(
-            result.0.get(tasks[0].id.as_str()).unwrap(),
-            "test_executor_id"
-        );
+        assert_eq!(result.0.get(&task.id).unwrap(), "test_executor_id");
 
         Ok(())
     }
@@ -459,55 +413,6 @@ mod tests {
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
-
-        // Add a namespace
-        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
-
-        // Add 50 text/plain content
-        for i in 1..=50 {
-            coordinator
-                .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                    id: format!("test{}", i),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    parent_id: "".to_string(),
-                    file_name: "test".to_string(),
-                    mime: "text/plain".to_string(),
-                    created_at: 0,
-                    storage_url: "test".to_string(),
-                    labels: HashMap::new(),
-                    source: "ingestion".to_string(),
-                }])
-                .await?;
-        }
-
-        // Add 50 application/json content
-        for i in 51..=100 {
-            coordinator
-                .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                    id: format!("test{}", i),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    parent_id: "".to_string(),
-                    file_name: "test".to_string(),
-                    mime: "application/json".to_string(),
-                    created_at: 0,
-                    storage_url: "test".to_string(),
-                    labels: HashMap::new(),
-                    source: "ingestion".to_string(),
-                }])
-                .await?;
-        }
-
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 100);
-
-        // Run scheduler without any bindings to make sure that the event is processed
-        // and we don't have any tasks
-        coordinator.process_and_distribute_work().await?;
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 0);
-        let tasks = shared_state.unassigned_tasks().await?;
-        assert_eq!(tasks.len(), 0);
 
         let text_extractor = {
             let mut extractor = mock_extractor();
@@ -525,14 +430,14 @@ mod tests {
         // register 5 text extractors and 5 json extractors. increment the port by 1 for
         // each
         for i in 1..=5 {
-            coordinator
+            shared_state
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
                     text_extractor.clone(),
                 )
                 .await?;
-            coordinator
+            shared_state
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
@@ -541,67 +446,28 @@ mod tests {
                 .await?;
         }
 
-        // create bindings for text and json extractors
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "text-binding-id".to_string(),
-                    name: "text".to_string(),
-                    extractor: "MockTextExtractor".to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                text_extractor,
-            )
-            .await?;
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "json-binding-id".to_string(),
-                    name: "json".to_string(),
-                    extractor: "MockJsonExtractor".to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                json_extractor,
-            )
-            .await?;
-
-        let unprocessed_state_change_events =
-            shared_state.unprocessed_state_change_events().await?;
-        let tasks = coordinator
-            .process_extraction_events(&unprocessed_state_change_events)
-            .await?;
-
+        let mut tasks = Vec::new();
+        // Crate the tasks
+        for i in 1..=50 {
+            let task1 = create_task(
+                &format!("test-text-task-{}", i),
+                "MockTextExtractor",
+                "text-binding",
+            );
+            let task2 = create_task(
+                &format!("test-json-task-{}", i),
+                "MockJsonExtractor",
+                "json-binding",
+            );
+            tasks.push(task1);
+            tasks.push(task2);
+        }
         shared_state.create_tasks(tasks.clone()).await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
             .plan_allocations(tasks.clone().into_iter().map(|t| t.id).collect())
             .await?;
-
-        // Verify that the tasks are allocated
-        assert_eq!(result.clone().0.len(), 100);
         let mapped_result = result.into_tasks_by_executor();
 
         // every executor should have 20 tasks
@@ -633,55 +499,6 @@ mod tests {
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
-
-        // Add a namespace
-        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
-
-        // Add 100 text/plain content
-        for i in 1..=100 {
-            coordinator
-                .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                    id: format!("test{}", i),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    parent_id: "".to_string(),
-                    file_name: "test".to_string(),
-                    mime: "text/plain".to_string(),
-                    created_at: 0,
-                    storage_url: "test".to_string(),
-                    labels: HashMap::new(),
-                    source: "ingestion".to_string(),
-                }])
-                .await?;
-        }
-
-        // Add 100 application/json content
-        for i in 101..=200 {
-            coordinator
-                .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                    id: format!("test{}", i),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    parent_id: "".to_string(),
-                    file_name: "test".to_string(),
-                    mime: "application/json".to_string(),
-                    created_at: 0,
-                    storage_url: "test".to_string(),
-                    labels: HashMap::new(),
-                    source: "ingestion".to_string(),
-                }])
-                .await?;
-        }
-
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 200);
-
-        // Run scheduler without any bindings to make sure that the event is processed
-        // and we don't have any tasks
-        coordinator.process_and_distribute_work().await?;
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 0);
-        let tasks = shared_state.unassigned_tasks().await?;
-        assert_eq!(tasks.len(), 0);
 
         let text_extractor = {
             let mut extractor = mock_extractor();
@@ -699,14 +516,14 @@ mod tests {
         // register 5 text extractors and 5 json extractors. increment the port by 1 for
         // each
         for i in 1..=5 {
-            coordinator
+            shared_state
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
                     text_extractor.clone(),
                 )
                 .await?;
-            coordinator
+            shared_state
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
@@ -715,58 +532,22 @@ mod tests {
                 .await?;
         }
 
-        // create bindings for text and json extractors
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "text-binding-id".to_string(),
-                    name: "text".to_string(),
-                    extractor: "MockTextExtractor".to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                text_extractor,
-            )
-            .await?;
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "json-binding-id".to_string(),
-                    name: "json".to_string(),
-                    extractor: "MockJsonExtractor".to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                json_extractor,
-            )
-            .await?;
-
-        let unprocessed_state_change_events =
-            shared_state.unprocessed_state_change_events().await?;
-        let tasks = coordinator
-            .process_extraction_events(&unprocessed_state_change_events)
-            .await?;
-
+        let mut tasks = Vec::new();
+        // Crate the tasks
+        for i in 1..=100 {
+            let task1 = create_task(
+                &format!("test-text-task-{}", i),
+                "MockTextExtractor",
+                "text-binding",
+            );
+            let task2 = create_task(
+                &format!("test-json-task-{}", i),
+                "MockJsonExtractor",
+                "json-binding",
+            );
+            tasks.push(task1);
+            tasks.push(task2);
+        }
         shared_state.create_tasks(tasks.clone()).await?;
 
         // arbitrarily increase the load on the first text executor and json executor
@@ -822,78 +603,10 @@ mod tests {
 
         // total_tasks should be divisible by 200
         assert_eq!(total_tasks % 200, 0);
-        let text_tasks = total_tasks / 2;
-        let json_tasks = total_tasks / 2;
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
-
-        // Add a namespace
-        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
-
-        let mut text_content = Vec::new();
-        let mut json_content = Vec::new();
-
-        // add text and json content
-        for i in 1..=text_tasks {
-            text_content.push(indexify_coordinator::ContentMetadata {
-                id: format!("test{}", i),
-                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                parent_id: "".to_string(),
-                file_name: "test".to_string(),
-                mime: "text/plain".to_string(),
-                created_at: 0,
-                storage_url: "test".to_string(),
-                labels: HashMap::new(),
-                source: "ingestion".to_string(),
-            });
-        }
-
-        for i in (text_tasks + 1)..=(text_tasks + json_tasks) {
-            json_content.push(indexify_coordinator::ContentMetadata {
-                id: format!("test{}", i),
-                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                parent_id: "".to_string(),
-                file_name: "test".to_string(),
-                mime: "application/json".to_string(),
-                created_at: 0,
-                storage_url: "test".to_string(),
-                labels: HashMap::new(),
-                source: "ingestion".to_string(),
-            });
-        }
-
-        // commit the content
-        let chunk_size = text_tasks / 100;
-        let mut chunks = text_content.chunks(chunk_size);
-        futures::future::join_all(
-            chunks
-                .by_ref()
-                .map(|chunk| coordinator.create_content_metadata(chunk.to_vec())),
-        )
-        .await;
-
-        let chunk_size = json_tasks / 100;
-        let mut chunks = json_content.chunks(chunk_size);
-        futures::future::join_all(
-            chunks
-                .by_ref()
-                .map(|chunk| coordinator.create_content_metadata(chunk.to_vec())),
-        )
-        .await;
-
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), total_tasks);
-
-        // Run scheduler without any bindings to make sure that the event is processed
-        // and we don't have any tasks
-        coordinator.process_and_distribute_work().await?;
-        let events = shared_state.unprocessed_state_change_events().await?;
-        assert_eq!(events.len(), 0);
-        let tasks = shared_state.unassigned_tasks().await?;
-        assert_eq!(tasks.len(), 0);
 
         let text_extractor = {
             let mut extractor = mock_extractor();
@@ -918,7 +631,7 @@ mod tests {
             executors
         };
         futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
-            coordinator.register_executor(
+            shared_state.register_executor(
                 text_executors[i - 1].0.as_str(),
                 text_executors[i - 1].1.as_str(),
                 text_extractor.clone(),
@@ -935,7 +648,7 @@ mod tests {
             executors
         };
         futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
-            coordinator.register_executor(
+            shared_state.register_executor(
                 json_executors[i - 1].0.as_str(),
                 json_executors[i - 1].1.as_str(),
                 json_extractor.clone(),
@@ -943,58 +656,22 @@ mod tests {
         }))
         .await;
 
-        // create bindings for text and json extractors
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "text-binding-id".to_string(),
-                    name: "text".to_string(),
-                    extractor: "MockTextExtractor".to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                text_extractor,
-            )
-            .await?;
-        coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
-                    id: "json-binding-id".to_string(),
-                    name: "json".to_string(),
-                    extractor: "MockJsonExtractor".to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: "ingestion".to_string(),
-                },
-                json_extractor,
-            )
-            .await?;
-
-        let unprocessed_state_change_events =
-            shared_state.unprocessed_state_change_events().await?;
-        let tasks = coordinator
-            .process_extraction_events(&unprocessed_state_change_events)
-            .await?;
-
+        let mut tasks = Vec::new();
+        // Crate the tasks
+        for i in 1..=500 {
+            let task1 = create_task(
+                &format!("test-text-task-{}", i),
+                "MockTextExtractor",
+                "text-binding",
+            );
+            let task2 = create_task(
+                &format!("test-json-task-{}", i),
+                "MockJsonExtractor",
+                "json-binding",
+            );
+            tasks.push(task1);
+            tasks.push(task2);
+        }
         shared_state.create_tasks(tasks.clone()).await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());

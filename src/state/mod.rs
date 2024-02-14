@@ -725,7 +725,7 @@ impl App {
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
         let store = self.indexify_state.read().await;
         let indexes = store
-            .namespace_extractors
+            .namespace_index_table
             .get(namespace)
             .cloned()
             .unwrap_or_default();

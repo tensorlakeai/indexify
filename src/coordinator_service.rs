@@ -559,7 +559,7 @@ async fn run_scheduler(
             _ = state_watcher_rx.changed() => {
                 if is_leader.load(Ordering::Relaxed) {
                     let _state_change = state_watcher_rx.borrow_and_update().clone();
-                   if let Err(err) = coordinator.process_and_distribute_work().await {
+                   if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }
                 }

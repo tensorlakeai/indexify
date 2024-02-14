@@ -53,7 +53,7 @@ pub struct IndexifyState {
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     /// Namespace -> Index index
-    pub namespace_extractors: HashMap<NamespaceName, HashSet<internal_api::Index>>,
+    pub namespace_index_table: HashMap<NamespaceName, HashSet<internal_api::Index>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
@@ -157,7 +157,7 @@ impl IndexifyState {
                 namespace,
                 id,
             } => {
-                self.namespace_extractors
+                self.namespace_index_table
                     .entry(namespace.clone())
                     .or_default()
                     .insert(index.clone());

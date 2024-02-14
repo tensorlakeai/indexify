@@ -473,7 +473,7 @@ impl From<Namespace> for indexify_coordinator::Namespace {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
     NewBinding,
