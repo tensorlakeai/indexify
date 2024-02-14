@@ -9,4 +9,4 @@ sdk-py/dist
 sdk-typescript/node_modules
 sdk-typescript/lib
 *.tgz
-
+ui/node_modules
