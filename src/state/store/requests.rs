@@ -9,7 +9,8 @@ use super::{ExecutorId, TaskId};
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Request {
     pub payload: RequestPayload,
-    pub state_changes: Vec<StateChange>,
+    pub new_state_changes: Vec<StateChange>,
+    pub state_changes_processed: Vec<StateChangeProcessed>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

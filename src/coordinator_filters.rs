@@ -178,9 +178,11 @@ mod test_extractor_mimetype_filter {
         // Assert that content with mime type matches an extractor that supports the
         // same mime type
         let res = matches_mime_type(
-            &[mime::TEXT_PLAIN.to_string(),
+            &[
+                mime::TEXT_PLAIN.to_string(),
                 mime::IMAGE_PNG.to_string(),
-                mime::APPLICATION_PDF.to_string()],
+                mime::APPLICATION_PDF.to_string(),
+            ],
             &mime::TEXT_PLAIN.to_string(),
         );
         assert!(res);

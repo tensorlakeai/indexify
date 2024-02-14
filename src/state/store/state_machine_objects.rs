@@ -5,7 +5,7 @@ use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    requests::{Request, RequestPayload},
+    requests::{Request, RequestPayload, StateChangeProcessed},
     store_utils::{decrement_running_task_count, increment_running_task_count},
     BindingId,
     ContentId,
@@ -65,9 +65,12 @@ pub struct IndexifyState {
 
 impl IndexifyState {
     pub fn apply(&mut self, request: Request) {
-        for change in request.state_changes {
+        for change in request.new_state_changes {
             self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());
+        }
+        for change in request.state_changes_processed {
+            self.mark_state_changes_processed(&change, change.processed_at);
         }
         match request.payload {
             RequestPayload::RegisterExecutor {
@@ -199,16 +202,24 @@ impl IndexifyState {
                 }
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
-                for change in state_changes {
-                    self.unprocessed_state_changes
-                        .remove(&change.state_change_id);
-                    self.state_changes
-                        .entry(change.state_change_id)
-                        .and_modify(|c| {
-                            c.processed_at = Some(change.processed_at);
-                        });
+                for state_change in state_changes {
+                    self.mark_state_changes_processed(&state_change, state_change.processed_at);
                 }
             }
         }
+    }
+
+    pub fn mark_state_changes_processed(
+        &mut self,
+        state_change: &StateChangeProcessed,
+        processed_at: u64,
+    ) {
+        self.unprocessed_state_changes
+            .remove(&state_change.state_change_id);
+        self.state_changes
+            .entry(state_change.state_change_id.to_string())
+            .and_modify(|c| {
+                c.processed_at = Some(processed_at);
+            });
     }
 }

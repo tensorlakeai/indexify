@@ -27,18 +27,42 @@ impl Scheduler {
     }
 
     pub async fn handle_change_event(&self, state_change: StateChange) -> Result<()> {
-
+        let mut state_change_processed = false;
         // Create new tasks
         let tasks = self.create_new_tasks(state_change.clone()).await?;
-
+        // Commit them
+        if tasks.len() > 0 {
+            self.shared_state
+                .create_tasks(tasks.clone(), &state_change.id)
+                .await?;
+            state_change_processed = true;
+        }
 
         // Allocate tasks and commit task assignments
         let allocation_plan = self.allocate_tasks(tasks).await?;
-        self.shared_state.commit_task_assignments(allocation_plan.0).await?;
+        if allocation_plan.0.len() > 0 {
+            self.shared_state
+                .commit_task_assignments(allocation_plan.0, &state_change.id)
+                .await?;
+            state_change_processed = true;
+        }
 
         // Redistribute tasks and commit task assignments
-        let allocation_plan = self.redistribute_tasks(state_change).await?; 
-        self.shared_state.commit_task_assignments(allocation_plan.0).await?;
+        let allocation_plan = self.redistribute_tasks(&state_change).await?;
+        if allocation_plan.0.len() > 0 {
+            self.shared_state
+                .commit_task_assignments(allocation_plan.0, &state_change.id)
+                .await?;
+            state_change_processed = true;
+        }
+
+        // Mark the state change as processed
+        if !state_change_processed {
+            self.shared_state
+                .mark_change_events_as_processed(vec![state_change])
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -52,9 +76,8 @@ impl Scheduler {
                     .shared_state
                     .content_matching_binding(&state_change.object_id)
                     .await?;
-                
-                self
-                    .create_task(&state_change.object_id, content_list)
+
+                self.create_task(&state_change.object_id, content_list)
                     .await?
             }
             internal_api::ChangeType::NewContent => {
@@ -89,7 +112,7 @@ impl Scheduler {
 
     pub async fn redistribute_tasks(
         &self,
-        state_change: StateChange,
+        state_change: &StateChange,
     ) -> Result<TaskAllocationPlan> {
         if state_change.change_type == internal_api::ChangeType::ExecutorRemoved ||
             state_change.change_type == internal_api::ChangeType::ExecutorAdded

@@ -270,16 +270,11 @@ mod tests {
     use std::{collections::HashMap, sync::Arc, time::Instant};
 
     use indexify_internal_api as internal_api;
-    
     use internal_api::ContentMetadata;
     use serde_json::json;
 
     use super::*;
-    use crate::{
-        server_config::ServerConfig,
-        state::App,
-        test_util::db_utils::mock_extractor,
-    };
+    use crate::{server_config::ServerConfig, state::App, test_util::db_utils::mock_extractor};
 
     fn create_task(id: &str, extractor: &str, binding: &str) -> internal_api::Task {
         internal_api::Task {
@@ -392,7 +387,9 @@ mod tests {
             .await?;
 
         let task = create_task("test-task", &mock_extractor().name, "test-binding");
-        shared_state.create_tasks(vec![task.clone()]).await?;
+        shared_state
+            .create_tasks(vec![task.clone()], "change_id")
+            .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
@@ -462,7 +459,9 @@ mod tests {
             tasks.push(task1);
             tasks.push(task2);
         }
-        shared_state.create_tasks(tasks.clone()).await?;
+        shared_state
+            .create_tasks(tasks.clone(), "change_id")
+            .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
@@ -548,7 +547,9 @@ mod tests {
             tasks.push(task1);
             tasks.push(task2);
         }
-        shared_state.create_tasks(tasks.clone()).await?;
+        shared_state
+            .create_tasks(tasks.clone(), "change_id")
+            .await?;
 
         // arbitrarily increase the load on the first text executor and json executor
         let mut sm = shared_state.indexify_state.write().await;
@@ -672,7 +673,9 @@ mod tests {
             tasks.push(task1);
             tasks.push(task2);
         }
-        shared_state.create_tasks(tasks.clone()).await?;
+        shared_state
+            .create_tasks(tasks.clone(), "change_id")
+            .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         // start the timer

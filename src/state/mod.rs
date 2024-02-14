@@ -267,7 +267,8 @@ impl App {
         }
         let req = Request {
             payload: RequestPayload::MarkStateChangesProcessed { state_changes },
-            state_changes: vec![],
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -458,11 +459,12 @@ impl App {
             payload: RequestPayload::RemoveExecutor {
                 executor_id: executor_id.to_string(),
             },
-            state_changes: vec![StateChange::new(
+            new_state_changes: vec![StateChange::new(
                 executor_id.to_string(),
                 internal_api::ChangeType::ExecutorRemoved,
                 timestamp_secs(),
             )],
+            state_changes_processed: vec![],
         };
         let _resp = self
             .raft
@@ -477,11 +479,12 @@ impl App {
             payload: RequestPayload::CreateBinding {
                 binding: binding.clone(),
             },
-            state_changes: vec![StateChange::new(
+            new_state_changes: vec![StateChange::new(
                 binding.id.clone(),
                 internal_api::ChangeType::NewBinding,
                 timestamp_secs(),
             )],
+            state_changes_processed: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -509,7 +512,8 @@ impl App {
                 executor_id: executor_id.clone(),
                 content_metadata: content_meta_list.clone(),
             },
-            state_changes,
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -544,7 +548,8 @@ impl App {
             payload: RequestPayload::CreateNamespace {
                 name: namespace.to_string(),
             },
-            state_changes: vec![],
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -595,11 +600,12 @@ impl App {
                 extractor,
                 ts_secs: timestamp_secs(),
             },
-            state_changes: vec![StateChange::new(
+            new_state_changes: vec![StateChange::new(
                 executor_id.to_string(),
                 internal_api::ChangeType::ExecutorAdded,
                 timestamp_secs(),
             )],
+            state_changes_processed: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -632,10 +638,15 @@ impl App {
     pub async fn commit_task_assignments(
         &self,
         assignments: HashMap<TaskId, ExecutorId>,
+        state_change_id: &str,
     ) -> Result<()> {
         let req = Request {
             payload: RequestPayload::AssignTask { assignments },
-            state_changes: vec![],
+            new_state_changes: vec![],
+            state_changes_processed: vec![StateChangeProcessed {
+                state_change_id: state_change_id.to_string(),
+                processed_at: timestamp_secs(),
+            }],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -655,7 +666,8 @@ impl App {
         }
         let req = Request {
             payload: RequestPayload::CreateContent { content_metadata },
-            state_changes,
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
         };
         let _ = self
             .raft
@@ -692,10 +704,18 @@ impl App {
         Ok(content_metadata_list)
     }
 
-    pub async fn create_tasks(&self, tasks: Vec<internal_api::Task>) -> Result<()> {
+    pub async fn create_tasks(
+        &self,
+        tasks: Vec<internal_api::Task>,
+        state_change_id: &str,
+    ) -> Result<()> {
         let req = Request {
             payload: RequestPayload::CreateTasks { tasks },
-            state_changes: vec![],
+            new_state_changes: vec![],
+            state_changes_processed: vec![StateChangeProcessed {
+                state_change_id: state_change_id.to_string(),
+                processed_at: timestamp_secs(),
+            }],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
@@ -754,7 +774,8 @@ impl App {
                 index,
                 id,
             },
-            state_changes: vec![],
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
