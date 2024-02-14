@@ -5,7 +5,7 @@ use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    requests::{Request, RequestPayload},
+    requests::{Request, RequestPayload, StateChangeProcessed},
     store_utils::{decrement_running_task_count, increment_running_task_count},
     BindingId,
     ContentId,
@@ -53,7 +53,7 @@ pub struct IndexifyState {
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     /// Namespace -> Index index
-    pub namespace_extractors: HashMap<NamespaceName, HashSet<internal_api::Index>>,
+    pub namespace_index_table: HashMap<NamespaceName, HashSet<internal_api::Index>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
@@ -65,9 +65,12 @@ pub struct IndexifyState {
 
 impl IndexifyState {
     pub fn apply(&mut self, request: Request) {
-        for change in request.state_changes {
+        for change in request.new_state_changes {
             self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());
+        }
+        for change in request.state_changes_processed {
+            self.mark_state_changes_processed(&change, change.processed_at);
         }
         match request.payload {
             RequestPayload::RegisterExecutor {
@@ -102,10 +105,18 @@ impl IndexifyState {
                         .extractor_executors_table
                         .entry(executor_meta.extractor.name.clone())
                         .or_default();
-                    executors.remove(executor_meta.extractor.name.as_str());
+                    executors.remove(&executor_meta.id);
                 }
                 // Remove from the executor load table
                 self.executor_running_task_count.remove(&executor_id);
+
+                // Remove all tasks assigned to this executor
+                let tasks = self.task_assignments.remove(&executor_id);
+                if let Some(tasks) = tasks {
+                    for task_id in tasks {
+                        self.unassigned_tasks.insert(task_id);
+                    }
+                }
             }
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
@@ -157,7 +168,7 @@ impl IndexifyState {
                 namespace,
                 id,
             } => {
-                self.namespace_extractors
+                self.namespace_index_table
                     .entry(namespace.clone())
                     .or_default()
                     .insert(index.clone());
@@ -199,16 +210,24 @@ impl IndexifyState {
                 }
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
-                for change in state_changes {
-                    self.unprocessed_state_changes
-                        .remove(&change.state_change_id);
-                    self.state_changes
-                        .entry(change.state_change_id)
-                        .and_modify(|c| {
-                            c.processed_at = Some(change.processed_at);
-                        });
+                for state_change in state_changes {
+                    self.mark_state_changes_processed(&state_change, state_change.processed_at);
                 }
             }
         }
+    }
+
+    pub fn mark_state_changes_processed(
+        &mut self,
+        state_change: &StateChangeProcessed,
+        processed_at: u64,
+    ) {
+        self.unprocessed_state_changes
+            .remove(&state_change.state_change_id);
+        self.state_changes
+            .entry(state_change.state_change_id.to_string())
+            .and_modify(|c| {
+                c.processed_at = Some(processed_at);
+            });
     }
 }

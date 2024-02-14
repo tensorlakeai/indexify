@@ -233,7 +233,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
             match ent.payload {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => {
-                    change_events.extend(req.state_changes.clone());
+                    change_events.extend(req.new_state_changes.clone());
                     sm.apply(req.clone());
                 }
                 EntryPayload::Membership(mem) => {

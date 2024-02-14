@@ -24,6 +24,7 @@ mod data_manager;
 mod extractor_router;
 mod grpc_helper;
 mod metadata_storage;
+mod scheduler;
 mod test_util;
 mod tls;
 mod tonic_streamer;

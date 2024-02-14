@@ -285,7 +285,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 select! {
                     _ = shutdown_rx.changed() => {
                         info!("shutting down server, stopping heartbeats from executor: {}", executor_id);
-                        return;
+                        break;
                     }
                     frame = in_stream.next() => {
                         // Ensure the frame has something
@@ -294,26 +294,23 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                         if let Err(err) = frame.as_ref().unwrap() {
                             info!("error receiving heartbeat request: {:?}", err);
-                            if let Err(err) = coordinator.remove_executor(&executor_id).await {
-                                error!("error removing executor: {}", err);
-                            }
                             break;
                         }
-                        executor_id = frame.unwrap().unwrap().executor_id.clone();
+                        // We could have used Option<> here but it would be inconvenient to dereference
+                        // it every time we need to use it below
+                        if executor_id == "" {
+                            executor_id = frame.unwrap().unwrap().executor_id;
+                        }
                         let tasks = coordinator.heartbeat(&executor_id).await;
                             if let Err(err) = &tasks {
                                 if let Err(err) =
                                     tx.send(Err(tonic::Status::internal(err.to_string()))).await
                                 {
-                                    info!("heartbeats stopped, removing executor: {}", executor_id);
-                                    if let Err(err) = coordinator.remove_executor(&executor_id).await {
-                                        error!("error removing executor: {}", err);
-                                    }
                                     error!(
                                         "error sending error message in heartbeat response: {}",
                                         err
                                     );
-                                    return;
+                                    break;
                                 }
                                 continue;
                             }
@@ -328,10 +325,14 @@ impl CoordinatorService for CoordinatorServiceServer {
                             };
                             if let Err(err) = tx.send(Ok(resp)).await {
                                 error!("error sending heartbeat response: {:?}", err);
-                                return;
+                                break;
                             }
                     }
                 }
+            }
+            info!("heartbeats stopped, removing executor: {}", executor_id);
+            if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                error!("error removing executor: {}", err);
             }
         });
         Ok(tonic::Response::new(Box::pin(rx) as HBResponseStream))
@@ -552,14 +553,12 @@ async fn run_scheduler(
     // tokio::time::interval(tokio::time::Duration::from_secs(5));
     let is_leader = AtomicBool::new(false);
 
-    // Throw away the first value since it's garbage
-    _ = state_watcher_rx.changed().await;
     loop {
         tokio::select! {
             _ = state_watcher_rx.changed() => {
                 if is_leader.load(Ordering::Relaxed) {
                     let _state_change = state_watcher_rx.borrow_and_update().clone();
-                   if let Err(err) = coordinator.process_and_distribute_work().await {
+                   if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }
                 }
