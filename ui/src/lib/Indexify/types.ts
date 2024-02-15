@@ -24,7 +24,7 @@ export interface IIndex {
   schema: Record<string, string | number>;
 }
 
-export interface IContent {
+export interface IContentMetadata {
   content_type: string;
   created_at: number;
   id: string;
@@ -36,6 +36,11 @@ export interface IContent {
   storage_url: string;
 }
 
+export interface IContent {
+  bytes: number[];
+  content_type: string;
+}
+
 export interface IExtractorBinding {
   content_source: string;
   extractor: string;
@@ -45,7 +50,7 @@ export interface IExtractorBinding {
 }
 
 export interface ITask {
-  content_metadata: IContent;
+  content_metadata: IContentMetadata;
   extractor: string;
   extractor_binding: string;
   id: string;

@@ -2,6 +2,7 @@ import axios, { AxiosInstance, AxiosResponse } from "axios";
 import Extractor from "./extractor";
 import {
   IContent,
+  IContentMetadata,
   IExtractor,
   IExtractorBinding,
   IIndex,
@@ -92,15 +93,22 @@ class IndexifyClient {
   async getContent(
     parent_id?: string,
     labels_eq?: string
-  ): Promise<IContent[]> {
+  ): Promise<IContentMetadata[]> {
     const resp = await this.client.get("content", {
       params: { parent_id, labels_eq },
     });
     return resp.data.content_list;
   }
 
+  async getContentById(id: string): Promise<IContent> {
+    const resp = await this.client.get(`content/${id}`);
+    return resp.data.content_list[0];
+  }
+
   async getTasks(extractor_binding?: string): Promise<ITask[]> {
-    const resp = await this.client.get("tasks", {params: {extractor_binding},});
+    const resp = await this.client.get("tasks", {
+      params: { extractor_binding },
+    });
     return resp.data.tasks;
   }
 }

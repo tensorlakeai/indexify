@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IContent } from "../lib/Indexify/types";
+import { IContentMetadata } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -7,7 +7,7 @@ import React from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
 
-const ContentTable = ({ content }: { content: IContent[] }) => {
+const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
   const columns: GridColDef[] = [
     {
       field: "id",
