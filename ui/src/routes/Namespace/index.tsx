@@ -1,7 +1,7 @@
 import IndexifyClient from "../../lib/Indexify/client";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Box, Typography, Stack } from "@mui/material";
-import { IContent, IIndex } from "../../lib/Indexify/types";
+import { IContentMetadata, IIndex } from "../../lib/Indexify/types";
 import IndexTable from "../../components/IndexTable";
 import ContentTable from "../../components/ContentTable";
 import React from "react";
@@ -27,7 +27,7 @@ const NamespacePage = () => {
     client: IndexifyClient;
     extractors: Extractor[];
     indexes: IIndex[];
-    contentList: IContent[];
+    contentList: IContentMetadata[];
   };
 
   return (
