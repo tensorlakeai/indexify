@@ -15,15 +15,13 @@ docker compose up
 ```
 This starts the Indexify server at port `8900` and additionally starts a Postgres server for storing metadata and storing embedding. We also start a basic embedding extractor which can chunk text and extract embedding from the chunks.
 
-### Install the client libraries (Optional)
+### Install the python client library
 Indexify comes with a Python client. It uses the HTTP APIs of Indexify under the hood, and provide a convenient way of interacting with the server.
 === "python"
 
-    ```python
+    ```shell
     pip install indexify
     ```
-
-### Initialize the Python library
 === "python"
 
     ```python
@@ -66,7 +64,7 @@ The extraction policies informs Indexify how to extract information from ingeste
 === "python"
 
     ```python
-    client.bind_extractor("tensorlake/minilm-l6", "minil6")
+    client.bind_extractor(extractor="tensorlake/minilm-l6", name="minilml6", content_source="ingestion")
 
     bindings = client.extractor_bindings
     ```
@@ -78,7 +76,7 @@ The extraction policies informs Indexify how to extract information from ingeste
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "tensorlake/minilm-l6",
-            "name": "minil6"
+            "name": "minilml6"
         }'
     ```
 
@@ -91,7 +89,7 @@ Next let's query the index created by the embedding extractor. The index will al
 We will use Langchain to setup our RAG application and use Indexify as a retreiver to feed in data from Indexify.
 ```python
 from retriever import IndexifyRetriever
-params = {"name": "minil6.embedding", "top_k": 3}
+params = {"name": "minilml6.embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 ```
 
