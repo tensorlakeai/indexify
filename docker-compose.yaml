@@ -1,9 +1,6 @@
 version: "3"
 networks:
   server:
-    ipam:
-      config:
-        - subnet: 172.21.0.0/24
 services:
   indexify:
     image: tensorlake/indexify
@@ -19,7 +16,8 @@ services:
       - postgres
     networks:
       server:
-        ipv4_address: 172.21.0.2
+        aliases:
+          - indexify
     volumes:
       - data:/tmp/indexify-blob-storage
   postgres:
@@ -32,13 +30,20 @@ services:
       - POSTGRES_DB=indexify
     networks:
       server:
-        ipv4_address: 172.21.0.5
+        aliases:
+          - postgres
   embedding-extractor:
     image: tensorlake/minilm-l6
-    command: ["join", "--coordinator", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    command:
+      [
+        "join",
+        "--coordinator",
+        "indexify:8950",
+        "--ingestion-addr",
+        "indexify:8900"
+      ]
     networks:
       server:
-        ipv4_address: 172.21.0.9
     volumes:
       - data:/tmp/indexify-blob-storage
 volumes:
