@@ -21,9 +21,6 @@ impl PgVector {
     }
 }
 
-/// Acts as a salt, to make sure there are no collisions with other tables
-const INDEX_TABLE_PREFIX: &str = "index_";
-
 /// Please note that only vectors with a dimension of up to dims=2000 can be
 /// indexed! Can include much more customization if required later on
 /// See https://github.com/pgvector/pgvector#approximate-search for more options
@@ -51,13 +48,13 @@ impl VectorDb for PgVector {
             crate::vectordbs::IndexDistance::Dot => "vector_ip_ops",
         };
 
-        let query = format!("CREATE TABLE IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}(content_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));",);
+        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));",);
 
         if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
             tracing::error!("Failed to create table: {}, query: {}", err, query);
             return Err(anyhow!("Failed to create table {}", err));
         }
-        let query = format!("CREATE INDEX IF NOT EXISTS {INDEX_TABLE_PREFIX}{index_name}_hnsw ON {INDEX_TABLE_PREFIX}{index_name} USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});",
+        let query = format!("CREATE INDEX IF NOT EXISTS \"{index_name}_hnsw\" ON \"{index_name}\" USING hnsw(embedding {distance_extension}) WITH (m = {}, ef_construction = {});",
             self.config.m, self.config.efconstruction
         );
         if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
@@ -73,7 +70,7 @@ impl VectorDb for PgVector {
 
         for chunk in chunks {
             let embedding = Vector::from(chunk.embedding);
-            let query = format!("INSERT INTO {INDEX_TABLE_PREFIX}{index}(content_id, embedding) VALUES ($1, $2) ON CONFLICT (content_id) DO UPDATE SET embedding = $2;",);
+            let query = format!("INSERT INTO \"{index}\"(content_id, embedding) VALUES ($1, $2) ON CONFLICT (content_id) DO UPDATE SET embedding = $2;",);
             let _ = sqlx::query(&query)
                 .bind(chunk.content_id)
                 .bind(embedding)
@@ -92,7 +89,7 @@ impl VectorDb for PgVector {
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
         let query = format!(
-            "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM {INDEX_TABLE_PREFIX}{index} ORDER BY embedding <-> $1 LIMIT {k};"
+            "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\" ORDER BY embedding <-> $1 LIMIT {k};"
         );
         // TODO: confidence_score is a distance here, let's make sure that similarity /
         // distance is the same across vectors databases
@@ -119,7 +116,7 @@ impl VectorDb for PgVector {
     #[tracing::instrument]
     async fn drop_index(&self, index: String) -> Result<()> {
         let index = PostgresIndexName::new(&index);
-        let query = format!("DROP TABLE IF EXISTS {INDEX_TABLE_PREFIX}{index};");
+        let query = format!("DROP TABLE IF EXISTS \"{index}\";");
         let _ = sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
     }
@@ -127,7 +124,7 @@ impl VectorDb for PgVector {
     #[tracing::instrument]
     async fn num_vectors(&self, index: &str) -> Result<u64> {
         let index = PostgresIndexName::new(index);
-        let query = format!("SELECT COUNT(*) FROM {INDEX_TABLE_PREFIX}{index};");
+        let query = format!("SELECT COUNT(*) FROM \"{index}\";");
         let result = sqlx::query(&query).fetch_one(&self.pool).await?;
         let count: i64 = result.get(0);
         Ok(count as u64)
