@@ -31,7 +31,7 @@ impl MetadataStorage for PostgresIndexManager {
     async fn create_index(&self, index_name: &str, table_name: &str) -> Result<String> {
         let table_name = PostgresIndexName::new(table_name);
         let query = format!(
-            "CREATE TABLE IF NOT EXISTS {table_name} (
+            "CREATE TABLE IF NOT EXISTS \"{table_name}\" (
             id TEXT PRIMARY KEY,
             namespace TEXT,
             extractor TEXT,
@@ -53,7 +53,7 @@ impl MetadataStorage for PostgresIndexManager {
         metadata: ExtractedMetadata,
     ) -> Result<()> {
         let index_name = PostgresIndexName::new(index_name);
-        let query = format!("INSERT INTO {index_name} (id, namespace, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+        let query = format!("INSERT INTO \"{index_name}\" (id, namespace, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
             .bind(namespace)
@@ -75,8 +75,9 @@ impl MetadataStorage for PostgresIndexManager {
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>> {
         let index_table_name = PostgresIndexName::new(index_table_name);
-        let query =
-            format!("SELECT * FROM {index_table_name} WHERE namespace = $1 and content_id = $2");
+        let query = format!(
+            "SELECT * FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2"
+        );
         let rows = sqlx::query(&query)
             .bind(namespace)
             .bind(content_id)
@@ -100,5 +101,44 @@ impl MetadataStorage for PostgresIndexManager {
             extracted_attributes.push(attributes);
         }
         Ok(extracted_attributes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_add_metadata() {
+        let index_manager =
+            PostgresIndexManager::new("postgres://postgres:postgres@localhost:5432/indexify")
+                .unwrap();
+        let index_name = "test_index";
+        let table_name = "test_table";
+        let _ = index_manager
+            .create_index(index_name, table_name)
+            .await
+            .unwrap();
+        let metadata = ExtractedMetadata {
+            id: "test_id".into(),
+            content_id: "test_content_id".into(),
+            parent_content_id: "test_parent_content_id".into(),
+            metadata: serde_json::json!({"test": "test"}),
+            extractor_name: "test_extractor".into(),
+        };
+        let namespace = "test_namespace";
+        index_manager
+            .add_metadata(namespace, table_name, metadata.clone())
+            .await
+            .unwrap();
+
+        // Retreive the metadata from the database
+        let metadata_out = index_manager
+            .get_metadata(namespace, table_name, "test_content_id")
+            .await
+            .unwrap();
+
+        assert_eq!(metadata_out.len(), 1);
+        assert_eq!(metadata_out[0], metadata);
     }
 }
