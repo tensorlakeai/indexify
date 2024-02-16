@@ -298,7 +298,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                         // We could have used Option<> here but it would be inconvenient to dereference
                         // it every time we need to use it below
-                        if executor_id == "" {
+                        if executor_id.is_empty() {
                             executor_id = frame.unwrap().unwrap().executor_id;
                         }
                         let tasks = coordinator.heartbeat(&executor_id).await;

@@ -14,12 +14,13 @@ anyerror = "*"
 anyhow = { version = "1" }
 async-trait = "0.1"
 askama = { version = "0.12" }
+arrow-schema = {version = "50.0.0"}
+arrow-array = {version = "50.0.0" }
 axum = { version = "0.7", features = ["multipart", "macros"] }
 axum-otel-metrics = "0.8"
 axum-tracing-opentelemetry = "0.16"
 backtrace = "0.3"
 base64 = "0.21.0"
-bollard = { version = "0.15", features = ["buildkit"] }
 bytes = "1"
 byteorder = "1"
 clap = { version = "4", features = ["derive"] }
@@ -109,17 +110,20 @@ local-ip-address = { version = "0.5" }
 flate2 = "1"
 tar = "0.4"
 walkdir = { version = "2" }
+vectordb = {version = "0.4.10" }
+lance = {version = "^0"}
 
 [dependencies]
 anyerror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 askama = { workspace = true }
+arrow-schema = {workspace = true}
+arrow-array = {workspace=true}
 axum = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
 base64 = { workspace = true }
-bollard = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
@@ -179,6 +183,8 @@ local-ip-address = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 walkdir = { workspace = true }
+vectordb = { workspace = true }
+lance = { workspace = true }
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }

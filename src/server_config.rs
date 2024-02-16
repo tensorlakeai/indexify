@@ -60,8 +60,22 @@ pub enum IndexStoreKind {
     Qdrant,
     PgVector,
     OpenSearchKnn,
+    Lancedb,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct LancedbConfig {
+    pub path: String,
+}
+
+impl Default for LancedbConfig {
+    fn default() -> Self {
+        Self {
+            path: "/tmp/indexify-lancedb".into(),
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct QdrantConfig {
@@ -122,15 +136,17 @@ pub struct VectorIndexConfig {
     pub qdrant_config: Option<QdrantConfig>,
     pub pg_vector_config: Option<PgVectorConfig>,
     pub open_search_basic: Option<OpenSearchBasicConfig>,
+    pub lancedb_config: Option<LancedbConfig>,
 }
 
 impl Default for VectorIndexConfig {
     fn default() -> Self {
         Self {
-            index_store: IndexStoreKind::Qdrant,
+            index_store: IndexStoreKind::Lancedb,
             qdrant_config: Some(QdrantConfig::default()),
             pg_vector_config: Some(PgVectorConfig::default()),
             open_search_basic: Some(OpenSearchBasicConfig::default()),
+            lancedb_config: Some(LancedbConfig::default()),
         }
     }
 }
