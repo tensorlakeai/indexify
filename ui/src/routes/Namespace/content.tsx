@@ -1,6 +1,6 @@
 import IndexifyClient from "../../lib/Indexify/client";
 import { useLoaderData, LoaderFunctionArgs, redirect } from "react-router-dom";
-import { Typography, Stack, Breadcrumbs, Box, Paper } from "@mui/material";
+import { Typography, Stack, Breadcrumbs, Box } from "@mui/material";
 import { IContent, ITask } from "../../lib/Indexify/types";
 import React from "react";
 import TasksTable from "../../components/TasksTable";
@@ -54,6 +54,7 @@ const ContentPage = () => {
       const blob = byteArrayToBlob(content.bytes);
       return (
         <img
+          alt="content"
           src={URL.createObjectURL(blob)}
           width="100%"
           style={{ maxWidth: "200px" }}
