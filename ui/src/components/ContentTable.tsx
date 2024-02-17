@@ -3,11 +3,11 @@ import { IContentMetadata } from "../lib/Indexify/types";
 import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
 
-function getContentChildMap(
+function getChildCountMap(
   contents: IContentMetadata[]
 ): Record<string, number> {
   // Initialize a record to hold the count of children for each parent
@@ -32,11 +32,12 @@ function getContentChildMap(
 }
 
 const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
-  const childCount = getContentChildMap(content);
+  const childCount = getChildCountMap(content);
 
   const [currentFilterId, setCurrentFilterId] = useState<string | null>(null);
-  const [filteredContent, setFilteredContent] = useState(content);
+  const [filteredContent, setFilteredContent] = useState(content.filter((c) => c.source === "ingestion"));
   const [currentTab, setCurrentTab] = useState("ingested");
+
 
   const onClickFilterId = (selectedContent: IContentMetadata) => {
     const newFilteredContent = [
@@ -70,10 +71,6 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
       filterIngested();
     }
   };
-
-  useEffect(() => {
-    console.log("filteredContent updated", filteredContent.length);
-  }, [filteredContent]);
 
   const columns: GridColDef[] = [
     {
