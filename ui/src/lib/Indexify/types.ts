@@ -30,7 +30,7 @@ export interface IContentMetadata {
   id: string;
   labels: Record<string, string>;
   name: string;
-  parent_id: string;
+  parent_id?: string;
   namespace: string;
   source: string;
   storage_url: string;

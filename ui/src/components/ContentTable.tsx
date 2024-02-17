@@ -1,23 +1,119 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IContentMetadata } from "../lib/Indexify/types";
-import { Alert, Typography } from "@mui/material";
+import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
 
+function getContentChildMap(
+  contents: IContentMetadata[]
+): Record<string, number> {
+  // Initialize a record to hold the count of children for each parent
+  const childrenCountMap: Record<string, number> = {};
+  // iterate over content
+  contents.forEach((content) => {
+    if (content.parent_id) {
+      if (childrenCountMap[content.parent_id]) {
+        childrenCountMap[content.parent_id]++;
+      } else {
+        childrenCountMap[content.parent_id] = 1;
+      }
+    }
+  });
+
+  const result: Record<string, number> = {};
+  contents.forEach((content) => {
+    result[content.id] = childrenCountMap[content.id] || 0;
+  });
+
+  return result;
+}
+
 const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
+  const childCount = getContentChildMap(content);
+
+  const [currentFilterId, setCurrentFilterId] = useState<string | null>(null);
+  const [filteredContent, setFilteredContent] = useState(content);
+  const [currentTab, setCurrentTab] = useState("ingested");
+
+  const onClickFilterId = (selectedContent: IContentMetadata) => {
+    const newFilteredContent = [
+      ...content.filter((c) => c.parent_id === selectedContent.id),
+    ];
+    if (newFilteredContent.length === 0) {
+      alert("no content");
+      return;
+    }
+    //update filterred content
+    setFilteredContent(newFilteredContent);
+    setCurrentFilterId(selectedContent.id);
+    setCurrentTab("currentid");
+  };
+
+  const filterIngested = () => {
+    setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
+  };
+
+  const resetTabs = () => {
+    setFilteredContent(content);
+    setCurrentFilterId(null);
+  };
+
+  const onChangeTab = (event: React.SyntheticEvent, selectedValue: string) => {
+    setCurrentTab(selectedValue);
+    if (selectedValue === "all") {
+      resetTabs();
+    } else if (selectedValue === "ingested") {
+      setCurrentFilterId(null);
+      filterIngested();
+    }
+  };
+
+  useEffect(() => {
+    console.log("filteredContent updated", filteredContent.length);
+  }, [filteredContent]);
+
   const columns: GridColDef[] = [
+    {
+      field: "view",
+      headerName: "",
+      width: 100,
+      renderCell: (params) => (
+        <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
+          <Button sx={{ p: 0.5 }} variant="outlined">
+            View
+          </Button>
+        </Link>
+      ),
+    },
     {
       field: "id",
       headerName: "ID",
       width: 170,
-      renderCell: (params) => (
-        <Link to={`/${params.row.namespace}/content/${params.value}`}>
-          {params.value}
-        </Link>
-      ),
+      renderCell: (params) => {
+        const clickable =
+          currentTab !== "all" && childCount[params.row.id] !== 0;
+        return (
+          <Button
+            onClick={() => onClickFilterId(params.row)}
+            sx={{
+              pointerEvents: clickable ? "all" : "none",
+              textDecoration: clickable ? "underline" : "none",
+            }}
+            variant="text"
+          >
+            <Typography variant="body1">{params.value}</Typography>
+          </Button>
+        );
+      },
+    },
+    {
+      field: "childCount",
+      headerName: "Children",
+      width: 140,
+      valueGetter: (params) => childCount[params.row.id],
     },
     {
       field: "name",
@@ -72,12 +168,13 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
         </Box>
       );
     }
+
     return (
       <Box sx={{ width: "100%" }}>
         <DataGrid
           sx={{ backgroundColor: "white" }}
           autoHeight
-          rows={content}
+          rows={filteredContent}
           columns={columns}
           initialState={{
             pagination: {
@@ -101,6 +198,20 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
         <ArticleIcon />
         <Typography variant="h3">Content</Typography>
       </Stack>
+      <Box>
+        <Tabs
+          value={currentTab}
+          onChange={onChangeTab}
+          aria-label="disabled tabs example"
+        >
+          <Tab value={"all"} label="All" />
+          <Tab value={"ingested"} label="Ingested" />
+
+          {currentFilterId !== null && (
+            <Tab value={"currentid"} label={currentFilterId} />
+          )}
+        </Tabs>
+      </Box>
       {renderContent()}
     </>
   );
