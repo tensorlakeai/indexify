@@ -71,29 +71,29 @@ impl Scheduler {
         state_change: StateChange,
     ) -> Result<Vec<internal_api::Task>> {
         let tasks = match &state_change.change_type {
-            internal_api::ChangeType::NewBinding => {
+            internal_api::ChangeType::NewExtractionPolicy => {
                 let content_list = self
                     .shared_state
-                    .content_matching_binding(&state_change.object_id)
+                    .content_matching_policy(&state_change.object_id)
                     .await?;
 
                 self.create_task(&state_change.object_id, content_list)
                     .await?
             }
             internal_api::ChangeType::NewContent => {
-                let bindings = self
+                let extraction_policies = self
                     .shared_state
-                    .filter_extractor_binding_for_content(&state_change.object_id)
+                    .filter_extraction_policy_for_content(&state_change.object_id)
                     .await?;
                 let content = self
                     .shared_state
                     .get_conent_metadata(&state_change.object_id)
                     .await?;
                 let mut tasks = Vec::new();
-                for binding in bindings {
-                    let tasks_for_binding =
-                        self.create_task(&binding.id, vec![content.clone()]).await?;
-                    tasks.extend(tasks_for_binding)
+                for extraction_policy in extraction_policies {
+                    let tasks_for_policy =
+                        self.create_task(&extraction_policy.id, vec![content.clone()]).await?;
+                    tasks.extend(tasks_for_policy)
                 }
                 tasks
             }
@@ -134,24 +134,24 @@ impl Scheduler {
 
     pub async fn create_task(
         &self,
-        extractor_binding_id: &str,
+        extraction_policy_id: &str,
         content_list: Vec<internal_api::ContentMetadata>,
     ) -> Result<Vec<internal_api::Task>> {
-        let extractor_binding = self
+        let extraction_policy = self
             .shared_state
-            .get_extractor_binding(extractor_binding_id)
+            .get_extraction_policy(extraction_policy_id)
             .await?;
         let extractor = self
             .shared_state
-            .extractor_with_name(&extractor_binding.extractor)
+            .extractor_with_name(&extraction_policy.extractor)
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let index_name = extractor_binding
+            let index_name = extraction_policy
                 .output_index_name_mapping
                 .get(name)
                 .unwrap();
-            let table_name = extractor_binding
+            let table_name = extraction_policy
                 .index_name_table_mapping
                 .get(index_name)
                 .unwrap();
@@ -160,18 +160,18 @@ impl Scheduler {
         let mut tasks = Vec::new();
         for content in content_list {
             let mut hasher = DefaultHasher::new();
-            extractor_binding.name.hash(&mut hasher);
-            extractor_binding.namespace.hash(&mut hasher);
+            extraction_policy.name.hash(&mut hasher);
+            extraction_policy.namespace.hash(&mut hasher);
             content.id.hash(&mut hasher);
             let id = format!("{:x}", hasher.finish());
             let task = internal_api::Task {
                 id,
-                extractor: extractor_binding.extractor.clone(),
-                extractor_binding: extractor_binding.name.clone(),
+                extractor: extraction_policy.extractor.clone(),
+                extraction_policy: extraction_policy.name.clone(),
                 output_index_table_mapping: output_mapping.clone(),
-                namespace: extractor_binding.namespace.clone(),
+                namespace: extraction_policy.namespace.clone(),
                 content_metadata: content.clone(),
-                input_params: extractor_binding.input_params.clone(),
+                input_params: extraction_policy.input_params.clone(),
                 outcome: internal_api::TaskOutcome::Unknown,
             };
             info!("created task: {:?}", task);

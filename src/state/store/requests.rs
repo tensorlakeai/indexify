@@ -39,8 +39,8 @@ pub enum RequestPayload {
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    CreateBinding {
-        binding: internal_api::ExtractorBinding,
+    CreateExtractionPolicy {
+        extraction_policy: internal_api::ExtractionPolicy,
     },
     CreateIndex {
         index: internal_api::Index,

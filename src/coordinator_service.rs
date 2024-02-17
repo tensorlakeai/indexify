@@ -18,18 +18,18 @@ use indexify_proto::indexify_coordinator::{
     CreateContentResponse,
     CreateIndexRequest,
     CreateIndexResponse,
-    ExtractorBindRequest,
-    ExtractorBindResponse,
+    ExtractionPolicyRequest,
+    ExtractionPolicyResponse,
     GetContentMetadataRequest,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
     HeartbeatRequest,
     HeartbeatResponse,
-    ListBindingsRequest,
-    ListBindingsResponse,
     ListContentRequest,
     ListContentResponse,
+    ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse,
     ListExtractorsRequest,
     ListExtractorsResponse,
     ListIndexesRequest,
@@ -111,53 +111,53 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn create_binding(
+    async fn create_extraction_policy(
         &self,
-        request: tonic::Request<ExtractorBindRequest>,
-    ) -> Result<tonic::Response<ExtractorBindResponse>, tonic::Status> {
+        request: tonic::Request<ExtractionPolicyRequest>,
+    ) -> Result<tonic::Response<ExtractionPolicyResponse>, tonic::Status> {
         let request = request.into_inner();
-        let extractor_binding = request.binding.clone().unwrap();
+        let extraction_policy = request.policy.clone().unwrap();
         let mut s = DefaultHasher::new();
         request.namespace.hash(&mut s);
-        request.binding.unwrap().name.hash(&mut s);
+        request.policy.unwrap().name.hash(&mut s);
         let id = s.finish().to_string();
-        let input_params = serde_json::from_str(&extractor_binding.input_params)
+        let input_params = serde_json::from_str(&extraction_policy.input_params)
             .map_err(|e| tonic::Status::aborted(format!("unable to parse input_params: {}", e)))?;
 
         let extractor = self
             .coordinator
-            .get_extractor(&extractor_binding.extractor)
+            .get_extractor(&extraction_policy.extractor)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let mut index_name_table_mapping = HashMap::new();
         let mut output_index_name_mapping = HashMap::new();
         for output_name in extractor.outputs.keys() {
-            let index_name = format!("{}.{}", extractor_binding.name, output_name);
+            let index_name = format!("{}.{}", extraction_policy.name, output_name);
             let index_table_name = format!(
                 "{}.{}.{}",
-                request.namespace, extractor_binding.name, output_name
+                request.namespace, extraction_policy.name, output_name
             );
             index_name_table_mapping.insert(index_name.clone(), index_table_name.clone());
             output_index_name_mapping.insert(output_name.clone(), index_name.clone());
         }
 
-        let extractor_binding = internal_api::ExtractorBinding {
+        let extraction_policy = internal_api::ExtractionPolicy {
             id,
-            extractor: extractor_binding.extractor,
-            name: extractor_binding.name,
+            extractor: extraction_policy.extractor,
+            name: extraction_policy.name,
             namespace: request.namespace,
-            filters: extractor_binding.filters,
+            filters: extraction_policy.filters,
             input_params,
             output_index_name_mapping: output_index_name_mapping.clone(),
             index_name_table_mapping: index_name_table_mapping.clone(),
-            content_source: extractor_binding.content_source,
+            content_source: extraction_policy.content_source,
         };
         let _ = self
             .coordinator
-            .create_binding(extractor_binding, extractor.clone())
+            .create_policy(extraction_policy, extractor.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(ExtractorBindResponse {
+        Ok(tonic::Response::new(ExtractionPolicyResponse {
             created_at: timestamp_secs() as i64,
             extractor: Some(extractor.into()),
             index_name_table_mapping,
@@ -165,22 +165,24 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn list_bindings(
+    async fn list_extraction_policies(
         &self,
-        request: tonic::Request<ListBindingsRequest>,
-    ) -> Result<tonic::Response<ListBindingsResponse>, tonic::Status> {
+        request: tonic::Request<ListExtractionPoliciesRequest>,
+    ) -> Result<tonic::Response<ListExtractionPoliciesResponse>, tonic::Status> {
         let request = request.into_inner();
-        let bindings = self
+        let extraction_policies = self
             .coordinator
-            .list_bindings(&request.namespace)
+            .list_policies(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let bindings = bindings
+        let policies = extraction_policies
             .into_iter()
             .map(|b| b.into())
-            .collect::<Vec<indexify_coordinator::ExtractorBinding>>();
+            .collect::<Vec<indexify_coordinator::ExtractionPolicy>>();
 
-        Ok(tonic::Response::new(ListBindingsResponse { bindings }))
+        Ok(tonic::Response::new(ListExtractionPoliciesResponse {
+            policies,
+        }))
     }
 
     async fn create_ns(
@@ -465,14 +467,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
         let req = req.into_inner();
-        let extractor_binding = if req.extractor_binding.is_empty() {
+        let extraction_policy = if req.extraction_policy.is_empty() {
             None
         } else {
-            Some(req.extractor_binding)
+            Some(req.extraction_policy)
         };
         let tasks = self
             .coordinator
-            .list_tasks(&req.namespace, extractor_binding)
+            .list_tasks(&req.namespace, extraction_policy)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let tasks = tasks.into_iter().map(|t| t.into()).collect();

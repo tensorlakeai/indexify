@@ -10,9 +10,9 @@ service CoordinatorService {
 
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
 
-    rpc CreateBinding(ExtractorBindRequest) returns (ExtractorBindResponse) {}
+    rpc CreateExtractionPolicy(ExtractionPolicyRequest) returns (ExtractionPolicyResponse) {}
 
-    rpc ListBindings(ListBindingsRequest) returns (ListBindingsResponse) {}
+    rpc ListExtractionPolicies(ListExtractionPoliciesRequest) returns (ListExtractionPoliciesResponse) {}
 
     rpc CreateNS(CreateNamespaceRequest) returns (CreateNamespaceResponse) {}
 
@@ -79,7 +79,7 @@ message ListStateChangesResponse {
 
 message ListTasksRequest {
     string namespace = 1;
-    string extractor_binding = 2;
+    string extraction_policy = 2;
 }
 
 message ListTasksResponse {
@@ -126,7 +126,7 @@ message Index {
     string namespace = 2;
     string table_name = 3;
     string schema = 4;
-    string extractor_binding = 5;
+    string extraction_policy = 5;
     string extractor = 6;
 }
 
@@ -175,7 +175,7 @@ message Task {
     string namespace = 3;
     ContentMetadata content_metadata = 4;
     string input_params = 5;
-    string extractor_binding = 6;
+    string extraction_policy = 6;
     map<string, string> output_index_mapping = 7;
     TaskOutcome outcome = 8;
 }
@@ -215,17 +215,17 @@ message ListContentResponse {
     repeated ContentMetadata content_list = 1; 
 }
 
-message ListBindingsRequest {
+message ListExtractionPoliciesRequest {
     string namespace = 1;
 }
 
-message ListBindingsResponse {
-    repeated ExtractorBinding bindings = 1;
+message ListExtractionPoliciesResponse {
+    repeated ExtractionPolicy policies = 1;
 }
 
 message CreateNamespaceRequest {
     string name = 1;
-    repeated ExtractorBinding bindings = 2;
+    repeated ExtractionPolicy policies = 2;
 }
 
 message CreateNamespaceResponse {
@@ -241,7 +241,7 @@ message ListNamespaceResponse {
     repeated Namespace namespaces = 1;
 }
 
-message ExtractorBinding {
+message ExtractionPolicy {
     string extractor = 1;
     string name = 2;
     string input_params = 4;
@@ -249,13 +249,13 @@ message ExtractorBinding {
     string content_source = 6;
 }
 
-message ExtractorBindRequest {
+message ExtractionPolicyRequest {
     string namespace = 1;
-    ExtractorBinding binding = 3;
+    ExtractionPolicy policy = 3;
     int64 created_at = 2;
 }
 
-message ExtractorBindResponse {
+message ExtractionPolicyResponse {
     int64 created_at = 3;
     Extractor extractor = 2;
     map<string, string> index_name_table_mapping = 4;
@@ -284,5 +284,5 @@ message CreateContentResponse {
 
 message Namespace {
     string name = 1;
-    repeated ExtractorBinding bindings = 2;
+    repeated ExtractionPolicy policies = 2;
 }

@@ -12,7 +12,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
-use internal_api::{ExtractorBinding, StateChange};
+use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
@@ -274,25 +274,25 @@ impl App {
         Ok(())
     }
 
-    pub async fn filter_extractor_binding_for_content(
+    pub async fn filter_extraction_policy_for_content(
         &self,
         content_id: &str,
-    ) -> Result<Vec<ExtractorBinding>> {
+    ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
-        let bindings = {
+        let extraction_policies = {
             let store = self.indexify_state.read().await;
             store
-                .bindings_table
+                .extraction_policies_table
                 .get(&content_metadata.namespace)
                 .cloned()
                 .unwrap_or_default()
         };
-        let mut matched_bindings = Vec::new();
-        for binding in &bindings {
-            if binding.content_source != content_metadata.source {
+        let mut matched_policies = Vec::new();
+        for extraction_policy in &extraction_policies {
+            if extraction_policy.content_source != content_metadata.source {
                 continue;
             }
-            for (name, value) in &binding.filters {
+            for (name, value) in &extraction_policy.filters {
                 let is_mach = content_metadata
                     .labels
                     .get(name)
@@ -303,46 +303,46 @@ impl App {
                 }
             }
             // check if the mimetype matches
-            let extractor = self.extractor_with_name(&binding.extractor).await?;
+            let extractor = self.extractor_with_name(&extraction_policy.extractor).await?;
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
-                    content_metadata.id, binding.extractor
+                    content_metadata.id, extraction_policy.extractor
                 );
                 continue;
             }
-            matched_bindings.push(binding.clone());
+            matched_policies.push(extraction_policy.clone());
         }
-        Ok(matched_bindings)
+        Ok(matched_policies)
     }
 
-    pub async fn get_extractor_binding(&self, id: &str) -> Result<ExtractorBinding> {
+    pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let store = self.indexify_state.read().await;
-        let binding = store
-            .extractor_bindings
+        let extraction_policy = store
+            .extraction_policies
             .get(id)
-            .ok_or(anyhow!("binding {} not found", id))?;
-        Ok(binding.clone())
+            .ok_or(anyhow!("policy {} not found", id))?;
+        Ok(extraction_policy.clone())
     }
 
     /// Returns the extractor bindings that match the content metadata
     /// If the content metadata does not match any extractor bindings, returns
     /// an empty list Any filtration of extractor bindings based on content
     /// metadata should be done in this function.
-    pub async fn content_matching_binding(
+    pub async fn content_matching_policy(
         &self,
-        binding_id: &str,
+        policy_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let extractor_binding = self.get_extractor_binding(binding_id).await?;
+        let extraction_policy = self.get_extraction_policy(policy_id).await?;
         // get the extractor so we can check the mimetype
         let extractor = self
-            .extractor_with_name(&extractor_binding.extractor)
+            .extractor_with_name(&extraction_policy.extractor)
             .await?;
         let content_list = {
             let store = self.indexify_state.read().await;
             let content_list = store
                 .content_namespace_table
-                .get(&extractor_binding.namespace)
+                .get(&extraction_policy.namespace)
                 .cloned()
                 .unwrap_or_default();
             let mut content_meta_list = Vec::new();
@@ -361,17 +361,17 @@ impl App {
         };
         let mut matched_content_list = Vec::new();
         for content in content_list {
-            if content.source != extractor_binding.content_source {
+            if content.source != extraction_policy.content_source {
                 continue;
             }
-            let is_match = &extractor_binding.filters.iter().all(|(name, value)| {
+            let is_match = &extraction_policy.filters.iter().all(|(name, value)| {
                 content
                     .labels
                     .get(name)
                     .map(|v| v == value)
                     .unwrap_or(false)
             });
-            if extractor_binding.filters.is_empty() || *is_match {
+            if extraction_policy.filters.is_empty() || *is_match {
                 matched_content_list.push(content);
             }
         }
@@ -474,14 +474,14 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_binding(&self, binding: ExtractorBinding) -> Result<()> {
+    pub async fn create_extraction_policy(&self, extraction_policy: ExtractionPolicy) -> Result<()> {
         let req = Request {
-            payload: RequestPayload::CreateBinding {
-                binding: binding.clone(),
+            payload: RequestPayload::CreateExtractionPolicy {
+                extraction_policy: extraction_policy.clone(),
             },
             new_state_changes: vec![StateChange::new(
-                binding.id.clone(),
-                internal_api::ChangeType::NewBinding,
+                extraction_policy.id.clone(),
+                internal_api::ChangeType::NewExtractionPolicy,
                 timestamp_secs(),
             )],
             state_changes_processed: vec![],
@@ -524,23 +524,23 @@ impl App {
         extractor: &str,
     ) -> Result<internal_api::ExtractorDescription> {
         let store = self.indexify_state.read().await;
-        let binding = store
+        let extractor = store
             .extractors
             .get(extractor)
             .ok_or(anyhow!("extractor {:?} not found", extractor))?;
-        Ok(binding.clone())
+        Ok(extractor.clone())
     }
 
-    pub async fn list_bindings(&self, namespace: &str) -> Result<Vec<ExtractorBinding>> {
+    pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
         let store = self.indexify_state.read().await;
-        let bindings = store
-            .bindings_table
+        let extraction_policies = store
+            .extraction_policies_table
             .get(namespace)
             .cloned()
             .unwrap_or_default()
             .into_iter()
             .collect_vec();
-        Ok(bindings)
+        Ok(extraction_policies)
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
@@ -559,14 +559,14 @@ impl App {
         let store = self.indexify_state.read().await;
         let mut namespaces = Vec::new();
         for namespace in &store.namespaces {
-            let bindings = store
-                .bindings_table
+            let extraction_policies = store
+                .extraction_policies_table
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default();
             let namespace = internal_api::Namespace {
                 name: namespace.clone(),
-                extractor_bindings: bindings.into_iter().collect_vec(),
+                extraction_policies: extraction_policies.into_iter().collect_vec(),
             };
             namespaces.push(namespace);
         }
@@ -575,14 +575,14 @@ impl App {
 
     pub async fn namespace(&self, namespace: &str) -> Result<internal_api::Namespace> {
         let store = self.indexify_state.read().await;
-        let bindings = store
-            .bindings_table
+        let extraction_policies = store
+            .extraction_policies_table
             .get(namespace)
             .cloned()
             .unwrap_or_default();
         let namespace = internal_api::Namespace {
             name: namespace.to_string(),
-            extractor_bindings: bindings.into_iter().collect_vec(),
+            extraction_policies: extraction_policies.into_iter().collect_vec(),
         };
         Ok(namespace)
     }

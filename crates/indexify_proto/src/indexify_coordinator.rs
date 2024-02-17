@@ -51,7 +51,7 @@ pub struct ListTasksRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub extractor_binding: ::prost::alloc::string::String,
+    pub extraction_policy: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -121,7 +121,7 @@ pub struct Index {
     #[prost(string, tag = "4")]
     pub schema: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
-    pub extractor_binding: ::prost::alloc::string::String,
+    pub extraction_policy: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub extractor: ::prost::alloc::string::String,
 }
@@ -201,7 +201,7 @@ pub struct Task {
     #[prost(string, tag = "5")]
     pub input_params: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
-    pub extractor_binding: ::prost::alloc::string::String,
+    pub extraction_policy: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "7")]
     pub output_index_mapping: ::std::collections::HashMap<
         ::prost::alloc::string::String,
@@ -271,15 +271,15 @@ pub struct ListContentResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListBindingsRequest {
+pub struct ListExtractionPoliciesRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListBindingsResponse {
+pub struct ListExtractionPoliciesResponse {
     #[prost(message, repeated, tag = "1")]
-    pub bindings: ::prost::alloc::vec::Vec<ExtractorBinding>,
+    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -287,7 +287,7 @@ pub struct CreateNamespaceRequest {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub bindings: ::prost::alloc::vec::Vec<ExtractorBinding>,
+    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -308,7 +308,7 @@ pub struct ListNamespaceResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExtractorBinding {
+pub struct ExtractionPolicy {
     #[prost(string, tag = "1")]
     pub extractor: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
@@ -325,17 +325,17 @@ pub struct ExtractorBinding {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExtractorBindRequest {
+pub struct ExtractionPolicyRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "3")]
-    pub binding: ::core::option::Option<ExtractorBinding>,
+    pub policy: ::core::option::Option<ExtractionPolicy>,
     #[prost(int64, tag = "2")]
     pub created_at: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExtractorBindResponse {
+pub struct ExtractionPolicyResponse {
     #[prost(int64, tag = "3")]
     pub created_at: i64,
     #[prost(message, optional, tag = "2")]
@@ -396,7 +396,7 @@ pub struct Namespace {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub bindings: ::prost::alloc::vec::Vec<ExtractorBinding>,
+    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -602,11 +602,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn create_binding(
+        pub async fn create_extraction_policy(
             &mut self,
-            request: impl tonic::IntoRequest<super::ExtractorBindRequest>,
+            request: impl tonic::IntoRequest<super::ExtractionPolicyRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ExtractorBindResponse>,
+            tonic::Response<super::ExtractionPolicyResponse>,
             tonic::Status,
         > {
             self.inner
@@ -620,23 +620,23 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateBinding",
+                "/indexify_coordinator.CoordinatorService/CreateExtractionPolicy",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "CreateBinding",
+                        "CreateExtractionPolicy",
                     ),
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn list_bindings(
+        pub async fn list_extraction_policies(
             &mut self,
-            request: impl tonic::IntoRequest<super::ListBindingsRequest>,
+            request: impl tonic::IntoRequest<super::ListExtractionPoliciesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ListBindingsResponse>,
+            tonic::Response<super::ListExtractionPoliciesResponse>,
             tonic::Status,
         > {
             self.inner
@@ -650,14 +650,14 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/ListBindings",
+                "/indexify_coordinator.CoordinatorService/ListExtractionPolicies",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "ListBindings",
+                        "ListExtractionPolicies",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1076,18 +1076,18 @@ pub mod coordinator_service_server {
             tonic::Response<super::ListContentResponse>,
             tonic::Status,
         >;
-        async fn create_binding(
+        async fn create_extraction_policy(
             &self,
-            request: tonic::Request<super::ExtractorBindRequest>,
+            request: tonic::Request<super::ExtractionPolicyRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ExtractorBindResponse>,
+            tonic::Response<super::ExtractionPolicyResponse>,
             tonic::Status,
         >;
-        async fn list_bindings(
+        async fn list_extraction_policies(
             &self,
-            request: tonic::Request<super::ListBindingsRequest>,
+            request: tonic::Request<super::ListExtractionPoliciesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ListBindingsResponse>,
+            tonic::Response<super::ListExtractionPoliciesResponse>,
             tonic::Status,
         >;
         async fn create_ns(
@@ -1408,25 +1408,28 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/CreateBinding" => {
+                "/indexify_coordinator.CoordinatorService/CreateExtractionPolicy" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateBindingSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct CreateExtractionPolicySvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::ExtractorBindRequest>
-                    for CreateBindingSvc<T> {
-                        type Response = super::ExtractorBindResponse;
+                    > tonic::server::UnaryService<super::ExtractionPolicyRequest>
+                    for CreateExtractionPolicySvc<T> {
+                        type Response = super::ExtractionPolicyResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ExtractorBindRequest>,
+                            request: tonic::Request<super::ExtractionPolicyRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_binding(&inner, request)
+                                <T as CoordinatorService>::create_extraction_policy(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1439,7 +1442,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CreateBindingSvc(inner);
+                        let method = CreateExtractionPolicySvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1455,25 +1458,28 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/ListBindings" => {
+                "/indexify_coordinator.CoordinatorService/ListExtractionPolicies" => {
                     #[allow(non_camel_case_types)]
-                    struct ListBindingsSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct ListExtractionPoliciesSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::ListBindingsRequest>
-                    for ListBindingsSvc<T> {
-                        type Response = super::ListBindingsResponse;
+                    > tonic::server::UnaryService<super::ListExtractionPoliciesRequest>
+                    for ListExtractionPoliciesSvc<T> {
+                        type Response = super::ListExtractionPoliciesResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ListBindingsRequest>,
+                            request: tonic::Request<super::ListExtractionPoliciesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_bindings(&inner, request)
+                                <T as CoordinatorService>::list_extraction_policies(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1486,7 +1492,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = ListBindingsSvc(inner);
+                        let method = ListExtractionPoliciesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

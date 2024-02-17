@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     requests::{Request, RequestPayload, StateChangeProcessed},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    BindingId,
+    ExtractionPolicyId,
     ContentId,
     ExecutorId,
     ExtractorName,
@@ -28,7 +28,7 @@ pub struct IndexifyState {
 
     pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
 
-    pub extractor_bindings: HashMap<BindingId, internal_api::ExtractorBinding>,
+    pub extraction_policies: HashMap<ExtractionPolicyId, internal_api::ExtractionPolicy>,
 
     pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
 
@@ -47,7 +47,7 @@ pub struct IndexifyState {
     pub content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
 
     /// Namespace -> Extractor bindings
-    pub bindings_table: HashMap<NamespaceName, HashSet<internal_api::ExtractorBinding>>,
+    pub extraction_policies_table: HashMap<NamespaceName, HashSet<internal_api::ExtractionPolicy>>,
 
     /// Extractor -> Executors table
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
@@ -152,13 +152,13 @@ impl IndexifyState {
                         .insert(content.id.clone());
                 }
             }
-            RequestPayload::CreateBinding { binding } => {
-                self.bindings_table
-                    .entry(binding.namespace.clone())
+            RequestPayload::CreateExtractionPolicy { extraction_policy } => {
+                self.extraction_policies_table
+                    .entry(extraction_policy.namespace.clone())
                     .or_default()
-                    .insert(binding.clone());
-                self.extractor_bindings
-                    .insert(binding.id.clone(), binding.clone());
+                    .insert(extraction_policy.clone());
+                self.extraction_policies
+                    .insert(extraction_policy.id.clone(), extraction_policy.clone());
             }
             RequestPayload::CreateNamespace { name } => {
                 self.namespaces.insert(name.clone());
