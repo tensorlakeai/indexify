@@ -303,7 +303,9 @@ impl App {
                 }
             }
             // check if the mimetype matches
-            let extractor = self.extractor_with_name(&extraction_policy.extractor).await?;
+            let extractor = self
+                .extractor_with_name(&extraction_policy.extractor)
+                .await?;
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
@@ -474,7 +476,10 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_extraction_policy(&self, extraction_policy: ExtractionPolicy) -> Result<()> {
+    pub async fn create_extraction_policy(
+        &self,
+        extraction_policy: ExtractionPolicy,
+    ) -> Result<()> {
         let req = Request {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),

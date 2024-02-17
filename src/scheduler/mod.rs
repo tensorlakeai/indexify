@@ -91,8 +91,9 @@ impl Scheduler {
                     .await?;
                 let mut tasks = Vec::new();
                 for extraction_policy in extraction_policies {
-                    let tasks_for_policy =
-                        self.create_task(&extraction_policy.id, vec![content.clone()]).await?;
+                    let tasks_for_policy = self
+                        .create_task(&extraction_policy.id, vec![content.clone()])
+                        .await?;
                     tasks.extend(tasks_for_policy)
                 }
                 tasks

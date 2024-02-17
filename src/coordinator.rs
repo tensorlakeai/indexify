@@ -212,7 +212,9 @@ impl Coordinator {
                 ));
             }
         }
-        self.shared_state.create_extraction_policy(extraction_policy).await?;
+        self.shared_state
+            .create_extraction_policy(extraction_policy)
+            .await?;
         Ok(())
     }
 
