@@ -7,6 +7,7 @@ use strum::{Display, EnumString};
 
 use crate::server_config::{IndexStoreKind, VectorIndexConfig};
 
+pub mod lancedb;
 pub mod open_search;
 pub mod pg_vector;
 pub mod qdrant;
@@ -102,5 +103,8 @@ pub async fn create_vectordb(config: VectorIndexConfig) -> Result<VectorDBTS> {
         IndexStoreKind::OpenSearchKnn => Ok(Arc::new(OpenSearchKnn::new(
             config.open_search_basic.unwrap(),
         ))),
+        IndexStoreKind::Lancedb => Ok(Arc::new(
+            lancedb::LanceDb::new(&config.lancedb_config.unwrap()).await?,
+        )),
     }
 }

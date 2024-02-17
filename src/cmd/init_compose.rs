@@ -41,6 +41,6 @@ impl Args {
 
         let template = DockerComposeTemplate { extractors };
         let compose_file = template.render().unwrap();
-        std::fs::write(&path, compose_file).expect("failed to write docker-compose file");
+        std::fs::write(path, compose_file).expect("failed to write docker-compose file");
     }
 }

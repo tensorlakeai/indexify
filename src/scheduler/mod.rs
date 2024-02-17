@@ -31,7 +31,7 @@ impl Scheduler {
         // Create new tasks
         let tasks = self.create_new_tasks(state_change.clone()).await?;
         // Commit them
-        if tasks.len() > 0 {
+        if !tasks.is_empty() {
             self.shared_state
                 .create_tasks(tasks.clone(), &state_change.id)
                 .await?;
@@ -40,7 +40,7 @@ impl Scheduler {
 
         // Allocate tasks and commit task assignments
         let allocation_plan = self.allocate_tasks(tasks).await?;
-        if allocation_plan.0.len() > 0 {
+        if !allocation_plan.0.is_empty() {
             self.shared_state
                 .commit_task_assignments(allocation_plan.0, &state_change.id)
                 .await?;
@@ -49,7 +49,7 @@ impl Scheduler {
 
         // Redistribute tasks and commit task assignments
         let allocation_plan = self.redistribute_tasks(&state_change).await?;
-        if allocation_plan.0.len() > 0 {
+        if !allocation_plan.0.is_empty() {
             self.shared_state
                 .commit_task_assignments(allocation_plan.0, &state_change.id)
                 .await?;
