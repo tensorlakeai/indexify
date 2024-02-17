@@ -263,7 +263,6 @@ impl Server {
                     break Ok(()); // graceful shutdown
                 }
             };
-            info!("accepted connection from: {}", remote_addr);
 
             match use_tls {
                 true => {
