@@ -21,17 +21,6 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: 3.9
-    - name: Set up cargo cache
-      uses: actions/cache@v3
-      continue-on-error: false
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          target/
-        key: test-keys-${{ hashFiles('Cargo.lock', 'ui/package-lock.json') }}
-        restore-keys: test-keys-
     - name: Test
       run: ./run_tests.sh
     - name: Clear up space
