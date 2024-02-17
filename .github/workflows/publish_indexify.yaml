@@ -22,7 +22,7 @@ env:
 jobs:
   build-linux-amd64-package:
     name: Build x86_64 Linux Package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-xlarge
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
@@ -45,7 +45,7 @@ jobs:
 
   build-linux-arm64-package:
     name: Build Aarch64 Linux Package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-xlarge
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
@@ -67,7 +67,7 @@ jobs:
 
   build-macos-package:
     name: Build macOS Package
-    runs-on: macos-14
+    runs-on: macos-14-xlarge
     steps:
       - uses: actions/checkout@v4
       - run: rustup update
@@ -85,7 +85,7 @@ jobs:
 
   build-windows-package:
     name: Build Windows Package
-    runs-on: windows-latest
+    runs-on: windows-latest-large
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
