@@ -276,11 +276,11 @@ mod tests {
     use super::*;
     use crate::{server_config::ServerConfig, state::App, test_util::db_utils::mock_extractor};
 
-    fn create_task(id: &str, extractor: &str, binding: &str) -> internal_api::Task {
+    fn create_task(id: &str, extractor: &str, policy: &str) -> internal_api::Task {
         internal_api::Task {
             id: id.to_string(),
             extractor: extractor.to_string(),
-            extractor_binding: binding.to_string(),
+            extraction_policy: policy.to_string(),
             output_index_table_mapping: HashMap::new(),
             namespace: "default".to_string(),
             content_metadata: ContentMetadata::default(),

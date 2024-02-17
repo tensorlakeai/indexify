@@ -21,7 +21,7 @@ pub struct Index {
     pub name: String,
     pub table_name: String,
     pub schema: String,
-    pub extractor_binding: String,
+    pub extraction_policy: String,
     pub extractor: String,
 }
 
@@ -48,7 +48,7 @@ impl From<Index> for indexify_coordinator::Index {
             table_name: value.table_name,
             schema: value.schema,
             extractor: value.extractor,
-            extractor_binding: value.extractor_binding,
+            extraction_policy: value.extraction_policy,
             namespace: value.namespace,
         }
     }
@@ -61,7 +61,7 @@ impl From<indexify_coordinator::Index> for Index {
             table_name: value.table_name,
             schema: value.schema,
             extractor: value.extractor,
-            extractor_binding: value.extractor_binding,
+            extraction_policy: value.extraction_policy,
             namespace: value.namespace,
         }
     }
@@ -248,7 +248,7 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
 pub struct Task {
     pub id: String,
     pub extractor: String,
-    pub extractor_binding: String,
+    pub extraction_policy: String,
     pub output_index_table_mapping: HashMap<String, String>,
     pub namespace: String,
     pub content_metadata: ContentMetadata,
@@ -266,7 +266,7 @@ impl From<Task> for indexify_coordinator::Task {
             namespace: value.namespace,
             content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
-            extractor_binding: value.extractor_binding,
+            extraction_policy: value.extraction_policy,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
         }
@@ -286,14 +286,14 @@ impl TryFrom<indexify_coordinator::Task> for Task {
             namespace: value.namespace,
             content_metadata,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
-            extractor_binding: value.extractor_binding,
+            extraction_policy: value.extraction_policy,
             output_index_table_mapping: value.output_index_mapping,
             outcome,
         })
     }
 }
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
-pub struct ExtractorBinding {
+pub struct ExtractionPolicy {
     pub id: String,
     pub name: String,
     pub namespace: String,
@@ -314,15 +314,15 @@ pub struct ExtractorBinding {
     pub content_source: String,
 }
 
-impl std::hash::Hash for ExtractorBinding {
+impl std::hash::Hash for ExtractionPolicy {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.namespace.hash(state);
         self.name.hash(state);
     }
 }
 
-impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
-    fn from(value: ExtractorBinding) -> Self {
+impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
+    fn from(value: ExtractionPolicy) -> Self {
         let mut filters = HashMap::new();
         for filter in value.filters {
             filters.insert(filter.0, filter.1.to_string());
@@ -457,15 +457,15 @@ impl TaskResult {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Namespace {
     pub name: String,
-    pub extractor_bindings: Vec<ExtractorBinding>,
+    pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
 impl From<Namespace> for indexify_coordinator::Namespace {
     fn from(value: Namespace) -> Self {
         Self {
             name: value.name,
-            bindings: value
-                .extractor_bindings
+            policies: value
+                .extraction_policies
                 .into_iter()
                 .map(|b| b.into())
                 .collect(),
@@ -476,7 +476,7 @@ impl From<Namespace> for indexify_coordinator::Namespace {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
-    NewBinding,
+    NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
 }
@@ -485,7 +485,7 @@ impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
-            ChangeType::NewBinding => write!(f, "NewBinding"),
+            ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
         }
@@ -531,7 +531,7 @@ impl TryFrom<indexify_coordinator::StateChange> for StateChange {
     fn try_from(value: indexify_coordinator::StateChange) -> Result<Self> {
         let change_type = match value.change_type.as_str() {
             "NewContent" => ChangeType::NewContent,
-            "NewBinding" => ChangeType::NewBinding,
+            "NewBinding" => ChangeType::NewExtractionPolicy,
             "ExecutorAdded" => ChangeType::ExecutorAdded,
             "ExecutorRemoved" => ChangeType::ExecutorRemoved,
             _ => return Err(anyhow!("Invalid ChangeType")),

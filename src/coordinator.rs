@@ -47,11 +47,11 @@ impl Coordinator {
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
     }
 
-    pub async fn list_bindings(
+    pub async fn list_policies(
         &self,
         namespace: &str,
-    ) -> Result<Vec<internal_api::ExtractorBinding>> {
-        self.shared_state.list_bindings(namespace).await
+    ) -> Result<Vec<internal_api::ExtractionPolicy>> {
+        self.shared_state.list_extraction_policy(namespace).await
     }
 
     pub async fn update_task(
@@ -105,18 +105,17 @@ impl Coordinator {
     pub async fn list_tasks(
         &self,
         namespace: &str,
-        extractor_binding: Option<String>,
+        extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        println!("list_tasks {:?}", extractor_binding);
         let store = self.shared_state.indexify_state.read().await;
         Ok(store
             .tasks
             .values()
             .filter(|t| t.namespace == namespace)
             .filter(|t| {
-                extractor_binding
+                extraction_policy
                     .as_ref()
-                    .map(|eb| eb == &t.extractor_binding)
+                    .map(|eb| eb == &t.extraction_policy)
                     .unwrap_or(true)
             })
             .cloned()
@@ -185,9 +184,9 @@ impl Coordinator {
         self.shared_state.extractor_with_name(extractor_name).await
     }
 
-    pub async fn create_binding(
+    pub async fn create_policy(
         &self,
-        binding: internal_api::ExtractorBinding,
+        extraction_policy: internal_api::ExtractionPolicy,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
         if extractor.input_params != serde_json::Value::Null {
@@ -199,7 +198,7 @@ impl Coordinator {
                         e
                     )
                 })?;
-            let extractor_params_schema = binding.input_params.clone();
+            let extractor_params_schema = extraction_policy.input_params.clone();
             let validation_result = input_params_schema.validate(&extractor_params_schema);
             if let Err(errors) = validation_result {
                 let errors = errors
@@ -207,13 +206,13 @@ impl Coordinator {
                     .map(|e| e.to_string())
                     .collect::<Vec<String>>();
                 return Err(anyhow!(
-                    "unable to validate input params for extractor binding: {}, errors: {}",
-                    &binding.name,
+                    "unable to validate input params for extractor policy: {}, errors: {}",
+                    &extraction_policy.name,
                     errors.join(",")
                 ));
             }
         }
-        self.shared_state.create_binding(binding).await?;
+        self.shared_state.create_extraction_policy(extraction_policy).await?;
         Ok(())
     }
 
@@ -317,8 +316,8 @@ mod tests {
             .register_executor("localhost:8956", "test_executor_id", mock_extractor())
             .await?;
         coordinator
-            .create_binding(
-                internal_api::ExtractorBinding {
+            .create_policy(
+                internal_api::ExtractionPolicy {
                     id: "test-binding-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),

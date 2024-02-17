@@ -16,7 +16,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{api_utils, metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ExtractorBinding {
+pub struct ExtractionPolicy {
     pub extractor: String,
     pub name: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
@@ -25,8 +25,8 @@ pub struct ExtractorBinding {
     pub content_source: Option<String>,
 }
 
-impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
-    fn from(value: ExtractorBinding) -> Self {
+impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
+    fn from(value: ExtractionPolicy) -> Self {
         Self {
             extractor: value.extractor,
             name: value.name,
@@ -43,26 +43,26 @@ impl From<ExtractorBinding> for indexify_coordinator::ExtractorBinding {
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataNamespace {
     pub name: String,
-    pub extractor_bindings: Vec<ExtractorBinding>,
+    pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
 impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
-        let mut extractor_bindings = Vec::new();
-        for binding in value.bindings {
-            extractor_bindings.push(ExtractorBinding {
-                extractor: binding.extractor,
-                name: binding.name,
-                filters_eq: Some(binding.filters),
-                input_params: Some(serde_json::from_str(&binding.input_params)?),
-                content_source: Some(binding.content_source),
+        let mut extraction_policies = Vec::new();
+        for policies in value.policies {
+            extraction_policies.push(ExtractionPolicy {
+                extractor: policies.extractor,
+                name: policies.name,
+                filters_eq: Some(policies.filters),
+                input_params: Some(serde_json::from_str(&policies.input_params)?),
+                content_source: Some(policies.content_source),
             });
         }
         Ok(Self {
             name: value.name,
-            extractor_bindings,
+            extraction_policies,
         })
     }
 }
@@ -70,7 +70,7 @@ impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct CreateNamespace {
     pub name: String,
-    pub extractor_bindings: Vec<ExtractorBinding>,
+    pub extraction_policies: Vec<ExtractionPolicy>,
     pub labels: HashMap<String, String>,
 }
 
@@ -126,13 +126,13 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 
 /// Request payload for creating a new vector index.
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct ExtractorBindRequest {
+pub struct ExtractionPolicyRequest {
     #[serde(flatten)]
-    pub extractor_binding: ExtractorBinding,
+    pub policy: ExtractionPolicy,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
-pub struct ExtractorBindResponse {
+pub struct ExtractionPolicyResponse {
     #[serde(default)]
     pub index_names: Vec<String>,
 }
@@ -458,7 +458,7 @@ pub struct WriteExtractedContent {
     pub parent_content_id: String,
     pub executor_id: String,
     pub task_outcome: internal_api::TaskOutcome,
-    pub extractor_binding: String,
+    pub extraction_policy: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -468,7 +468,7 @@ pub struct GetRawContentResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
-    pub extractor_binding: Option<String>,
+    pub extraction_policy: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

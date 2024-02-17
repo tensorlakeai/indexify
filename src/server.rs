@@ -69,7 +69,7 @@ pub struct NamespaceEndpointState {
             list_indexes,
             index_search,
             list_extractors,
-            bind_extractor,
+            create_extraction_policy,
             metadata_lookup,
             list_executors,
             list_content,
@@ -83,10 +83,10 @@ pub struct NamespaceEndpointState {
             schemas(CreateNamespace, CreateNamespaceResponse, IndexDistance,
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
-            , ExtractorDescription, DataNamespace, ExtractorBinding, ExtractorBindRequest, ExtractorBindResponse, Executor,
+            , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
-            internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetNamespaceResponse
+            internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
         )
         ),
         tags(
@@ -152,8 +152,8 @@ impl Server {
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
-                "/namespaces/:namespace/extractor_bindings",
-                post(bind_extractor).with_state(namespace_endpoint_state.clone()),
+                "/namespaces/:namespace/extraction_policies",
+                post(create_extraction_policy).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/indexes",
@@ -381,7 +381,7 @@ async fn create_namespace(
 ) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
     let data_namespace = api::DataNamespace {
         name: payload.name.clone(),
-        extractor_bindings: payload.extractor_bindings.clone(),
+        extraction_policies: payload.extraction_policies.clone(),
     };
     state
         .data_manager
@@ -449,25 +449,25 @@ async fn get_namespace(
 
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/extractor_bindings",
-    request_body = ExtractorBindRequest,
+    path = "/namespace/{namespace}/extraction_policies",
+    request_body = ExtractionPolicyRequest,
     tag = "indexify",
     responses(
-        (status = 200, description = "Extractor binded successfully", body = ExtractorBindResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to bind extractor to namespace")
+        (status = 200, description = "Extractor policy added successfully", body = ExtractionPolicyResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction policy to namespace")
     ),
 )]
 #[axum::debug_handler]
-async fn bind_extractor(
+async fn create_extraction_policy(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<ExtractorBindRequest>,
-) -> Result<Json<ExtractorBindResponse>, IndexifyAPIError> {
+    Json(payload): Json<ExtractionPolicyRequest>,
+) -> Result<Json<ExtractionPolicyResponse>, IndexifyAPIError> {
     let index_names = state
         .data_manager
-        .add_extractor_binding(&namespace, &payload.extractor_binding)
+        .create_extraction_policy(&namespace, &payload.policy)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -477,7 +477,7 @@ async fn bind_extractor(
         })?
         .into_iter()
         .collect();
-    Ok(Json(ExtractorBindResponse { index_names }))
+    Ok(Json(ExtractionPolicyResponse { index_names }))
 }
 
 #[tracing::instrument]
@@ -738,7 +738,7 @@ async fn list_tasks(
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
-            extractor_binding: query.extractor_binding.unwrap_or("".to_string()),
+            extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
         })
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

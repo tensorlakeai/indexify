@@ -36,7 +36,7 @@ pub type ContentId = String;
 pub type ExecutorId = String;
 pub type ExecutorIdRef<'a> = &'a str;
 pub type ExtractionEventId = String;
-pub type BindingId = String;
+pub type ExtractionPolicyId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
 

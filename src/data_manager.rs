@@ -61,7 +61,7 @@ impl DataManager {
             .into_iter()
             .map(|r| api::DataNamespace {
                 name: r.name,
-                extractor_bindings: Vec::new(),
+                extraction_policies: Vec::new(),
             })
             .collect();
         Ok(data_namespaces)
@@ -70,15 +70,15 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn create(&self, namespace: &api::DataNamespace) -> Result<()> {
         info!("creating data namespace: {}", namespace.name);
-        let bindings = namespace
-            .extractor_bindings
+        let policies = namespace
+            .extraction_policies
             .clone()
             .into_iter()
             .map(|b| b.into())
             .collect();
         let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
-            bindings,
+            policies,
         };
         let _resp = self
             .coordinator_client
@@ -105,18 +105,18 @@ impl DataManager {
         namespace.try_into()
     }
 
-    pub async fn add_extractor_binding(
+    pub async fn create_extraction_policy(
         &self,
         namespace: &str,
-        extractor_binding: &api::ExtractorBinding,
+        extraction_policy: &api::ExtractionPolicy,
     ) -> Result<Vec<String>> {
         info!(
             "adding extractor bindings namespace: {}, extractor: {}, binding: {}",
-            namespace, extractor_binding.extractor, extractor_binding.name,
+            namespace, extraction_policy.extractor, extraction_policy.name,
         );
-        let req = indexify_coordinator::ExtractorBindRequest {
+        let req = indexify_coordinator::ExtractionPolicyRequest {
             namespace: namespace.to_string(),
-            binding: Some(extractor_binding.clone().into()),
+            policy: Some(extraction_policy.clone().into()),
             created_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs() as i64,
@@ -125,13 +125,13 @@ impl DataManager {
             .coordinator_client
             .get()
             .await?
-            .create_binding(req)
+            .create_extraction_policy(req)
             .await?
             .into_inner();
         let mut index_names = Vec::new();
         let extractor = response.extractor.ok_or(anyhow!(
             "extractor {:?} not found",
-            extractor_binding.extractor
+            extraction_policy.extractor
         ))?;
         for (name, output_schema) in &extractor.outputs {
             let output_schema: internal_api::OutputSchema = serde_json::from_str(output_schema)?;
@@ -159,7 +159,7 @@ impl DataManager {
                 index_name,
                 table_name,
                 index_schema,
-                &extractor_binding.name,
+                &extraction_policy.name,
                 &extractor.name,
             )
             .await?;
@@ -174,7 +174,7 @@ impl DataManager {
         index_name: &str,
         table_name: &str,
         schema: serde_json::Value,
-        binding: &str,
+        extraction_policy: &str,
         extractor: &str,
     ) -> Result<()> {
         let index = indexify_coordinator::CreateIndexRequest {
@@ -183,7 +183,7 @@ impl DataManager {
                 table_name: table_name.to_string(),
                 namespace: namespace.to_string(),
                 schema: serde_json::to_value(schema).unwrap().to_string(),
-                extractor_binding: binding.to_string(),
+                extraction_policy: extraction_policy.to_string(),
                 extractor: extractor.to_string(),
             }),
         };
@@ -389,7 +389,7 @@ impl DataManager {
                     content.clone(),
                     None,
                     Some(extracted_content.parent_content_id.to_string()),
-                    &extracted_content.extractor_binding,
+                    &extracted_content.extraction_policy,
                 )
                 .await?;
             new_content_metadata.push(content_metadata.clone());
