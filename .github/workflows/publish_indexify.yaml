@@ -80,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-darwin-arm64
-          path: target/aarch64-apple-darwin/release/indexify
+          path: target/release/indexify
           if-no-files-found: error
 
   build-windows-package:
