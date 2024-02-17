@@ -256,7 +256,7 @@ impl Server {
             let shutdown_notify = shutdown_notify.clone();
 
             // pick up the next connection
-            let (tcp_stream, remote_addr) = tokio::select! {
+            let (tcp_stream, _remote_addr) = tokio::select! {
                 conn = listener.accept() => conn?,
                 _ = signal_tx.closed() => {
                     info!("graceful shutdown signal received. Shutting down server");
