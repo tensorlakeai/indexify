@@ -1,6 +1,6 @@
 # Developing a new Extractor
 
-When you are working on a use case for which we might not have an extractor already you can write your own extractor, and deploy in your cluster, and also publish to our extractor hub for others to use! 
+When you are working on a use case for which we might not have an extractor already you can write a new extractor, and deploy in your cluster and add new capabilities to Indexify.
 
 ## Concepts
 
@@ -20,16 +20,21 @@ Feature is some form of extracted information from unstructured data. Embedding,
 Features can be easily constructed from [helper methods](https://github.com/tensorlakeai/indexify/blob/11346c29055f16d397fc0901ec10139cdc945134/indexify_extractor_sdk/base_extractor.py#L37)
 You can optionaly give features a name such as `my_custom_text_embedding`, we use the names as sufixes of index names.
 
+## Install the Extractor SDK 
+```shell
+pip install indexify-extractor-sdk
+```
+
 ## Start from a template
 
 The following command will create a template for a new extractor in the current directory. 
 
 ```shell
-indexify extractor new --path my-extractor
+git clone github.com/tensorlakeai/extractor-template
 ```
 
 ## Implement the Extractor 
-The template creates a `MyExtractor` class in the `custom_extractor.py` file. Implement the extract method, which accepts a `Content` and prouduces a list of `Content`. The output content is usually some form of transformation of the input to the extractors and some features related to it. The valid output features are `Embedding` and `JSON`. Chunks of document goes in the `Content` in the data payload of the `Content`. 
+The template contains a `MyExtractor` extractor in the `custom_extractor.py` file. Implement the extract method, which accepts a `Content` and produces a list of `Content`. The output content list is usually some form of transformation of the input and some features related to it. The valid output features are `Embedding` and `Metadata`. 
 
 ```python
 def extract(self, content: Content) -> List[Content]:
@@ -68,33 +73,23 @@ Add a name to your extractor, a description of what it does and python and syste
 Extractors are just python modules so you can write a unit test like any any other python module. You should also test the extractor using the indexify binary to make sure it works as expected. 
 
 ```shell
-indexify extractor extract -e my-extractor/custom_extractor.py:MyExtractor --text "hello world"
+indexify-extractor local -e custom_extractor:MyExtractor --text "hello world"
 ```
 
 #### Join with Control Plane
-It's a good idea to test the behavior of the extractor with the Indexify Control Plane locally to make sure it works as expected. 
-
+You can join the extractor with the Indexfy server for it to recieve streams of content to extract from
 ```shell
-indexify extractor start --extractor_path my_extractor.py:MyClass --control-plane-addr 172.21.0.2:8950
+indexify-extractor join my_extractor:MyClass --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
 ```
 
 #### Package the extractor
-Once you have tested the package, pakcage it into a container. From here the extractor is deployable to any environment. You can share the extractor on our Hub for other developers to know about it! 
+Once you have tested the package, pakcage it into a container. From here the extractor is deployable to production using Kubernetes, ECS or other container based deployment platforms.
 
 ```shell
-indexify extractor package -vv -extractor-path </path/to/extractor.py>:<ExtractorClass>
+indexify-extractor package </path/to/extractor>:<ExtractorClass>
 ```
 
 The packaged extractors should also be visible as a docker container locally.
 ```shell
 docker images
 ```
-
-#### Test the packaged extractor
-
-```shell
-indexify extractor extractor --name your-name/indexify-extractor --text "hello world"
-```
-
-#### Deploy the extractor to production
-Once the extractor is packaged, it can be deployed to any environment as long as the Indexify control plane can access it. Point the extractor to the production control plane and that's all! 

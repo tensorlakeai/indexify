@@ -34,7 +34,7 @@ You can run the extractor as a long running process to continuosly receive strea
 ```shell
 indexify-extractor join <extractor_module:ClassNameofExtractor> --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
 ```
-The addresses here 
+The addresses here can be found from Indexify server's configuration.
 
 ### From Packaged Containers
 
