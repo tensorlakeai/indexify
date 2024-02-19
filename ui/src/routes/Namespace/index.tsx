@@ -5,7 +5,7 @@ import { IContentMetadata, IIndex } from "../../lib/Indexify/types";
 import IndexTable from "../../components/IndexTable";
 import ContentTable from "../../components/ContentTable";
 import React from "react";
-import ExtractorBindingsTable from "../../components/ExtractorBindingsTable";
+import ExtractionPoliciesTable from "../../components/ExtractionPoliciesTable";
 import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../../utils/helpers";
 import ExtractorsTable from "../../components/ExtractorsTable";
@@ -44,9 +44,9 @@ const NamespacePage = () => {
           {client.namespace}
         </Typography>
       </Box>
-      <ExtractorBindingsTable
+      <ExtractionPoliciesTable
         namespace={client.namespace}
-        extractorBindings={client.extractorBindings}
+        extractionPolicies={client.extractionPolicies}
       />
       <IndexTable indexes={indexes} />
       <ContentTable content={contentList} />
