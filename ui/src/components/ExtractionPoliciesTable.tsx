@@ -3,7 +3,7 @@ import { IExtractionPolicy } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React from "react";
-import CompressIcon from "@mui/icons-material/Compress";
+import GavelIcon from '@mui/icons-material/Gavel';
 import { Link } from "react-router-dom";
 
 const getRowId = (row: IExtractionPolicy) => {
@@ -99,7 +99,7 @@ const ExtractionPoliciesTable = ({
         alignItems={"center"}
         spacing={2}
       >
-        <CompressIcon />
+        <GavelIcon />
         <Typography variant="h3">Extraction Policies</Typography>
       </Stack>
       {renderContent()}

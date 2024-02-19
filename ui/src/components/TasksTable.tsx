@@ -3,7 +3,7 @@ import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { ITask } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
-import AssignmentIcon from "@mui/icons-material/Assignment";
+import TaskIcon from '@mui/icons-material/Task';
 import moment from "moment";
 import { Link } from "react-router-dom";
 
@@ -122,7 +122,7 @@ const TasksTable = ({
         alignItems={"center"}
         spacing={2}
       >
-        <AssignmentIcon />
+        <TaskIcon />
         <Typography variant="h3">Tasks</Typography>
       </Stack>
       {renderContent()}
