@@ -4,7 +4,7 @@ import {
   IContent,
   IContentMetadata,
   IExtractor,
-  IExtractorBinding,
+  IExtractionPolicy,
   IIndex,
   INamespace,
   ITask,
@@ -16,16 +16,16 @@ class IndexifyClient {
   private serviceUrl: string;
   private client: AxiosInstance;
   public namespace: string;
-  public extractorBindings: IExtractorBinding[];
+  public extractionPolicies: IExtractionPolicy[];
 
   constructor(
     serviceUrl: string = DEFAULT_SERVICE_URL,
     namespace: string = "default",
-    extractorBindings: IExtractorBinding[]
+    extractionPolicies: IExtractionPolicy[]
   ) {
     this.serviceUrl = serviceUrl;
     this.namespace = namespace;
-    this.extractorBindings = extractorBindings;
+    this.extractionPolicies = extractionPolicies;
     this.client = axios.create({
       baseURL: `${serviceUrl}/namespaces/${namespace}`,
     });
@@ -42,7 +42,7 @@ class IndexifyClient {
     return new IndexifyClient(
       serviceUrl,
       namespace,
-      response.data.namespace.extractor_bindings
+      response.data.namespace.extraction_policies
     );
   }
 
@@ -105,9 +105,9 @@ class IndexifyClient {
     return resp.data.content_list[0];
   }
 
-  async getTasks(extractor_binding?: string): Promise<ITask[]> {
+  async getTasks(extraction_policy?: string): Promise<ITask[]> {
     const resp = await this.client.get("tasks", {
-      params: { extractor_binding },
+      params: { extraction_policy },
     });
     return resp.data.tasks;
   }

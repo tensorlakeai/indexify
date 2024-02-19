@@ -1,20 +1,20 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IExtractorBinding } from "../lib/Indexify/types";
+import { IExtractionPolicy } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React from "react";
-import CompressIcon from "@mui/icons-material/Compress";
+import GavelIcon from '@mui/icons-material/Gavel';
 import { Link } from "react-router-dom";
 
-const getRowId = (row: IExtractorBinding) => {
+const getRowId = (row: IExtractionPolicy) => {
   return row.name;
 };
 
-const ExtractorBindingsTable = ({
-  extractorBindings,
+const ExtractionPoliciesTable = ({
+  extractionPolicies,
   namespace,
 }: {
-  extractorBindings: IExtractorBinding[];
+  extractionPolicies: IExtractionPolicy[];
   namespace: string;
 }) => {
   const columns: GridColDef[] = [
@@ -24,7 +24,7 @@ const ExtractorBindingsTable = ({
       width: 200,
       renderCell: (params) => {
         return (
-          <Link color="inherit" to={`/${namespace}/bindings/${params.value}`}>
+          <Link color="inherit" to={`/${namespace}/extraction-policies/${params.value}`}>
             {params.value}
           </Link>
         );
@@ -59,11 +59,11 @@ const ExtractorBindingsTable = ({
   ];
 
   const renderContent = () => {
-    if (extractorBindings.length === 0) {
+    if (extractionPolicies.length === 0) {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
-            No Bindings Found
+            No Policies Found
           </Alert>
         </Box>
       );
@@ -78,7 +78,7 @@ const ExtractorBindingsTable = ({
           sx={{ backgroundColor: "white" }}
           autoHeight
           getRowId={getRowId}
-          rows={extractorBindings}
+          rows={extractionPolicies}
           columns={columns}
           initialState={{
             pagination: {
@@ -99,12 +99,12 @@ const ExtractorBindingsTable = ({
         alignItems={"center"}
         spacing={2}
       >
-        <CompressIcon />
-        <Typography variant="h3">Extractor Bindings</Typography>
+        <GavelIcon />
+        <Typography variant="h3">Extraction Policies</Typography>
       </Stack>
       {renderContent()}
     </>
   );
 };
 
-export default ExtractorBindingsTable;
+export default ExtractionPoliciesTable;

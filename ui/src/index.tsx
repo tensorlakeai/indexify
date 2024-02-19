@@ -7,9 +7,9 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
 import Namespace, { loader as NamespaceLoader } from "./routes/Namespace";
-import ExtractorBindingPage, {
-  loader as ExtractorBindingLoader,
-} from "./routes/Namespace/bindings";
+import ExtractionPolicyPage, {
+  loader as ExtractionPolicyLoader,
+} from "./routes/Namespace/extractionPolicy";
 import ContentPage, {
   loader as ContentLoader,
 } from "./routes/Namespace/content";
@@ -29,9 +29,9 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/bindings/:bindingname",
-          element: <ExtractorBindingPage />,
-          loader: ExtractorBindingLoader,
+          path: "/:namespace/extraction-policies/:policyname",
+          element: <ExtractionPolicyPage />,
+          loader: ExtractionPolicyLoader,
           errorElement: <ErrorPage />,
         },
         {

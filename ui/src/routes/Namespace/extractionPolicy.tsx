@@ -8,21 +8,21 @@ import { Link } from "react-router-dom";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
-  const bindingname = params.bindingname;
-  if (!namespace || !bindingname) return redirect("/");
+  const policyname = params.policyname;
+  if (!namespace || !policyname) return redirect("/");
 
   const client = await IndexifyClient.createClient();
-  const tasks = (await client.getTasks(bindingname)).filter(
-    (task) => task.extractor_binding === bindingname
+  const tasks = (await client.getTasks(policyname)).filter(
+    (task) => task.extraction_policy === policyname
   );
 
-  return { tasks, bindingname, namespace };
+  return { tasks, policyname, namespace };
 }
 
-const ExtractorBindingPage = () => {
-  const { tasks, bindingname, namespace } = useLoaderData() as {
+const ExtractionPolicyPage = () => {
+  const { tasks, policyname, namespace } = useLoaderData() as {
     tasks: ITask[];
-    bindingname: string;
+    policyname: string;
     namespace: string;
   };
 
@@ -32,17 +32,17 @@ const ExtractorBindingPage = () => {
         <Link color="inherit" to={`/${namespace}`}>
           {namespace}
         </Link>
-        <Typography color="text.primary">Extractor Bindings</Typography>
-        <Typography color="text.primary">{bindingname}</Typography>
+        <Typography color="text.primary">Extraction Policies</Typography>
+        <Typography color="text.primary">{policyname}</Typography>
       </Breadcrumbs>
       <Box display={"flex"} alignItems={"center"}>
         <Typography variant="h2" component="h1">
-          Binding - {bindingname}
+          Extraction Policy - {policyname}
         </Typography>
       </Box>
-      <TasksTable namespace={namespace} tasks={tasks} hideExtractorBinding />
+      <TasksTable namespace={namespace} tasks={tasks} hideExtractionPolicy />
     </Stack>
   );
 };
 
-export default ExtractorBindingPage;
+export default ExtractionPolicyPage;

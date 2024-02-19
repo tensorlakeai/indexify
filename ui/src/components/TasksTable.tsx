@@ -3,7 +3,7 @@ import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { ITask } from "../lib/Indexify/types";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
-import AssignmentIcon from "@mui/icons-material/Assignment";
+import TaskIcon from '@mui/icons-material/Task';
 import moment from "moment";
 import { Link } from "react-router-dom";
 
@@ -11,12 +11,12 @@ const TasksTable = ({
   namespace,
   tasks,
   hideContentId,
-  hideExtractorBinding,
+  hideExtractionPolicy,
 }: {
   namespace: string;
   tasks: ITask[];
   hideContentId?: boolean;
-  hideExtractorBinding?: boolean;
+  hideExtractionPolicy?: boolean;
 }) => {
   let columns: GridColDef[] = [
     {
@@ -34,10 +34,10 @@ const TasksTable = ({
       ),
     },
     {
-      field: "extractor_binding",
-      headerName: "Extractor Binding",
+      field: "extraction_policy",
+      headerName: "Extraction Policy",
       renderCell: (params) => (
-        <Link to={`/${namespace}/bindings/${params.value}`}>
+        <Link to={`/${namespace}/extraction-policies/${params.value}`}>
           {params.value}
         </Link>
       ),
@@ -76,7 +76,7 @@ const TasksTable = ({
   columns = columns.filter((col) => {
     if (hideContentId && col.field === "content_metadata.id") {
       return false;
-    } else if (hideExtractorBinding && col.field === "extractor_binding") {
+    } else if (hideExtractionPolicy && col.field === "extraction_policy") {
       return false;
     }
     return true;
@@ -122,7 +122,7 @@ const TasksTable = ({
         alignItems={"center"}
         spacing={2}
       >
-        <AssignmentIcon />
+        <TaskIcon />
         <Typography variant="h3">Tasks</Typography>
       </Stack>
       {renderContent()}

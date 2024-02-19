@@ -1,6 +1,6 @@
 export interface INamespace {
   name: string;
-  extractor_bindings: IExtractorBinding[];
+  extraction_policies: IExtractionPolicy[];
 }
 
 export interface IEmbeddingSchema {
@@ -41,7 +41,7 @@ export interface IContent {
   content_type: string;
 }
 
-export interface IExtractorBinding {
+export interface IExtractionPolicy {
   content_source: string;
   extractor: string;
   filters_eq: Record<string, string>;
@@ -52,7 +52,7 @@ export interface IExtractorBinding {
 export interface ITask {
   content_metadata: IContentMetadata;
   extractor: string;
-  extractor_binding: string;
+  extraction_policy: string;
   id: string;
   input_params: Record<string, string>;
   outcome: string;
