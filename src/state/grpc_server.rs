@@ -23,6 +23,23 @@ impl RaftApi for RaftGrpcServer {
         Err(Status::unimplemented("not implemented"))
     }
 
+    async fn append_entries(
+        &self,
+        request: Request<RaftRequest>,
+    ) -> Result<Response<RaftReply>, Status> {
+        async {
+            let ae_req = GrpcHelper::parse_req(request)?;
+            let resp = self
+                .raft
+                .append_entries(ae_req)
+                .await
+                .map_err(GrpcHelper::internal_err)?;
+
+            GrpcHelper::ok_response(resp)
+        }
+        .await
+    }
+
     async fn install_snapshot(
         &self,
         request: Request<RaftRequest>,
@@ -47,23 +64,6 @@ impl RaftApi for RaftGrpcServer {
             let resp = self
                 .raft
                 .vote(v_req)
-                .await
-                .map_err(GrpcHelper::internal_err)?;
-
-            GrpcHelper::ok_response(resp)
-        }
-        .await
-    }
-
-    async fn append_entries(
-        &self,
-        request: Request<RaftRequest>,
-    ) -> Result<Response<RaftReply>, Status> {
-        async {
-            let ae_req = GrpcHelper::parse_req(request)?;
-            let resp = self
-                .raft
-                .append_entries(ae_req)
                 .await
                 .map_err(GrpcHelper::internal_err)?;
 

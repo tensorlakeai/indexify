@@ -159,7 +159,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Retreive the metadata from the database
+        // Retrieve the metadata from the database
         let metadata_out = index_manager
             .get_metadata(namespace, table_name, "test_content_id")
             .await
