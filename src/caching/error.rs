@@ -41,7 +41,7 @@ impl fmt::Display for IndexifyCachingError {
 
 impl std::error::Error for IndexifyCachingError {}
 
-impl From<redis::RedisError> for IndexifyCachingError {
+impl From<RedisError> for IndexifyCachingError {
     fn from(e: redis::RedisError) -> Self {
         match e.kind() {
             redis::ErrorKind::IoError => IndexifyCachingError::Io(std::io::Error::new(

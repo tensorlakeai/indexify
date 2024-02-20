@@ -59,7 +59,7 @@ impl QdrantDb {
         Ok(client)
     }
 
-    fn to_distance(distance: IndexDistance) -> Distance {
+    fn convert_to_qdrant_distance(distance: IndexDistance) -> Distance {
         match distance {
             IndexDistance::Cosine => Distance::Cosine,
             IndexDistance::Dot => Distance::Dot,
@@ -84,7 +84,7 @@ impl VectorDb for QdrantDb {
                     config: Some(Config::Params(VectorParams {
                         on_disk: None,
                         size: index.vector_dim,
-                        distance: Self::to_distance(index.distance).into(),
+                        distance: Self::convert_to_qdrant_distance(index.distance).into(),
                         hnsw_config: None,
                         quantization_config: None,
                     })),

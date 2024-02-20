@@ -26,10 +26,6 @@ impl PgVector {
 /// See https://github.com/pgvector/pgvector#approximate-search for more options
 #[async_trait]
 impl VectorDb for PgVector {
-    fn name(&self) -> String {
-        "pg_vector".into()
-    }
-
     /// we create a new table for each index.
     #[tracing::instrument]
     async fn create_index(&self, index: CreateIndexParams) -> Result<()> {
@@ -128,6 +124,10 @@ impl VectorDb for PgVector {
         let result = sqlx::query(&query).fetch_one(&self.pool).await?;
         let count: i64 = result.get(0);
         Ok(count as u64)
+    }
+
+    fn name(&self) -> String {
+        "pg_vector".into()
     }
 }
 
