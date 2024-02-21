@@ -1,6 +1,6 @@
 import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { Alert, Typography } from "@mui/material";
+import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import MemoryIcon from "@mui/icons-material/MemoryOutlined";
 import Extractor from "../lib/Indexify/extractor";
@@ -14,7 +14,23 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
       headerName: "Input Parameters",
       width: 300,
       valueGetter: (params) => {
-        return JSON.stringify(params.value);
+        return params.value?.properties;
+      },
+      renderCell: (params) => {
+        if (!params.value) {
+          return <Typography variant="body1">None</Typography>;
+        }
+        return (
+          <Box sx={{ overflowX: "scroll" }}>
+            <Stack gap={1} direction="row">
+              {Object.keys(params.value).map((val: string) => {
+                return (
+                  <Chip key={val} label={`${val}:${params.value[val].type}`} />
+                );
+              })}
+            </Stack>
+          </Box>
+        );
       },
     },
     {
@@ -22,7 +38,21 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
       headerName: "Outputs",
       width: 300,
       valueGetter: (params) => {
-        return JSON.stringify(params.row.input_params);
+        return params.value ?? {};
+      },
+      renderCell: (params) => {
+        if (!params.value) {
+          return <Typography variant="body1">None</Typography>;
+        }
+        return (
+          <Box overflow="scroll">
+            <Stack gap={1} direction="row" overflow="scroll">
+              {Object.keys(params.value).map((val: string) => {
+                return <Chip key={val} label={val} />;
+              })}
+            </Stack>
+          </Box>
+        );
       },
     },
   ];
