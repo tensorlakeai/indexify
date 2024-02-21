@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IExtractionPolicy } from "../lib/Indexify/types";
+import { IExtractionPolicy } from "getindexify";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React from "react";

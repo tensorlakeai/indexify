@@ -18,7 +18,7 @@ import { Stack } from "@mui/system";
 import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
 import { Button } from "@mui/material";
-import IndexifyClient from "../lib/Indexify/client";
+import { IndexifyClient } from "getindexify";
 import DataObjectIcon from "@mui/icons-material/DataObject";
 import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../utils/helpers";

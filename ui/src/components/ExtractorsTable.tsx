@@ -3,7 +3,7 @@ import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import MemoryIcon from "@mui/icons-material/MemoryOutlined";
-import Extractor from "../lib/Indexify/extractor";
+import { Extractor } from "getindexify";
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const columns: GridColDef[] = [
