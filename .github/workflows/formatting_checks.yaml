@@ -1,11 +1,11 @@
-name: Tests
+name: Formatting Checks
 on:
   push:
     branches:
-      - 'main'
+      - "main"
   pull_request:
-      branches:
-      - 'main'
+    branches:
+      - "main"
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,8 +14,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Npm Install
-      run: cd ui && npm install
-    - name: Lint Check
-      run: cd ui && npm run lint
+      - uses: actions/checkout@v3
+      - name: Npm Install
+        run: cd ui && npm install
+      - name: UI Lint Check
+        run: cd ui && npm run lint
+      - name: Rust Format Check
+      - run: rustup toolchain install nightly --component rustfmt
+      - run: cargo +nightly fmt --check
