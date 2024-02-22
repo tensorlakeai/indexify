@@ -20,8 +20,8 @@ jobs:
         run: cd ui && npm run lint
       - name: Rust Format Check
       - run: |
-        rustup toolchain install nightly --component rustfmt
-        cargo +nightly fmt --check
+          rustup toolchain install nightly --component rustfmt
+          cargo +nightly fmt --check
   test:
     runs-on: ubuntu-latest
     steps:
