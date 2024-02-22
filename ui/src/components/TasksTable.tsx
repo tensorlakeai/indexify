@@ -1,6 +1,6 @@
 import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { ITask, IContent } from "getindexify";
+import { ITask } from "getindexify";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import TaskIcon from '@mui/icons-material/Task';
