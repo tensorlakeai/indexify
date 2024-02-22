@@ -19,17 +19,29 @@ This starts the Indexify ingestion API and scheduler. The server state, ingested
 
 A internal scheduler endpoint is started at localhost:8950 for communicating with extractors.
 
-### Install the python client library
+### Install the client library
 Indexify comes with Python and Typescript clients for ingesting unstructurd data and retreiving indexed content. These clients uses the HTTP APIs of Indexify under the hood.
-```bash
-pip install indexify
-```
+
 === "python"
 
+    ```bash
+    pip install indexify
+    ```
     ```python
     from indexify import IndexifyClient
 
     client = IndexifyClient()
+    ```
+
+=== "TypeScript"
+
+    ```bash
+    npm install getindexify
+    ```
+    ```typescript
+    import { IndexifyClient } from "getindexify";
+
+    const client = await IndexifyClient.createClient();
     ```
 
 ### Adding Content
@@ -47,6 +59,17 @@ Indexify supports multiple ways of adding content through with it's API.
         "Kevin Durant is the best basketball player in the world."
     ])
     ```
+
+=== "TypeScript"
+
+    ```typescript
+    client.addDocuments([
+        "Indexify is amazing!",
+        "Indexify is a retrieval service for LLM agents!",
+        "Kevin Durant is the best basketball player in the world."
+    ]);
+    ```
+
 === "curl"
 
     ```shell
@@ -85,9 +108,24 @@ The extraction policies informs Indexify how to extract information from ingeste
 === "python"
 
     ```python
-    client.add_extraction_policy(extractor="tensorlake/minilm-l6", name="minilml6", content_source="ingestion")
+    client.add_extraction_policy(
+        extractor="tensorlake/minilm-l6", 
+        name="minilml6", 
+        content_source="ingestion")
 
     extraction_policies = client.extraction_policies
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    client.addExtractionPolicy({
+        extractor: "tensorlake/minilm-l6",
+        name: "testpolicy",
+        content_source="ingestion"
+    });
+    
+    extractionPolicies = client.extractionPolicies;
     ```
 
 === "curl"

@@ -14,7 +14,13 @@ The following example searches for the index `embeddings` for the query `good` a
 === "python"
 
       ```python
-      client.search_index("minilml6.embedding","good", 3)
+      client.search_index("minilml6.embedding", "good", 3)
+      ```
+
+=== "TypeScript"
+
+      ```typescript
+      await client.searchIndex("minilml6.embedding", "good", 3);
       ```
 
 === "curl"

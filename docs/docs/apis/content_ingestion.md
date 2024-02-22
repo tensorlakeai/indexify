@@ -4,31 +4,50 @@ We provide APIs to upload raw text and any files from which you might want to ex
 
 Import the language specific clients
 === "Python"
+
     ```python
     from indexify import IndexifyClient
     ```
 === "TypeScript"
+
     ```typescript
+    import { IndexifyClient } from "getindexify";
     ```
 
 ## Upload File
 
 === "Python"
+
     ```python
     client = IndexifyClient()
     content = client.upload_file(path="/path/to/file")
     ```
 
 === "TypeScript"
+  
     ```typescript
+    const client = await IndexifyClient.createClient();
+    await client.uploadFile(`files/test.txt`);
     ```
 
 ## Upload Raw Text
 === "Python"
+
     ```python
+    client.add_documents([
+      "Indexify is amazing!",
+      "Indexify is a retrieval service for LLM agents!",
+      "Kevin Durant is the best basketball player in the world."
+    ])
     ```
 === "TypeScript"
+
     ```typescript
+    await client.addDocuments([
+      "Indexify is amazing!",
+      "Indexify is a retrieval service for LLM agents!",
+      "Kevin Durant is the best basketball player in the world."
+    ]);
     ```
 
 ## Namespaces
@@ -50,8 +69,6 @@ A namespace can be created by specifying a unique name, and any additional label
     minilm_policy = ExtractionPolicy(
         extractor="tensorlake/minilm-l6",
         name="minilm-l6",
-        content_source="source",
-        input_params={},
     )
     
     IndexifyClient.create_namespace(
@@ -61,9 +78,22 @@ A namespace can be created by specifying a unique name, and any additional label
     )
     ```
 
+=== "TypeScript"
+
+    ```typescript
+    import { IndexifyClient, IExtractionPolicy } from "getindexify";
+
+    const minilmPolicy:IExtractionPolicy = {
+      extractor: "tensorlake/minilm-l6",
+      name: "minilm-l6"
+    };
+
+    IndexifyClient.createNamespace("research", [minilmPolicy], {"sensitive":"true"});
+    ```
+
 === "curl"
 
-    ``` shell
+    ```shell
     curl -X POST http://localhost:8900/namespaces \
     -H 'Content-Type: application/json' \
     -d '
@@ -84,7 +114,13 @@ A namespace can be created by specifying a unique name, and any additional label
 === "python"
 
     ```python
-    IndexifyClient.namespaces()
+    namespaces = IndexifyClient.namespaces()
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    const namespaces = await IndexifyClient.namespaces();
     ```
 
 === "curl"

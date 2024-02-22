@@ -5,6 +5,7 @@ Additionally, filters can be added to specifically restrict the content being ex
 For ex, the example below adds the policy `MiniLML6` to all the content in the namespace `default` which has labels `source` as `google`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
 
 === "python"
+
     ```python
     client.add_extraction_policy(
         extractor="tensorlake/minilm-l6",
@@ -12,8 +13,18 @@ For ex, the example below adds the policy `MiniLML6` to all the content in the n
         labels_eq="source:google",
     )
     ```
+=== "TypeScript"
 
+    ```typescript
+    await client.addExtractionPolicy({
+        extractor: "tensorlake/wikipedia",
+        name: "wikipedia",
+        content_source: "ingestion",
+        input_params: {},
+    });
+    ```
 === "curl"
+
     ```shell
     curl -v -X POST http://localhost:8900/namespaces/default/extraction_policies \
     -H "Content-Type: application/json" \
@@ -31,8 +42,30 @@ Specify a `content_source` in a policy for creating such chains.
 
 For ex -
 === "Python"
+
     ```python
+    client.add_extraction_policy(
+        extractor="tensorlake/wikipedia",
+        name="wikipedia",
+        content_source="ingestion"
+    )
+    client.add_extraction_policy(
+        extractor="tensorlake/minilm-l6",
+        name="minilml6",
+        content_source="wikipedia"
+    )
     ```
 === "TypeScript"
+
     ```typescript
+    await client.addExtractionPolicy({
+        extractor: "tensorlake/wikipedia",
+        name: "wikipedia",
+        content_source: "ingestion",
+    });
+    await client.addExtractionPolicy({
+        extractor: "tensorlake/minilm-l6",
+        name: "minilml6",
+        content_source: "wikipedia",
+    });
     ```
