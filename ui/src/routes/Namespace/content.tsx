@@ -1,7 +1,6 @@
-import IndexifyClient from "../../lib/Indexify/client";
 import { useLoaderData, LoaderFunctionArgs, redirect } from "react-router-dom";
 import { Typography, Stack, Breadcrumbs, Box } from "@mui/material";
-import { IContent, ITask } from "../../lib/Indexify/types";
+import { IndexifyClient, IContent, ITask } from "getindexify";
 import React from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
