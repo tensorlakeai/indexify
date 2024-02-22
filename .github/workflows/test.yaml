@@ -11,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lint-checks:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Npm Install
@@ -19,8 +19,9 @@ jobs:
       - name: UI Lint Check
         run: cd ui && npm run lint
       - name: Rust Format Check
-      - run: rustup toolchain install nightly --component rustfmt
-      - run: cargo +nightly fmt --check
+      - run: |
+        rustup toolchain install nightly --component rustfmt
+        cargo +nightly fmt --check
   test:
     runs-on: ubuntu-latest
     steps:
