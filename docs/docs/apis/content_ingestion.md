@@ -1,12 +1,39 @@
 # Content Ingestion 
 
+We provide APIs to upload raw text and any files from which you might want to extract information and build indexes.
+
+Import the language specific clients
+=== "Python"
+    ```python
+    from indexify import IndexifyClient
+    ```
+=== "TypeScript"
+    ```typescript
+    ```
+
 ## Upload File
 
+=== "Python"
+    ```python
+    client = IndexifyClient()
+    content = client.upload_file(path="/path/to/file")
+    ```
+
+=== "TypeScript"
+    ```typescript
+    ```
+
 ## Uplaod Raw Text
+=== "Python"
+    ```python
+    ```
+=== "TypeScript"
+    ```typescript
+    ```
 
 ## Namespaces
 
-Namespaces store content either uploaded by applications or from extractors that chunk or transform content.
+Namespaces are used to isolate content uploaded by applications or from extractors that chunk or transform content.
 
 !!! note
 
@@ -86,30 +113,4 @@ A namespace can be created by specifying a unique name, and any additional label
         }
       ]
     }
-    ```
-
-## Extraction Policies 
-Extraction Policies are rules to instruct Indexify to run a particular extractor on content in a namespace. These policies are evaluated when new content is added and extractors are run automatically on new or existing content. Extraction Policies keep indexes updated as new content is ingested.
-Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
-
-For ex, the example below adds the policy `MiniLML6` to all the content in the namespace `default` which has labels `source` as `google`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
-
-=== "python"
-    ```python
-    client.add_extraction_policy(
-        extractor="tensorlake/minilm-l6",
-        name="minil6",
-        labels_eq="source:google",
-    )
-    ```
-
-=== "curl"
-    ```shell
-    curl -v -X POST http://localhost:8900/namespaces/default/extraction_policies \
-    -H "Content-Type: application/json" \
-    -d '{
-            "extractor": "tensorlake/minilm-l6",
-            "name": "minil6",
-            "filters_eq": "source:google"
-        }'
     ```
