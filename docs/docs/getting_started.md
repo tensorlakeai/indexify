@@ -122,10 +122,10 @@ The extraction policies informs Indexify how to extract information from ingeste
     client.addExtractionPolicy({
         extractor: "tensorlake/minilm-l6",
         name: "testpolicy",
-        content_source="ingestion"
+        content_source: "ingestion"
     });
     
-    extractionPolicies = client.extractionPolicies;
+    const extractionPolicies = client.extractionPolicies;
     ```
 
 === "curl"

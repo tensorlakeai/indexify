@@ -19,8 +19,7 @@ For ex, the example below adds the policy `MiniLML6` to all the content in the n
     await client.addExtractionPolicy({
         extractor: "tensorlake/wikipedia",
         name: "wikipedia",
-        content_source: "ingestion",
-        input_params: {},
+        labels_eq: "source:google",
     });
     ```
 === "curl"
