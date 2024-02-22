@@ -7,14 +7,14 @@ Namespaces store content either uploaded by applications or from extractors that
     A default namespace, named `default` is created when Indexify is started.
 
 ## Create or Update a Namespace
-A namespace can be created by specifying a unique name, and any additional labels or extractor bindings.
+A namespace can be created by specifying a unique name, and any additional labels or extraction policies.
 
 === "python"
 
     ```python
-    from indexify import IndexifyClient, ExtractorBinding
+    from indexify import IndexifyClient, ExtractionPolicy
 
-    minilm_binding = ExtractorBinding(
+    minilm_policy = ExtractionPolicy(
         extractor="tensorlake/minilm-l6",
         name="minilm-l6",
         content_source="source",
@@ -23,7 +23,7 @@ A namespace can be created by specifying a unique name, and any additional label
     
     IndexifyClient.create_namespace(
         name="research",
-        extractor_bindings=[minilm_binding],
+        extraction_policies=[minilm_policy],
         labels={"sensitive": "true"},
     )
     ```
@@ -36,7 +36,7 @@ A namespace can be created by specifying a unique name, and any additional label
     -d '
         {
           "name": "research",
-          "extractor_bindings": [
+          "extraction_policies": [
             {
               "extractor": "tensorlake/minilm-l6",
               "name": "minilm-l6"
@@ -66,7 +66,7 @@ A namespace can be created by specifying a unique name, and any additional label
       "namespaces": [
         {
           "name": "research",
-          "extractor_bindings": [
+          "extraction_policies": [
             {
               "extractor": "diptanu/minilm-l6-extractor",
               "name": "minilml6",
@@ -82,15 +82,15 @@ A namespace can be created by specifying a unique name, and any additional label
     }
     ```
 
-## Extractor Bindings 
-Extractor Bindings are rules to instruct Indexify to run a particular extractor on content in a namespace. Bindings are evaluated when new content is added and extractors are run automatically on new or existing content. Bindings keep indexes updated as new content is ingested.
+## Extraction Policies 
+Extraction Policies are rules to instruct Indexify to run a particular extractor on content in a namespace. These policies are evaluated when new content is added and extractors are run automatically on new or existing content. Extraction Policies keep indexes updated as new content is ingested.
 Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
 
-For ex, the example below binds the extractor `MiniLML6` to all the content in the namespace `default` which has labels `source` as `google`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
+For ex, the example below adds the policy `MiniLML6` to all the content in the namespace `default` which has labels `source` as `google`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
 
 === "python"
     ```python
-    client.bind_extractor(
+    client.add_extraction_policy(
         extractor="tensorlake/minilm-l6",
         name="minil6",
         labels_eq="source:google",
@@ -99,7 +99,7 @@ For ex, the example below binds the extractor `MiniLML6` to all the content in t
 
 === "curl"
     ```shell
-    curl -v -X POST http://localhost:8900/namespaces/default/extractor_bindings \
+    curl -v -X POST http://localhost:8900/namespaces/default/extraction_policies \
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "tensorlake/minilm-l6",

@@ -64,15 +64,15 @@ The extraction policies informs Indexify how to extract information from ingeste
 === "python"
 
     ```python
-    client.bind_extractor(extractor="tensorlake/minilm-l6", name="minilml6", content_source="ingestion")
+    client.add_extraction_policy(extractor="tensorlake/minilm-l6", name="minilml6", content_source="ingestion")
 
-    bindings = client.extractor_bindings
+    extraction_policies = client.extraction_policies
     ```
 
 === "curl"
 
     ```shell
-    curl -v -X POST http://localhost:8900/namespaces/default/extractor_bindings \
+    curl -v -X POST http://localhost:8900/namespaces/default/extraction_policies \
     -H "Content-Type: application/json" \
     -d '{
             "extractor": "tensorlake/minilm-l6",
