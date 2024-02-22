@@ -12,8 +12,10 @@ env:
 
 jobs:
   lint:
+    name: Lint Checks
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
       - name: Npm Install
         run: cd ui && npm install
       - name: UI Lint Check
@@ -23,6 +25,7 @@ jobs:
           rustup toolchain install nightly --component rustfmt
           cargo +nightly fmt --check
   test:
+    name: Run Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
