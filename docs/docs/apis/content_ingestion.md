@@ -1,5 +1,11 @@
 # Content Ingestion 
 
+## Upload File
+
+## Uplaod Raw Text
+
+## Namespaces
+
 Namespaces store content either uploaded by applications or from extractors that chunk or transform content.
 
 !!! note

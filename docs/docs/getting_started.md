@@ -8,22 +8,22 @@ We will build a simple RAG application in this demo where Indexify extracts cont
 curl https://www.tensorlake.ai | sh
 ```
 
-### Start the Service using Docker Compose
+### Start the Service
 ```shell
 ./indexify server -d
 ```
 This starts the Indexify ingestion API and scheduler. The server state, ingested and extract content will be stored on local disk. The following endpoints are started -
-* Ingestion API - http://localhost:8900
-* User Interface - http://localhost:8900/ui
-A scheduler endpoint is started at localhost:8950 for communicating with extractors.
+
+* Ingestion API - [http://localhost:8900](http://localhost:8900)
+* User Interface - [http://localhost:8900/ui](http://localhost:8900/ui)
+
+A internal scheduler endpoint is started at localhost:8950 for communicating with extractors.
 
 ### Install the python client library
 Indexify comes with Python and Typescript clients for ingesting unstructurd data and retreiving indexed content. These clients uses the HTTP APIs of Indexify under the hood.
-=== "python"
-
-    ```shell
-    pip install indexify
-    ```
+```bash
+pip install indexify
+```
 === "python"
 
     ```python
@@ -60,10 +60,15 @@ Indexify supports multiple ways of adding content through with it's API.
     ```
 
 ## Install the Extractor SDK 
-Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, download an extractor.
+Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, first install the extractors sdk.
 
 ```shell
 pip install indexify-extractor-sdk
+```
+
+Now download and extractor from our hub. You can find the available extractors we have built on [Github](http://github.com/tensorlakeai/indexify-extractors).
+
+```bash
 indexify-extractor download hub://embedding/minilm-l6
 ```
 
@@ -71,6 +76,7 @@ Once the extractor SDK and extractors are downloaded, start and join them to the
 ```shell
 indexify-extractor join minilm_l6:MiniLMExtractor
 ```
+The extractor is now ready to receive content you upload and extract embedding using the MiniLML6Extractor
 
 #### Set up some Extraction Policies
 
