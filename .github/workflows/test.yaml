@@ -2,29 +2,57 @@ name: Tests
 on:
   push:
     branches:
-      - 'main'
+      - "main"
   pull_request:
-      branches:
-      - 'main'
+    branches:
+      - "main"
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  lint:
+    name: Lint Checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Install protoc
-      run: sudo apt install -y protobuf-compiler npm
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.9
-    - name: Test
-      run: ./run_tests.sh
-    - name: Clear up space
-      run: |
-        docker stop --time 90 $(docker ps -aq) || true
-        docker rm --force $(docker ps -aq) || true
-        docker rmi --force $(docker images -aq) || true
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Npm Install
+        run: cd ui && npm install
+
+      - name: UI Lint Check
+        run: cd ui && npm run lint
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
+          override: true
+
+      - name: Rust Format Check
+        run: |
+          cargo +nightly fmt -- --check
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install protoc
+        run: sudo apt install -y protobuf-compiler npm
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - name: Test
+        run: ./run_tests.sh
+      - name: Clear up space
+        run: |
+          docker stop --time 90 $(docker ps -aq) || true
+          docker rm --force $(docker ps -aq) || true
+          docker rmi --force $(docker images -aq) || true
