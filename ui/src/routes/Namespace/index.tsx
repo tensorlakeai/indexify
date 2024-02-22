@@ -30,18 +30,6 @@ const NamespacePage = () => {
 
   return (
     <Stack direction="column" spacing={3}>
-      <Box display={"flex"} alignItems={"center"}>
-        <CircleIcon
-          sx={{
-            width: "30px",
-            color: stringToColor(client.namespace),
-            mr: 1,
-          }}
-        />
-        <Typography variant="h2" component="h1">
-          {client.namespace}
-        </Typography>
-      </Box>
       <ExtractionPoliciesTable
         namespace={client.namespace}
         extractionPolicies={client.extractionPolicies}
