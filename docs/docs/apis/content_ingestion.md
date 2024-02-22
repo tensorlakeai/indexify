@@ -23,7 +23,7 @@ Import the language specific clients
     ```typescript
     ```
 
-## Uplaod Raw Text
+## Upload Raw Text
 === "Python"
     ```python
     ```
