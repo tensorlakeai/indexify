@@ -15,8 +15,8 @@ A python class that can -
 1. Transform unstructured data into intermediate forms. For example, a PDF document transformed into text, images, structured data if it contains tabular data.
 2. Extract features like embedding or metadata(JSON) that goes into various indexes that can be retreived by LLM applications.
 
-## Extractor Bindings
-Applies extractors in a streaming fashion to ingested or derived unstructured content, and Indexes are automatically updated with the extracted data. Think of bindings as calls to extractors, they are long lived and are being called every time there is new content in the system.
+## Extraction Policies
+Applies extractors in a streaming fashion to ingested or derived unstructured content, and Indexes are automatically updated with the extracted data. Think of policies as calls to extractors, they are long lived and are being called every time there is new content in the system.
 
 ## Namespaces
 Namespaces are logical abstractions for storing related content. Namespaces allow partitioning data based on security and organizational boundaries.

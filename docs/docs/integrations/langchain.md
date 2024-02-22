@@ -15,7 +15,7 @@ client = IndexifyClient()
 # add docs
 from indexify.client import Document
 
-client.bind_extractor(
+client.add_extraction_policy(
     "diptanu/minilm-l6-extractor",
     "minilm",
 )
