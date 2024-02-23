@@ -39,7 +39,9 @@ nav:
   - Deployment: 'deployment.md'
   - Develop Indexify: 'develop.md'
   - Integrations:
-    - Langchain: 'integrations/langchain.md'
+    - Langchain:
+      - Python: 'integrations/langchain/python_langchain.md'
+      - TypeScript: 'integrations/langchain/typescript_langchain.md'
 plugins: 
   - mkdocs-jupyter
 
