@@ -92,7 +92,7 @@ impl Coordinator {
     }
 
     pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<internal_api::Task>> {
-        let tasks = self.shared_state.tasks_for_executor(executor_id).await?;
+        let tasks = self.shared_state.tasks_for_executor(executor_id, Some(10)).await?;
         Ok(tasks)
     }
 
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(
             1,
             shared_state
-                .tasks_for_executor("test_executor_id")
+                .tasks_for_executor("test_executor_id", None)
                 .await?
                 .len()
         );
@@ -379,7 +379,7 @@ mod tests {
         assert_eq!(
             1,
             shared_state
-                .tasks_for_executor("test_executor_id")
+                .tasks_for_executor("test_executor_id", None)
                 .await?
                 .len()
         );
