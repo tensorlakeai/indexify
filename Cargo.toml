@@ -19,6 +19,7 @@ arrow-array = {version = "50.0.0" }
 axum = { version = "0.7", features = ["multipart", "macros"] }
 axum-otel-metrics = "0.8"
 axum-tracing-opentelemetry = "0.16"
+axum-server = {version = "0.6.0", features = ["tls-rustls"]}
 backtrace = "0.3"
 base64 = "0.21.0"
 bytes = "1"
@@ -70,8 +71,8 @@ rust-embed = { version = "8.2.0", features = [
     "debug-embed",
     "interpolate-folder-path",
 ] }
-rustls = { version = "0.22" }
-rustls-pemfile = { version = "2" }
+rustls = { version = "0.21" }
+rustls-pemfile = { version = "2.0.0" }
 rusqlite = { version = "0.30.0", features = ["bundled", "serde_json"] }
 serde = { version = "1", features = ["derive"] }
 serde_with = { version = "3.4.0" }
@@ -123,6 +124,7 @@ arrow-array = {workspace=true}
 axum = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
+axum-server = {workspace = true }
 base64 = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
