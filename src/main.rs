@@ -26,7 +26,7 @@ mod grpc_helper;
 mod metadata_storage;
 mod scheduler;
 mod test_util;
-mod tls;
+//mod tls;
 mod tonic_streamer;
 mod utils;
 mod vector_index;

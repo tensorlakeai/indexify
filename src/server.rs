@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -11,24 +11,15 @@ use axum::{
     Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
+use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use hyper::{body::Incoming, Method};
-use hyper_util::{
-    rt::{TokioExecutor, TokioIo},
-    server::conn::auto::Builder,
-};
+use hyper::Method;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
 use rust_embed::RustEmbed;
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    pin,
-    signal,
-    sync::Notify,
-};
-use tower::Service;
+use tokio::signal;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
@@ -42,7 +33,7 @@ use crate::{
     extractor_router::ExtractorRouter,
     metadata_storage::{self, MetadataStorageTS},
     server_config::ServerConfig,
-    tls::build_mtls_acceptor,
+    //tls::build_mtls_config,
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -227,135 +218,35 @@ impl Server {
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
 
-        let (signal_tx, signal_rx) = tokio::sync::watch::channel(());
-        let signal_tx = Arc::new(signal_tx);
+        let handle = Handle::new();
+
+        let handle_sh = handle.clone();
         tokio::spawn(async move {
-            shutdown_signal().await;
+            shutdown_signal(handle_sh).await;
             info!("received graceful shutdown signal. Telling tasks to shutdown");
-            drop(signal_rx);
         });
 
-        let listener = tokio::net::TcpListener::bind(&self.addr).await?;
+        // TODO: Bring all this back once axum_server upgrades to rustls 0.22
+        // since our TLS code is based on that
+        //if let Some(tls_config) = self.config.tls.clone() {
+        //    let config: Arc<rustls::ServerConfig> =
+        // build_mtls_config(&tls_config).await?;    let rustls_config =
+        // RustlsConfig::from_config(config);    let handle = handle.clone();
+        //    axum_server::bind_rustls(self.addr, rustls_config)
+        //        .handle(handle)
+        //        .serve(app.into_make_service())
+        //        .await?;
+        //} else {
+        let handle = handle.clone();
+        axum_server::bind(self.addr)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await?;
+        //}
 
-        let shutdown_notify = Arc::new(Notify::new());
-        let notify_clone = shutdown_notify.clone();
-        tokio::spawn(async move {
-            shutdown_signal().await;
-            notify_clone.notify_waiters();
-        });
-
-        let acceptor = match use_tls {
-            true => Some(build_mtls_acceptor(self.config.tls.as_ref().unwrap()).await?),
-            false => None,
-        };
-
-        loop {
-            // clone for loop
-            let app = app.clone();
-            let acceptor = acceptor.clone();
-            let shutdown_notify = shutdown_notify.clone();
-
-            // pick up the next connection
-            let (tcp_stream, _remote_addr) = tokio::select! {
-                conn = listener.accept() => conn?,
-                _ = signal_tx.closed() => {
-                    info!("graceful shutdown signal received. Shutting down server");
-                    break Ok(()); // graceful shutdown
-                }
-            };
-
-            match use_tls {
-                true => {
-                    tokio::task::spawn(async move {
-                        let acceptor = acceptor.unwrap().clone();
-                        let tls_stream = match acceptor.accept(tcp_stream).await {
-                            Ok(tls_stream) => tls_stream,
-                            Err(err) => {
-                                error!("failed to perform TLS Handshake: {}", err);
-                                return;
-                            }
-                        };
-                        match Self::handle_connection(
-                            Box::new(tls_stream),
-                            app.clone(),
-                            shutdown_notify,
-                        )
-                        .await
-                        {
-                            Ok(_) => {}
-                            Err(err) => {
-                                error!("failed to handle connection: {}", err);
-                            }
-                        }
-                    });
-                }
-                false => {
-                    tokio::task::spawn(async move {
-                        match Self::handle_connection(
-                            Box::new(tcp_stream),
-                            app.clone(),
-                            shutdown_notify,
-                        )
-                        .await
-                        {
-                            Ok(_) => {}
-                            Err(err) => {
-                                error!("failed to handle connection: {}", err);
-                            }
-                        }
-                    });
-                }
-            }
-        }
-    }
-
-    async fn handle_connection(
-        tcp_stream: Box<dyn Stream>,
-        app: Router,
-        notify_shutdown: Arc<Notify>,
-    ) -> Result<()> {
-        let tower_service = app.clone();
-        let hyper_service = hyper::service::service_fn(move |request: Request<Incoming>| {
-            // We have to clone `tower_service` because hyper's `Service` uses `&self`
-            // whereas tower's `Service` requires `&mut self`.
-            //
-            // We don't need to call `poll_ready` since `Router` is always ready.
-            tower_service.clone().call(request)
-        });
-
-        let builder = Builder::new(TokioExecutor::new());
-        let conn = builder.serve_connection(TokioIo::new(tcp_stream), hyper_service);
-
-        pin!(conn);
-
-        // TODO: make configurable
-        let timeout_duration = 60;
-        let timeout = tokio::time::sleep(std::time::Duration::from_secs(timeout_duration));
-
-        let res = tokio::select! {
-            res = conn.as_mut() => {
-                match res {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(anyhow::anyhow!("failed to serve connection: {}", e)),
-                }
-            }
-            _ = timeout => {
-                info!("connection timed out after {} seconds", timeout_duration);
-                Ok(())
-            }
-            _ = notify_shutdown.notified() => {
-                info!("graceful shutdown signal received. Shutting down connection");
-                Ok(()) // graceful shutdown
-            }
-        };
-        res.map_err(|e| anyhow::anyhow!("failed to serve connection: {}", e))
+        Ok(())
     }
 }
-
-// implement Stream for all types that implement AsyncRead + AsyncWrite + Send +
-// Unpin i.e. TcpStream and TlsStream
-pub trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
-impl<T: AsyncRead + AsyncWrite + Send + Unpin> Stream for T {}
 
 #[tracing::instrument]
 async fn root() -> &'static str {
@@ -901,7 +792,7 @@ async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
 }
 
 #[tracing::instrument]
-async fn shutdown_signal() {
+async fn shutdown_signal(handle: Handle) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -925,5 +816,6 @@ async fn shutdown_signal() {
         _ = terminate => {
         },
     }
+    handle.shutdown();
     info!("signal received, shutting down server gracefully");
 }
