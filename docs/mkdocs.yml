@@ -35,6 +35,12 @@ nav:
     - Content Ingestion: 'apis/content_ingestion.md'
     - Extraction Policies: 'apis/extraction_policies.md'
     - Retrieval: 'apis/retrieval.md'
+  - Usecases:
+    - RAG: 'usecases/rag.md'
+    - Audio Extraction: 'usecases/audio_extraction.md'
+    - PDF Extraction: 'usecases/pdf_extraction.md'
+    - Image Extraction: 'usecases/image_extraction.md'
+    - Video Extraction: 'usecases/video_extraction.md'
   - Integrations:
     - Langchain:
       - Python: 'integrations/langchain/python_langchain.md'

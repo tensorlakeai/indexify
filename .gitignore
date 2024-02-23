@@ -19,3 +19,4 @@ extractors/indexify_extractors.egg-info/
 data/
 .dev-tls
 src/state/store/snapshots/*
+.ipynb_checkpoints/
