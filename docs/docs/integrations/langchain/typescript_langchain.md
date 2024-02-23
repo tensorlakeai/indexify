@@ -1,4 +1,4 @@
-# Integration with Langchain - TypeScript
+# Langchain TypeScript
 
 Indexify complements LangChain by providing a robust platform for indexing large volume of multi-modal content such as PDFs, raw text, audio and video. It provides a retriever API to retrieve context for LLMs.
 
@@ -32,7 +32,7 @@ import { formatDocumentsAsString } from "langchain/util/document";
   });
 
   // add documents
-  client.addDocuments("Lucas is in Los Angeles, California");
+  await client.addDocuments("Lucas is in Los Angeles, California");
 
   await new Promise((r) => setTimeout(r, 5000));
 
