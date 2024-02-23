@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IContentMetadata } from "getindexify";
+import { IContentMetadata, IExtractionPolicy } from "getindexify";
 import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -31,13 +31,22 @@ function getChildCountMap(
   return result;
 }
 
-const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
+const ContentTable = ({
+  namespace,
+  content,
+  extractionPolicies,
+}: {
+  namespace:string,
+  content: IContentMetadata[];
+  extractionPolicies: IExtractionPolicy[];
+}) => {
   const childCount = getChildCountMap(content);
 
   const [currentFilterId, setCurrentFilterId] = useState<string | null>(null);
-  const [filteredContent, setFilteredContent] = useState(content.filter((c) => c.source === "ingestion"));
+  const [filteredContent, setFilteredContent] = useState(
+    content.filter((c) => c.source === "ingestion")
+  );
   const [currentTab, setCurrentTab] = useState("ingested");
-
 
   const onClickFilterId = (selectedContent: IContentMetadata) => {
     const newFilteredContent = [
@@ -78,7 +87,10 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
       headerName: "",
       width: 100,
       renderCell: (params) => (
-        <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
+        <Link
+          to={`/${params.row.namespace}/content/${params.row.id}`}
+          target="_blank"
+        >
           <Button sx={{ p: 0.5 }} variant="outlined">
             View
           </Button>
@@ -89,6 +101,12 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
       field: "id",
       headerName: "ID",
       width: 170,
+    },
+    {
+      field: "childCount",
+      headerName: "Children",
+      width: 140,
+      valueGetter: (params) => childCount[params.row.id],
       renderCell: (params) => {
         const clickable =
           currentTab !== "all" && childCount[params.row.id] !== 0;
@@ -107,10 +125,29 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
       },
     },
     {
-      field: "childCount",
-      headerName: "Children",
-      width: 140,
-      valueGetter: (params) => childCount[params.row.id],
+      field: "extractorPolicies",
+      headerName: "Extraction Policies",
+      width:200,
+      valueGetter: (params) => {
+        return extractionPolicies
+          .filter((policy) => policy.content_source === params.row.source)
+      },
+      renderCell: (params) => {
+        if (!params.value.length) {
+          return <Typography variant="body1">None</Typography>;
+        }
+        return (
+          <Box sx={{ overflowX: "scroll" }}>
+            <Stack gap={1} direction="row">
+              {params.value.map((policy: IExtractionPolicy) => {
+                return (
+                  <Link to={`/${namespace}/extraction-policies/${policy.name}`} target="_blank">{policy.name}</Link>
+                );
+              })}
+            </Stack>
+          </Box>
+        );
+      },
     },
     {
       field: "name",
@@ -120,7 +157,7 @@ const ContentTable = ({ content }: { content: IContentMetadata[] }) => {
     {
       field: "parent_id",
       headerName: "Parent ID",
-      width: 200,
+      width: 170,
     },
     {
       field: "content_type",

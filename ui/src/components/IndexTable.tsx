@@ -1,6 +1,6 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IIndex } from "getindexify";
-import { Alert, Typography } from "@mui/material";
+import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import React from "react";
@@ -16,8 +16,21 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
       field: "schema",
       headerName: "Schema",
       width: 300,
-      valueGetter: (params) => {
-        return JSON.stringify(params.value);
+      renderCell: (params) => {
+        if (!params.value) {
+          return <Typography variant="body1">None</Typography>;
+        }
+        return (
+          <Box sx={{ overflowX: "scroll" }}>
+            <Stack gap={1} direction="row">
+              {Object.keys(params.value).map((val: string) => {
+                return (
+                  <Chip key={val} label={`${val}:${params.value[val]}`} />
+                );
+              })}
+            </Stack>
+          </Box>
+        );
       },
     },
   ];
