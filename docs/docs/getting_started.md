@@ -147,12 +147,22 @@ Next let's query the index created by the embedding extractor. The index will al
 
 We will use Langchain to setup our RAG application and use Indexify as a retreiver to feed in data from Indexify.
 ```python
-from retriever import IndexifyRetriever
+from indexify_langchaian import IndexifyRetriever
 params = {"name": "minilml6.embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 ```
 
-Now, let's setup a chain with a prompt and use OpenAI to answer questions
+We are first setting up the IndexifyRetreiver that langchain is going to use.
+
+
+```python
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_openai import ChatOpenAI
+```
+
+Now, let's setup a chain with a prompt and use OpenAI to answer questions. Notice that we are passing the Indexfiy retreiver created above to get context for the RAG.
 ```python
 template = """Answer the question based only on the following context:
 {context}
