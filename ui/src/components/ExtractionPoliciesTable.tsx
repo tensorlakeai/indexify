@@ -24,7 +24,7 @@ const ExtractionPoliciesTable = ({
       width: 200,
       renderCell: (params) => {
         return (
-          <Link color="inherit" to={`/${namespace}/extraction-policies/${params.value}`}>
+          <Link color="inherit" to={`/${namespace}/extraction-policies/${params.value}`} target="_blank">
             {params.value}
           </Link>
         );

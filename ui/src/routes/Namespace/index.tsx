@@ -1,4 +1,9 @@
-import { IndexifyClient, Extractor, IContentMetadata, IIndex } from "getindexify";
+import {
+  IndexifyClient,
+  Extractor,
+  IContentMetadata,
+  IIndex,
+} from "getindexify";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Stack } from "@mui/material";
 import IndexTable from "../../components/IndexTable";
@@ -33,7 +38,11 @@ const NamespacePage = () => {
         extractionPolicies={client.extractionPolicies}
       />
       <IndexTable indexes={indexes} />
-      <ContentTable content={contentList} />
+      <ContentTable
+        namespace={client.namespace}
+        extractionPolicies={client.extractionPolicies}
+        content={contentList}
+      />
       <ExtractorsTable extractors={extractors} />
     </Stack>
   );
