@@ -35,13 +35,14 @@ nav:
     - Content Ingestion: 'apis/content_ingestion.md'
     - Extraction Policies: 'apis/extraction_policies.md'
     - Retrieval: 'apis/retrieval.md'
-  - Configuration: 'configuration.md'
-  - Deployment: 'deployment.md'
-  - Develop Indexify: 'develop.md'
-  - Integrations:
     - Langchain:
       - Python: 'integrations/langchain/python_langchain.md'
       - TypeScript: 'integrations/langchain/typescript_langchain.md'
+  - Operating Indexify:
+    - Configuration: 'configuration.md'
+    - Deployment: 'deployment.md'
+    - Develop Indexify: 'develop.md'
+    
 plugins: 
   - mkdocs-jupyter
 

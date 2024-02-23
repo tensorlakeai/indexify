@@ -1,4 +1,4 @@
-# Integration with Langchain - Python
+# Langchain Python
 
 Indexify complements LangChain by providing a robust platform for indexing large volume of multi-modal content such as PDFs, raw text, audio and video. It provides a retriever API to retrieve context for LLMs.
 
@@ -26,14 +26,10 @@ retriever = IndexifyRetriever(client=client, params=params)
 # Setup Chat Prompt Template
 from langchain.prompts import ChatPromptTemplate
 
-template = """You are an assistant for question-answering tasks. 
-Use the following pieces of retrieved context to answer the question. 
-If you don't know the answer, just say that you don't know. 
-Use three sentences maximum and keep the answer concise.
-Question: {question} 
-Context: {context} 
-Answer:
-"""
+template = """Answer the question based only on the following context:
+  {context}
+  
+  Question: {question}"""
 prompt = ChatPromptTemplate.from_template(template)
 
 # Ask llm question with retriever context
