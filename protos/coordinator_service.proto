@@ -162,6 +162,7 @@ message RegisterExecutorResponse {
 
 message HeartbeatRequest {
     string executor_id = 1;
+    int64 pending_tasks = 2;
 }
 
 message HeartbeatResponse {

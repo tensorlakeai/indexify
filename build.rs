@@ -22,8 +22,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .compile(
-            &["proto/coordinator_service.proto", "proto/raft.proto"],
-            &["proto"],
+            &["protos/coordinator_service.proto", "protos/raft.proto"],
+            &["protos"],
         )
         .unwrap();
 

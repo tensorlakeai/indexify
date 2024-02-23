@@ -178,6 +178,8 @@ pub struct RegisterExecutorResponse {
 pub struct HeartbeatRequest {
     #[prost(string, tag = "1")]
     pub executor_id: ::prost::alloc::string::String,
+    #[prost(int64, tag = "2")]
+    pub pending_tasks: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
