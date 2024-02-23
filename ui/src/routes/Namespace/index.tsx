@@ -1,12 +1,10 @@
 import { IndexifyClient, Extractor, IContentMetadata, IIndex } from "getindexify";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
-import { Box, Typography, Stack } from "@mui/material";
+import { Stack } from "@mui/material";
 import IndexTable from "../../components/IndexTable";
 import ContentTable from "../../components/ContentTable";
 import React from "react";
 import ExtractionPoliciesTable from "../../components/ExtractionPoliciesTable";
-import CircleIcon from "@mui/icons-material/Circle";
-import { stringToColor } from "../../utils/helpers";
 import ExtractorsTable from "../../components/ExtractorsTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
