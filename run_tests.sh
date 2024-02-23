@@ -7,7 +7,6 @@ function stop_docker()
   echo "stopping qdrant_test"
   docker stop indexify-local-qdrant
   docker stop indexify-local-postgres
-  docker stop indexify-local-opensearch
 }
 
 QDRANT_HOST='localhost:6333'

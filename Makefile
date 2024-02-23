@@ -54,8 +54,6 @@ local-dev: ## Run local development environment
 	DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexify
 	docker stop indexify-local-qdrant || true
 	docker run --rm -p 6334:6334 -p 6333:6333 --name=indexify-local-qdrant -d -e QDRANT__SERVICE__GRPC_PORT="6334"  qdrant/qdrant:v1.4.1
-	docker stop indexify-local-opensearch || true
-	docker run --rm -p 9200:9200 -p 9600:9600 --name=indexify-local-opensearch -d -e "discovery.type=single-node" opensearchproject/opensearch:latest
 	docker stop indexify-local-redis || true
 	docker run --rm -p 6379:6379 --name=indexify-local-redis -d redis:latest
 
