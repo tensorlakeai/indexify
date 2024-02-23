@@ -65,7 +65,7 @@ Question: {question}
 """
 prompt = ChatPromptTemplate.from_template(template)
 
-model = ChatOpenAI(openai_api_key="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")
+model = ChatOpenAI()
 
 chain = (
     {"context": retriever, "question": RunnablePassthrough()}
