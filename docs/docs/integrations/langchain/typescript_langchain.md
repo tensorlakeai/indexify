@@ -62,9 +62,9 @@ import { formatDocumentsAsString } from "langchain/util/document";
   ]);
 
   // ask question
-  const question = "Where is Lucas?";
-  console.log(`Question: ${question}`)
-  const result = await chain.invoke(question);
+  const query = "Where is Lucas?";
+  console.log(`Question: ${query}`)
+  const result = await chain.invoke(query);
   console.log(result)
 })();
 ```

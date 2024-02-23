@@ -7,38 +7,50 @@ You can use our LangChain retriever from our repo located in `indexify_langchain
 Below is an example
 
 ```python
-# setup your indexify client
-from indexify.client import IndexifyClient
-client = IndexifyClient()
+from indexify_langchain import IndexifyRetriever
 
-
-# add docs
-from indexify.client import Document
-
+# init client
+client = IndexifyClient.create_namespace("test-langchain")
 client.add_extraction_policy(
-    "diptanu/minilm-l6-extractor",
-    "minilm",
+    "tensorlake/minilm-l6",
+    "minilml6",
 )
 
-client.add_documents(
-    [
-        Document(
-            text="Indexify is amazing!",
-            labels={"url": "https://github.com/tensorlakeai/indexify"},
-        ),
-        Document(
-            text="Indexify is also a retrieval service for LLM agents!",
-            labels={"url": "https://github.com/tensorlakeai/indexify"},
-        )
-    ]
-)
+# Add Documents
+client.add_documents("Lucas is in Los Angeles, California")
 
-
-# implement retriever from indexify repo
-from retriever import IndexifyRetriever
-
-params = {"namespace": "default", "name": "minilm-embedding", "top_k": 3}
+# Initialize retriever
+params = {"name": "minilml6.embedding", "top_k": 9}
 retriever = IndexifyRetriever(client=client, params=params)
 
-docs = retriever.get_relevant_documents("indexify")
+# Setup Chat Prompt Template
+from langchain.prompts import ChatPromptTemplate
+
+template = """You are an assistant for question-answering tasks. 
+Use the following pieces of retrieved context to answer the question. 
+If you don't know the answer, just say that you don't know. 
+Use three sentences maximum and keep the answer concise.
+Question: {question} 
+Context: {context} 
+Answer:
+"""
+prompt = ChatPromptTemplate.from_template(template)
+
+# Ask llm question with retriever context
+from langchain_openai import ChatOpenAI
+from langchain.schema.runnable import RunnablePassthrough
+from langchain.schema.output_parser import StrOutputParser
+
+llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+
+rag_chain = (
+    {"context": retriever, "question": RunnablePassthrough()}
+    | prompt
+    | llm
+    | StrOutputParser()
+)
+
+# Ask LLM Question
+query = "Where is Lucas?"
+print(rag_chain.invoke(query))
 ```
