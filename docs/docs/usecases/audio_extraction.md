@@ -61,7 +61,7 @@ client.upload_file(path="ALLIN-E167.mp3")
 ### What is happening behind the scenes
 Indexify automatically reacts when ingestion happens and evaluates all the existing policies and invokes appropriate extractors for extraction. When the whisper extractor finishes transcribing the podcast, it automatically fires off the embedding extractor to chunk and extract embedding and populate an index. 
 
-You can uploads 100s of audio files parallely into Indexify and it will handle transcription of the audio files and indexing the transcripts automatically. You can run many instances of the extractors for speeding up extraction, and Indexify's in-built scheduler will distribute the work transparently. 
+You can upload 100s of audio files parallely into Indexify and it will handle transcription of the audio files and indexing the transcripts automatically. You can run many instances of the extractors for speeding up extraction, and Indexify's in-built scheduler will distribute the work transparently. 
 
 ### Perform RAG
 
