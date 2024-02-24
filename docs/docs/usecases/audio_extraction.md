@@ -32,7 +32,7 @@ Install ffmpeg on your machine
 
 On another terminal start a Whisper based Speech To Text Extractor
 ```bash
-indexify-extractor download hub://embedding/minilm-l6
+indexify-extractor download hub://whisper-asr
 indexify-extractor join whisper:WhisperExtractor
 ```
 
