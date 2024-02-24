@@ -125,6 +125,11 @@ const ContentTable = ({
       },
     },
     {
+      field: "name",
+      headerName: "Name",
+      width: 200,
+    },
+    {
       field: "extractorPolicies",
       headerName: "Extraction Policies",
       width:200,
@@ -150,14 +155,9 @@ const ContentTable = ({
       },
     },
     {
-      field: "name",
-      headerName: "Name",
-      width: 200,
-    },
-    {
-      field: "parent_id",
-      headerName: "Parent ID",
-      width: 170,
+      field: "source",
+      headerName: "Source",
+      width: 140,
     },
     {
       field: "content_type",
@@ -165,14 +165,14 @@ const ContentTable = ({
       width: 150,
     },
     {
-      field: "source",
-      headerName: "Source",
-      width: 140,
+      field: "parent_id",
+      headerName: "Parent ID",
+      width: 170,
     },
     {
       field: "labels",
       headerName: "Labels",
-      width: 300,
+      width: 170,
       valueGetter: (params) => {
         return JSON.stringify(params.value);
       },

@@ -60,6 +60,23 @@ const ContentPage = () => {
           height="auto"
         />
       );
+    } else if (content.content_type.startsWith("audio")) {
+      const blob = byteArrayToBlob(content.bytes);
+      return (
+        <audio controls>
+          <source src={URL.createObjectURL(blob)} type={content.content_type} />
+          Your browser does not support the audio element.
+        </audio>
+      );
+    } else if (content.content_type.startsWith("video")) {
+      const blob = byteArrayToBlob(content.bytes);
+      return (
+        <video
+          src={URL.createObjectURL(blob)}
+          controls
+          style={{ width: "100%", maxWidth: "400px", height: "auto" }}
+        />
+      );
     } else if (content.content_type.startsWith("text")) {
       return (
         <Box
