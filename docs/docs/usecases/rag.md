@@ -1,6 +1,6 @@
-# RAG
+# Basic RAG
 
-Here we show an example of building a RAG application with Indexify. We are going to upload content about Kevin Durant from Wikipedia and ask questions about KD's career.
+Here we show an example of building a basic RAG application with Indexify. We are going to upload content about Kevin Durant from Wikipedia and ask questions about KD's career.
 
 ### Install the Indexify Extractor SDK and the Indexify Client
 ```bash
@@ -16,6 +16,7 @@ indexify server -d
 On another terminal start the embedding extractor which we will use to index text from the wikiepdia page.
 ```bash
 indexify-extractor download hub://embedding/minilm-l6
+indexify-extractor join minilm_l6:MiniLML6Extractor
 ```
 
 ### Upload Content
