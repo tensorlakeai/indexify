@@ -11,15 +11,18 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
+use internal_api::ExtractedEmbeddings;
 use nanoid::nanoid;
 use tracing::{error, info};
 
+pub(crate) use crate::unwrap_or_continue;
 use crate::{
-    api::{self, Content, EmbeddingSchema},
+    api::{self, BeginExtractedContentIngest, Content, EmbeddingSchema},
     blob_storage::{BlobStorage, BlobStorageConfig, BlobStorageReader, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     metadata_storage::{ExtractedMetadata, MetadataStorageTS},
+    utils::OptionInspectNone,
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -241,9 +244,10 @@ impl DataManager {
             let content_metadata = self
                 .write_content(namespace, text, None, None, "ingestion")
                 .await?;
-            let req = indexify_coordinator::CreateContentRequest {
-                content: Some(content_metadata),
-            };
+            let req: indexify_coordinator::CreateContentRequest =
+                indexify_coordinator::CreateContentRequest {
+                    content: Some(content_metadata),
+                };
             self.coordinator_client
                 .get()
                 .await?
@@ -343,11 +347,8 @@ impl DataManager {
             .as_secs();
         let mut s = DefaultHasher::new();
         namespace.hash(&mut s);
-        content.bytes.hash(&mut s);
-        if let Some(f) = file_name {
-            f.hash(&mut s);
-        }
         let file_name = file_name.map(|f| f.to_string()).unwrap_or(nanoid!());
+        file_name.hash(&mut s);
         if let Some(parent_id) = &parent_id {
             parent_id.hash(&mut s);
         }
@@ -375,36 +376,55 @@ impl DataManager {
         })
     }
 
+    pub async fn finish_extracted_content_write(
+        &self,
+        _begin_ingest: BeginExtractedContentIngest,
+    ) -> Result<()> {
+        let outcome: indexify_coordinator::TaskOutcome = _begin_ingest.task_outcome.into();
+
+        let req = indexify_coordinator::UpdateTaskRequest {
+            executor_id: _begin_ingest.executor_id,
+            task_id: _begin_ingest.task_id,
+            outcome: outcome as i32,
+            content_list: Vec::new(),
+        };
+        let res = self.coordinator_client.get().await?.update_task(req).await;
+        if let Err(err) = res {
+            error!("unable to update task: {}", err.to_string());
+        }
+        Ok(())
+    }
+
     pub async fn write_extracted_content(
         &self,
-        extracted_content: api::WriteExtractedContent,
+        ingest_metadata: BeginExtractedContentIngest,
+        extracted_content: api::ExtractedContent,
     ) -> Result<()> {
-        let namespace = extracted_content.namespace.clone();
+        let namespace = ingest_metadata.namespace.clone();
         let mut new_content_metadata = Vec::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
             let content_metadata = self
                 .write_content(
-                    extracted_content.namespace.as_str(),
+                    namespace.as_str(),
                     content.clone(),
                     None,
-                    Some(extracted_content.parent_content_id.to_string()),
-                    &extracted_content.extraction_policy,
+                    Some(ingest_metadata.parent_content_id.to_string()),
+                    &ingest_metadata.extraction_policy,
                 )
                 .await?;
             new_content_metadata.push(content_metadata.clone());
+            let mut new_embeddings: HashMap<&str, Vec<ExtractedEmbeddings>> = HashMap::new();
             for feature in content.features {
-                let index_table_name = extracted_content
+                let index_table_name = ingest_metadata
                     .output_to_index_table_mapping
                     .get(&feature.name);
-                if index_table_name.is_none() {
+                let index_table_name = unwrap_or_continue!(index_table_name.inspect_none(|| {
                     error!(
                         "unable to find index table name for feature {}",
                         feature.name
-                    );
-                    continue;
-                }
-                let index_table_name = index_table_name.unwrap();
+                    )
+                }));
                 match feature.feature_type {
                     api::FeatureType::Embedding => {
                         let embedding_payload: internal_api::Embedding =
@@ -415,12 +435,10 @@ impl DataManager {
                             content_id: content_metadata.id.to_string(),
                             embedding: embedding_payload.values,
                         };
-                        self.vector_index_manager
-                            .add_embedding(&index_table_name.clone(), vec![embeddings])
-                            .await
-                            .map_err(|e| {
-                                anyhow!("unable to add embedding to vector index {}", e)
-                            })?;
+                        new_embeddings
+                            .entry(index_table_name)
+                            .or_default()
+                            .push(embeddings);
                     }
                     api::FeatureType::Metadata => {
                         let extracted_attributes = ExtractedMetadata::new(
@@ -442,19 +460,28 @@ impl DataManager {
                     _ => {}
                 }
             }
+            for (index_table_name, embeddings) in new_embeddings {
+                self.vector_index_manager
+                    .add_embedding(index_table_name, embeddings)
+                    .await
+                    .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
+            }
         }
-
-        let outcome: indexify_coordinator::TaskOutcome = extracted_content.task_outcome.into();
-
-        let req = indexify_coordinator::UpdateTaskRequest {
-            executor_id: extracted_content.executor_id,
-            task_id: extracted_content.task_id,
-            outcome: outcome as i32,
-            content_list: new_content_metadata,
-        };
-        let res = self.coordinator_client.get().await?.update_task(req).await;
-        if let Err(err) = res {
-            error!("unable to update task: {}", err.to_string());
+        for content_meta in new_content_metadata {
+            let req = indexify_coordinator::CreateContentRequest {
+                content: Some(content_meta),
+            };
+            self.coordinator_client
+                .get()
+                .await?
+                .create_content(GrpcHelper::into_req(req))
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "unable to write content metadata to coordinator {}",
+                        e.to_string()
+                    )
+                })?;
         }
         Ok(())
     }
@@ -562,8 +589,7 @@ impl DataManager {
         namespace: &str,
         name: &str,
         file: Bytes,
-    ) -> Result<String, anyhow::Error> {
-        let stored_file_path = self.blob_storage.put(name, file).await?;
-        Ok(stored_file_path)
+    ) -> Result<String> {
+        self.blob_storage.put(name, file).await
     }
 }

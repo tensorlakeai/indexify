@@ -92,7 +92,10 @@ impl Coordinator {
     }
 
     pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<internal_api::Task>> {
-        let tasks = self.shared_state.tasks_for_executor(executor_id, Some(10)).await?;
+        let tasks = self
+            .shared_state
+            .tasks_for_executor(executor_id, Some(10))
+            .await?;
         Ok(tasks)
     }
 

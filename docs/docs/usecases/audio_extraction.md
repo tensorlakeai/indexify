@@ -1,6 +1,6 @@
 # Audio Extraction
 
-We are going to build a pipeline where we will upload a few episodes of the "All In" podcast and ask questions about them.
+We are going to build a pipeline where we will upload a few episodes of the "All In" podcast and ask questions about them. We will also show how you can also get the transcription directly.
 
 ### Install the Indexify Extractor SDK and the Indexify Client
 ```bash

@@ -66,7 +66,6 @@ impl VectorIndexManager {
         vector_index_name: &str,
         embeddings: Vec<ExtractedEmbeddings>,
     ) -> Result<()> {
-        info!("Adding embeddings to index: {}", vector_index_name);
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
             let vector_chunk =

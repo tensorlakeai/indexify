@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Instant};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -13,6 +13,7 @@ use axum::{
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use axum_typed_websockets::{Message, WebSocket, WebSocketUpgrade};
 use hyper::Method;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
@@ -66,7 +67,6 @@ pub struct NamespaceEndpointState {
             list_content,
             read_content,
             upload_file,
-            write_extracted_content,
             list_tasks,
             extract_content
         ),
@@ -76,7 +76,7 @@ pub struct NamespaceEndpointState {
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
             , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
-            Content, Feature, FeatureType, WriteExtractedContent, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
+            Content, Feature, FeatureType, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
             internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
         )
         ),
@@ -192,7 +192,7 @@ impl Server {
             )
             .route(
                 "/write_content",
-                post(write_extracted_content).with_state(namespace_endpoint_state.clone()),
+                get(ingest_extracted_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
@@ -500,33 +500,64 @@ async fn upload_file(
     }
     Ok(())
 }
-
-#[tracing::instrument(skip(state, payload))]
-#[utoipa::path(
-    post,
-    path = "/write_content",
-    request_body = WriteExtractedContent,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Write Extracted Content to a Namespace"),
-        (status = BAD_REQUEST, description = "Unable to add texts")
-    ),
-)]
-#[axum::debug_handler]
-async fn write_extracted_content(
+async fn ingest_extracted_content(
+    ws: WebSocketUpgrade<IngestExtractedContentResponse, IngestExtractedContent>,
     State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<WriteExtractedContent>,
-) -> Result<Json<()>, IndexifyAPIError> {
-    let result = state.data_manager.write_extracted_content(payload).await;
-    if let Err(err) = &result {
-        info!("failed to write extracted content: {:?}", err);
-        return Err(IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err.to_string(),
-        ));
-    }
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| inner_ingest_extracted_content(socket, state))
+}
 
-    Ok(Json(()))
+// Send a ping and measure how long time it takes to get a pong back
+async fn inner_ingest_extracted_content(
+    mut socket: WebSocket<IngestExtractedContentResponse, IngestExtractedContent>,
+    state: NamespaceEndpointState,
+) {
+    let _ = socket.send(Message::Ping(vec![])).await;
+    let mut ingest_metadata: Option<BeginExtractedContentIngest> = None;
+    let now = Instant::now();
+    println!("Instat {}", Instant::now().elapsed().as_secs());
+    while let Some(msg) = socket.recv().await {
+        if let Err(err) = &msg {
+            println!("Instat {}", now.elapsed().as_secs());
+            tracing::error!("error receiving message: {:?}", err);
+            return;
+        }
+        if let Ok(Message::Item(msg)) = msg {
+            match msg {
+                IngestExtractedContent::BeginExtractedContentIngest(payload) => {
+                    info!("beginning extraction ingest for task: {}", payload.task_id);
+                    ingest_metadata.replace(payload);
+                }
+                IngestExtractedContent::ExtractedContent(payload) => {
+                    if ingest_metadata.is_none() {
+                        tracing::error!("received extracted content without header metadata");
+                        return;
+                    }
+                    let _ = state
+                        .data_manager
+                        .write_extracted_content(ingest_metadata.clone().unwrap(), payload)
+                        .await;
+                }
+                IngestExtractedContent::FinishExtractedContentIngest(_payload) => {
+                    if ingest_metadata.is_none() {
+                        tracing::error!(
+                            "received finished extraction ingest without header metadata"
+                        );
+                        return;
+                    }
+                    let _ = state
+                        .data_manager
+                        .finish_extracted_content_write(ingest_metadata.clone().unwrap())
+                        .await;
+
+                    info!(
+                        "finished writing extracted content for task: {}",
+                        ingest_metadata.clone().unwrap().task_id
+                    );
+                }
+            };
+        }
+    }
 }
 
 #[tracing::instrument]
