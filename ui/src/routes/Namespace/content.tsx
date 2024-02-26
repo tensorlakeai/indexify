@@ -35,15 +35,17 @@ const ContentPage = () => {
     return new Blob([uint8Array]);
   }
 
-  function bytesToString(bytes: number[]): string {
-    const chunkSize = 10000; // Size of each chunk, adjust based on your environment
+  function bytesToString(byteArray: number[]) {
+    const chunkSize = 10000;
+    const decoder = new TextDecoder("utf-8");
     let result = "";
 
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.slice(i, i + chunkSize);
-      result += String.fromCharCode.apply(null, chunk);
+    for (let i = 0; i < byteArray.length; i += chunkSize) {
+      const chunk = byteArray.slice(i, i + chunkSize);
+      result += decoder.decode(new Uint8Array(chunk), { stream: true });
     }
 
+    result += decoder.decode();
     return result;
   }
 
