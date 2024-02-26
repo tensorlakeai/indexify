@@ -45,7 +45,8 @@ const ContentPage = () => {
       result += decoder.decode(new Uint8Array(chunk), { stream: true });
     }
 
-    result += decoder.decode();
+    // Decode any remaining parts of the byteArray
+    result += decoder.decode(); // Flush the decoder's state
     return result;
   }
 
