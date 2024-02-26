@@ -450,9 +450,18 @@ pub struct ExtractResponse {
     pub content: Vec<Content>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct WriteExtractedContent {
-    pub content_list: Vec<internal_api::Content>,
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub enum IngestExtractedContent {
+    BeginExtractedContentIngest(BeginExtractedContentIngest),
+    ExtractedContent(ExtractedContent),
+    FinishExtractedContentIngest(FinishExtractedContentIngest),
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct IngestExtractedContentResponse {}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct BeginExtractedContentIngest {
     pub task_id: String,
     pub namespace: String,
     pub output_to_index_table_mapping: HashMap<String, String>,
@@ -460,6 +469,16 @@ pub struct WriteExtractedContent {
     pub executor_id: String,
     pub task_outcome: internal_api::TaskOutcome,
     pub extraction_policy: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct ExtractedContent {
+    pub content_list: Vec<internal_api::Content>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct FinishExtractedContentIngest {
+    pub num_extracted_content: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

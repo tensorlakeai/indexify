@@ -726,14 +726,18 @@ impl App {
         Ok(())
     }
 
-    pub async fn tasks_for_executor(&self, executor_id: &str, limit: Option<u64>) -> Result<Vec<internal_api::Task>> {
+    pub async fn tasks_for_executor(
+        &self,
+        executor_id: &str,
+        limit: Option<u64>,
+    ) -> Result<Vec<internal_api::Task>> {
         let store = self.indexify_state.read().await;
         let tasks = store
             .task_assignments
             .get(executor_id)
             .map(|task_ids| {
                 let limit = limit.unwrap_or(task_ids.len() as u64);
-                task_ids.into_iter().take(limit as usize).cloned().collect_vec()
+                task_ids.iter().take(limit as usize).cloned().collect_vec()
             })
             .map(|task_ids| {
                 task_ids

@@ -16,10 +16,11 @@ async-trait = "0.1"
 askama = { version = "0.12" }
 arrow-schema = {version = "50.0.0"}
 arrow-array = {version = "50.0.0" }
-axum = { version = "0.7", features = ["multipart", "macros"] }
+axum = { version = "0.7", features = ["multipart", "macros", "ws"] }
 axum-otel-metrics = "0.8"
 axum-tracing-opentelemetry = "0.16"
 axum-server = {version = "0.6.0", features = ["tls-rustls"]}
+axum-typed-websockets = "0.6.0"
 backtrace = "0.3"
 base64 = "0.21.0"
 bytes = "1"
@@ -65,7 +66,7 @@ reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-rocksdb = "0.20.1"
+rocksdb = "0.22.0"
 rust-embed = { version = "8.2.0", features = [
     "mime-guess",
     "debug-embed",
@@ -79,7 +80,7 @@ serde_with = { version = "3.4.0" }
 serde_yaml = { version = "0.9" }
 serde_json = { version = "1" }
 smart-default = { version = "0.7" }
-sqlx = { version = "0.7", features = [
+sqlx = { version = "0.7.3", features = [
     "runtime-tokio",
     "tls-rustls",
     "postgres",
@@ -87,9 +88,9 @@ sqlx = { version = "0.7", features = [
     "time",
     "json",
 ] }
-strum = { version = "0.25", features = ["derive"] }
+strum = { version = "0.26.1", features = ["derive"] }
 thiserror = "1"
-tonic = { version = "0.10.2", features = ["prost"] }
+tonic = { version = "0.11.0", features = ["prost"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-rustls = { version = "0.25" }
@@ -103,11 +104,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-unwrap = { version = "0.10" }
 url = "2"
 utoipa = { version = "4", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "5", features = ["axum"] }
-utoipa-rapidoc = { version = "2", features = ["axum"] }
-utoipa-redoc = { version = "2", features = ["axum"] }
+utoipa-swagger-ui = { version = "6", features = ["axum"] }
+utoipa-rapidoc = { version = "3", features = ["axum"] }
+utoipa-redoc = { version = "3", features = ["axum"] }
 object_store = { version = "0.9", features = ["aws"] }
-local-ip-address = { version = "0.5" }
+local-ip-address = { version = "0.6" }
 flate2 = "1"
 tar = "0.4"
 walkdir = { version = "2" }
@@ -125,6 +126,7 @@ axum = { workspace = true }
 axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
 axum-server = {workspace = true }
+axum-typed-websockets = { workspace = true }
 base64 = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }

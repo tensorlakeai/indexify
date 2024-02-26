@@ -25,3 +25,39 @@ impl fmt::Display for PostgresIndexName {
         write!(f, "{}", self.0)
     }
 }
+
+#[macro_export]
+macro_rules! unwrap_or_continue {
+    ($opt: expr) => {
+        match $opt {
+            Some(v) => v,
+            None => {
+                continue;
+            }
+        }
+    };
+}
+
+pub trait OptionInspectNone<T> {
+    fn inspect_none(self, inspector_function: impl FnOnce()) -> Self;
+}
+
+impl<T> OptionInspectNone<T> for Option<T> {
+    fn inspect_none(self, inspector_function: impl FnOnce()) -> Self {
+        match &self {
+            Some(_) => (),
+            None => inspector_function(),
+        }
+        self
+    }
+}
+
+impl<T> OptionInspectNone<T> for &Option<T> {
+    fn inspect_none(self, inspector_function: impl FnOnce()) -> Self {
+        match &self {
+            Some(_) => (),
+            None => inspector_function(),
+        }
+        self
+    }
+}
