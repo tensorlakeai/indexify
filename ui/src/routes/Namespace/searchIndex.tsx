@@ -118,7 +118,7 @@ const ExtractionPolicyPage = () => {
               </Alert>
             ) : (
               searchResults.map((result) => {
-                return <SearchResultCard data={result} />;
+                return <SearchResultCard namespace={namespace} data={result} />;
               })
             )}
           </Stack>

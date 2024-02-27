@@ -20,13 +20,13 @@ import { createTheme } from "@mui/material/styles";
 
 declare module "@mui/material/styles" {
   interface TypographyVariants {
-    h1hero: React.CSSProperties;
+    label: React.CSSProperties;
     menuItem: React.CSSProperties;
   }
 
   // allow configuration using `createTheme`
   interface TypographyVariantsOptions {
-    h1hero?: React.CSSProperties;
+    label?: React.CSSProperties;
     menuItem?: React.CSSProperties;
   }
 }
@@ -34,7 +34,7 @@ declare module "@mui/material/styles" {
 // Update the Typography's variant prop options
 declare module "@mui/material/Typography" {
   interface TypographyPropsVariantOverrides {
-    h1hero: true;
+    label: true;
     menuItem: true;
   }
 }
@@ -125,6 +125,14 @@ const theme = createTheme({
       fontStyle: "normal",
       fontWeight: "500",
       lineHeight: "normal",
+    },
+    label: {
+      fontFamily: "outfit",
+      fontSize: "16px",
+      fontStyle: "normal",
+      fontWeight: "500",
+      lineHeight: "22px",
+      letterSpacing: 0.32,
     },
     body1: {
       fontFamily: "outfit",
