@@ -1,6 +1,6 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IExtractionPolicy } from "getindexify";
-import { Alert, Typography } from "@mui/material";
+import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React from "react";
 import GavelIcon from '@mui/icons-material/Gavel';
@@ -51,9 +51,22 @@ const ExtractionPoliciesTable = ({
     {
       field: "input_params",
       headerName: "Input Params",
-      width: 200,
-      valueGetter: (params) => {
-        return JSON.stringify(params.value);
+      width: 300,
+      renderCell: (params) => {
+        if (!params.value) {
+          return <Typography variant="body1">None</Typography>;
+        }
+        return (
+          <Box sx={{ overflowX: "scroll" }}>
+            <Stack gap={1} direction="row">
+              {Object.keys(params.value).map((val: string) => {
+                return (
+                  <Chip key={val} label={`${val}:${params.value[val]}`} />
+                );
+              })}
+            </Stack>
+          </Box>
+        );
       },
     },
   ];
