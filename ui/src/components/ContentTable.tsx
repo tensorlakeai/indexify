@@ -36,19 +36,19 @@ const ContentTable = ({
   content,
   extractionPolicies,
 }: {
-  namespace:string,
+  namespace: string;
   content: IContentMetadata[];
   extractionPolicies: IExtractionPolicy[];
 }) => {
   const childCount = getChildCountMap(content);
 
-  const [currentFilterId, setCurrentFilterId] = useState<string | null>(null);
+  const [filterIds, setFilterIds] = useState<string[]>([]);
   const [filteredContent, setFilteredContent] = useState(
     content.filter((c) => c.source === "ingestion")
   );
   const [currentTab, setCurrentTab] = useState("ingested");
-
-  const onClickFilterId = (selectedContent: IContentMetadata) => {
+  
+  const onAppendFilterId = (selectedContent: IContentMetadata) => {
     const newFilteredContent = [
       ...content.filter((c) => c.parent_id === selectedContent.id),
     ];
@@ -58,8 +58,8 @@ const ContentTable = ({
     }
     //update filterred content
     setFilteredContent(newFilteredContent);
-    setCurrentFilterId(selectedContent.id);
-    setCurrentTab("currentid");
+    setFilterIds([...filterIds, selectedContent.id]);
+    setCurrentTab(selectedContent.id);
   };
 
   const filterIngested = () => {
@@ -68,7 +68,7 @@ const ContentTable = ({
 
   const resetTabs = () => {
     setFilteredContent(content);
-    setCurrentFilterId(null);
+    setFilterIds([]);
   };
 
   const onChangeTab = (event: React.SyntheticEvent, selectedValue: string) => {
@@ -76,10 +76,18 @@ const ContentTable = ({
     if (selectedValue === "all") {
       resetTabs();
     } else if (selectedValue === "ingested") {
-      setCurrentFilterId(null);
+      setFilterIds([]);
       filterIngested();
+    } else {
+      // click previous filter tab
+      // remove tabs after id: selectedValue
+      const index = filterIds.indexOf(selectedValue);
+      const newIds = [...filterIds];
+      newIds.splice(index + 1);
+      setFilterIds(newIds);
     }
   };
+
 
   const columns: GridColDef[] = [
     {
@@ -112,7 +120,7 @@ const ContentTable = ({
           currentTab !== "all" && childCount[params.row.id] !== 0;
         return (
           <Button
-            onClick={() => onClickFilterId(params.row)}
+            onClick={() => onAppendFilterId(params.row)}
             sx={{
               pointerEvents: clickable ? "all" : "none",
               textDecoration: clickable ? "underline" : "none",
@@ -132,10 +140,11 @@ const ContentTable = ({
     {
       field: "extractorPolicies",
       headerName: "Extraction Policies",
-      width:200,
+      width: 200,
       valueGetter: (params) => {
-        return extractionPolicies
-          .filter((policy) => policy.content_source === params.row.source)
+        return extractionPolicies.filter(
+          (policy) => policy.content_source === params.row.source
+        );
       },
       renderCell: (params) => {
         if (!params.value.length) {
@@ -146,7 +155,13 @@ const ContentTable = ({
             <Stack gap={1} direction="row">
               {params.value.map((policy: IExtractionPolicy) => {
                 return (
-                  <Link to={`/${namespace}/extraction-policies/${policy.name}`} target="_blank">{policy.name}</Link>
+                  <Link
+                    key={`${policy.name}`}
+                    to={`/${namespace}/extraction-policies/${policy.name}`}
+                    target="_blank"
+                  >
+                    {policy.name}
+                  </Link>
                 );
               })}
             </Stack>
@@ -241,9 +256,15 @@ const ContentTable = ({
           <Tab value={"all"} label="All" />
           <Tab value={"ingested"} label="Ingested" />
 
-          {currentFilterId !== null && (
-            <Tab value={"currentid"} label={currentFilterId} />
-          )}
+          {filterIds.map((id, i) => {
+            return (
+              <Tab
+                key={`filter-${id}`}
+                value={id}
+                label={id}
+              />
+            );
+          })}
         </Tabs>
       </Box>
       {renderContent()}
