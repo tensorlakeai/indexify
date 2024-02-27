@@ -4,13 +4,27 @@ import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import React from "react";
+import { Link } from "react-router-dom";
 
-const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
+const IndexTable = ({
+  indexes,
+  namespace,
+}: {
+  indexes: IIndex[];
+  namespace: string;
+}) => {
   const columns: GridColDef[] = [
     {
       field: "name",
       headerName: "Name",
-      width: 200,
+      width: 300,
+      renderCell: (params) => {
+        return (
+          <Link to={`/${namespace}/indexes/${params.value}`}>
+            {params.value}
+          </Link>
+        );
+      },
     },
     {
       field: "schema",
@@ -24,9 +38,7 @@ const IndexTable = ({ indexes }: { indexes: IIndex[] }) => {
           <Box sx={{ overflowX: "scroll" }}>
             <Stack gap={1} direction="row">
               {Object.keys(params.value).map((val: string) => {
-                return (
-                  <Chip key={val} label={`${val}:${params.value[val]}`} />
-                );
+                return <Chip key={val} label={`${val}:${params.value[val]}`} />;
               })}
             </Stack>
           </Box>
