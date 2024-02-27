@@ -87,12 +87,16 @@ const ContentTable = ({
     setFilterIds([]);
   };
 
+  // when content updates go back to first page
+  const goToPage = (page: number) => {
+    setPaginationModel((currentModel) => ({
+      ...currentModel, // Spread the existing paginationModel object
+      page, // Update the pageSize
+    }));
+  };
+
   useEffect(() => {
-    // when content updates go back to first page
-    setPaginationModel({
-      ...paginationModel,
-      page:0,
-    });
+    goToPage(0);
   }, [filteredContent]);
 
   const columns: GridColDef[] = [
