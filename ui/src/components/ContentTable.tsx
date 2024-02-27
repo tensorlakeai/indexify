@@ -3,7 +3,7 @@ import { IContentMetadata, IExtractionPolicy } from "getindexify";
 import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
 
@@ -42,33 +42,37 @@ const ContentTable = ({
 }) => {
   const childCount = getChildCountMap(content);
 
+  const [paginationModel, setPaginationModel] = useState({
+    page: 1,
+    pageSize: 5,
+  });
   const [filterIds, setFilterIds] = useState<string[]>([]);
   const [filteredContent, setFilteredContent] = useState(
     content.filter((c) => c.source === "ingestion")
   );
   const [currentTab, setCurrentTab] = useState("ingested");
-  
-  const onAppendFilterId = (selectedContent: IContentMetadata) => {
-    const newFilteredContent = [
-      ...content.filter((c) => c.parent_id === selectedContent.id),
-    ];
-    if (newFilteredContent.length === 0) {
-      alert("no content");
-      return;
-    }
-    //update filterred content
+
+  useEffect(() => {
+    goToPage(0);
+  }, [filteredContent]);
+
+  const goToPage = (page: number) => {
+    setPaginationModel({
+      ...paginationModel, // Spread the existing paginationModel object
+      page, // Update the pageSize
+    });
+  };
+
+  const updateTableContentByFilter = (id: string) => {
+    const newFilteredContent = [...content.filter((c) => c.parent_id === id)];
     setFilteredContent(newFilteredContent);
+  };
+
+  const onClickChildren = (selectedContent: IContentMetadata) => {
+    // append id to filterIds - this adds a new tab
+    updateTableContentByFilter(selectedContent.id);
     setFilterIds([...filterIds, selectedContent.id]);
     setCurrentTab(selectedContent.id);
-  };
-
-  const filterIngested = () => {
-    setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
-  };
-
-  const resetTabs = () => {
-    setFilteredContent(content);
-    setFilterIds([]);
   };
 
   const onChangeTab = (event: React.SyntheticEvent, selectedValue: string) => {
@@ -77,7 +81,7 @@ const ContentTable = ({
       resetTabs();
     } else if (selectedValue === "ingested") {
       setFilterIds([]);
-      filterIngested();
+      setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
     } else {
       // click previous filter tab
       // remove tabs after id: selectedValue
@@ -85,9 +89,14 @@ const ContentTable = ({
       const newIds = [...filterIds];
       newIds.splice(index + 1);
       setFilterIds(newIds);
+      updateTableContentByFilter(selectedValue);
     }
   };
 
+  const resetTabs = () => {
+    setFilteredContent(content);
+    setFilterIds([]);
+  };
 
   const columns: GridColDef[] = [
     {
@@ -120,7 +129,10 @@ const ContentTable = ({
           currentTab !== "all" && childCount[params.row.id] !== 0;
         return (
           <Button
-            onClick={() => onAppendFilterId(params.row)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onClickChildren(params.row);
+            }}
             sx={{
               pointerEvents: clickable ? "all" : "none",
               textDecoration: clickable ? "underline" : "none",
@@ -225,11 +237,8 @@ const ContentTable = ({
           autoHeight
           rows={filteredContent}
           columns={columns}
-          initialState={{
-            pagination: {
-              paginationModel: { page: 0, pageSize: 5 },
-            },
-          }}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
           pageSizeOptions={[5, 10]}
         />
       </Box>
@@ -257,13 +266,7 @@ const ContentTable = ({
           <Tab value={"ingested"} label="Ingested" />
 
           {filterIds.map((id, i) => {
-            return (
-              <Tab
-                key={`filter-${id}`}
-                value={id}
-                label={id}
-              />
-            );
+            return <Tab key={`filter-${id}`} value={id} label={id} />;
           })}
         </Tabs>
       </Box>
