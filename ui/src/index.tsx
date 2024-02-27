@@ -13,6 +13,9 @@ import ExtractionPolicyPage, {
 import ContentPage, {
   loader as ContentLoader,
 } from "./routes/Namespace/content";
+import SearchIndexPage, {
+  loader as SearchIndexLoader,
+} from "./routes/Namespace/searchIndex";
 
 const router = createBrowserRouter(
   [
@@ -32,6 +35,12 @@ const router = createBrowserRouter(
           path: "/:namespace/extraction-policies/:policyname",
           element: <ExtractionPolicyPage />,
           loader: ExtractionPolicyLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: "/:namespace/indexes/:indexName",
+          element: <SearchIndexPage />,
+          loader: SearchIndexLoader,
           errorElement: <ErrorPage />,
         },
         {

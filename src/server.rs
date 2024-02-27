@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Instant};
 use anyhow::{anyhow, Result};
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::StatusCode,
+    http::{header::CONTENT_TYPE, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Extension,
@@ -133,7 +133,8 @@ impl Server {
         let caches = Caches::new(self.config.cache.clone());
         let cors = CorsLayer::new()
             .allow_methods([Method::GET, Method::POST])
-            .allow_origin(Any);
+            .allow_origin(Any)
+            .allow_headers([CONTENT_TYPE]);
 
         let metrics = HttpMetricsLayerBuilder::new().build();
         let app = Router::new()
