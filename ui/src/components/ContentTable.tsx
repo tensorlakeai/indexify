@@ -52,10 +52,6 @@ const ContentTable = ({
   );
   const [currentTab, setCurrentTab] = useState("ingested");
 
-  useEffect(() => {
-    goToPage(0);
-  }, [filteredContent]);
-
   const goToPage = (page: number) => {
     setPaginationModel({
       ...paginationModel, // Spread the existing paginationModel object
@@ -98,6 +94,11 @@ const ContentTable = ({
     setFilterIds([]);
   };
 
+  useEffect(() => {
+    // when content updates go back to first page
+    goToPage(0);
+  }, [filteredContent]);
+
   const columns: GridColDef[] = [
     {
       field: "view",
@@ -130,7 +131,7 @@ const ContentTable = ({
         return (
           <Button
             onClick={(e) => {
-              e.stopPropagation()
+              e.stopPropagation();
               onClickChildren(params.row);
             }}
             sx={{
