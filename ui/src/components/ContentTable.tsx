@@ -3,7 +3,6 @@ import { IContentMetadata } from "getindexify";
 import {
   Alert,
   Button,
-  Input,
   Tab,
   Tabs,
   TextField,
