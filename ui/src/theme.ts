@@ -67,6 +67,14 @@ const theme = createTheme({
         },
       },
     },
+    MuiTextField: {
+      styleOverrides: {
+        root: ({ theme }) =>
+          theme.unstable_sx({
+            backgroundColor: "white",
+          }),
+      },
+    },
     MuiButton: {
       styleOverrides: {
         root: ({ theme }) =>
@@ -77,6 +85,10 @@ const theme = createTheme({
             textTransform: "none",
             letterSpacing: "0.1px",
             fontFamily: "roboto",
+            "&.Mui-disabled": {
+              backgroundColor: "rgba(6, 13, 63, 0.1)",
+              borderColor:"#676767"
+            },
           }),
         outlined: {
           padding: "10px 24px",

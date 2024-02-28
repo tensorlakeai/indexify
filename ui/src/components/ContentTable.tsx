@@ -1,6 +1,14 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IContentMetadata } from "getindexify";
-import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
+import {
+  Alert,
+  Button,
+  Input,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
 import React, { useEffect, useState } from "react";
@@ -45,6 +53,10 @@ const ContentTable = ({
     pageSize: 5,
   });
   const [filterIds, setFilterIds] = useState<string[]>([]);
+  const [searchFilter, setSearchFilter] = useState<{
+    contentId: string;
+  }>({ contentId: "" });
+
   const [filteredContent, setFilteredContent] = useState(
     content.filter((c) => c.source === "ingestion")
   );
@@ -64,8 +76,8 @@ const ContentTable = ({
 
   const onChangeTab = (event: React.SyntheticEvent, selectedValue: string) => {
     setCurrentTab(selectedValue);
-    if (selectedValue === "all") {
-      resetTabs();
+    if (selectedValue === "search") {
+      resetFilters();
     } else if (selectedValue === "ingested") {
       setFilterIds([]);
       setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
@@ -80,22 +92,31 @@ const ContentTable = ({
     }
   };
 
-  const resetTabs = () => {
+  const resetFilters = () => {
     setFilteredContent(content);
-    setFilterIds([]);
+    setSearchFilter({ contentId: "" });
   };
 
-  // when content updates go back to first page
   const goToPage = (page: number) => {
     setPaginationModel((currentModel) => ({
-      ...currentModel, // Spread the existing paginationModel object
-      page, // Update the pageSize
+      ...currentModel,
+      page,
     }));
   };
 
   useEffect(() => {
+    // when filtered content updates go to first page
     goToPage(0);
   }, [filteredContent]);
+
+  useEffect(() => {
+    // when we update searchFilter update content
+    if (currentTab !== "search") return;
+    goToPage(0);
+    setFilteredContent(
+      content.filter((c) => c.id.startsWith(searchFilter.contentId))
+    );
+  }, [searchFilter]);
 
   const columns: GridColDef[] = [
     {
@@ -125,7 +146,7 @@ const ContentTable = ({
       valueGetter: (params) => childCount[params.row.id],
       renderCell: (params) => {
         const clickable =
-          currentTab !== "all" && childCount[params.row.id] !== 0;
+          currentTab !== "search" && childCount[params.row.id] !== 0;
         return (
           <Button
             onClick={(e) => {
@@ -133,7 +154,7 @@ const ContentTable = ({
               onClickChildren(params.row);
             }}
             sx={{
-              pointerEvents: clickable ? "all" : "none",
+              pointerEvents: clickable ? "search" : "none",
               textDecoration: clickable ? "underline" : "none",
             }}
             variant="text"
@@ -223,19 +244,32 @@ const ContentTable = ({
         <ArticleIcon />
         <Typography variant="h3">Content</Typography>
       </Stack>
-      <Box>
+      <Box justifyContent={"space-between"} display={"flex"}>
         <Tabs
           value={currentTab}
           onChange={onChangeTab}
           aria-label="disabled tabs example"
         >
-          <Tab value={"all"} label="All" />
+          <Tab value={"search"} label="Search" />
           <Tab value={"ingested"} label="Ingested" />
 
           {filterIds.map((id, i) => {
             return <Tab key={`filter-${id}`} value={id} label={id} />;
           })}
         </Tabs>
+        {/* Filter for search tab */}
+        {currentTab === "search" && (
+          <Box>
+            <TextField
+              onChange={(e) => {
+                setSearchFilter({ ...searchFilter, contentId: e.target.value });
+              }}
+              value={searchFilter.contentId}
+              size="small"
+              label="Content Id"
+            />
+          </Box>
+        )}
       </Box>
       {renderContent()}
     </>
