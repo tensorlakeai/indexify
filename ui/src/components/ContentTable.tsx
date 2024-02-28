@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IContentMetadata, IExtractionPolicy } from "getindexify";
+import { IContentMetadata } from "getindexify";
 import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
