@@ -1,13 +1,6 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IContentMetadata } from "getindexify";
-import {
-  Alert,
-  Button,
-  Tab,
-  Tabs,
-  TextField,
-  Typography,
-} from "@mui/material";
+import { Alert, Button, Tab, Tabs, TextField, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
 import React, { useEffect, useState } from "react";
@@ -45,13 +38,12 @@ const ContentTable = ({
   namespace: string;
   content: IContentMetadata[];
 }) => {
-  const childCount = getChildCountMap(content);
-
+  const childCountMap = getChildCountMap(content);
   const [paginationModel, setPaginationModel] = useState({
     page: 1,
     pageSize: 5,
   });
-  const [filterIds, setFilterIds] = useState<string[]>([]);
+  const [graphTabIds, setGraphTabIds] = useState<string[]>([]);
   const [searchFilter, setSearchFilter] = useState<{
     contentId: string;
   }>({ contentId: "" });
@@ -61,39 +53,15 @@ const ContentTable = ({
   );
   const [currentTab, setCurrentTab] = useState("ingested");
 
-  const updateTableContentByFilter = (id: string) => {
-    const newFilteredContent = [...content.filter((c) => c.parent_id === id)];
-    setFilteredContent(newFilteredContent);
-  };
 
   const onClickChildren = (selectedContent: IContentMetadata) => {
-    // append id to filterIds - this adds a new tab
-    updateTableContentByFilter(selectedContent.id);
-    setFilterIds([...filterIds, selectedContent.id]);
+    // append id to graphTabIds - this adds a new tab
+    setGraphTabIds([...graphTabIds, selectedContent.id]);
     setCurrentTab(selectedContent.id);
   };
 
   const onChangeTab = (event: React.SyntheticEvent, selectedValue: string) => {
     setCurrentTab(selectedValue);
-    if (selectedValue === "search") {
-      resetFilters();
-    } else if (selectedValue === "ingested") {
-      setFilterIds([]);
-      setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
-    } else {
-      // click previous filter tab
-      // remove tabs after id: selectedValue
-      const index = filterIds.indexOf(selectedValue);
-      const newIds = [...filterIds];
-      newIds.splice(index + 1);
-      setFilterIds(newIds);
-      updateTableContentByFilter(selectedValue);
-    }
-  };
-
-  const resetFilters = () => {
-    setFilteredContent(content);
-    setSearchFilter({ contentId: "" });
   };
 
   const goToPage = (page: number) => {
@@ -110,12 +78,27 @@ const ContentTable = ({
 
   useEffect(() => {
     // when we update searchFilter update content
-    if (currentTab !== "search") return;
-    goToPage(0);
-    setFilteredContent(
-      content.filter((c) => c.id.startsWith(searchFilter.contentId))
-    );
-  }, [searchFilter]);
+    if (currentTab === "search") {
+      goToPage(0);
+      setFilteredContent(
+        content.filter((c) => c.id.startsWith(searchFilter.contentId))
+      );
+    } else if (currentTab === "ingested") {
+      // go back to root node of graph tab
+      setGraphTabIds([]);
+      setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
+    } else {
+      // current tab is now a content id
+      // remove tabs after id: selectedValue if possible
+      const index = graphTabIds.indexOf(currentTab);
+      const newIds = [...graphTabIds];
+      newIds.splice(index + 1);
+      setGraphTabIds(newIds);
+      // update filteredContent
+      const newFilteredContent = [...content.filter((c) => c.parent_id === currentTab)];
+      setFilteredContent(newFilteredContent);
+    }
+  }, [searchFilter, currentTab, graphTabIds, content]);
 
   const columns: GridColDef[] = [
     {
@@ -142,10 +125,10 @@ const ContentTable = ({
       field: "childCount",
       headerName: "Children",
       width: 140,
-      valueGetter: (params) => childCount[params.row.id],
+      valueGetter: (params) => childCountMap[params.row.id],
       renderCell: (params) => {
         const clickable =
-          currentTab !== "search" && childCount[params.row.id] !== 0;
+          currentTab !== "search" && childCountMap[params.row.id] !== 0;
         return (
           <Button
             onClick={(e) => {
@@ -252,7 +235,7 @@ const ContentTable = ({
           <Tab value={"search"} label="Search" />
           <Tab value={"ingested"} label="Ingested" />
 
-          {filterIds.map((id, i) => {
+          {graphTabIds.map((id, i) => {
             return <Tab key={`filter-${id}`} value={id} label={id} />;
           })}
         </Tabs>
