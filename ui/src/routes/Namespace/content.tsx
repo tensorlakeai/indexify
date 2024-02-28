@@ -51,7 +51,6 @@ const ContentPage = () => {
   }
 
   const renderContent = () => {
-    console.log(content.content_type);
     if (content.content_type.startsWith("image")) {
       const blob = byteArrayToBlob(content.bytes);
       return (
