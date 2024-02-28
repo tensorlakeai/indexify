@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IContentMetadata, IExtractionPolicy } from "getindexify";
+import { IContentMetadata } from "getindexify";
 import { Alert, Button, Tab, Tabs, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -34,11 +34,9 @@ function getChildCountMap(
 const ContentTable = ({
   namespace,
   content,
-  extractionPolicies,
 }: {
   namespace: string;
   content: IContentMetadata[];
-  extractionPolicies: IExtractionPolicy[];
 }) => {
   const childCount = getChildCountMap(content);
 
@@ -149,38 +147,6 @@ const ContentTable = ({
       field: "name",
       headerName: "Name",
       width: 200,
-    },
-    {
-      field: "extractorPolicies",
-      headerName: "Extraction Policies",
-      width: 200,
-      valueGetter: (params) => {
-        return extractionPolicies.filter(
-          (policy) => policy.content_source === params.row.source
-        );
-      },
-      renderCell: (params) => {
-        if (!params.value.length) {
-          return <Typography variant="body1">None</Typography>;
-        }
-        return (
-          <Box sx={{ overflowX: "scroll" }}>
-            <Stack gap={1} direction="row">
-              {params.value.map((policy: IExtractionPolicy) => {
-                return (
-                  <Link
-                    key={`${policy.name}`}
-                    to={`/${namespace}/extraction-policies/${policy.name}`}
-                    target="_blank"
-                  >
-                    {policy.name}
-                  </Link>
-                );
-              })}
-            </Stack>
-          </Box>
-        );
-      },
     },
     {
       field: "source",
