@@ -67,12 +67,24 @@ const theme = createTheme({
         },
       },
     },
+    MuiSelect: {
+      styleOverrides: {
+        root: {
+          "& .MuiOutlinedInput-notchedOutline": {
+            borderColor: "gray",
+          },
+        },
+        select: {
+          backgroundColor: "white",
+        },
+      },
+    },
     MuiTextField: {
       styleOverrides: {
-        root: ({ theme }) =>
-          theme.unstable_sx({
-            backgroundColor: "white",
-          }),
+        root: {
+          "& .MuiInputBase-root": { backgroundColor: "white" }, // For outlined, filled variants
+          "& .MuiOutlinedInput-notchedOutline": { borderColor: "gray" }, // Optional: Customize border color
+        },
       },
     },
     MuiButton: {
@@ -87,7 +99,7 @@ const theme = createTheme({
             fontFamily: "roboto",
             "&.Mui-disabled": {
               backgroundColor: "rgba(6, 13, 63, 0.1)",
-              borderColor:"#676767"
+              borderColor: "#676767",
             },
           }),
         outlined: {

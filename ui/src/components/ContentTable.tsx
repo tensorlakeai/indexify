@@ -1,6 +1,17 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IContentMetadata } from "getindexify";
-import { Alert, Button, Tab, Tabs, TextField, Typography } from "@mui/material";
+import { IContentMetadata, IExtractionPolicy } from "getindexify";
+import {
+  Alert,
+  Button,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
 import React, { useEffect, useState } from "react";
@@ -32,10 +43,10 @@ function getChildCountMap(
 }
 
 const ContentTable = ({
-  namespace,
+  extractionPolicies,
   content,
 }: {
-  namespace: string;
+  extractionPolicies: IExtractionPolicy[];
   content: IContentMetadata[];
 }) => {
   const childCountMap = getChildCountMap(content);
@@ -46,13 +57,13 @@ const ContentTable = ({
   const [graphTabIds, setGraphTabIds] = useState<string[]>([]);
   const [searchFilter, setSearchFilter] = useState<{
     contentId: string;
-  }>({ contentId: "" });
+    policyName: string;
+  }>({ contentId: "", policyName: "Any" });
 
   const [filteredContent, setFilteredContent] = useState(
     content.filter((c) => c.source === "ingestion")
   );
   const [currentTab, setCurrentTab] = useState("ingested");
-
 
   const onClickChildren = (selectedContent: IContentMetadata) => {
     // append id to graphTabIds - this adds a new tab
@@ -80,8 +91,23 @@ const ContentTable = ({
     // when we update searchFilter update content
     if (currentTab === "search") {
       goToPage(0);
+      const searchPolicy = extractionPolicies.find(
+        (policy) => policy.name === searchFilter.policyName
+      );
       setFilteredContent(
-        content.filter((c) => c.id.startsWith(searchFilter.contentId))
+        content.filter((c) => {
+          // filter contentId
+          if (!c.id.startsWith(searchFilter.contentId)) return false;
+          // filter policy
+          if (searchFilter.policyName === "Ingested") {
+            // TODO: match mimetype and filter ingested source
+          } else if (searchPolicy && searchFilter.policyName !== "Any") {
+            if (c.source !== searchPolicy?.name) {
+              return false;
+            }
+          }
+          return true;
+        })
       );
     } else if (currentTab === "ingested") {
       // go back to root node of graph tab
@@ -95,10 +121,12 @@ const ContentTable = ({
       newIds.splice(index + 1);
       setGraphTabIds(newIds);
       // update filteredContent
-      const newFilteredContent = [...content.filter((c) => c.parent_id === currentTab)];
+      const newFilteredContent = [
+        ...content.filter((c) => c.parent_id === currentTab),
+      ];
       setFilteredContent(newFilteredContent);
     }
-  }, [searchFilter, currentTab, graphTabIds, content]);
+  }, [searchFilter, currentTab, graphTabIds, content, extractionPolicies]);
 
   const columns: GridColDef[] = [
     {
@@ -241,15 +269,45 @@ const ContentTable = ({
         </Tabs>
         {/* Filter for search tab */}
         {currentTab === "search" && (
-          <Box>
+          <Box display="flex" gap={2}>
+            {/* Added gap for spacing between elements */}
             <TextField
-              onChange={(e) => {
-                setSearchFilter({ ...searchFilter, contentId: e.target.value });
-              }}
+              onChange={(e) =>
+                setSearchFilter({
+                  ...searchFilter,
+                  contentId: e.target.value,
+                })
+              }
               value={searchFilter.contentId}
-              size="small"
               label="Content Id"
+              sx={{ width: "auto" }} // Adjust width as needed
+              size="small"
             />
+            <FormControl sx={{ minWidth: 200 }} size="small">
+              <InputLabel id="demo-select-small-label">
+                Extraction Policy
+              </InputLabel>
+              <Select
+                labelId="demo-select-small-label"
+                id="demo-select-small"
+                label="Extraction Policy"
+                value={searchFilter.policyName}
+                onChange={(e) =>
+                  setSearchFilter({
+                    ...searchFilter,
+                    policyName: e.target.value,
+                  })
+                }
+              >
+                <MenuItem value="All">Any</MenuItem>
+                {/* <MenuItem value="Ingested">Ingested</MenuItem> */}
+                {extractionPolicies.map((policy) => (
+                  <MenuItem key={policy.name} value={policy.name}>
+                    {policy.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Box>
         )}
       </Box>
