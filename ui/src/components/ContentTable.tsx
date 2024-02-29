@@ -116,17 +116,20 @@ const ContentTable = ({
     } else {
       // current tab is now a content id
       // remove tabs after id: selectedValue if possible
-      const index = graphTabIds.indexOf(currentTab);
-      const newIds = [...graphTabIds];
-      newIds.splice(index + 1);
-      setGraphTabIds(newIds);
+
+      setGraphTabIds((currentIds) => {
+        const index = currentIds.indexOf(currentTab);
+        const newIds = [...currentIds];
+        newIds.splice(index + 1);
+        return newIds;
+      });
       // update filteredContent
       const newFilteredContent = [
         ...content.filter((c) => c.parent_id === currentTab),
       ];
       setFilteredContent(newFilteredContent);
     }
-  }, [searchFilter, currentTab, graphTabIds, content, extractionPolicies]);
+  }, [searchFilter, currentTab, content, extractionPolicies]);
 
   let columns: GridColDef[] = [
     {
@@ -218,7 +221,10 @@ const ContentTable = ({
   ];
 
   columns = columns.filter((col) => {
-    if (currentTab === "ingested" && (col.field === "source" || col.field === "parent_id")) {
+    if (
+      currentTab === "ingested" &&
+      (col.field === "source" || col.field === "parent_id")
+    ) {
       return false;
     }
     return true;
@@ -306,7 +312,7 @@ const ContentTable = ({
                   })
                 }
               >
-                <MenuItem value="All">Any</MenuItem>
+                <MenuItem value="Any">Any</MenuItem>
                 {/* <MenuItem value="Ingested">Ingested</MenuItem> */}
                 {extractionPolicies.map((policy) => (
                   <MenuItem key={policy.name} value={policy.name}>
