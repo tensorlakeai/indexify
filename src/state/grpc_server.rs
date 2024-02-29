@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
+use indexify_proto::indexify_raft::{
+    raft_api_server::RaftApi, GetClusterMembershipRequest, GetClusterMembershipResponse, RaftReply,
+    RaftRequest,
+};
 use tonic::{Request, Response, Status};
 
 use super::Raft;
@@ -70,5 +73,35 @@ impl RaftApi for RaftGrpcServer {
             GrpcHelper::ok_response(resp)
         }
         .await
+    }
+
+    async fn get_cluster_membership(
+        &self,
+        request: Request<GetClusterMembershipRequest>, // Adjust the request type
+    ) -> Result<Response<GetClusterMembershipResponse>, Status> {
+        // Adjust the response type
+        // Example implementation:
+        let req = request.into_inner();
+        println!(
+            "Received get_cluster_membership request from Node ID: {}, Address: {}",
+            req.node_id, req.address
+        );
+
+        // Here, insert logic to process the request, such as updating the cluster membership
+        // or retrieving the current cluster state. This is a simplified example that returns
+        // a hard-coded response.
+
+        // Construct a response with a map of node IDs to addresses
+        let mut members = std::collections::HashMap::new();
+        // Example: Adding some dummy node information to the response
+        members.insert("1".to_string(), "10.0.0.1:8080".to_string());
+        members.insert("2".to_string(), "10.0.0.2:8080".to_string());
+
+        let response = GetClusterMembershipResponse {
+            members, // Set the members map
+            error: "".to_string(),
+        };
+
+        Ok(Response::new(response))
     }
 }

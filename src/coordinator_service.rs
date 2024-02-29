@@ -12,41 +12,19 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
+    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
+    ExtractionPolicyResponse, GetContentMetadataRequest, GetExtractorCoordinatesRequest,
+    GetIndexRequest, GetIndexResponse, HeartbeatRequest, HeartbeatResponse, ListContentRequest,
+    ListContentResponse, ListExtractionPoliciesRequest, ListExtractionPoliciesResponse,
+    ListExtractorsRequest, ListExtractorsResponse, ListIndexesRequest, ListIndexesResponse,
+    ListStateChangesRequest, ListTasksRequest, ListTasksResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -57,10 +35,7 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator,
-    server_config::ServerConfig,
-    state,
-    tonic_streamer::DropReceiver,
+    coordinator::Coordinator, server_config::ServerConfig, state, tonic_streamer::DropReceiver,
     utils::timestamp_secs,
 };
 
