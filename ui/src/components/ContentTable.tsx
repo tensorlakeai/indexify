@@ -128,7 +128,7 @@ const ContentTable = ({
     }
   }, [searchFilter, currentTab, graphTabIds, content, extractionPolicies]);
 
-  const columns: GridColDef[] = [
+  let columns: GridColDef[] = [
     {
       field: "view",
       headerName: "",
@@ -216,6 +216,13 @@ const ContentTable = ({
       },
     },
   ];
+
+  columns = columns.filter((col) => {
+    if (currentTab === "ingested" && (col.field === "source" || col.field === "parent_id")) {
+      return false;
+    }
+    return true;
+  });
 
   const renderContent = () => {
     if (content.length === 0) {
