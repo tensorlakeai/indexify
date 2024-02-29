@@ -218,7 +218,7 @@ const ContentTable = ({
   ];
 
   columns = columns.filter((col) => {
-    if (currentTab == "ingested" && (col.field === "source" || col.field === "parent_id")) {
+    if (currentTab === "ingested" && (col.field === "source" || col.field === "parent_id")) {
       return false;
     }
     return true;
