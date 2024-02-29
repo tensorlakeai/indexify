@@ -27,6 +27,7 @@ nav:
   - Home: 'index.md'
   - Getting Started: 'getting_started.md'
   - Concepts: 'concepts.md'
+  - Web UI: 'ui.md'
   - Extractors:
     - Introduction: 'apis/extractors.md'
     - Available Extractors: 'apis/available_extractors.md'
