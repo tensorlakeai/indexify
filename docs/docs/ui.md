@@ -2,7 +2,7 @@
 
 Indexify comes equipped with an intuitive UI out of the box, designed for enhanced debugging and visualization of content. This UI seamlessly integrates with Indexify's APIs, featuring four main sections: Extraction Policies, Indexes, Content, and Extractors.
 
-Access the UI by default from a running Indexify server at `http://localhost:8900/ui`.
+Access the UI by default from a running Indexify server at `http://<host>:<port>/ui`. On your laptop it would be (http://localhost:8900)[http://localhost:8900/ui]
 
 ## Extraction Policies
 
