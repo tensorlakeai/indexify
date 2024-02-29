@@ -6,6 +6,7 @@ use indexify_proto::indexify_raft::{
     RaftRequest,
 };
 use tonic::{Request, Response, Status};
+use tracing::info;
 
 use super::Raft;
 use crate::grpc_helper::GrpcHelper;
@@ -79,6 +80,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<GetClusterMembershipRequest>, // Adjust the request type
     ) -> Result<Response<GetClusterMembershipResponse>, Status> {
+        info!("Received a request to get cluster membership");
         // Adjust the response type
         // Example implementation:
         let req = request.into_inner();

@@ -1,16 +1,13 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
+use indexify_proto::indexify_raft::GetClusterMembershipResponse;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest,
-        AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
-        VoteRequest,
-        VoteResponse,
+        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
+        InstallSnapshotResponse, VoteRequest, VoteResponse,
     },
     BasicNode,
 };
@@ -27,15 +24,49 @@ pub struct Network {
 
 impl Default for Network {
     fn default() -> Self {
-        Self::new()
+        let raft_client = Arc::new(RaftClient::new());
+        Self::new(raft_client)
+    }
+}
+
+impl Clone for Network {
+    fn clone(&self) -> Self {
+        Network {
+            raft_client: Arc::clone(&self.raft_client),
+        }
     }
 }
 
 impl Network {
-    pub fn new() -> Self {
-        Self {
-            raft_client: Arc::new(RaftClient::new()),
-        }
+    pub fn new(raft_client: Arc<RaftClient>) -> Self {
+        Self { raft_client }
+    }
+
+    pub async fn get_cluster_membership(
+        &self,
+        node_id: NodeId,
+        node_addr: &str,
+        target_addr: &str,
+    ) -> Result<GetClusterMembershipResponse, anyhow::Error> {
+        let client_result = self.raft_client.clone().get(target_addr).await;
+
+        let mut client = match client_result {
+            Ok(client) => client,
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to get Raft client: {}", e));
+            }
+        };
+
+        let req = tonic::Request::new(indexify_proto::indexify_raft::GetClusterMembershipRequest {
+            node_id: node_id.to_string(),
+            address: node_addr.into(),
+        });
+
+        let grpc_res = client.get_cluster_membership(req).await;
+        let resp = grpc_res
+            .map_err(|e| anyhow::anyhow!("Error while parsing the cluster membership response"))?;
+
+        Ok(resp.into_inner())
     }
 }
 
