@@ -21,7 +21,7 @@ const ExtractionPoliciesTable = ({
     {
       field: "name",
       headerName: "Name",
-      width: 200,
+      width: 220,
       renderCell: (params) => {
         return (
           <Link color="inherit" to={`/${namespace}/extraction-policies/${params.value}`} target="_blank">
