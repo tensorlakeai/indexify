@@ -21,7 +21,7 @@ const ExtractionPoliciesTable = ({
     {
       field: "name",
       headerName: "Name",
-      width: 200,
+      width: 220,
       renderCell: (params) => {
         return (
           <Link color="inherit" to={`/${namespace}/extraction-policies/${params.value}`} target="_blank">
@@ -33,12 +33,12 @@ const ExtractionPoliciesTable = ({
     {
       field: "extractor",
       headerName: "Extractor",
-      width: 200,
+      width: 320,
     },
     {
       field: "content_source",
       headerName: "Content Source",
-      width: 150,
+      width: 220,
     },
     {
       field: "filters_eq",

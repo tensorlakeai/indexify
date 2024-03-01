@@ -58,7 +58,7 @@ const TasksTable = ({
       field: "content_metadata.source",
       headerName: "Source",
       valueGetter: (params) => params.row.content_metadata.source,
-      width: 100,
+      width: 170,
     },
     {
       field: "content_metadata.created_at",
