@@ -33,12 +33,12 @@ const ExtractionPoliciesTable = ({
     {
       field: "extractor",
       headerName: "Extractor",
-      width: 200,
+      width: 320,
     },
     {
       field: "content_source",
       headerName: "Content Source",
-      width: 150,
+      width: 220,
     },
     {
       field: "filters_eq",

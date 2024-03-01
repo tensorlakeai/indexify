@@ -185,7 +185,7 @@ const ContentTable = ({
     {
       field: "source",
       headerName: "Source",
-      width: 140,
+      width: 220,
     },
     {
       field: "content_type",
@@ -200,7 +200,7 @@ const ContentTable = ({
     {
       field: "labels",
       headerName: "Labels",
-      width: 170,
+      width: 150,
       valueGetter: (params) => {
         return JSON.stringify(params.value);
       },
