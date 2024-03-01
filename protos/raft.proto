@@ -14,7 +14,7 @@ message RaftReply {
 }
 
 message GetClusterMembershipRequest {
-  uint64 node_id = 1; // Assuming node_id is a string; adjust the type as needed
+  uint64 node_id = 1;
   string address = 2;
 }
 
