@@ -63,7 +63,7 @@ const ExtractionPolicyPage = () => {
       </Breadcrumbs>
       <Box display={"flex"} alignItems={"center"}>
         <Typography variant="h2" component="h1">
-          Extraction Policy - {index.name}
+          Search Index - {index.name}
         </Typography>
       </Box>
       {/* Search */}
