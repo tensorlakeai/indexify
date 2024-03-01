@@ -18,11 +18,6 @@ message GetClusterMembershipRequest {
   string address = 2;
 }
 
-message GetClusterMembershipResponse {
-  repeated uint64 members = 1; // Maps node ID to address
-  string error = 2;
-}
-
 service RaftApi { 
     rpc Forward(RaftRequest) returns (RaftReply);
     rpc AppendEntries(RaftRequest) returns (RaftReply);

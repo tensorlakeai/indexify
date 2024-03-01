@@ -1,7 +1,7 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use indexify_proto::indexify_raft::{GetClusterMembershipResponse, RaftReply};
+use indexify_proto::indexify_raft::RaftReply;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},

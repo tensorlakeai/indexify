@@ -21,15 +21,6 @@ pub struct GetClusterMembershipRequest {
     #[prost(string, tag = "2")]
     pub address: ::prost::alloc::string::String,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetClusterMembershipResponse {
-    /// Maps node ID to address
-    #[prost(uint64, repeated, tag = "1")]
-    pub members: ::prost::alloc::vec::Vec<u64>,
-    #[prost(string, tag = "2")]
-    pub error: ::prost::alloc::string::String,
-}
 /// Generated client implementations.
 pub mod raft_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]

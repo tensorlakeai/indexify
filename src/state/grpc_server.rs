@@ -2,8 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi, GetClusterMembershipRequest, GetClusterMembershipResponse, RaftReply,
-    RaftRequest,
+    raft_api_server::RaftApi, GetClusterMembershipRequest, RaftReply, RaftRequest,
 };
 use openraft::BasicNode;
 use tonic::{Request, Response, Status};
