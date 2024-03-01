@@ -63,8 +63,9 @@ impl Network {
         });
 
         let grpc_res = client.get_cluster_membership(req).await;
-        let resp = grpc_res
-            .map_err(|e| anyhow::anyhow!("Error while parsing the cluster membership response"))?;
+        let resp = grpc_res.map_err(|e| {
+            anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
+        })?;
 
         Ok(resp.into_inner())
     }
