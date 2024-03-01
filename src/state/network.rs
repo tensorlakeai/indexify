@@ -1,7 +1,7 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use indexify_proto::indexify_raft::GetClusterMembershipResponse;
+use indexify_proto::indexify_raft::{GetClusterMembershipResponse, RaftReply};
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -47,7 +47,7 @@ impl Network {
         node_id: NodeId,
         node_addr: &str,
         target_addr: &str,
-    ) -> Result<GetClusterMembershipResponse, anyhow::Error> {
+    ) -> Result<RaftReply, anyhow::Error> {
         let client_result = self.raft_client.clone().get(target_addr).await;
 
         let mut client = match client_result {
@@ -58,7 +58,7 @@ impl Network {
         };
 
         let req = tonic::Request::new(indexify_proto::indexify_raft::GetClusterMembershipRequest {
-            node_id: node_id.to_string(),
+            node_id,
             address: node_addr.into(),
         });
 

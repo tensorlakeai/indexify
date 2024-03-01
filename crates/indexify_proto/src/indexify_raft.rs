@@ -16,8 +16,8 @@ pub struct RaftReply {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetClusterMembershipRequest {
     /// Assuming node_id is a string; adjust the type as needed
-    #[prost(string, tag = "1")]
-    pub node_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "1")]
+    pub node_id: u64,
     #[prost(string, tag = "2")]
     pub address: ::prost::alloc::string::String,
 }
@@ -25,11 +25,8 @@ pub struct GetClusterMembershipRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetClusterMembershipResponse {
     /// Maps node ID to address
-    #[prost(map = "string, string", tag = "1")]
-    pub members: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    #[prost(uint64, repeated, tag = "1")]
+    pub members: ::prost::alloc::vec::Vec<u64>,
     #[prost(string, tag = "2")]
     pub error: ::prost::alloc::string::String,
 }
@@ -209,10 +206,7 @@ pub mod raft_api_client {
         pub async fn get_cluster_membership(
             &mut self,
             request: impl tonic::IntoRequest<super::GetClusterMembershipRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetClusterMembershipResponse>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -261,10 +255,7 @@ pub mod raft_api_server {
         async fn get_cluster_membership(
             &self,
             request: tonic::Request<super::GetClusterMembershipRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetClusterMembershipResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct RaftApiServer<T: RaftApi> {
@@ -528,7 +519,7 @@ pub mod raft_api_server {
                         T: RaftApi,
                     > tonic::server::UnaryService<super::GetClusterMembershipRequest>
                     for GetClusterMembershipSvc<T> {
-                        type Response = super::GetClusterMembershipResponse;
+                        type Response = super::RaftReply;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

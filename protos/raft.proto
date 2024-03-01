@@ -14,12 +14,12 @@ message RaftReply {
 }
 
 message GetClusterMembershipRequest {
-  string node_id = 1; // Assuming node_id is a string; adjust the type as needed
+  uint64 node_id = 1; // Assuming node_id is a string; adjust the type as needed
   string address = 2;
 }
 
 message GetClusterMembershipResponse {
-  map<string, string> members = 1; // Maps node ID to address
+  repeated uint64 members = 1; // Maps node ID to address
   string error = 2;
 }
 
@@ -28,6 +28,6 @@ service RaftApi {
     rpc AppendEntries(RaftRequest) returns (RaftReply);
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
-    rpc GetClusterMembership(GetClusterMembershipRequest) returns (GetClusterMembershipResponse);
+    rpc GetClusterMembership(GetClusterMembershipRequest) returns (RaftReply);
 }
 

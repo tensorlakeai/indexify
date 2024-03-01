@@ -216,7 +216,6 @@ impl App {
 
     pub async fn initialize_raft(&self) -> Result<()> {
         match self.raft.initialize(self.nodes.clone()).await {
-            // .map_err(|e| anyhow!("unable to initialize raft: {}", e)) {
             Ok(_) => Ok(()),
             Err(e) => {
                 // match the type of the initialize error. if it's NotAllowed, ignore it.
@@ -825,12 +824,27 @@ impl App {
     }
 
     async fn check_cluster_membership(&self) {
-        if let Err(e) = self
+        let addr = format!("localhost:{}", self.raft_port);
+        match self
             .network
-            .get_cluster_membership(self.id, &self.addr, &self.seed_node)
+            .get_cluster_membership(self.id, &addr, &self.seed_node)
             .await
         {
-            error!("Failed to check cluster membership: {}", e);
+            Ok(resp) => {
+                info!("Cluster membership response: {:?}", resp);
+                info!("Checking own cluster");
+                let metrics = self.raft.metrics().borrow().clone();
+                info!("Metrics {:#?}", metrics);
+                let nodes_in_cluster = metrics
+                    .membership_config
+                    .nodes()
+                    .map(|(node_id, node)| (*node_id, node.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                info!("Nodes in cluster {:#?}", nodes_in_cluster);
+            }
+            Err(e) => {
+                error!("Failed to check cluster membership: {}", e);
+            }
         }
     }
 }
