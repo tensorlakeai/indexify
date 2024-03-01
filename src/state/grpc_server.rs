@@ -84,10 +84,13 @@ impl RaftApi for RaftGrpcServer {
         // Adjust the response type
         // Example implementation:
         let req = request.into_inner();
-        println!(
+        info!(
             "Received get_cluster_membership request from Node ID: {}, Address: {}",
             req.node_id, req.address
         );
+
+        let metrics = self.raft.metrics().borrow().clone();
+        info!("Metrics {:#?}", metrics);
 
         // Here, insert logic to process the request, such as updating the cluster membership
         // or retrieving the current cluster state. This is a simplified example that returns
