@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: Indexify
+    runtime: docker
+    rootDir: .
+    dockerfilePath: ./dockerfiles/Dockerfile.server
+    dockerCommand: coordinator --config ./local_server_config.yaml
+    envVars:
+      - DB_URL:
+        fromDatabase:
+          name: indexify
+          property: connectionString
+    
+databases:
+  - name: indexify database
+    databaseName: indexify
+    ipAllowList: [] # only internal connections allowed
