@@ -2,8 +2,7 @@
 
 Indexify comes equipped with an intuitive UI out of the box, designed for enhanced debugging and visualization of content. This UI seamlessly integrates with Indexify's APIs, featuring four main sections: Extraction Policies, Indexes, Content, and Extractors.
 
-Access the UI by default from a running Indexify server at `http://<host>:<port>/ui`. On your laptop it would be (http://localhost:8900)[http://localhost:8900/ui]
-
+After running indexify locally you can access the UI at http://localhost:8900/ui.
 
 <iframe width="650" height="370" src="https://www.youtube.com/embed/HBMk_SgU8Xc?si=3LEFAAIurqXXag3L" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
