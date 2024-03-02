@@ -458,7 +458,6 @@ mod tests {
                 result??;
                 let metrics = seed_node_clone.as_ref().raft.metrics().borrow().clone();
                 let num_of_nodes_in_cluster = metrics.membership_config.nodes().count();
-                println!("Number of nodes in cluster {}", num_of_nodes_in_cluster);
                 if num_of_nodes_in_cluster == apps.len() + 1 {
                     return Ok(());
                 }
