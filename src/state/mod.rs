@@ -150,14 +150,12 @@ impl App {
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
         let mut nodes = BTreeMap::new();
-        for peer in &server_config.peers {
-            nodes.insert(
-                peer.node_id,
-                BasicNode {
-                    addr: peer.addr.clone(),
-                },
-            );
-        }
+        nodes.insert(
+            server_config.node_id,
+            BasicNode {
+                addr: format!("localhost:{}", server_config.raft_port),
+            },
+        );
         let (tx, rx) = watch::channel::<()>(());
 
         let addr = server_config
@@ -214,7 +212,21 @@ impl App {
         Ok(app)
     }
 
+    /// This function checks whether this node is the seed node
+    fn is_seed_node(&self) -> bool {
+        let split_string: Vec<&str> = self.seed_node.split(':').collect();
+        if let Some(seed_port) = split_string.get(1) {
+            if let Ok(port) = seed_port.trim().parse::<u64>() {
+                return port == self.raft_port;
+            }
+        }
+        false
+    }
+
     pub async fn initialize_raft(&self) -> Result<()> {
+        if !self.is_seed_node() {
+            return Ok(());
+        }
         match self.raft.initialize(self.nodes.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -803,20 +815,13 @@ impl App {
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>) {
-        info!("Calling periodic membership update function");
         let app_clone = Arc::clone(&self);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
             loop {
                 interval.tick().await;
-                let split: Vec<&str> = app_clone.seed_node.split(':').collect();
-                if let Some(port_str) = split.get(1) {
-                    let port_str = port_str.trim();
-                    if let Ok(port) = port_str.parse::<u64>() {
-                        if port == app_clone.raft_port {
-                            continue;
-                        }
-                    }
+                if app_clone.is_seed_node() {
+                    continue;
                 }
                 app_clone.check_cluster_membership().await;
             }

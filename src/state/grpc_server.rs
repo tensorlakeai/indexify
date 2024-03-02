@@ -87,14 +87,12 @@ impl RaftApi for RaftGrpcServer {
         );
 
         let metrics = self.raft.metrics().borrow().clone();
-        info!("Metrics {:#?}", metrics);
         let nodes_in_cluster = metrics
             .membership_config
             .nodes()
             .map(|(node_id, node)| (*node_id, node.clone()))
             .collect::<BTreeMap<_, _>>();
         let mut node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
-        info!("Nodes in cluster {:#?}", nodes_in_cluster);
         if nodes_in_cluster.contains_key(&req.node_id) {
             info!("This node is already present in the cluster, not modifying the cluster");
             let response = RaftReply {
@@ -105,11 +103,10 @@ impl RaftApi for RaftGrpcServer {
             return Ok(Response::new(response));
         }
 
-        info!("This node is not present in the cluster, adding it as a learner");
         let node_to_add = BasicNode { addr: req.address };
         match self
             .raft
-            .add_learner(req.node_id, node_to_add.clone(), true)
+            .add_learner(req.node_id, node_to_add.clone(), false)
             .await
         {
             Ok(_) => {

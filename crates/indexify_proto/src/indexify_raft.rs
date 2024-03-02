@@ -15,7 +15,6 @@ pub struct RaftReply {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetClusterMembershipRequest {
-    /// Assuming node_id is a string; adjust the type as needed
     #[prost(uint64, tag = "1")]
     pub node_id: u64,
     #[prost(string, tag = "2")]

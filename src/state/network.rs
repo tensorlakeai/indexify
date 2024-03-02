@@ -11,6 +11,7 @@ use openraft::{
     },
     BasicNode,
 };
+use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId, TypeConfig};
 use crate::{
@@ -109,6 +110,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: AppendEntriesRequest<TypeConfig>,
     ) -> Result<AppendEntriesResponse<NodeId>, RPCError<RaftError>> {
+        info!("Sending AppendEntriesRequest RPC to {}", self.target);
         let mut client = self
             .raft_client
             .clone()
@@ -133,6 +135,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
+        info!("Sending InstallSnapshot RPC to {}", self.target);
         let mut client = self
             .raft_client
             .get(&self.target_node.addr)
@@ -156,6 +159,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: VoteRequest<NodeId>,
     ) -> Result<VoteResponse<NodeId>, RPCError<RaftError>> {
+        info!("Sending VoteRequest RPC to {}", self.target);
         let mut client = self
             .raft_client
             .get(&self.target_node.addr)
