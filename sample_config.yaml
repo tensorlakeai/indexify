@@ -67,6 +67,7 @@ tls:
   cert_file: .dev-tls/server.crt # Path to the server certificate
   key_file: .dev-tls/server.key # Path to the server private key
 
+seed_node: localhost:8970
 node_id: 0
 peers:
   - node_id: 0
