@@ -464,6 +464,31 @@ mod tests {
                 }
             },
         }
+
+        let num_of_nodes_according_to_seed = seed_node_clone
+            .as_ref()
+            .raft
+            .metrics()
+            .borrow()
+            .clone()
+            .membership_config
+            .nodes()
+            .count();
+        let num_of_nodes_according_to_learner = apps
+            .remove(0)
+            .as_ref()
+            .raft
+            .metrics()
+            .borrow()
+            .clone()
+            .membership_config
+            .nodes()
+            .count();
+        assert_eq!(
+            num_of_nodes_according_to_seed,
+            num_of_nodes_according_to_learner
+        );
+
         return Err(anyhow::anyhow!(
             "Raft cluster failed to register all member nodes within 10 seconds"
         ));
