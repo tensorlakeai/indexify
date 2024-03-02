@@ -108,10 +108,6 @@ pub struct App {
 
 impl App {
     pub async fn new(server_config: Arc<ServerConfig>) -> Result<Arc<Self>> {
-        info!(
-            "the server config passed into App::new() {:?}",
-            server_config
-        );
         let raft_config = openraft::Config {
             heartbeat_interval: 500,
             election_timeout_min: 1500,
