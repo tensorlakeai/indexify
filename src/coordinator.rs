@@ -409,7 +409,6 @@ mod tests {
                 coordinator_port: port,
                 coordinator_addr: format!("localhost:{}", port),
                 raft_port: port + 1,
-                peers: peers.clone(),
                 state_store: StateStoreConfig {
                     path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
                 },

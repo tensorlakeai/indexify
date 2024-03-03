@@ -63,9 +63,6 @@ tls:
 
 seed_node: localhost:8970
 node_id: 2
-peers:
-  - node_id: 0
-    addr: localhost:8971
 
 # Cache configuration. It is used for caching the results
 # of queries to the vector index.

@@ -69,9 +69,6 @@ tls:
 
 seed_node: localhost:8970
 node_id: 0
-peers:
-  - node_id: 0
-    addr: localhost:8970
 
 cache:
   # Possible values - redis, memory, none
