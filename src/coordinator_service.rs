@@ -468,7 +468,6 @@ pub struct CoordinatorServer {
 impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
-        info!("Addr is {}", addr);
         let shared_state = state::App::new(config.clone()).await?;
 
         let coordinator = Coordinator::new(shared_state.clone());

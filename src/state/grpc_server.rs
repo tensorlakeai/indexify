@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi, GetClusterMembershipRequest, GetClusterMembershipResponse, RaftReply,
+    raft_api_server::RaftApi, ClusterMembershipResponse, GetClusterMembershipRequest, RaftReply,
     RaftRequest,
 };
 use openraft::BasicNode;
@@ -80,7 +80,7 @@ impl RaftApi for RaftGrpcServer {
     async fn get_cluster_membership(
         &self,
         request: Request<GetClusterMembershipRequest>,
-    ) -> Result<Response<GetClusterMembershipResponse>, Status> {
+    ) -> Result<Response<ClusterMembershipResponse>, Status> {
         let req = request.into_inner();
 
         let nodes_in_cluster = self
@@ -93,10 +93,7 @@ impl RaftApi for RaftGrpcServer {
             .collect::<BTreeMap<_, _>>();
         let mut node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
         if nodes_in_cluster.contains_key(&req.node_id) {
-            let response = GetClusterMembershipResponse {
-                data: "".to_string(),
-                error: "".to_string(),
-            };
+            let response = ClusterMembershipResponse {};
 
             return Ok(Response::new(response));
         }
@@ -108,32 +105,19 @@ impl RaftApi for RaftGrpcServer {
         let node_to_add = BasicNode { addr: req.address };
 
         async {
-            let add_learner_result = self
-                .raft
+            self.raft
                 .add_learner(req.node_id, node_to_add.clone(), false)
                 .await
-                .map_err(|e| Status::internal(format!("Error adding learner: {}", e)));
-
-            if let Err(e) = add_learner_result {
-                return Err(e);
-            }
+                .map_err(GrpcHelper::internal_err)?;
 
             node_ids.push(req.node_id);
-            let change_membership_result = self
-                .raft
+            self.raft
                 .change_membership(node_ids, false)
                 .await
-                .map_err(|e| Status::internal(format!("Error changing membership: {}", e)));
-
-            if let Err(e) = change_membership_result {
-                return Err(e);
-            }
+                .map_err(GrpcHelper::internal_err)?;
 
             info!("Added the node as a learner and returning the response");
-            let response = GetClusterMembershipResponse {
-                data: "".to_string(),
-                error: "".to_string(),
-            };
+            let response = ClusterMembershipResponse {};
             Ok(Response::new(response))
         }
         .await

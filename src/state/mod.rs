@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, GetClusterMembershipResponse};
+use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, ClusterMembershipResponse};
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
@@ -828,9 +828,7 @@ impl App {
         });
     }
 
-    async fn check_cluster_membership(
-        &self,
-    ) -> Result<GetClusterMembershipResponse, anyhow::Error> {
+    async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
         let addr = format!("localhost:{}", self.raft_port);
         self.network
             .get_cluster_membership(self.id, &addr, &self.seed_node)
