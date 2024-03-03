@@ -40,7 +40,7 @@ use self::{
 };
 use crate::{
     coordinator_filters::matches_mime_type,
-    server_config::ServerConfig,
+    server_config::{NetworkAddress, ServerConfig},
     state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
 };
@@ -106,6 +106,7 @@ pub struct App {
     state_change_rx: Receiver<StateChange>,
     network: Network,
     raft_port: u64,
+    listen_if: NetworkAddress,
 }
 
 impl App {
@@ -151,7 +152,7 @@ impl App {
         nodes.insert(
             server_config.node_id,
             BasicNode {
-                addr: format!("localhost:{}", server_config.raft_port),
+                addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             },
         );
         let (tx, rx) = watch::channel::<()>(());
@@ -183,6 +184,7 @@ impl App {
             state_change_rx,
             network,
             raft_port: server_config.raft_port,
+            listen_if: server_config.listen_if.clone(),
         });
 
         let raft_clone = app.raft.clone();
@@ -829,7 +831,7 @@ impl App {
     }
 
     async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
-        let addr = format!("localhost:{}", self.raft_port);
+        let addr = format!("{}:{}", self.listen_if, self.raft_port);
         self.network
             .get_cluster_membership(self.id, &addr, &self.seed_node)
             .await
