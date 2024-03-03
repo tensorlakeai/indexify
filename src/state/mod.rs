@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
+use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, GetClusterMembershipResponse};
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
@@ -88,6 +88,8 @@ pub mod typ {
 
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
+
+const MEMBERSHIP_CHECK_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 
 pub struct App {
     pub id: NodeId,
@@ -813,40 +815,26 @@ impl App {
     pub fn start_periodic_membership_check(self: &Arc<Self>) {
         let app_clone = Arc::clone(&self);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
+            let mut interval = tokio::time::interval(MEMBERSHIP_CHECK_INTERVAL);
             loop {
                 interval.tick().await;
                 if app_clone.is_seed_node() {
                     continue;
                 }
-                app_clone.check_cluster_membership().await;
+                if let Err(e) = app_clone.check_cluster_membership().await {
+                    error!("Failed to check cluster membership: {}", e);
+                }
             }
         });
     }
 
-    async fn check_cluster_membership(&self) {
+    async fn check_cluster_membership(
+        &self,
+    ) -> Result<GetClusterMembershipResponse, anyhow::Error> {
         let addr = format!("localhost:{}", self.raft_port);
-        match self
-            .network
+        self.network
             .get_cluster_membership(self.id, &addr, &self.seed_node)
             .await
-        {
-            Ok(resp) => {
-                info!("Cluster membership response: {:?}", resp);
-                info!("Checking own cluster");
-                let metrics = self.raft.metrics().borrow().clone();
-                info!("Metrics {:#?}", metrics);
-                let nodes_in_cluster = metrics
-                    .membership_config
-                    .nodes()
-                    .map(|(node_id, node)| (*node_id, node.clone()))
-                    .collect::<BTreeMap<_, _>>();
-                info!("Nodes in cluster {:#?}", nodes_in_cluster);
-            }
-            Err(e) => {
-                error!("Failed to check cluster membership: {}", e);
-            }
-        }
     }
 }
 

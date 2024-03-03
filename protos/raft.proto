@@ -18,11 +18,16 @@ message GetClusterMembershipRequest {
   string address = 2;
 }
 
+message GetClusterMembershipResponse {
+    string data = 1;
+    string error = 2;
+}
+
 service RaftApi { 
     rpc Forward(RaftRequest) returns (RaftReply);
     rpc AppendEntries(RaftRequest) returns (RaftReply);
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
-    rpc GetClusterMembership(GetClusterMembershipRequest) returns (RaftReply);
+    rpc GetClusterMembership(GetClusterMembershipRequest) returns (GetClusterMembershipResponse);
 }
 

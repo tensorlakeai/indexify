@@ -2,7 +2,8 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi, GetClusterMembershipRequest, RaftReply, RaftRequest,
+    raft_api_server::RaftApi, GetClusterMembershipRequest, GetClusterMembershipResponse, RaftReply,
+    RaftRequest,
 };
 use openraft::BasicNode;
 use tonic::{Request, Response, Status};
@@ -79,23 +80,20 @@ impl RaftApi for RaftGrpcServer {
     async fn get_cluster_membership(
         &self,
         request: Request<GetClusterMembershipRequest>,
-    ) -> Result<Response<RaftReply>, Status> {
+    ) -> Result<Response<GetClusterMembershipResponse>, Status> {
         let req = request.into_inner();
-        info!(
-            "Received get_cluster_membership request from Node ID: {}, Address: {}",
-            req.node_id, req.address
-        );
 
-        let metrics = self.raft.metrics().borrow().clone();
-        let nodes_in_cluster = metrics
+        let nodes_in_cluster = self
+            .raft
+            .metrics()
+            .borrow()
             .membership_config
             .nodes()
             .map(|(node_id, node)| (*node_id, node.clone()))
             .collect::<BTreeMap<_, _>>();
         let mut node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
         if nodes_in_cluster.contains_key(&req.node_id) {
-            info!("This node is already present in the cluster, not modifying the cluster");
-            let response = RaftReply {
+            let response = GetClusterMembershipResponse {
                 data: "".to_string(),
                 error: "".to_string(),
             };
@@ -103,30 +101,41 @@ impl RaftApi for RaftGrpcServer {
             return Ok(Response::new(response));
         }
 
+        info!(
+            "Received request from new node with id {} and address {}",
+            req.node_id, req.address
+        );
         let node_to_add = BasicNode { addr: req.address };
-        match self
-            .raft
-            .add_learner(req.node_id, node_to_add.clone(), false)
-            .await
-        {
-            Ok(_) => {
-                node_ids.push(req.node_id);
-                match self.raft.change_membership(node_ids, false).await {
-                    Ok(_) => {
-                        info!("Added the node as a learner, returning response");
-                        let response = RaftReply {
-                            data: "".to_string(),
-                            error: "".to_string(),
-                        };
-                        return Ok(Response::new(response));
-                    }
-                    Err(e) => Err(Status::internal(format!(
-                        "Error changing membership: {}",
-                        e
-                    ))),
-                }
+
+        async {
+            let add_learner_result = self
+                .raft
+                .add_learner(req.node_id, node_to_add.clone(), false)
+                .await
+                .map_err(|e| Status::internal(format!("Error adding learner: {}", e)));
+
+            if let Err(e) = add_learner_result {
+                return Err(e);
             }
-            Err(e) => Err(Status::internal(format!("Error adding learner: {}", e))),
+
+            node_ids.push(req.node_id);
+            let change_membership_result = self
+                .raft
+                .change_membership(node_ids, false)
+                .await
+                .map_err(|e| Status::internal(format!("Error changing membership: {}", e)));
+
+            if let Err(e) = change_membership_result {
+                return Err(e);
+            }
+
+            info!("Added the node as a learner and returning the response");
+            let response = GetClusterMembershipResponse {
+                data: "".to_string(),
+                error: "".to_string(),
+            };
+            Ok(Response::new(response))
         }
+        .await
     }
 }

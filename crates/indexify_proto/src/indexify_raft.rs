@@ -20,6 +20,14 @@ pub struct GetClusterMembershipRequest {
     #[prost(string, tag = "2")]
     pub address: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetClusterMembershipResponse {
+    #[prost(string, tag = "1")]
+    pub data: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub error: ::prost::alloc::string::String,
+}
 /// Generated client implementations.
 pub mod raft_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
@@ -196,7 +204,10 @@ pub mod raft_api_client {
         pub async fn get_cluster_membership(
             &mut self,
             request: impl tonic::IntoRequest<super::GetClusterMembershipRequest>,
-        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetClusterMembershipResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -245,7 +256,10 @@ pub mod raft_api_server {
         async fn get_cluster_membership(
             &self,
             request: tonic::Request<super::GetClusterMembershipRequest>,
-        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetClusterMembershipResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct RaftApiServer<T: RaftApi> {
@@ -509,7 +523,7 @@ pub mod raft_api_server {
                         T: RaftApi,
                     > tonic::server::UnaryService<super::GetClusterMembershipRequest>
                     for GetClusterMembershipSvc<T> {
-                        type Response = super::RaftReply;
+                        type Response = super::GetClusterMembershipResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

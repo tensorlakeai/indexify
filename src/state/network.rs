@@ -1,7 +1,7 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use indexify_proto::indexify_raft::RaftReply;
+use indexify_proto::indexify_raft::GetClusterMembershipResponse;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -11,7 +11,6 @@ use openraft::{
     },
     BasicNode,
 };
-use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId, TypeConfig};
 use crate::{
@@ -48,23 +47,19 @@ impl Network {
         node_id: NodeId,
         node_addr: &str,
         target_addr: &str,
-    ) -> Result<RaftReply, anyhow::Error> {
-        let client_result = self.raft_client.clone().get(target_addr).await;
-
-        let mut client = match client_result {
-            Ok(client) => client,
-            Err(e) => {
-                return Err(anyhow::anyhow!("Failed to get Raft client: {}", e));
-            }
-        };
+    ) -> Result<GetClusterMembershipResponse, anyhow::Error> {
+        let mut client = self
+            .raft_client
+            .get(target_addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
 
         let req = tonic::Request::new(indexify_proto::indexify_raft::GetClusterMembershipRequest {
             node_id,
             address: node_addr.into(),
         });
 
-        let grpc_res = client.get_cluster_membership(req).await;
-        let resp = grpc_res.map_err(|e| {
+        let resp = client.get_cluster_membership(req).await.map_err(|e| {
             anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
         })?;
 
@@ -110,7 +105,6 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: AppendEntriesRequest<TypeConfig>,
     ) -> Result<AppendEntriesResponse<NodeId>, RPCError<RaftError>> {
-        info!("Sending AppendEntriesRequest RPC to {}", self.target);
         let mut client = self
             .raft_client
             .clone()
@@ -135,7 +129,6 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
-        info!("Sending InstallSnapshot RPC to {}", self.target);
         let mut client = self
             .raft_client
             .get(&self.target_node.addr)
@@ -159,7 +152,6 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: VoteRequest<NodeId>,
     ) -> Result<VoteResponse<NodeId>, RPCError<RaftError>> {
-        info!("Sending VoteRequest RPC to {}", self.target);
         let mut client = self
             .raft_client
             .get(&self.target_node.addr)
