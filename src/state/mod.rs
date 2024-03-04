@@ -191,11 +191,13 @@ impl App {
 
         let mut rx = app.shutdown_rx.clone();
         let shutdown_rx = app.shutdown_rx.clone();
-        // Start for leadership changes
+
+        // Start task for watching leadership changes
         tokio::spawn(async move {
             let _ = watch_for_leader_change(raft_clone, leader_change_tx, shutdown_rx).await;
         });
 
+        //  Start task for GRPC server
         let grpc_svc = tonic::transport::Server::builder().add_service(raft_srvr);
         let h = tokio::spawn(async move {
             grpc_svc
@@ -207,7 +209,10 @@ impl App {
                 .map_err(|e| anyhow!("grpc server error: {}", e))
         });
         app.join_handles.lock().await.push(h);
-        app.start_periodic_membership_check();
+
+        //  Start task for cluster membership check
+        let membership_shutdown_rx = app.shutdown_rx.clone();
+        app.start_periodic_membership_check(membership_shutdown_rx);
 
         Ok(app)
     }
@@ -814,17 +819,24 @@ impl App {
         Ok(())
     }
 
-    pub fn start_periodic_membership_check(self: &Arc<Self>) {
+    pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
         let app_clone = Arc::clone(&self);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(MEMBERSHIP_CHECK_INTERVAL);
             loop {
-                interval.tick().await;
-                if app_clone.is_seed_node() {
-                    continue;
-                }
-                if let Err(e) = app_clone.check_cluster_membership().await {
-                    error!("Failed to check cluster membership: {}", e);
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("shutting down periodic membership check");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if app_clone.is_seed_node() {
+                            continue;
+                        }
+                        if let Err(e) = app_clone.check_cluster_membership().await {
+                            error!("failed to check cluster membership: {}", e);
+                        }
+                    }
                 }
             }
         });
