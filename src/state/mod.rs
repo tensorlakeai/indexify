@@ -166,8 +166,7 @@ impl App {
             .map_err(|e| anyhow!("unable to create raft address : {}", e.to_string()))?;
 
         info!("starting raft server at {}", addr.to_string());
-        let rpc_server = RaftGrpcServer::new(Arc::new(raft.clone()));
-        let raft_srvr = RaftApiServer::new(rpc_server);
+        let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
         let app = Arc::new(App {
