@@ -6,11 +6,8 @@ use tokio::sync::Mutex;
 use tonic::transport::Channel;
 use tracing::info;
 
-use super::NodeId;
-
 pub struct RaftClient {
     clients: Arc<Mutex<HashMap<String, RaftApiClient<Channel>>>>,
-    current_leader: Option<(NodeId, String)>,
 }
 
 impl Default for RaftClient {
@@ -23,7 +20,6 @@ impl RaftClient {
     pub fn new() -> Self {
         Self {
             clients: Arc::new(Mutex::new(HashMap::new())),
-            current_leader: None,
         }
     }
 

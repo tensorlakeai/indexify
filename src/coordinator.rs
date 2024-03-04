@@ -268,12 +268,10 @@ mod tests {
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
-    use openraft::error::CheckIsLeaderError;
-    use tonic::Status;
 
     use crate::{
         server_config::{ServerConfig, ServerPeer, StateStoreConfig},
-        state::{typ::RaftError, App, NodeId},
+        state::{App, NodeId},
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
     };
 

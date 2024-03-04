@@ -14,12 +14,11 @@ use crate::grpc_helper::GrpcHelper;
 
 pub struct RaftGrpcServer {
     raft: Arc<Raft>,
-    node_id: u64,
 }
 
 impl RaftGrpcServer {
-    pub fn new(raft: Arc<Raft>, node_id: u64) -> Self {
-        Self { raft, node_id }
+    pub fn new(raft: Arc<Raft>) -> Self {
+        Self { raft }
     }
 }
 
