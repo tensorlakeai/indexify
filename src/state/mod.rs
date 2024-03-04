@@ -105,7 +105,7 @@ pub struct App {
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
-    node_addr: String,
+    pub node_addr: String,
 }
 
 impl App {
@@ -114,6 +114,7 @@ impl App {
             heartbeat_interval: 500,
             election_timeout_min: 1500,
             election_timeout_max: 3000,
+            enable_heartbeat: true,
             ..Default::default()
         };
 
@@ -233,9 +234,9 @@ impl App {
     }
 
     pub async fn initialize_raft(&self) -> Result<()> {
-        if !self.is_seed_node() {
-            return Ok(());
-        }
+        // if !self.is_seed_node() {
+        //     return Ok(());
+        // }
         match self.raft.initialize(self.nodes.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {
