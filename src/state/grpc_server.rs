@@ -2,7 +2,10 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi, ClusterMembershipResponse, GetClusterMembershipRequest, RaftReply,
+    raft_api_server::RaftApi,
+    ClusterMembershipResponse,
+    GetClusterMembershipRequest,
+    RaftReply,
     RaftRequest,
 };
 use openraft::BasicNode;
@@ -103,22 +106,19 @@ impl RaftApi for RaftGrpcServer {
         );
         let node_to_add = BasicNode { addr: req.address };
 
-        async {
-            self.raft
-                .add_learner(req.node_id, node_to_add.clone(), true)
-                .await
-                .map_err(GrpcHelper::internal_err)?;
+        self.raft
+            .add_learner(req.node_id, node_to_add.clone(), true)
+            .await
+            .map_err(GrpcHelper::internal_err)?;
 
-            node_ids.push(req.node_id);
-            self.raft
-                .change_membership(node_ids, false)
-                .await
-                .map_err(GrpcHelper::internal_err)?;
+        node_ids.push(req.node_id);
+        self.raft
+            .change_membership(node_ids, false)
+            .await
+            .map_err(GrpcHelper::internal_err)?;
 
-            info!("Added the node as a learner and returning the response");
-            let response = ClusterMembershipResponse {};
-            Ok(Response::new(response))
-        }
-        .await
+        info!("Added the node as a learner and returning the response");
+        let response = ClusterMembershipResponse {};
+        Ok(Response::new(response))
     }
 }

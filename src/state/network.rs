@@ -6,8 +6,12 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-        InstallSnapshotResponse, VoteRequest, VoteResponse,
+        AppendEntriesRequest,
+        AppendEntriesResponse,
+        InstallSnapshotRequest,
+        InstallSnapshotResponse,
+        VoteRequest,
+        VoteResponse,
     },
     BasicNode,
 };

@@ -13,7 +13,10 @@ use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
-    coordinator_filters::*, scheduler::Scheduler, state::SharedState, task_allocator::TaskAllocator,
+    coordinator_filters::*,
+    scheduler::Scheduler,
+    state::SharedState,
+    task_allocator::TaskAllocator,
 };
 
 pub struct Coordinator {

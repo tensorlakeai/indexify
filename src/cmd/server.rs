@@ -4,7 +4,10 @@ use clap::Args as ClapArgs;
 
 use super::GlobalArgs;
 use crate::{
-    coordinator_service::CoordinatorServer, prelude::*, server, server_config::ServerConfig,
+    coordinator_service::CoordinatorServer,
+    prelude::*,
+    server,
+    server_config::ServerConfig,
 };
 
 #[derive(Debug, ClapArgs)]

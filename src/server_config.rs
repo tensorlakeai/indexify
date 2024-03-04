@@ -1,5 +1,6 @@
 use std::{
-    fmt, fs,
+    fmt,
+    fs,
     net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
 };
