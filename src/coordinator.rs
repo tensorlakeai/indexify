@@ -274,7 +274,6 @@ mod tests {
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
     use openraft::BasicNode;
-    use opensearch::http::response;
 
     use crate::{
         server_config::{ServerConfig, ServerPeer, StateStoreConfig},
