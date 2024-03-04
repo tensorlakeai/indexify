@@ -18,15 +18,13 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -37,9 +35,7 @@ use self::{
     store::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
+        ExecutorId, ExecutorIdRef, TaskId,
     },
 };
 use crate::{
@@ -108,7 +104,7 @@ pub struct App {
     pub indexify_state: Arc<RwLock<IndexifyState>>,
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
-    network: Network,
+    pub network: Network,
     node_addr: String,
 }
 
@@ -165,7 +161,10 @@ impl App {
             .map_err(|e| anyhow!("unable to create raft address : {}", e.to_string()))?;
 
         info!("starting raft server at {}", addr.to_string());
-        let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
+        let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(
+            Arc::new(raft.clone()),
+            server_config.node_id,
+        ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
         let app = Arc::new(App {
@@ -850,8 +849,10 @@ impl App {
         });
     }
 
-    async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
-        // let addr = format!("{}:{}", self.listen_if, self.raft_port);
+    pub async fn check_cluster_membership(
+        &self,
+    ) -> Result<ClusterMembershipResponse, anyhow::Error> {
+        println!("CHECKING CLUSTER MEMBERSHIP");
         self.network
             .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
             .await

@@ -6,12 +6,8 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest,
-        AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
-        VoteRequest,
-        VoteResponse,
+        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
+        InstallSnapshotResponse, VoteRequest, VoteResponse,
     },
     BasicNode,
 };
@@ -64,7 +60,8 @@ impl Network {
         });
 
         let resp = client.get_cluster_membership(req).await.map_err(|e| {
-            anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
+            // anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
+            anyhow::anyhow!(e)
         })?;
 
         Ok(resp.into_inner())
