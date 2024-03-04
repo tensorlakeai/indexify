@@ -21,3 +21,4 @@ data/
 src/state/store/snapshots/*
 .ipynb_checkpoints/
 .DS_Store
+local_server_config_*.yaml

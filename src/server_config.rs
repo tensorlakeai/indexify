@@ -400,8 +400,8 @@ pub struct ServerConfig {
     pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
     pub tls: Option<TlsConfig>,
+    pub seed_node: String,
     pub node_id: u64,
-    pub peers: Vec<ServerPeer>,
     /// cache is the configuration for the server-side cache.
     #[serde(default)]
     pub cache: ServerCacheConfig,
@@ -427,11 +427,8 @@ impl Default for ServerConfig {
                 }),
             },
             tls: None,
+            seed_node: "localhost:8970".into(),
             node_id: 0,
-            peers: vec![ServerPeer {
-                addr: "localhost:8970".into(),
-                node_id: 0,
-            }],
             cache: ServerCacheConfig::default(),
             state_store: StateStoreConfig::default(),
         }
@@ -485,6 +482,7 @@ mod tests {
     fn parse_config() {
         // Uses the sample config file to test the config parsing
         let config = super::ServerConfig::from_path("sample_config.yaml").unwrap();
+        println!("The config {:#?}", config);
         assert_eq!(
             config.index_config.index_store,
             super::IndexStoreKind::PgVector

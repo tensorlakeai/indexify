@@ -12,6 +12,17 @@ pub struct RaftReply {
     #[prost(string, tag = "2")]
     pub error: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetClusterMembershipRequest {
+    #[prost(uint64, tag = "1")]
+    pub node_id: u64,
+    #[prost(string, tag = "2")]
+    pub address: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClusterMembershipResponse {}
 /// Generated client implementations.
 pub mod raft_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
@@ -185,6 +196,33 @@ pub mod raft_api_client {
                 .insert(GrpcMethod::new("indexify_raft.RaftApi", "Vote"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_cluster_membership(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetClusterMembershipRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ClusterMembershipResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_raft.RaftApi/GetClusterMembership",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("indexify_raft.RaftApi", "GetClusterMembership"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -210,6 +248,13 @@ pub mod raft_api_server {
             &self,
             request: tonic::Request<super::RaftRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
+        async fn get_cluster_membership(
+            &self,
+            request: tonic::Request<super::GetClusterMembershipRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ClusterMembershipResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct RaftApiServer<T: RaftApi> {
@@ -451,6 +496,53 @@ pub mod raft_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = VoteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_raft.RaftApi/GetClusterMembership" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetClusterMembershipSvc<T: RaftApi>(pub Arc<T>);
+                    impl<
+                        T: RaftApi,
+                    > tonic::server::UnaryService<super::GetClusterMembershipRequest>
+                    for GetClusterMembershipSvc<T> {
+                        type Response = super::ClusterMembershipResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetClusterMembershipRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as RaftApi>::get_cluster_membership(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetClusterMembershipSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
+use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, ClusterMembershipResponse};
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
@@ -45,7 +45,7 @@ use self::{
 use crate::{
     coordinator_filters::matches_mime_type,
     server_config::ServerConfig,
-    state::store::new_storage,
+    state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
 };
 
@@ -93,9 +93,12 @@ pub mod typ {
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
 
+const MEMBERSHIP_CHECK_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+
 pub struct App {
     pub id: NodeId,
     pub addr: String,
+    seed_node: String,
     pub raft: Raft,
     nodes: BTreeMap<NodeId, BasicNode>,
     shutdown_rx: Receiver<()>,
@@ -105,6 +108,8 @@ pub struct App {
     pub indexify_state: Arc<RwLock<IndexifyState>>,
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
+    network: Network,
+    node_addr: String,
 }
 
 impl App {
@@ -133,12 +138,13 @@ impl App {
 
         let indexify_state = state_machine.data.indexify_state.clone();
 
-        let network = Network::new();
+        let raft_client = Arc::new(RaftClient::new());
+        let network = Network::new(Arc::clone(&raft_client));
 
         let raft = openraft::Raft::new(
             server_config.node_id,
             config.clone(),
-            network,
+            network.clone(),
             log_store,
             state_machine,
         )
@@ -146,14 +152,12 @@ impl App {
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
         let mut nodes = BTreeMap::new();
-        for peer in &server_config.peers {
-            nodes.insert(
-                peer.node_id,
-                BasicNode {
-                    addr: peer.addr.clone(),
-                },
-            );
-        }
+        nodes.insert(
+            server_config.node_id,
+            BasicNode {
+                addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
+            },
+        );
         let (tx, rx) = watch::channel::<()>(());
 
         let addr = server_config
@@ -170,6 +174,7 @@ impl App {
                 .coordinator_lis_addr_sock()
                 .map_err(|e| anyhow!("unable to get coordinator address : {}", e.to_string()))?
                 .to_string(),
+            seed_node: server_config.seed_node.clone(),
             raft,
             shutdown_rx: rx,
             shutdown_tx: tx,
@@ -179,17 +184,21 @@ impl App {
             indexify_state,
             config,
             state_change_rx,
+            network,
+            node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
         });
 
         let raft_clone = app.raft.clone();
 
         let mut rx = app.shutdown_rx.clone();
         let shutdown_rx = app.shutdown_rx.clone();
-        // Start for leadership changes
+
+        // Start task for watching leadership changes
         tokio::spawn(async move {
             let _ = watch_for_leader_change(raft_clone, leader_change_tx, shutdown_rx).await;
         });
 
+        //  Start task for GRPC server
         let grpc_svc = tonic::transport::Server::builder().add_service(raft_srvr);
         let h = tokio::spawn(async move {
             grpc_svc
@@ -202,12 +211,36 @@ impl App {
         });
         app.join_handles.lock().await.push(h);
 
+        //  Start task for cluster membership check
+        let membership_shutdown_rx = app.shutdown_rx.clone();
+        app.start_periodic_membership_check(membership_shutdown_rx);
+
         Ok(app)
     }
 
+    /// This function checks whether this node is the seed node
+    fn is_seed_node(&self) -> bool {
+        let seed_node_port = self
+            .seed_node
+            .split(':')
+            .nth(1)
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        let node_addr_port = self
+            .node_addr
+            .split(':')
+            .nth(1)
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        match (seed_node_port, node_addr_port) {
+            (Some(seed_port), Some(node_port)) => seed_port == node_port,
+            _ => false,
+        }
+    }
+
     pub async fn initialize_raft(&self) -> Result<()> {
+        if !self.is_seed_node() {
+            return Ok(());
+        }
         match self.raft.initialize(self.nodes.clone()).await {
-            // .map_err(|e| anyhow!("unable to initialize raft: {}", e)) {
             Ok(_) => Ok(()),
             Err(e) => {
                 // match the type of the initialize error. if it's NotAllowed, ignore it.
@@ -792,6 +825,35 @@ impl App {
         };
         let _resp = self.raft.client_write(req).await?;
         Ok(())
+    }
+
+    pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
+        let app_clone = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(MEMBERSHIP_CHECK_INTERVAL);
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("shutting down periodic membership check");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if app_clone.is_seed_node() {
+                            continue;
+                        }
+                        if let Err(e) = app_clone.check_cluster_membership().await {
+                            error!("failed to check cluster membership: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
+        self.network
+            .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
+            .await
     }
 }
 

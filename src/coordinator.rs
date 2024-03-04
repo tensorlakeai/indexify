@@ -397,6 +397,7 @@ mod tests {
         let base_port = 18950;
         let mut configs = Vec::new();
         let mut peers = Vec::new();
+        let seed_node = format!("localhost:{}", base_port + 1); //  use the first node as the seed node
 
         // Generate configurations and peer information
         for i in 0..node_count {
@@ -411,10 +412,10 @@ mod tests {
                 coordinator_port: port,
                 coordinator_addr: format!("localhost:{}", port),
                 raft_port: port + 1,
-                peers: peers.clone(),
                 state_store: StateStoreConfig {
                     path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
                 },
+                seed_node: seed_node.clone(),
                 ..Default::default()
             });
 
@@ -436,42 +437,48 @@ mod tests {
             apps.push(shared_state);
         }
 
-        // Store the handles of the spawned tasks
-        let mut handles = Vec::new();
-        for app in apps {
-            let handle = tokio::spawn(async move {
-                app.initialize_raft()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("error initializing raft: {}", e))
-            });
-            handles.push(handle);
-        }
+        //  initialize the seed node
+        let seed_node = apps.remove(0);
+        let seed_node_clone = Arc::clone(&seed_node);
+        tokio::spawn(async move {
+            seed_node
+                .initialize_raft()
+                .await
+                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
+        });
 
-        // pause for 2 seconds
         tokio::time::sleep(Duration::from_secs(2)).await;
 
-        let timeout = tokio::time::sleep(Duration::from_secs(10));
-        tokio::pin!(timeout);
+        let timeout = Duration::from_secs(10);
+        let start_time = tokio::time::Instant::now();
 
         loop {
-            tokio::select! {
-                _ = &mut timeout => {
-                    // this is a failure - the cluster should have initialized
-                    return Err(anyhow::anyhow!("timeout error: raft cluster failed to initialize within 10 seconds"));
-                },
-                result = futures::future::select_all(handles) => {
-
-                    let (result, _, remaining_handles) = result;
-                    result??; // Handle the result of the completed future
-                    handles = remaining_handles;
-                    if handles.is_empty() {
-                        // all raft nodes have been initialized
-                        break;
-                    }
-                },
+            if start_time.elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "Timeout error: Raft cluster failed to initialize within 10 seconds"
+                ));
             }
+            let metrics = seed_node_clone.as_ref().raft.metrics().borrow().clone();
+            let num_of_nodes_in_cluster = metrics.membership_config.nodes().count();
+            if num_of_nodes_in_cluster == apps.len() + 1 {
+                let num_of_nodes_according_to_learner = apps
+                    .remove(0)
+                    .as_ref()
+                    .raft
+                    .metrics()
+                    .borrow()
+                    .clone()
+                    .membership_config
+                    .nodes()
+                    .count();
+                assert_eq!(
+                    num_of_nodes_in_cluster, num_of_nodes_according_to_learner,
+                    "The number of nodes according to the seed node and a learner should be equal"
+                );
+                return Ok(());
+            }
+            // If the cluster is not yet ready, sleep a bit before retrying
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
-
-        Ok(())
     }
 }

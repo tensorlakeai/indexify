@@ -1,6 +1,7 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
+use indexify_proto::indexify_raft::ClusterMembershipResponse;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -27,15 +28,46 @@ pub struct Network {
 
 impl Default for Network {
     fn default() -> Self {
-        Self::new()
+        let raft_client = Arc::new(RaftClient::new());
+        Self::new(raft_client)
+    }
+}
+
+impl Clone for Network {
+    fn clone(&self) -> Self {
+        Network {
+            raft_client: Arc::clone(&self.raft_client),
+        }
     }
 }
 
 impl Network {
-    pub fn new() -> Self {
-        Self {
-            raft_client: Arc::new(RaftClient::new()),
-        }
+    pub fn new(raft_client: Arc<RaftClient>) -> Self {
+        Self { raft_client }
+    }
+
+    pub async fn get_cluster_membership(
+        &self,
+        node_id: NodeId,
+        node_addr: &str,
+        target_addr: &str,
+    ) -> Result<ClusterMembershipResponse, anyhow::Error> {
+        let mut client = self
+            .raft_client
+            .get(target_addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
+
+        let req = tonic::Request::new(indexify_proto::indexify_raft::GetClusterMembershipRequest {
+            node_id,
+            address: node_addr.into(),
+        });
+
+        let resp = client.get_cluster_membership(req).await.map_err(|e| {
+            anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
+        })?;
+
+        Ok(resp.into_inner())
     }
 }
 
