@@ -851,7 +851,6 @@ impl App {
     }
 
     async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
-        // let addr = format!("{}:{}", self.listen_if, self.raft_port);
         self.network
             .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
             .await
