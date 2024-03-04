@@ -13,10 +13,7 @@ use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
-    coordinator_filters::*,
-    scheduler::Scheduler,
-    state::SharedState,
-    task_allocator::TaskAllocator,
+    coordinator_filters::*, scheduler::Scheduler, state::SharedState, task_allocator::TaskAllocator,
 };
 
 pub struct Coordinator {
@@ -267,14 +264,20 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fs, sync::Arc, time::Duration};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        fs,
+        sync::Arc,
+        time::Duration,
+    };
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
+    use openraft::BasicNode;
 
     use crate::{
         server_config::{ServerConfig, ServerPeer, StateStoreConfig},
-        state::App,
+        state::{App, NodeId},
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
     };
 
@@ -480,5 +483,107 @@ mod tests {
             // If the cluster is not yet ready, sleep a bit before retrying
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_leader_redirect() -> Result<(), anyhow::Error> {
+        let server_configs = create_test_raft_configs(3)?;
+        println!("The server configs are {:#?}", server_configs);
+
+        let mut apps = Vec::new();
+        for config in server_configs {
+            let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+            let shared_state = App::new(config.clone()).await?;
+            apps.push(shared_state);
+        }
+
+        //  set a non-seed node as the leader node
+        let seed_node = Arc::clone(apps.get(0).unwrap());
+        let leader_node = Arc::clone(apps.get(1).unwrap());
+        let alternate_node = Arc::clone(apps.get(2).unwrap());
+
+        let leader_node_clone = Arc::clone(&leader_node);
+        tokio::spawn(async move {
+            leader_node
+                .initialize_raft()
+                .await
+                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
+        });
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        //  check that the node that was initialised is the leader
+        match leader_node_clone.raft.ensure_linearizable().await {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "The node that was initialised is not the leader: {}",
+                    e
+                ))
+            }
+        }
+        let metrics = leader_node_clone.raft.metrics();
+        let node_count = metrics.borrow().membership_config.nodes().count();
+        assert_eq!(node_count, 1);
+
+        //  add the other nodes to the cluster
+        leader_node_clone
+            .raft
+            .add_learner(
+                seed_node.id,
+                BasicNode {
+                    addr: seed_node.node_addr.clone(),
+                },
+                true,
+            )
+            .await?;
+
+        leader_node_clone
+            .raft
+            .add_learner(
+                alternate_node.id,
+                BasicNode {
+                    addr: alternate_node.node_addr.clone(),
+                },
+                true,
+            )
+            .await?;
+
+        let nodes_in_cluster = leader_node_clone
+            .raft
+            .metrics()
+            .borrow()
+            .membership_config
+            .nodes()
+            .map(|(node_id, node)| (*node_id, node.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        let node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
+        leader_node_clone
+            .raft
+            .change_membership(node_ids, false)
+            .await?;
+
+        //  assert membership config
+        let metrics = leader_node_clone.raft.metrics();
+        let node_count = metrics.borrow().membership_config.nodes().count();
+        assert_eq!(node_count, 3);
+
+        //  check leader re-direct
+        let response = alternate_node.check_cluster_membership().await;
+        if let Err(e) = response {
+            let err = e.downcast_ref::<tonic::Status>().unwrap();
+            let metadata = err.metadata();
+
+            let leader_id_str = metadata.get("leader-id").unwrap().to_str().unwrap();
+            let leader_id = leader_id_str
+                .parse::<NodeId>()
+                .expect("Failed to parse leader-id");
+            assert_eq!(leader_id, leader_node_clone.id);
+
+            let leader_addr = metadata.get("leader-address").unwrap().to_str();
+            assert!(leader_addr.is_ok());
+        };
+        Ok(())
     }
 }

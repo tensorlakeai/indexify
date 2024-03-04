@@ -18,15 +18,13 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -37,9 +35,7 @@ use self::{
     store::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
+        ExecutorId, ExecutorIdRef, TaskId,
     },
 };
 use crate::{
@@ -108,8 +104,8 @@ pub struct App {
     pub indexify_state: Arc<RwLock<IndexifyState>>,
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
-    network: Network,
-    node_addr: String,
+    pub network: Network,
+    pub node_addr: String,
 }
 
 impl App {
@@ -118,6 +114,7 @@ impl App {
             heartbeat_interval: 500,
             election_timeout_min: 1500,
             election_timeout_max: 3000,
+            enable_heartbeat: true,
             ..Default::default()
         };
 
@@ -237,9 +234,9 @@ impl App {
     }
 
     pub async fn initialize_raft(&self) -> Result<()> {
-        if !self.is_seed_node() {
-            return Ok(());
-        }
+        // if !self.is_seed_node() {
+        //     return Ok(());
+        // }
         match self.raft.initialize(self.nodes.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -850,7 +847,10 @@ impl App {
         });
     }
 
-    async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
+    pub async fn check_cluster_membership(
+        &self,
+    ) -> Result<ClusterMembershipResponse, anyhow::Error> {
+        println!("CHECKING CLUSTER MEMBERSHIP");
         self.network
             .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
             .await
