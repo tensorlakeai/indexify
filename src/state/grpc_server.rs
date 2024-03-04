@@ -82,15 +82,10 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<GetClusterMembershipRequest>,
     ) -> Result<Response<ClusterMembershipResponse>, Status> {
-        println!(
-            "RECEIVED REQUEST FOR CLUSTER MEMBERSHIP ON NODE {}",
-            self.node_id
-        );
         let req = request.into_inner();
 
         //  if the current node is not the leader, send back metadata about the current leader
         if let Err(e) = self.raft.ensure_linearizable().await {
-            println!("This node is not the leader");
             return match e {
                 RaftError::APIError(CheckIsLeaderError::ForwardToLeader(error)) => {
                     let mut metadata = MetadataMap::new();

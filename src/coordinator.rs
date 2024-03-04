@@ -534,7 +534,7 @@ mod tests {
                 .expect("Failed to parse leader-id");
             assert_eq!(leader_id, 1);
 
-            let leader_addr = metadata.get("leader-addr").unwrap().to_str();
+            let leader_addr = metadata.get("leader-address").unwrap().to_str();
             assert!(leader_addr.is_ok());
         };
         Ok(())
