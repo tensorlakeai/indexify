@@ -94,7 +94,6 @@ impl RaftApi for RaftGrpcServer {
         let mut node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
         if nodes_in_cluster.contains_key(&req.node_id) {
             let response = ClusterMembershipResponse {};
-
             return Ok(Response::new(response));
         }
 
@@ -106,7 +105,7 @@ impl RaftApi for RaftGrpcServer {
 
         async {
             self.raft
-                .add_learner(req.node_id, node_to_add.clone(), false)
+                .add_learner(req.node_id, node_to_add.clone(), true)
                 .await
                 .map_err(GrpcHelper::internal_err)?;
 

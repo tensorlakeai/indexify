@@ -446,7 +446,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(2)).await;
 
-        let timeout = Duration::from_secs(15);
+        let timeout = Duration::from_secs(10);
         let start_time = tokio::time::Instant::now();
 
         loop {
