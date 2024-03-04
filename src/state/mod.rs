@@ -18,15 +18,13 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -37,14 +35,12 @@ use self::{
     store::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
+        ExecutorId, ExecutorIdRef, TaskId,
     },
 };
 use crate::{
     coordinator_filters::matches_mime_type,
-    server_config::{NetworkAddress, ServerConfig},
+    server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
 };
@@ -109,8 +105,7 @@ pub struct App {
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
     network: Network,
-    raft_port: u64,
-    listen_if: NetworkAddress,
+    node_addr: String,
 }
 
 impl App {
@@ -186,8 +181,7 @@ impl App {
             config,
             state_change_rx,
             network,
-            raft_port: server_config.raft_port,
-            listen_if: server_config.listen_if.clone(),
+            node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
         });
 
         let raft_clone = app.raft.clone();
@@ -222,13 +216,20 @@ impl App {
 
     /// This function checks whether this node is the seed node
     fn is_seed_node(&self) -> bool {
-        let split_string: Vec<&str> = self.seed_node.split(':').collect();
-        if let Some(seed_port) = split_string.get(1) {
-            if let Ok(port) = seed_port.trim().parse::<u64>() {
-                return port == self.raft_port;
-            }
+        let seed_node_port = self
+            .seed_node
+            .split(':')
+            .nth(1)
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        let node_addr_port = self
+            .node_addr
+            .split(':')
+            .nth(1)
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        match (seed_node_port, node_addr_port) {
+            (Some(seed_port), Some(node_port)) => seed_port == node_port,
+            _ => false,
         }
-        false
     }
 
     pub async fn initialize_raft(&self) -> Result<()> {
@@ -846,9 +847,9 @@ impl App {
     }
 
     async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
-        let addr = format!("{}:{}", self.listen_if, self.raft_port);
+        // let addr = format!("{}:{}", self.listen_if, self.raft_port);
         self.network
-            .get_cluster_membership(self.id, &addr, &self.seed_node)
+            .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
             .await
     }
 }
