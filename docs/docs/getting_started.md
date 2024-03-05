@@ -97,7 +97,7 @@ indexify-extractor download hub://embedding/minilm-l6
 
 Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane.
 ```shell
-indexify-extractor join minilm_l6:MiniLMExtractor
+indexify-extractor join minilm_l6:MiniLML6Extractor
 ```
 The extractor is now ready to receive content you upload and extract embedding using the MiniLML6Extractor
 
