@@ -487,6 +487,49 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
+    async fn test_leader_redirect_unused() -> Result<(), anyhow::Error> {
+        let server_configs = create_test_raft_configs(3)?;
+
+        let mut apps = Vec::new();
+        for config in server_configs {
+            let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+            let shared_state = App::new(config.clone()).await?;
+            apps.push(shared_state);
+        }
+
+        //  initialize the seed node
+        let seed_node = apps.remove(0);
+        let seed_node_clone = Arc::clone(&seed_node);
+        tokio::spawn(async move {
+            seed_node
+                .initialize_raft()
+                .await
+                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
+        });
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        //  check that seed node is current leader and force it to step down
+        match seed_node_clone.raft.ensure_linearizable().await {
+            Ok(_) => {}
+            Err(e) => return Err(anyhow::anyhow!("The seed node is not the leader: {}", e)),
+        }
+        seed_node_clone.raft.runtime_config().heartbeat(false);
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        //  force a specific node to be elected leader
+        let alternate_node = apps.remove(0);
+        alternate_node.raft.trigger().elect().await?;
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let current_leader = alternate_node.raft.current_leader().await;
+        assert!(current_leader.is_some());
+        assert_eq!(current_leader.unwrap(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_leader_redirect() -> Result<(), anyhow::Error> {
         let server_configs = create_test_raft_configs(3)?;
         println!("The server configs are {:#?}", server_configs);
