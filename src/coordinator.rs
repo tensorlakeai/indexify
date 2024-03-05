@@ -485,6 +485,7 @@ mod tests {
         }
     }
 
+    /// Ignore this test. This is only for debugging with the help of OpenRaft's maintainer
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_leader_redirect_unused() -> Result<(), anyhow::Error> {
