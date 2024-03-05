@@ -18,6 +18,18 @@ message GetClusterMembershipRequest {
   string address = 2;
 }
 
+message ForwardableRequest {
+    oneof request {
+        GetClusterMembershipRequest getClusterMembershipRequest = 1;
+    }
+}
+
+message ForwardableResponse {
+    oneof response {
+        ClusterMembershipResponse clusterMembershipResponse = 1;
+    }
+}
+
 message ClusterMembershipResponse {}
 
 service RaftApi { 
@@ -26,5 +38,6 @@ service RaftApi {
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
     rpc GetClusterMembership(GetClusterMembershipRequest) returns (ClusterMembershipResponse);
+    rpc HandleForwardableRequest(ForwardableRequest) returns (ForwardableResponse);
 }
 

@@ -12,7 +12,9 @@ use openraft::{
     BasicNode,
 };
 
-use super::{raft_client::RaftClient, NodeId, TypeConfig};
+use super::{
+    raft_client::RaftClient, AppError, ForwardRequest, ForwardableResponse, NodeId, TypeConfig,
+};
 use crate::{
     grpc_helper::GrpcHelper,
     state::typ::{InstallSnapshotError, RPCError, RaftError},
@@ -42,6 +44,15 @@ impl Network {
         Self { raft_client }
     }
 
+    pub async fn send_forwardable_request(
+        &self,
+        request: ForwardRequest,
+    ) -> Result<ForwardableResponse, AppError> {
+        Ok(ForwardableResponse::ClusterMembership(
+            ClusterMembershipResponse {},
+        ))
+    }
+
     pub async fn get_cluster_membership(
         &self,
         node_id: NodeId,
@@ -59,10 +70,10 @@ impl Network {
             address: node_addr.into(),
         });
 
-        let resp = client.get_cluster_membership(req).await.map_err(|e| {
-            // anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
-            anyhow::anyhow!(e)
-        })?;
+        let resp = client
+            .get_cluster_membership(req)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
 
         Ok(resp.into_inner())
     }

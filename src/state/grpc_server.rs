@@ -1,15 +1,20 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use crate::state::typ::CheckIsLeaderError;
+use crate::state::typ::RaftError;
+use crate::state::Raft;
 use async_trait::async_trait;
+use indexify_proto::indexify_raft;
+use indexify_proto::indexify_raft::ForwardableRequest;
+use indexify_proto::indexify_raft::ForwardableResponse;
 use indexify_proto::indexify_raft::{
     raft_api_server::RaftApi, ClusterMembershipResponse, GetClusterMembershipRequest, RaftReply,
     RaftRequest,
 };
-use openraft::{error::RaftError, BasicNode};
+use openraft::BasicNode;
 use tonic::{metadata::MetadataMap, Code, Request, Response, Status};
 use tracing::info;
 
-use super::{typ::CheckIsLeaderError, Raft};
 use crate::grpc_helper::GrpcHelper;
 
 pub struct RaftGrpcServer {
@@ -142,6 +147,23 @@ impl RaftApi for RaftGrpcServer {
 
         info!("Added the node as a learner and returning the response");
         let response = ClusterMembershipResponse {};
+        Ok(Response::new(response))
+    }
+
+    async fn handle_forwardable_request(
+        &self,
+        request: Request<ForwardableRequest>,
+    ) -> Result<Response<ForwardableResponse>, Status> {
+        // Example request handling logic
+        let response = ForwardableResponse {
+            // Populate the response based on request and your logic
+            response: Some(
+                indexify_raft::forwardable_response::Response::ClusterMembershipResponse(
+                    ClusterMembershipResponse {},
+                ),
+            ),
+        };
+
         Ok(Response::new(response))
     }
 }

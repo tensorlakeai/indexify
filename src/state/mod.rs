@@ -11,13 +11,15 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, ClusterMembershipResponse};
+use indexify_proto::indexify_raft::{
+    raft_api_server::RaftApiServer, ClusterMembershipResponse, GetClusterMembershipRequest,
+};
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
     self,
-    error::{InitializeError, RaftError},
+    error::{ForwardToLeader, InitializeError, RaftError},
     BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
@@ -87,6 +89,49 @@ pub mod typ {
     pub type InstallSnapshotError = openraft::error::InstallSnapshotError;
 
     pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
+}
+
+pub enum AppError {
+    CannotForward(anyhow::Error),
+    LeaderNotFound(anyhow::Error),
+}
+
+//  All possible messages that can be forwarded
+pub enum ForwardableMessage {
+    ClusterMembership(GetClusterMembershipRequest),
+}
+
+pub enum ForwardableResponse {
+    ClusterMembership(ClusterMembershipResponse),
+}
+
+pub struct ForwardRequest {
+    pub forward_attempts_left: u64, //  the number of times this request can be forwarded, will be decremented on each attempt. This is used to control the number of network hops
+    pub body: ForwardableMessage,
+}
+
+impl ForwardRequest {
+    pub fn new(forward_attempts_left: u64, body: ForwardableMessage) -> Self {
+        Self {
+            forward_attempts_left,
+            body,
+        }
+    }
+
+    pub fn decrement_attempts_left(&mut self) {
+        self.forward_attempts_left -= 1;
+    }
+
+    pub fn next_attempt(&mut self) -> Result<(), AppError> {
+        if self.forward_attempts_left <= 0 {
+            return Err(AppError::CannotForward(anyhow!(format!(
+                "forward attempts exhausted: {}",
+                self.forward_attempts_left
+            ))));
+        }
+        self.decrement_attempts_left();
+        Ok(())
+    }
 }
 
 const MEMBERSHIP_CHECK_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(3);
@@ -847,13 +892,70 @@ impl App {
         });
     }
 
+    async fn get_leader(&self) -> Result<Option<NodeId>, typ::ForwardToLeader> {
+        match self.raft.ensure_linearizable().await {
+            Ok(_) => Ok(Some(self.id)),
+            Err(e) => match e {
+                RaftError::APIError(typ::CheckIsLeaderError::ForwardToLeader(error)) => {
+                    return Err(ForwardToLeader {
+                        leader_id: error.leader_id,
+                        leader_node: error.leader_node,
+                    });
+                }
+                _ => Err(ForwardToLeader {
+                    leader_id: None,
+                    leader_node: None,
+                }),
+            },
+        }
+    }
+
     pub async fn check_cluster_membership(
         &self,
     ) -> Result<ClusterMembershipResponse, anyhow::Error> {
-        println!("CHECKING CLUSTER MEMBERSHIP");
+        let request = tonic::Request::new(GetClusterMembershipRequest {
+            node_id: self.id,
+            address: self.node_addr.clone(),
+        });
+
+        //  This is a forwardable request
+        let forward_req = ForwardRequest::new(
+            1,
+            ForwardableMessage::ClusterMembership(request.into_inner()),
+        );
+        self.network.send_forwardable_request(forward_req).await;
+
         self.network
             .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
             .await
+    }
+
+    pub async fn handle_forwardable_request(&self, req: ForwardRequest) -> Result<(), AppError> {
+        //  first check if this node is the leader
+        // let leader_id = match self.get_leader().await {
+        //     Ok(_) => self.id,
+        //     Err(e) => {
+        //         if e.leader_id.is_none() {
+        //             return Err(AppError::LeaderNotFound(anyhow!(
+        //                 "The leader cannot be found"
+        //             )));
+        //         }
+        //         e.leader_id.unwrap()
+        //     }
+        // };
+
+        // if leader_id == self.id {
+        //     //  this node is the leader and can handle the request
+        //     self.handle_forward_request_as_leader(req).await;
+        // }
+        Ok(())
+    }
+
+    async fn handle_forward_request_as_leader(&self, request: ForwardRequest) -> Result<()> {
+        match request.body {
+            ForwardableMessage::ClusterMembership(req) => {}
+        }
+        Ok(())
     }
 }
 

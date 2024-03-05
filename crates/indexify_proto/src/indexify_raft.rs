@@ -22,6 +22,36 @@ pub struct GetClusterMembershipRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ForwardableRequest {
+    #[prost(oneof = "forwardable_request::Request", tags = "1")]
+    pub request: ::core::option::Option<forwardable_request::Request>,
+}
+/// Nested message and enum types in `ForwardableRequest`.
+pub mod forwardable_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag = "1")]
+        GetClusterMembershipRequest(super::GetClusterMembershipRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ForwardableResponse {
+    #[prost(oneof = "forwardable_response::Response", tags = "1")]
+    pub response: ::core::option::Option<forwardable_response::Response>,
+}
+/// Nested message and enum types in `ForwardableResponse`.
+pub mod forwardable_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        ClusterMembershipResponse(super::ClusterMembershipResponse),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClusterMembershipResponse {}
 /// Generated client implementations.
 pub mod raft_api_client {
@@ -223,6 +253,33 @@ pub mod raft_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn handle_forwardable_request(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ForwardableRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ForwardableResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_raft.RaftApi/HandleForwardableRequest",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("indexify_raft.RaftApi", "HandleForwardableRequest"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -253,6 +310,13 @@ pub mod raft_api_server {
             request: tonic::Request<super::GetClusterMembershipRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ClusterMembershipResponse>,
+            tonic::Status,
+        >;
+        async fn handle_forwardable_request(
+            &self,
+            request: tonic::Request<super::ForwardableRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ForwardableResponse>,
             tonic::Status,
         >;
     }
@@ -543,6 +607,53 @@ pub mod raft_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = GetClusterMembershipSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_raft.RaftApi/HandleForwardableRequest" => {
+                    #[allow(non_camel_case_types)]
+                    struct HandleForwardableRequestSvc<T: RaftApi>(pub Arc<T>);
+                    impl<
+                        T: RaftApi,
+                    > tonic::server::UnaryService<super::ForwardableRequest>
+                    for HandleForwardableRequestSvc<T> {
+                        type Response = super::ForwardableResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ForwardableRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as RaftApi>::handle_forwardable_request(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = HandleForwardableRequestSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
