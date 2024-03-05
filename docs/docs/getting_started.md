@@ -147,7 +147,7 @@ Next let's query the index created by the embedding extractor. The index will al
 
 We will use Langchain to setup our RAG application and use Indexify as a retreiver to feed in data from Indexify.
 ```python
-from indexify_langchaian import IndexifyRetriever
+from indexify_langchain import IndexifyRetriever
 params = {"name": "minilml6.embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 ```
