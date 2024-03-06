@@ -271,7 +271,7 @@ mod tests {
 
     use crate::{
         server_config::{ServerConfig, ServerPeer, StateStoreConfig},
-        state::{App, NodeId},
+        state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
     };
 
@@ -524,21 +524,7 @@ mod tests {
 
         //  check leader re-direct
         let response = alternate_node.check_cluster_membership().await;
-        println!("The response is {:#?}", response);
-        if let Err(e) = response {
-            let err = e.downcast_ref::<tonic::Status>().unwrap();
-            let metadata = err.metadata();
-
-            let leader_id_str = metadata.get("leader-id").unwrap().to_str().unwrap();
-            let leader_id = leader_id_str
-                .parse::<NodeId>()
-                .expect("Failed to parse leader-id");
-            assert_eq!(leader_id, leader_node.id);
-
-            let leader_addr = metadata.get("leader-address").unwrap().to_str();
-            assert!(leader_addr.is_ok());
-        };
-
+        assert!(response.is_ok());
         Ok(())
     }
 }
