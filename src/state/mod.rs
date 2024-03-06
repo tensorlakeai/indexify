@@ -18,15 +18,13 @@ use network::Network;
 use openraft::{
     self,
     error::{ForwardToLeader, InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -37,9 +35,7 @@ use self::{
     store::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
+        ExecutorId, ExecutorIdRef, TaskId,
     },
 };
 use crate::{
@@ -852,24 +848,6 @@ impl App {
                 }
             }
         });
-    }
-
-    async fn _get_leader(&self) -> Result<Option<NodeId>, typ::ForwardToLeader> {
-        match self.raft.ensure_linearizable().await {
-            Ok(_) => Ok(Some(self.id)),
-            Err(e) => match e {
-                RaftError::APIError(typ::CheckIsLeaderError::ForwardToLeader(error)) => {
-                    return Err(ForwardToLeader {
-                        leader_id: error.leader_id,
-                        leader_node: error.leader_node,
-                    });
-                }
-                _ => Err(ForwardToLeader {
-                    leader_id: None,
-                    leader_node: None,
-                }),
-            },
-        }
     }
 
     pub async fn check_cluster_membership(&self) -> Result<(), anyhow::Error> {
