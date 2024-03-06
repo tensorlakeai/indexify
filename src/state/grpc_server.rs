@@ -28,15 +28,13 @@ impl RaftGrpcServer {
 
     /// Get nodes from the cluster
     fn get_nodes_in_cluster(&self) -> BTreeMap<u64, BasicNode> {
-        let nodes_in_cluster = self
-            .raft
+        self.raft
             .metrics()
             .borrow()
             .membership_config
             .nodes()
             .map(|(node_id, node)| (*node_id, node.clone()))
-            .collect::<BTreeMap<_, _>>();
-        nodes_in_cluster
+            .collect::<BTreeMap<_, _>>()
     }
 
     /// Helper function to add node to the cluster only if it is not present

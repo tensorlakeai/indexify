@@ -51,7 +51,7 @@ impl Network {
         Self { raft_client }
     }
 
-    pub async fn get_cluster_membership(
+    pub async fn join_cluster_membership(
         &self,
         node_id: NodeId,
         node_addr: &str,

@@ -874,7 +874,7 @@ impl App {
 
     pub async fn check_cluster_membership(&self) -> Result<(), anyhow::Error> {
         self.network
-            .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
+            .join_cluster_membership(self.id, &self.node_addr, &self.seed_node)
             .await
     }
 }
