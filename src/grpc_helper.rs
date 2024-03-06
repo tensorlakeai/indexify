@@ -1,7 +1,5 @@
 //! Helper functions for handling grpc.
 
-use std::error::Error;
-
 use indexify_proto::indexify_raft::{RaftReply, RaftRequest};
 
 use crate::state::typ::RaftError;
@@ -76,7 +74,7 @@ impl GrpcHelper {
     }
 
     /// Create a tonic::Status with internal error.
-    pub fn internal_err(e: impl Error) -> tonic::Status {
-        tonic::Status::internal(e.to_string())
+    pub fn internal_err(e: impl Into<String>) -> tonic::Status {
+        tonic::Status::internal(e.into())
     }
 }

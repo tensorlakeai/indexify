@@ -70,7 +70,7 @@ impl Network {
         client
             .join_cluster_membership(request)
             .await
-            .map_err(|e| GrpcHelper::internal_err(e))?;
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
         Ok(())
     }

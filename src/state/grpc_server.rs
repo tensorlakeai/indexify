@@ -61,7 +61,7 @@ impl RaftGrpcServer {
         self.raft
             .add_learner(node_id, node_to_add.clone(), true)
             .await
-            .map_err(GrpcHelper::internal_err)?;
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
         info!("Done adding node {} as a learner", node_id);
 
@@ -70,7 +70,7 @@ impl RaftGrpcServer {
         self.raft
             .change_membership(node_ids, true)
             .await
-            .map_err(GrpcHelper::internal_err)?;
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
         GrpcHelper::ok_response("")
     }
@@ -81,7 +81,7 @@ impl RaftGrpcServer {
             Ok(_) => Ok(None),
             Err(e) => match e {
                 RaftError::APIError(CheckIsLeaderError::ForwardToLeader(err)) => Ok(Some(err)),
-                _ => Err(GrpcHelper::internal_err(e)),
+                _ => Err(GrpcHelper::internal_err(e.to_string())),
             },
         }
     }
@@ -120,7 +120,7 @@ impl RaftApi for RaftGrpcServer {
                 .raft
                 .append_entries(ae_req)
                 .await
-                .map_err(GrpcHelper::internal_err)?;
+                .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
             GrpcHelper::ok_response(resp)
         }
@@ -136,7 +136,7 @@ impl RaftApi for RaftGrpcServer {
             .raft
             .install_snapshot(is_req)
             .await
-            .map_err(GrpcHelper::internal_err);
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()));
 
         match resp {
             Ok(resp) => GrpcHelper::ok_response(resp),
@@ -152,7 +152,7 @@ impl RaftApi for RaftGrpcServer {
                 .raft
                 .vote(v_req)
                 .await
-                .map_err(GrpcHelper::internal_err)?;
+                .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
             GrpcHelper::ok_response(resp)
         }
@@ -175,7 +175,7 @@ impl RaftApi for RaftGrpcServer {
         if let Some(forward_to_leader) = maybe_forward_to_leader {
             let _leader_id = forward_to_leader
                 .leader_id
-                .ok_or_else(|| Status::internal("Leader id not found"))?;
+                .ok_or_else(|| GrpcHelper::internal_err("Leader id not found"))?;
             let leader_address = forward_to_leader
                 .leader_node
                 .ok_or_else(|| Status::internal("Leader node not found"))?
@@ -190,7 +190,7 @@ impl RaftApi for RaftGrpcServer {
                 new_state_changes: vec![],
                 state_changes_processed: vec![],
             })
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
             return client.forward(forwarding_req).await;
         };
 
