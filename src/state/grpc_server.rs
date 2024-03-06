@@ -100,8 +100,8 @@ impl RaftApi for RaftGrpcServer {
         //  check if this node is the leader
         let maybe_forward_to_leader = self.ensure_leader().await?;
         if let Some(_) = maybe_forward_to_leader {
-            return Err(Status::internal(
-                "The node we thought was the leader is not the leadaer",
+            return Err(GrpcHelper::internal_err(
+                "The node we thought was the leader is not the leader",
             ));
         };
 
