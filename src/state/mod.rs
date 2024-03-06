@@ -17,7 +17,7 @@ use itertools::Itertools;
 use network::Network;
 use openraft::{
     self,
-    error::{ForwardToLeader, InitializeError, RaftError},
+    error::{InitializeError, RaftError},
     BasicNode,
     TokioRuntime,
 };
