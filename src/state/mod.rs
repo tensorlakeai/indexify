@@ -913,17 +913,17 @@ impl App {
     pub async fn check_cluster_membership(
         &self,
     ) -> Result<ClusterMembershipResponse, anyhow::Error> {
-        let request = tonic::Request::new(GetClusterMembershipRequest {
-            node_id: self.id,
-            address: self.node_addr.clone(),
-        });
+        // let request = tonic::Request::new(GetClusterMembershipRequest {
+        //     node_id: self.id,
+        //     address: self.node_addr.clone(),
+        // });
 
-        //  This is a forwardable request
-        let forward_req = ForwardRequest::new(
-            1,
-            ForwardableMessage::ClusterMembership(request.into_inner()),
-        );
-        self.network.send_forwardable_request(forward_req).await;
+        // //  This is a forwardable request
+        // let forward_req = ForwardRequest::new(
+        //     1,
+        //     ForwardableMessage::ClusterMembership(request.into_inner()),
+        // );
+        // self.network.send_forwardable_request(forward_req).await;
 
         self.network
             .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)

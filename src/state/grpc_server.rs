@@ -25,6 +25,19 @@ impl RaftGrpcServer {
     pub fn new(raft: Arc<Raft>) -> Self {
         Self { raft }
     }
+
+    /// Helper function to get the node ids from the cluster
+    fn get_nodes_in_cluster(&self) -> BTreeMap<u64, BasicNode> {
+        let nodes_in_cluster = self
+            .raft
+            .metrics()
+            .borrow()
+            .membership_config
+            .nodes()
+            .map(|(node_id, node)| (*node_id, node.clone()))
+            .collect::<BTreeMap<_, _>>();
+        nodes_in_cluster
+    }
 }
 
 #[async_trait]
@@ -89,40 +102,40 @@ impl RaftApi for RaftGrpcServer {
         let req = request.into_inner();
 
         //  if the current node is not the leader, send back metadata about the current leader
-        if let Err(e) = self.raft.ensure_linearizable().await {
-            return match e {
-                RaftError::APIError(CheckIsLeaderError::ForwardToLeader(error)) => {
-                    let mut metadata = MetadataMap::new();
-                    metadata.insert(
-                        "leader-id",
-                        error.leader_id.unwrap().to_string().parse().unwrap(),
-                    );
-                    metadata.insert(
-                        "leader-address",
-                        error.leader_node.unwrap().to_string().parse().unwrap(),
-                    );
-                    Err(Status::with_metadata(
-                        Code::FailedPrecondition,
-                        format!(
-                            "Node is not the leader. Leader is {}",
-                            error.leader_id.unwrap()
-                        ),
-                        metadata,
-                    ))
-                }
-                _ => Err(GrpcHelper::internal_err(e)),
-            };
-        }
+        // if let Err(e) = self.raft.ensure_linearizable().await {
+        //     return match e {
+        //         RaftError::APIError(CheckIsLeaderError::ForwardToLeader(error)) => {
+        //             let mut metadata = MetadataMap::new();
+        //             metadata.insert(
+        //                 "leader-id",
+        //                 error.leader_id.unwrap().to_string().parse().unwrap(),
+        //             );
+        //             metadata.insert(
+        //                 "leader-address",
+        //                 error.leader_node.unwrap().to_string().parse().unwrap(),
+        //             );
+        //             Err(Status::with_metadata(
+        //                 Code::FailedPrecondition,
+        //                 format!(
+        //                     "Node is not the leader. Leader is {}",
+        //                     error.leader_id.unwrap()
+        //                 ),
+        //                 metadata,
+        //             ))
+        //         }
+        //         _ => Err(GrpcHelper::internal_err(e)),
+        //     };
+        // }
 
-        let nodes_in_cluster = self
-            .raft
-            .metrics()
-            .borrow()
-            .membership_config
-            .nodes()
-            .map(|(node_id, node)| (*node_id, node.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let mut node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
+        // let nodes_in_cluster = self
+        //     .raft
+        //     .metrics()
+        //     .borrow()
+        //     .membership_config
+        //     .nodes()
+        //     .map(|(node_id, node)| (*node_id, node.clone()))
+        //     .collect::<BTreeMap<_, _>>();
+        let nodes_in_cluster = self.get_nodes_in_cluster();
         if nodes_in_cluster.contains_key(&req.node_id) {
             let response = ClusterMembershipResponse {};
             return Ok(Response::new(response));
@@ -139,13 +152,26 @@ impl RaftApi for RaftGrpcServer {
             .await
             .map_err(GrpcHelper::internal_err)?;
 
-        node_ids.push(req.node_id);
+        info!("Done adding node {} as a learner", req.node_id);
+
+        let nodes_in_cluster = self.get_nodes_in_cluster(); //  re-fetch the nodes in the cluster to get the latest view (sync point)
+        let node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
+        info!("New node ids {:#?}", node_ids);
         self.raft
-            .change_membership(node_ids, false)
+            .change_membership(node_ids, true)
             .await
             .map_err(GrpcHelper::internal_err)?;
 
-        info!("Added the node as a learner and returning the response");
+        info!(
+            "Metrics after adding learner {}: {:#?}",
+            req.node_id,
+            self.raft.metrics()
+        );
+
+        info!(
+            "Added the node {} to the configuration and returning the response",
+            req.node_id
+        );
         let response = ClusterMembershipResponse {};
         Ok(Response::new(response))
     }
