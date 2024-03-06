@@ -127,14 +127,6 @@ impl RaftApi for RaftGrpcServer {
         //     };
         // }
 
-        // let nodes_in_cluster = self
-        //     .raft
-        //     .metrics()
-        //     .borrow()
-        //     .membership_config
-        //     .nodes()
-        //     .map(|(node_id, node)| (*node_id, node.clone()))
-        //     .collect::<BTreeMap<_, _>>();
         let nodes_in_cluster = self.get_nodes_in_cluster();
         if nodes_in_cluster.contains_key(&req.node_id) {
             let response = ClusterMembershipResponse {};
@@ -156,17 +148,10 @@ impl RaftApi for RaftGrpcServer {
 
         let nodes_in_cluster = self.get_nodes_in_cluster(); //  re-fetch the nodes in the cluster to get the latest view (sync point)
         let node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
-        info!("New node ids {:#?}", node_ids);
         self.raft
             .change_membership(node_ids, true)
             .await
             .map_err(GrpcHelper::internal_err)?;
-
-        info!(
-            "Metrics after adding learner {}: {:#?}",
-            req.node_id,
-            self.raft.metrics()
-        );
 
         info!(
             "Added the node {} to the configuration and returning the response",
