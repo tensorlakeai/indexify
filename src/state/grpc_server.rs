@@ -160,9 +160,8 @@ impl RaftApi for RaftGrpcServer {
     ) -> Result<Response<RaftReply>, Status> {
         let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
 
-        let (node_id, address) = match req.payload {
-            RequestPayload::JoinClusterMembership { node_id, address } => (node_id, address),
-            _ => return Err(GrpcHelper::internal_err("Invalid request")),
+        let RequestPayload::JoinClusterMembership { node_id, address } = req.payload else {
+            return Err(GrpcHelper::internal_err("Invalid request"));
         };
 
         //  check if this node is the leader
