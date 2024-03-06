@@ -264,16 +264,10 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashMap},
-        fs,
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
-    use openraft::BasicNode;
 
     use crate::{
         server_config::{ServerConfig, ServerPeer, StateStoreConfig},
@@ -485,7 +479,6 @@ mod tests {
         }
     }
 
-    /// Ignore this test. This is only for debugging with the help of OpenRaft's maintainer
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_leader_redirect() -> Result<(), anyhow::Error> {
@@ -531,6 +524,7 @@ mod tests {
 
         //  check leader re-direct
         let response = alternate_node.check_cluster_membership().await;
+        println!("The response is {:#?}", response);
         if let Err(e) = response {
             let err = e.downcast_ref::<tonic::Status>().unwrap();
             let metadata = err.metadata();

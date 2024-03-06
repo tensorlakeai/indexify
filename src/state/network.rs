@@ -1,7 +1,6 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use indexify_proto::indexify_raft::ClusterMembershipResponse;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -11,13 +10,15 @@ use openraft::{
     },
     BasicNode,
 };
+use tonic::IntoRequest;
 
-use super::{
-    raft_client::RaftClient, AppError, ForwardRequest, ForwardableResponse, NodeId, TypeConfig,
-};
 use crate::{
     grpc_helper::GrpcHelper,
+    state::raft_client::RaftClient,
+    state::store::requests::{Request, RequestPayload},
     state::typ::{InstallSnapshotError, RPCError, RaftError},
+    state::NodeId,
+    state::TypeConfig,
 };
 
 pub struct Network {
@@ -44,38 +45,34 @@ impl Network {
         Self { raft_client }
     }
 
-    pub async fn send_forwardable_request(
-        &self,
-        request: ForwardRequest,
-    ) -> Result<ForwardableResponse, AppError> {
-        Ok(ForwardableResponse::ClusterMembership(
-            ClusterMembershipResponse {},
-        ))
-    }
-
     pub async fn get_cluster_membership(
         &self,
         node_id: NodeId,
         node_addr: &str,
         target_addr: &str,
-    ) -> Result<ClusterMembershipResponse, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let mut client = self
             .raft_client
             .get(target_addr)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
 
-        let req = tonic::Request::new(indexify_proto::indexify_raft::GetClusterMembershipRequest {
-            node_id,
-            address: node_addr.into(),
-        });
+        let request = GrpcHelper::encode_raft_request(&Request {
+            payload: RequestPayload::JoinClusterMembership {
+                node_id,
+                address: node_addr.into(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        })?
+        .into_request();
 
-        let resp = client
-            .get_cluster_membership(req)
+        client
+            .join_cluster_membership(request)
             .await
-            .map_err(|e| anyhow::anyhow!(e))?;
+            .map_err(|e| GrpcHelper::internal_err(e))?;
 
-        Ok(resp.into_inner())
+        Ok(())
     }
 }
 

@@ -4,6 +4,8 @@ use indexify_internal_api as internal_api;
 use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
+use crate::state::NodeId;
+
 use super::{ExecutorId, TaskId};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -21,6 +23,10 @@ pub struct StateChangeProcessed {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum RequestPayload {
+    JoinClusterMembership {
+        node_id: NodeId,
+        address: String,
+    },
     RegisterExecutor {
         addr: String,
         executor_id: String,

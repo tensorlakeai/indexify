@@ -1,32 +1,32 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use crate::state;
+use crate::state::store::requests;
 use crate::state::typ::CheckIsLeaderError;
 use crate::state::typ::RaftError;
 use crate::state::Raft;
 use async_trait::async_trait;
-use indexify_proto::indexify_raft;
-use indexify_proto::indexify_raft::ForwardableRequest;
-use indexify_proto::indexify_raft::ForwardableResponse;
-use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi, ClusterMembershipResponse, GetClusterMembershipRequest, RaftReply,
-    RaftRequest,
-};
+use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
 use openraft::BasicNode;
-use tonic::{metadata::MetadataMap, Code, Request, Response, Status};
+use tonic::{Request, Response, Status};
 use tracing::info;
 
 use crate::grpc_helper::GrpcHelper;
 
+use super::raft_client::RaftClient;
+use super::NodeId;
+
 pub struct RaftGrpcServer {
     raft: Arc<Raft>,
+    raft_client: Arc<RaftClient>,
 }
 
 impl RaftGrpcServer {
-    pub fn new(raft: Arc<Raft>) -> Self {
-        Self { raft }
+    pub fn new(raft: Arc<Raft>, raft_client: Arc<RaftClient>) -> Self {
+        Self { raft, raft_client }
     }
 
-    /// Helper function to get the node ids from the cluster
+    /// Get nodes from the cluster
     fn get_nodes_in_cluster(&self) -> BTreeMap<u64, BasicNode> {
         let nodes_in_cluster = self
             .raft
@@ -38,12 +38,70 @@ impl RaftGrpcServer {
             .collect::<BTreeMap<_, _>>();
         nodes_in_cluster
     }
+
+    /// Add node to the cluster only if it is not present
+    async fn add_node_to_cluster(
+        &self,
+        node_id: NodeId,
+        address: &str,
+    ) -> Result<Response<RaftReply>, Status> {
+        let nodes_in_cluster = self.get_nodes_in_cluster();
+        if nodes_in_cluster.contains_key(&node_id) {
+            return GrpcHelper::ok_response("");
+        }
+
+        info!(
+            "Received request from new node with id {} and address {}",
+            node_id, address
+        );
+        let node_to_add = BasicNode {
+            addr: address.to_string(),
+        };
+
+        self.raft
+            .add_learner(node_id, node_to_add.clone(), true)
+            .await
+            .map_err(GrpcHelper::internal_err)?;
+
+        info!("Done adding node {} as a learner", node_id);
+
+        let nodes_in_cluster = self.get_nodes_in_cluster(); //  re-fetch the nodes in the cluster to get the latest view (sync point)
+        let node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
+        self.raft
+            .change_membership(node_ids, true)
+            .await
+            .map_err(GrpcHelper::internal_err)?;
+
+        GrpcHelper::ok_response("")
+    }
 }
 
 #[async_trait]
 impl RaftApi for RaftGrpcServer {
-    async fn forward(&self, _request: Request<RaftRequest>) -> Result<Response<RaftReply>, Status> {
-        Err(Status::unimplemented("not implemented"))
+    async fn forward(&self, request: Request<RaftRequest>) -> Result<Response<RaftReply>, Status> {
+        info!("forward called");
+        info!("The forwarded request is {:#?}", request);
+        let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
+        let (node_id, address) = match req.payload {
+            state::store::requests::RequestPayload::JoinClusterMembership { node_id, address } => {
+                info!("attempting to add {} after calling forward", node_id);
+                (node_id, address)
+            }
+            _ => return Err(Status::internal("Invalid request")),
+        };
+
+        //  check if this node is the leader
+        if let Err(e) = self.raft.ensure_linearizable().await {
+            match e {
+                RaftError::APIError(CheckIsLeaderError::ForwardToLeader(_error)) => {
+                    //  what should we do if the node we believe to be the leader is not the leader?
+                }
+                _ => return Err(GrpcHelper::internal_err(e)),
+            }
+        }
+
+        info!("This node is indeed the leader");
+        self.add_node_to_cluster(node_id, &address).await
     }
 
     async fn append_entries(
@@ -95,86 +153,55 @@ impl RaftApi for RaftGrpcServer {
         .await
     }
 
-    async fn get_cluster_membership(
+    async fn join_cluster_membership(
         &self,
-        request: Request<GetClusterMembershipRequest>,
-    ) -> Result<Response<ClusterMembershipResponse>, Status> {
-        let req = request.into_inner();
+        request: Request<RaftRequest>,
+    ) -> Result<Response<RaftReply>, Status> {
+        info!("join_cluster_membership called");
+        let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
 
-        //  if the current node is not the leader, send back metadata about the current leader
-        // if let Err(e) = self.raft.ensure_linearizable().await {
-        //     return match e {
-        //         RaftError::APIError(CheckIsLeaderError::ForwardToLeader(error)) => {
-        //             let mut metadata = MetadataMap::new();
-        //             metadata.insert(
-        //                 "leader-id",
-        //                 error.leader_id.unwrap().to_string().parse().unwrap(),
-        //             );
-        //             metadata.insert(
-        //                 "leader-address",
-        //                 error.leader_node.unwrap().to_string().parse().unwrap(),
-        //             );
-        //             Err(Status::with_metadata(
-        //                 Code::FailedPrecondition,
-        //                 format!(
-        //                     "Node is not the leader. Leader is {}",
-        //                     error.leader_id.unwrap()
-        //                 ),
-        //                 metadata,
-        //             ))
-        //         }
-        //         _ => Err(GrpcHelper::internal_err(e)),
-        //     };
-        // }
-
-        let nodes_in_cluster = self.get_nodes_in_cluster();
-        if nodes_in_cluster.contains_key(&req.node_id) {
-            let response = ClusterMembershipResponse {};
-            return Ok(Response::new(response));
-        }
-
-        info!(
-            "Received request from new node with id {} and address {}",
-            req.node_id, req.address
-        );
-        let node_to_add = BasicNode { addr: req.address };
-
-        self.raft
-            .add_learner(req.node_id, node_to_add.clone(), true)
-            .await
-            .map_err(GrpcHelper::internal_err)?;
-
-        info!("Done adding node {} as a learner", req.node_id);
-
-        let nodes_in_cluster = self.get_nodes_in_cluster(); //  re-fetch the nodes in the cluster to get the latest view (sync point)
-        let node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
-        self.raft
-            .change_membership(node_ids, true)
-            .await
-            .map_err(GrpcHelper::internal_err)?;
-
-        info!(
-            "Added the node {} to the configuration and returning the response",
-            req.node_id
-        );
-        let response = ClusterMembershipResponse {};
-        Ok(Response::new(response))
-    }
-
-    async fn handle_forwardable_request(
-        &self,
-        request: Request<ForwardableRequest>,
-    ) -> Result<Response<ForwardableResponse>, Status> {
-        // Example request handling logic
-        let response = ForwardableResponse {
-            // Populate the response based on request and your logic
-            response: Some(
-                indexify_raft::forwardable_response::Response::ClusterMembershipResponse(
-                    ClusterMembershipResponse {},
-                ),
-            ),
+        let (node_id, address) = match req.payload {
+            state::store::requests::RequestPayload::JoinClusterMembership { node_id, address } => {
+                (node_id, address)
+            }
+            _ => return Err(Status::internal("Invalid request")),
         };
 
-        Ok(Response::new(response))
+        //  check if this node is the leader
+        if let Err(e) = self.raft.ensure_linearizable().await {
+            info!("This node is not the leader");
+            match e {
+                RaftError::APIError(CheckIsLeaderError::ForwardToLeader(error)) => {
+                    //  forward the request to a leader here
+                    let leader_id = error.leader_id;
+                    let leader_address = error.leader_node;
+                    if leader_id.is_none() || leader_address.is_none() {
+                        return Err(Status::internal("Leader cannot be found"));
+                    }
+                    info!("Got new leader credentials");
+                    let mut client = self
+                        .raft_client
+                        .get(&leader_address.unwrap().addr)
+                        .await
+                        .map_err(|e| Status::internal(e.to_string()))?;
+
+                    let forwarding_req = GrpcHelper::encode_raft_request(&requests::Request {
+                        payload: requests::RequestPayload::JoinClusterMembership {
+                            node_id,
+                            address,
+                        },
+                        new_state_changes: vec![],
+                        state_changes_processed: vec![],
+                    })
+                    .map_err(|e| Status::internal(e.to_string()))?;
+
+                    return client.forward(forwarding_req).await;
+                }
+                _ => return Err(GrpcHelper::internal_err(e)),
+            }
+        }
+
+        //  This node is the leader - we've confirmed it
+        self.add_node_to_cluster(node_id, &address).await
     }
 }
