@@ -13,6 +13,7 @@ use tracing::info;
 use crate::grpc_helper::GrpcHelper;
 
 use super::raft_client::RaftClient;
+use super::store::requests::RequestPayload;
 use super::NodeId;
 
 pub struct RaftGrpcServer {
@@ -38,8 +39,8 @@ impl RaftGrpcServer {
         nodes_in_cluster
     }
 
-    /// Add node to the cluster only if it is not present
-    async fn add_node_to_cluster(
+    /// Helper function to add node to the cluster only if it is not present
+    async fn add_node_to_cluster_if_absent(
         &self,
         node_id: NodeId,
         address: &str,
@@ -74,6 +75,7 @@ impl RaftGrpcServer {
         GrpcHelper::ok_response("")
     }
 
+    /// Helper function to detect whether the current node is the leader
     async fn ensure_leader(&self) -> Result<Option<ForwardToLeader<NodeId, BasicNode>>, Status> {
         match self.raft.ensure_linearizable().await {
             Ok(_) => Ok(None),
@@ -105,7 +107,7 @@ impl RaftApi for RaftGrpcServer {
             ));
         };
 
-        self.add_node_to_cluster(node_id, &address).await
+        self.add_node_to_cluster_if_absent(node_id, &address).await
     }
 
     async fn append_entries(
@@ -164,9 +166,7 @@ impl RaftApi for RaftGrpcServer {
         let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
 
         let (node_id, address) = match req.payload {
-            state::store::requests::RequestPayload::JoinClusterMembership { node_id, address } => {
-                (node_id, address)
-            }
+            RequestPayload::JoinClusterMembership { node_id, address } => (node_id, address),
             _ => return Err(Status::internal("Invalid request")),
         };
 
@@ -195,6 +195,6 @@ impl RaftApi for RaftGrpcServer {
         };
 
         //  This node is the leader - we've confirmed it
-        self.add_node_to_cluster(node_id, &address).await
+        self.add_node_to_cluster_if_absent(node_id, &address).await
     }
 }
