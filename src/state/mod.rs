@@ -18,13 +18,15 @@ use network::Network;
 use openraft::{
     self,
     error::{ForwardToLeader, InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex, RwLock,
+        Mutex,
+        RwLock,
     },
     task::JoinHandle,
 };
@@ -35,7 +37,9 @@ use self::{
     store::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
-        ExecutorId, ExecutorIdRef, TaskId,
+        ExecutorId,
+        ExecutorIdRef,
+        TaskId,
     },
 };
 use crate::{

@@ -5,8 +5,12 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-        InstallSnapshotResponse, VoteRequest, VoteResponse,
+        AppendEntriesRequest,
+        AppendEntriesResponse,
+        InstallSnapshotRequest,
+        InstallSnapshotResponse,
+        VoteRequest,
+        VoteResponse,
     },
     BasicNode,
 };
@@ -14,11 +18,13 @@ use tonic::IntoRequest;
 
 use crate::{
     grpc_helper::GrpcHelper,
-    state::raft_client::RaftClient,
-    state::store::requests::{Request, RequestPayload},
-    state::typ::{InstallSnapshotError, RPCError, RaftError},
-    state::NodeId,
-    state::TypeConfig,
+    state::{
+        raft_client::RaftClient,
+        store::requests::{Request, RequestPayload},
+        typ::{InstallSnapshotError, RPCError, RaftError},
+        NodeId,
+        TypeConfig,
+    },
 };
 
 pub struct Network {

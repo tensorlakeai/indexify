@@ -7,7 +7,13 @@ use serde::{Deserialize, Serialize};
 use super::{
     requests::{Request, RequestPayload, StateChangeProcessed},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractionPolicyId, ExtractorName, NamespaceName, StateChangeId, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractionPolicyId,
+    ExtractorName,
+    NamespaceName,
+    StateChangeId,
+    TaskId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

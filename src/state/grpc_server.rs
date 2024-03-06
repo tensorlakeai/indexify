@@ -1,20 +1,20 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::state;
-use crate::state::store::requests;
-use crate::state::Raft;
 use async_trait::async_trait;
 use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
-use openraft::error::{CheckIsLeaderError, ForwardToLeader, RaftError};
-use openraft::BasicNode;
+use openraft::{
+    error::{CheckIsLeaderError, ForwardToLeader, RaftError},
+    BasicNode,
+};
 use tonic::{Request, Response, Status};
 use tracing::info;
 
-use crate::grpc_helper::GrpcHelper;
-
-use super::raft_client::RaftClient;
-use super::store::requests::RequestPayload;
-use super::NodeId;
+use super::{raft_client::RaftClient, store::requests::RequestPayload, NodeId};
+use crate::{
+    grpc_helper::GrpcHelper,
+    state,
+    state::{store::requests, Raft},
+};
 
 pub struct RaftGrpcServer {
     raft: Arc<Raft>,
