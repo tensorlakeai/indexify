@@ -1,9 +1,10 @@
 import { useLoaderData, LoaderFunctionArgs, redirect } from "react-router-dom";
 import { Typography, Stack, Breadcrumbs, Box } from "@mui/material";
-import { IndexifyClient, IContent, ITask } from "getindexify";
-import React from "react";
+import { IContentMetadata, IndexifyClient, ITask } from "getindexify";
+import React, { useState } from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
+import axios from "axios";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
@@ -14,72 +15,52 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const tasks = await client
     .getTasks()
     .then((tasks) => tasks.filter((t) => t.content_metadata.id === contentId));
-  const content = await client.getContentById(contentId);
-  return { namespace, tasks, contentId, content };
+  const contentMetadata = await client.getContentById(contentId);
+  return { client, namespace, tasks, contentId, contentMetadata };
 }
 
 const ContentPage = () => {
-  const { namespace, tasks, contentId, content } = useLoaderData() as {
+  const { client, namespace, tasks, contentId, contentMetadata } = useLoaderData() as {
     namespace: string;
     tasks: ITask[];
     contentId: string;
-    content: IContent;
+    contentMetadata: IContentMetadata;
+    client: IndexifyClient
   };
 
-  function byteArrayToBlob(byteArray: number[]): Blob {
-    const arrayBuffer = new ArrayBuffer(byteArray.length);
-    const uint8Array = new Uint8Array(arrayBuffer);
-    for (let i = 0; i < byteArray.length; i++) {
-      uint8Array[i] = byteArray[i];
-    }
-    return new Blob([uint8Array]);
-  }
-
-  function bytesToString(byteArray: number[]) {
-    const chunkSize = 10000;
-    const decoder = new TextDecoder("utf-8");
-    let result = "";
-
-    for (let i = 0; i < byteArray.length; i += chunkSize) {
-      const chunk = byteArray.slice(i, i + chunkSize);
-      result += decoder.decode(new Uint8Array(chunk), { stream: true });
-    }
-
-    // Decode any remaining parts of the byteArray
-    result += decoder.decode(); // Flush the decoder's state
-    return result;
-  }
+  const [textContent, setTextContent] = useState("")
 
   const renderContent = () => {
-    if (content.content_type.startsWith("image")) {
-      const blob = byteArrayToBlob(content.bytes);
+    const contentURL = `${client.serviceUrl}/namespaces/${namespace}/content/${contentId}/download`
+    if (contentMetadata.mime_type.startsWith("image")) {
       return (
         <img
           alt="content"
-          src={URL.createObjectURL(blob)}
+          src={contentURL}
           width="100%"
           style={{ maxWidth: "200px" }}
           height="auto"
         />
       );
-    } else if (content.content_type.startsWith("audio")) {
-      const blob = byteArrayToBlob(content.bytes);
+    } else if (contentMetadata.mime_type.startsWith("audio")) {
       return (
         <audio controls>
-          <source src={URL.createObjectURL(blob)} type={content.content_type} />
+          <source src={contentURL} type={contentMetadata.mime_type} />
           Your browser does not support the audio element.
         </audio>
       );
-    } else if (content.content_type.startsWith("video")) {
-      const blob = byteArrayToBlob(content.bytes);
+    } else if (contentMetadata.mime_type.startsWith("video")) {
       return (
         <video
-          src={URL.createObjectURL(blob)}
+          src={contentURL}
           controls
           style={{ width: "100%", maxWidth: "400px", height: "auto" }}
         />
       );
-    } else if (content.content_type.startsWith("text")) {
+    } else if (contentMetadata.mime_type.startsWith("text")) {
+      axios.get(contentURL).then(res => {
+        setTextContent(String(res.data))
+      })
       return (
         <Box
           sx={{
@@ -88,7 +69,7 @@ const ContentPage = () => {
           }}
         >
           <Typography variant="body2">
-            {bytesToString(content.bytes)}
+            {textContent}
           </Typography>
         </Box>
       );
@@ -106,7 +87,7 @@ const ContentPage = () => {
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
       <Typography variant="h2">Content - {contentId}</Typography>
-      <Typography variant="body1">MimeType: {content.content_type}</Typography>
+      <Typography variant="body1">MimeType: {contentMetadata.mime_type}</Typography>
       {/* display content */}
       {renderContent()}
       {/* tasks */}

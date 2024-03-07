@@ -188,8 +188,8 @@ const ContentTable = ({
       width: 220,
     },
     {
-      field: "content_type",
-      headerName: "ContentType",
+      field: "mime_type",
+      headerName: "Mime Type",
       width: 150,
     },
     {
