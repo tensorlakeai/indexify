@@ -1,10 +1,16 @@
-use std::fmt::{self, Debug, Formatter};
+use std::{
+    fmt::{self, Debug, Formatter},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
+use futures::{stream::BoxStream, StreamExt};
 use object_store::aws::AmazonS3Builder;
 use serde::{Deserialize, Serialize};
+
+use self::{disk::DiskFileReader, s3::S3FileReader};
 
 pub mod disk;
 pub mod s3;
@@ -32,9 +38,10 @@ pub trait BlobStorageWriter {
     async fn delete(&self, key: &str) -> Result<()>;
 }
 
-#[async_trait]
+type BlobStorageReaderTS = Arc<dyn BlobStorageReader + Sync + Send>;
+
 pub trait BlobStorageReader {
-    async fn get(&self, keys: &[&str]) -> Result<Vec<Vec<u8>>>;
+    fn get(&self, key: &str) -> BoxStream<Result<Bytes>>;
 }
 
 #[derive(Clone)]
@@ -51,63 +58,8 @@ impl Debug for BlobStorage {
 }
 
 impl BlobStorage {
-    pub fn new() -> Self {
-        Self {
-            config: BlobStorageConfig {
-                disk: None,
-                s3: None,
-            },
-        }
-    }
-
     pub fn new_with_config(config: BlobStorageConfig) -> Self {
         Self { config }
-    }
-}
-
-#[async_trait]
-impl BlobStorageReader for BlobStorage {
-    async fn get(&self, keys: &[&str]) -> Result<Vec<Vec<u8>>> {
-        // Note: If the keys are a mix of S3 URLs and disk URLs, only the first one will
-        // be considered as the storage mechanism for ALL the keys
-        let Some(&key) = keys.first() else {
-            return Ok(vec![]);
-        };
-
-        if key.starts_with("s3://") {
-            let (bucket, key) = parse_s3_url(key)
-                .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
-            return s3::S3Storage::new(
-                key,
-                AmazonS3Builder::from_env()
-                    .with_region(
-                        self.config
-                            .s3
-                            .as_ref()
-                            .map(|config| config.region.as_str())
-                            .unwrap_or("us-east-1"),
-                    )
-                    .with_bucket_name(bucket)
-                    .build()
-                    .context("unable to build S3 builder")?,
-            )
-            .get(keys)
-            .await;
-        }
-
-        // If it's not S3, assume it's a file
-
-        // We need a default implementation for `DiskStorageConfig`
-        disk::DiskStorage::new(
-            self.config
-                .disk
-                .clone()
-                .unwrap_or_else(|| DiskStorageConfig {
-                    path: "blobs".to_string(),
-                }),
-        )?
-        .get(keys)
-        .await
     }
 }
 
@@ -198,4 +150,35 @@ fn parse_s3_url(s3_url: &str) -> Result<(&str, &str), &str> {
     };
 
     Ok((bucket, key))
+}
+
+#[derive(Debug)]
+pub struct ContentReader {}
+
+impl ContentReader {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn get(&self, key: &str) -> BlobStorageReaderTS {
+        if key.starts_with("s3://") {
+            let (bucket, _key) = parse_s3_url(key)
+                .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))
+                .unwrap();
+            return Arc::new(S3FileReader::new(bucket));
+        }
+
+        // If it's not S3, assume it's a file
+        Arc::new(DiskFileReader::new())
+    }
+
+    pub async fn bytes(&self, key: &str) -> Result<Bytes> {
+        let reader = self.get(key);
+        let mut stream = reader.get(key);
+        let mut bytes = BytesMut::new();
+        while let Some(chunk) = stream.next().await {
+            bytes.extend_from_slice(&chunk?);
+        }
+        Ok(bytes.into())
+    }
 }

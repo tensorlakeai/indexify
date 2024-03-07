@@ -1,11 +1,10 @@
-use anyhow::Error;
+use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, StreamExt};
-use tokio::{
-    fs::File,
-    io::{AsyncReadExt, AsyncWriteExt},
-};
+use futures::{stream::BoxStream, StreamExt};
+use object_store::{local::LocalFileSystem, ObjectStore};
+use tokio::{fs::File, io::AsyncWriteExt, sync::mpsc};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::{BlobStorageReader, BlobStorageWriter, DiskStorageConfig};
 
@@ -41,27 +40,26 @@ impl BlobStorageWriter for DiskStorage {
     }
 }
 
-#[async_trait]
-impl BlobStorageReader for DiskStorage {
-    #[tracing::instrument(skip(self))]
-    async fn get(&self, keys: &[&str]) -> Result<Vec<Vec<u8>>, anyhow::Error> {
-        let mut readers = FuturesOrdered::new();
-        for &key in keys {
-            readers.push_back(async {
-                let path = key.trim_start_matches("file://");
-                let mut file = File::open(path).await?;
-                let mut buffer = Vec::new();
-                file.read_to_end(&mut buffer).await?;
-                Ok::<_, Error>(buffer)
-            });
-        }
+pub struct DiskFileReader {}
+impl DiskFileReader {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
-        let mut buffers = Vec::with_capacity(keys.len());
-
-        while let Some(blob) = readers.next().await {
-            buffers.push(blob?);
-        }
-
-        Ok(buffers)
+impl BlobStorageReader for DiskFileReader {
+    fn get(&self, file_path: &str) -> BoxStream<Result<Bytes>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let file_path = file_path.trim_start_matches("file://").to_string();
+        tokio::spawn(async move {
+            let client = LocalFileSystem::new();
+            let mut stream = client.get(&file_path.into()).await.unwrap().into_stream();
+            while let Some(chunk) = stream.next().await {
+                if let Ok(chunk) = chunk {
+                    let _ = tx.send(Ok(chunk));
+                }
+            }
+        });
+        Box::pin(UnboundedReceiverStream::new(rx))
     }
 }

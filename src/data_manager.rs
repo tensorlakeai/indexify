@@ -12,13 +12,14 @@ use bytes::Bytes;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::ExtractedEmbeddings;
+use itertools::Itertools;
 use nanoid::nanoid;
 use tracing::{error, info};
 
 pub(crate) use crate::unwrap_or_continue;
 use crate::{
-    api::{self, BeginExtractedContentIngest, Content, EmbeddingSchema},
-    blob_storage::{BlobStorage, BlobStorageConfig, BlobStorageReader, BlobStorageWriter},
+    api::{self, BeginExtractedContentIngest, EmbeddingSchema},
+    blob_storage::{BlobStorage, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     metadata_storage::{ExtractedMetadata, MetadataStorageTS},
@@ -29,7 +30,7 @@ use crate::{
 pub struct DataManager {
     vector_index_manager: Arc<VectorIndexManager>,
     metadata_index_manager: MetadataStorageTS,
-    blob_storage: BlobStorage,
+    blob_storage: Arc<BlobStorage>,
     coordinator_client: Arc<CoordinatorClient>,
 }
 
@@ -43,10 +44,9 @@ impl DataManager {
     pub async fn new(
         vector_index_manager: Arc<VectorIndexManager>,
         metadata_index_manager: MetadataStorageTS,
-        blob_storage_config: BlobStorageConfig,
+        blob_storage: Arc<BlobStorage>,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
-        let blob_storage = BlobStorage::new_with_config(blob_storage_config);
         Ok(Self {
             vector_index_manager,
             metadata_index_manager,
@@ -219,23 +219,13 @@ impl DataManager {
             .await?
             .list_content(req)
             .await?;
-        let content_list = response.into_inner().content_list;
-        let mut content = Vec::new();
-
-        for c in content_list {
-            content.push(api::ContentMetadata {
-                id: c.id,
-                name: c.file_name,
-                storage_url: c.storage_url,
-                parent_id: c.parent_id,
-                created_at: c.created_at,
-                content_type: c.mime,
-                namespace: c.namespace,
-                labels: c.labels,
-                source: c.source,
-            })
-        }
-        Ok(content)
+        let content_list = response
+            .into_inner()
+            .content_list
+            .into_iter()
+            .map(|c| c.into())
+            .collect_vec();
+        Ok(content_list)
     }
 
     #[tracing::instrument]
@@ -263,11 +253,11 @@ impl DataManager {
         Ok(())
     }
 
-    pub async fn read_content(
+    pub async fn get_content_metadata(
         &self,
         _namespace: &str,
         content_ids: Vec<String>,
-    ) -> Result<Vec<Content>> {
+    ) -> Result<Vec<api::ContentMetadata>> {
         let req = indexify_coordinator::GetContentMetadataRequest {
             content_list: content_ids,
         };
@@ -278,24 +268,10 @@ impl DataManager {
             .get_content_metadata(req)
             .await?;
         let content_metadata_list = response.into_inner().content_list;
-        let content_list = self
-            .blob_storage
-            .get(
-                &content_metadata_list
-                    .iter()
-                    .map(|item| item.storage_url.as_str())
-                    .collect::<Vec<_>>(),
-            )
-            .await?
-            .into_iter()
-            .zip(content_metadata_list.into_iter())
-            .map(|(bytes, content)| Content {
-                content_type: content.mime,
-                bytes,
-                labels: content.labels.clone(),
-                features: vec![],
-            })
-            .collect();
+        let mut content_list = Vec::new();
+        for c in content_metadata_list {
+            content_list.push(c.into())
+        }
         Ok(content_list)
     }
 

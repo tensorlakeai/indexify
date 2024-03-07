@@ -2,9 +2,10 @@ use std::{net::SocketAddr, sync::Arc, time::Instant};
 
 use anyhow::{anyhow, Result};
 use axum::{
+    body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{header::CONTENT_TYPE, StatusCode},
-    response::IntoResponse,
+    http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Extension,
     Json,
@@ -14,11 +15,12 @@ use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_typed_websockets::{Message, WebSocket, WebSocketUpgrade};
-use hyper::Method;
+use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
 use rust_embed::RustEmbed;
 use tokio::signal;
+use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 use utoipa::OpenApi;
@@ -28,13 +30,13 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     api::{self, *},
+    blob_storage::{BlobStorage, ContentReader},
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
     extractor_router::ExtractorRouter,
     metadata_storage::{self, MetadataStorageTS},
     server_config::ServerConfig,
-    //tls::build_mtls_config,
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -49,6 +51,7 @@ pub struct UiAssets;
 pub struct NamespaceEndpointState {
     data_manager: Arc<DataManager>,
     coordinator_client: Arc<CoordinatorClient>,
+    content_reader: Arc<ContentReader>,
 }
 
 #[derive(OpenApi)]
@@ -65,7 +68,7 @@ pub struct NamespaceEndpointState {
             metadata_lookup,
             list_executors,
             list_content,
-            read_content,
+            get_content_metadata,
             upload_file,
             list_tasks,
             extract_content
@@ -76,7 +79,7 @@ pub struct NamespaceEndpointState {
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
             , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
-            Content, Feature, FeatureType, GetRawContentResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
+            Content, Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
             internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
         )
         ),
@@ -117,11 +120,14 @@ impl Server {
         );
         let metadata_index_manager: MetadataStorageTS =
             metadata_storage::from_config(&self.config.metadata_storage)?;
+        let blob_storage = Arc::new(BlobStorage::new_with_config(
+            self.config.blob_storage.clone(),
+        ));
         let data_manager = Arc::new(
             DataManager::new(
                 vector_index_manager,
                 metadata_index_manager,
-                self.config.blob_storage.clone(),
+                blob_storage.clone(),
                 coordinator_client.clone(),
             )
             .await?,
@@ -129,6 +135,7 @@ impl Server {
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
+            content_reader: Arc::new(ContentReader::new()),
         };
         let caches = Caches::new(self.config.cache.clone());
         let cors = CorsLayer::new()
@@ -161,7 +168,11 @@ impl Server {
             )
             .route(
                 "/namespaces/:namespace/content/:content_id",
-                get(read_content).with_state(namespace_endpoint_state.clone()),
+                get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/content/:content_id/download",
+                get(download_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/upload_file",
@@ -451,16 +462,58 @@ async fn list_content(
     ),
 )]
 #[axum::debug_handler]
-async fn read_content(
+async fn get_content_metadata(
     Path((namespace, content_id)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-) -> Result<Json<GetRawContentResponse>, IndexifyAPIError> {
+) -> Result<Json<GetContentMetadataResponse>, IndexifyAPIError> {
     let content_list = state
         .data_manager
-        .read_content(&namespace, vec![content_id])
+        .get_content_metadata(&namespace, vec![content_id])
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(GetRawContentResponse { content_list }))
+    let content_metadata = content_list.first().ok_or_else(|| {
+        IndexifyAPIError::new(StatusCode::NOT_FOUND, "content not found".to_string())
+    })?;
+
+    Ok(Json(GetContentMetadataResponse {
+        content_metadata: content_metadata.clone(),
+    }))
+}
+
+#[axum::debug_handler]
+async fn download_content(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> impl IntoResponse {
+    let content_list = state
+        .data_manager
+        .get_content_metadata(&namespace, vec![content_id])
+        .await;
+    if let Err(err) = content_list.as_ref() {
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from(format!("unable to get content: {}", err)))
+            .unwrap();
+    }
+    if content_list.as_ref().unwrap().is_empty() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("content not found"))
+            .unwrap();
+    }
+    Response::builder()
+        .body(Body::from_stream(async_stream::stream! {
+            let content_list = content_list.unwrap();
+            let content_metadata = content_list.first().unwrap();
+            let storage_url = &content_metadata.storage_url.clone();
+            let content_reader = state.content_reader.clone();
+            let reader = content_reader.get(storage_url);
+            let mut content_stream = reader.get(storage_url);
+            while let Some(buf)  = content_stream.next().await {
+                yield buf;
+            }
+        }))
+        .unwrap()
 }
 
 #[tracing::instrument]

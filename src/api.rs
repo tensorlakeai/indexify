@@ -269,6 +269,17 @@ pub struct Index {
     pub schema: ExtractorOutputSchema,
 }
 
+impl TryFrom<indexify_coordinator::Index> for Index {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::Index) -> Result<Self> {
+        Ok(Self {
+            name: value.name,
+            schema: serde_json::from_str(&value.schema).unwrap(),
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListIndexesResponse {
     pub indexes: Vec<Index>,
@@ -339,6 +350,8 @@ pub struct DocumentFragment {
 pub struct IndexSearchResponse {
     pub results: Vec<DocumentFragment>,
 }
+
+#[derive(Debug)]
 pub struct IndexifyAPIError {
     status_code: StatusCode,
     message: String,
@@ -366,17 +379,33 @@ pub struct ListContentResponse {
     pub content_list: Vec<ContentMetadata>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema, Clone)]
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
     pub namespace: String,
     pub name: String,
-    pub content_type: String,
+    pub mime_type: String,
     pub labels: HashMap<String, String>,
     pub storage_url: String,
     pub created_at: i64,
     pub source: String,
+}
+
+impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    fn from(value: indexify_coordinator::ContentMetadata) -> Self {
+        Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            namespace: value.namespace,
+            name: value.file_name,
+            mime_type: value.mime,
+            labels: value.labels,
+            storage_url: value.storage_url,
+            created_at: value.created_at,
+            source: value.source,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, EnumString, ToSchema)]
@@ -482,8 +511,8 @@ pub struct FinishExtractedContentIngest {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GetRawContentResponse {
-    pub content_list: Vec<Content>,
+pub struct GetContentMetadataResponse {
+    pub content_metadata: ContentMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
