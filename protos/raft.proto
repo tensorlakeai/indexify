@@ -13,18 +13,11 @@ message RaftReply {
     string error = 2;
 }
 
-message GetClusterMembershipRequest {
-  uint64 node_id = 1;
-  string address = 2;
-}
-
-message ClusterMembershipResponse {}
-
 service RaftApi { 
     rpc Forward(RaftRequest) returns (RaftReply);
     rpc AppendEntries(RaftRequest) returns (RaftReply);
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
-    rpc GetClusterMembership(GetClusterMembershipRequest) returns (ClusterMembershipResponse);
+    rpc JoinClusterMembership(RaftRequest) returns (RaftReply);
 }
 

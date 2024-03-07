@@ -1,7 +1,6 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use indexify_proto::indexify_raft::ClusterMembershipResponse;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -15,11 +14,17 @@ use openraft::{
     },
     BasicNode,
 };
+use tonic::IntoRequest;
 
-use super::{raft_client::RaftClient, NodeId, TypeConfig};
 use crate::{
     grpc_helper::GrpcHelper,
-    state::typ::{InstallSnapshotError, RPCError, RaftError},
+    state::{
+        raft_client::RaftClient,
+        store::requests::{Request, RequestPayload},
+        typ::{InstallSnapshotError, RPCError, RaftError},
+        NodeId,
+        TypeConfig,
+    },
 };
 
 pub struct Network {
@@ -46,28 +51,34 @@ impl Network {
         Self { raft_client }
     }
 
-    pub async fn get_cluster_membership(
+    pub async fn join_cluster(
         &self,
         node_id: NodeId,
         node_addr: &str,
         target_addr: &str,
-    ) -> Result<ClusterMembershipResponse, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let mut client = self
             .raft_client
             .get(target_addr)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
 
-        let req = tonic::Request::new(indexify_proto::indexify_raft::GetClusterMembershipRequest {
-            node_id,
-            address: node_addr.into(),
-        });
+        let request = GrpcHelper::encode_raft_request(&Request {
+            payload: RequestPayload::JoinCluster {
+                node_id,
+                address: node_addr.into(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        })?
+        .into_request();
 
-        let resp = client.get_cluster_membership(req).await.map_err(|e| {
-            anyhow::anyhow!("Error while parsing the cluster membership response {}", e)
-        })?;
+        client
+            .join_cluster_membership(request)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
-        Ok(resp.into_inner())
+        Ok(())
     }
 }
 

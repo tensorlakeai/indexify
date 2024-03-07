@@ -5,6 +5,7 @@ use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
+use crate::state::NodeId;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Request {
@@ -21,6 +22,10 @@ pub struct StateChangeProcessed {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum RequestPayload {
+    JoinCluster {
+        node_id: NodeId,
+        address: String,
+    },
     RegisterExecutor {
         addr: String,
         executor_id: String,

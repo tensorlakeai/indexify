@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, ClusterMembershipResponse};
+use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
@@ -108,8 +108,8 @@ pub struct App {
     pub indexify_state: Arc<RwLock<IndexifyState>>,
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
-    network: Network,
-    node_addr: String,
+    pub network: Network,
+    pub node_addr: String,
 }
 
 impl App {
@@ -118,6 +118,7 @@ impl App {
             heartbeat_interval: 500,
             election_timeout_min: 1500,
             election_timeout_max: 3000,
+            enable_heartbeat: true,
             ..Default::default()
         };
 
@@ -165,7 +166,10 @@ impl App {
             .map_err(|e| anyhow!("unable to create raft address : {}", e.to_string()))?;
 
         info!("starting raft server at {}", addr.to_string());
-        let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(Arc::new(raft.clone())));
+        let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(
+            Arc::new(raft.clone()),
+            Arc::clone(&raft_client),
+        ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
         let app = Arc::new(App {
@@ -850,9 +854,9 @@ impl App {
         });
     }
 
-    async fn check_cluster_membership(&self) -> Result<ClusterMembershipResponse, anyhow::Error> {
+    pub async fn check_cluster_membership(&self) -> Result<(), anyhow::Error> {
         self.network
-            .get_cluster_membership(self.id, &self.node_addr, &self.seed_node)
+            .join_cluster(self.id, &self.node_addr, &self.seed_node)
             .await
     }
 }

@@ -478,7 +478,56 @@ mod tests {
                 return Ok(());
             }
             // If the cluster is not yet ready, sleep a bit before retrying
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_leader_redirect() -> Result<(), anyhow::Error> {
+        let server_configs = create_test_raft_configs(3)?;
+
+        let mut apps = Vec::new();
+        for config in server_configs {
+            let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+            let shared_state = App::new(config.clone()).await?;
+            apps.push(shared_state);
+        }
+
+        //  get the nodes
+        let seed_node = Arc::clone(apps.get(0).unwrap());
+        let leader_node = apps.get(1).unwrap();
+        let alternate_node = apps.get(2).unwrap();
+
+        //  initialize the seed node
+        let seed_node_clone = Arc::clone(&seed_node);
+        tokio::spawn(async move {
+            seed_node
+                .initialize_raft()
+                .await
+                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
+        });
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        //  check that seed node is current leader and force it to step down
+        match seed_node_clone.raft.ensure_linearizable().await {
+            Ok(_) => {}
+            Err(e) => return Err(anyhow::anyhow!("The seed node is not the leader: {}", e)),
+        }
+        seed_node_clone.raft.runtime_config().heartbeat(false);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        //  force a specific node to be elected leader
+        leader_node.raft.trigger().elect().await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let current_leader = leader_node.raft.current_leader().await;
+        assert!(current_leader.is_some());
+        assert_eq!(current_leader.unwrap(), 1);
+
+        //  check leader re-direct
+        let response = alternate_node.check_cluster_membership().await;
+        assert!(response.is_ok());
+        Ok(())
     }
 }

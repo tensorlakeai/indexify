@@ -214,6 +214,10 @@ impl IndexifyState {
                     self.mark_state_changes_processed(&state_change, state_change.processed_at);
                 }
             }
+            RequestPayload::JoinCluster {
+                node_id: _,
+                address: _,
+            } => {} //  do nothing
         }
     }
 
