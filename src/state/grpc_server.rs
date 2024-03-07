@@ -83,17 +83,21 @@ impl RaftGrpcServer {
             },
         }
     }
+
+    async fn handle_client_write(
+        &self,
+        request: state::store::requests::Request,
+    ) -> Result<Response<RaftReply>, Status> {
+        match self.raft.client_write(request).await {
+            Ok(_) => GrpcHelper::ok_response(""),
+            Err(e) => Err(GrpcHelper::internal_err(e.to_string())),
+        }
+    }
 }
 
 #[async_trait]
 impl RaftApi for RaftGrpcServer {
     async fn forward(&self, request: Request<RaftRequest>) -> Result<Response<RaftReply>, Status> {
-        let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
-        let (node_id, address) = match req.payload {
-            RequestPayload::JoinCluster { node_id, address } => (node_id, address),
-            _ => return Err(Status::internal("Invalid request")),
-        };
-
         //  check if this node is the leader
         if let Some(_) = self.ensure_leader().await? {
             return Err(GrpcHelper::internal_err(
@@ -101,7 +105,13 @@ impl RaftApi for RaftGrpcServer {
             ));
         };
 
-        self.add_node_to_cluster_if_absent(node_id, &address).await
+        let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
+
+        if let RequestPayload::JoinCluster { node_id, address } = req.payload {
+            return self.add_node_to_cluster_if_absent(node_id, &address).await;
+        }
+
+        self.handle_client_write(req).await
     }
 
     async fn append_entries(
@@ -153,7 +163,7 @@ impl RaftApi for RaftGrpcServer {
         .await
     }
 
-    async fn join_cluster_membership(
+    async fn join_cluster(
         &self,
         request: Request<RaftRequest>,
     ) -> Result<Response<RaftReply>, Status> {

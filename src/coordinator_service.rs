@@ -115,6 +115,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<ExtractionPolicyRequest>,
     ) -> Result<tonic::Response<ExtractionPolicyResponse>, tonic::Status> {
+        info!("CALLED CREATE_EXTRACTION_POLICY");
         let request = request.into_inner();
         let extraction_policy = request.policy.clone().unwrap();
         let mut s = DefaultHasher::new();
@@ -556,8 +557,6 @@ async fn run_scheduler(
     mut state_watcher_rx: Receiver<StateChange>,
     coordinator: Arc<Coordinator>,
 ) -> Result<()> {
-    //let mut interval =
-    // tokio::time::interval(tokio::time::Duration::from_secs(5));
     let is_leader = AtomicBool::new(false);
 
     loop {

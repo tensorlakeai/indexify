@@ -185,7 +185,7 @@ pub mod raft_api_client {
                 .insert(GrpcMethod::new("indexify_raft.RaftApi", "Vote"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn join_cluster_membership(
+        pub async fn join_cluster(
             &mut self,
             request: impl tonic::IntoRequest<super::RaftRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
@@ -200,13 +200,11 @@ pub mod raft_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_raft.RaftApi/JoinClusterMembership",
+                "/indexify_raft.RaftApi/JoinCluster",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("indexify_raft.RaftApi", "JoinClusterMembership"),
-                );
+                .insert(GrpcMethod::new("indexify_raft.RaftApi", "JoinCluster"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -234,7 +232,7 @@ pub mod raft_api_server {
             &self,
             request: tonic::Request<super::RaftRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
-        async fn join_cluster_membership(
+        async fn join_cluster(
             &self,
             request: tonic::Request<super::RaftRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
@@ -494,11 +492,11 @@ pub mod raft_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_raft.RaftApi/JoinClusterMembership" => {
+                "/indexify_raft.RaftApi/JoinCluster" => {
                     #[allow(non_camel_case_types)]
-                    struct JoinClusterMembershipSvc<T: RaftApi>(pub Arc<T>);
+                    struct JoinClusterSvc<T: RaftApi>(pub Arc<T>);
                     impl<T: RaftApi> tonic::server::UnaryService<super::RaftRequest>
-                    for JoinClusterMembershipSvc<T> {
+                    for JoinClusterSvc<T> {
                         type Response = super::RaftReply;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -510,8 +508,7 @@ pub mod raft_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as RaftApi>::join_cluster_membership(&inner, request)
-                                    .await
+                                <T as RaftApi>::join_cluster(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -523,7 +520,7 @@ pub mod raft_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = JoinClusterMembershipSvc(inner);
+                        let method = JoinClusterSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
