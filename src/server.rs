@@ -815,6 +815,7 @@ async fn index_search(
         .iter()
         .map(|text| DocumentFragment {
             content_id: text.content_id.clone(),
+            mime_type: text.mime_type.clone(),
             text: text.text.clone(),
             labels: text.labels.clone(),
             confidence_score: text.confidence_score,

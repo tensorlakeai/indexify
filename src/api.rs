@@ -342,6 +342,7 @@ pub struct MetadataResponse {
 pub struct DocumentFragment {
     pub content_id: String,
     pub text: String,
+    pub mime_type: String,
     pub confidence_score: f32,
     pub labels: HashMap<String, String>,
 }

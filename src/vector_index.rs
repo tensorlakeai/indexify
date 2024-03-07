@@ -31,6 +31,7 @@ impl fmt::Debug for VectorIndexManager {
 pub struct ScoredText {
     pub text: String,
     pub content_id: String,
+    pub mime_type: String,
     pub labels: HashMap<String, String>,
     pub confidence_score: f32,
 }
@@ -128,6 +129,7 @@ impl VectorIndexManager {
         }
 
         let mut content_byte_map = HashMap::new();
+        let mut content_mime_map = HashMap::new();
         for content_meta in content_metadata_list.content_list {
             let content = self
                 .content_reader
@@ -135,6 +137,7 @@ impl VectorIndexManager {
                 .await
                 .map_err(|e| anyhow!("unable to get content: {}", e.to_string()))?;
             content_byte_map.insert(content_meta.id.clone(), content);
+            content_mime_map.insert(content_meta.id.clone(), content_meta.mime);
         }
 
         let mut index_search_results = Vec::new();
@@ -144,9 +147,19 @@ impl VectorIndexManager {
                 continue;
             }
             let content = content.unwrap().clone();
+            let mime_type = content_mime_map
+                .get(&result.content_id)
+                .unwrap()
+                .to_string();
+            let text = if mime_type.starts_with("text/") {
+                String::from_utf8(content.to_vec()).unwrap()
+            } else {
+                String::from("")
+            };
             let search_result = ScoredText {
-                text: String::from_utf8(content.to_vec()).unwrap(),
+                text,
                 content_id: result.content_id.clone(),
+                mime_type,
                 labels: HashMap::new(),
                 confidence_score: result.confidence_score,
             };
