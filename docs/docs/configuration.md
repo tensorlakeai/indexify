@@ -5,7 +5,7 @@ Indexify is configured by a YAML configuration file. The easiest way to start is
 ## Generate with CLI
 
 ```shell
-indexify server init-config /tmp/indexify.yaml
+indexify init-config --config-path /tmp/indexify.yaml
 ```
 
 ## Configuration Reference
