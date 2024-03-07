@@ -391,6 +391,7 @@ pub struct ContentMetadata {
     pub storage_url: String,
     pub created_at: i64,
     pub source: String,
+    pub size: u64,
 }
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
@@ -405,6 +406,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             storage_url: value.storage_url,
             created_at: value.created_at,
             source: value.source,
+            size: value.size_bytes,
         }
     }
 }

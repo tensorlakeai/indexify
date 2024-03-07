@@ -501,10 +501,11 @@ async fn download_content(
             .body(Body::from("content not found"))
             .unwrap();
     }
+    let content_metadata = content_list.unwrap().first().unwrap().clone();
     Response::builder()
+        .header("Content-Length", content_metadata.size)
+        .header("Content-Type", content_metadata.mime_type.clone())
         .body(Body::from_stream(async_stream::stream! {
-            let content_list = content_list.unwrap();
-            let content_metadata = content_list.first().unwrap();
             let storage_url = &content_metadata.storage_url.clone();
             let content_reader = state.content_reader.clone();
             let reader = content_reader.get(storage_url);
