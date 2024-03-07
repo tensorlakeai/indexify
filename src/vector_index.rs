@@ -1,7 +1,6 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
-use anyhow::{anyhow, Error, Result};
-use base64::{engine::general_purpose, Engine as _};
+use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
 use internal_api::ExtractedEmbeddings;
@@ -9,8 +8,8 @@ use itertools::Itertools;
 use tracing::info;
 
 use crate::{
-    api::{self},
-    blob_storage::{BlobStorage, BlobStorageReader},
+    api,
+    blob_storage::ContentReader,
     coordinator_client::CoordinatorClient,
     extractor_router::ExtractorRouter,
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
@@ -20,6 +19,7 @@ pub struct VectorIndexManager {
     vector_db: VectorDBTS,
     extractor_router: ExtractorRouter,
     coordinator_client: Arc<CoordinatorClient>,
+    content_reader: Arc<ContentReader>,
 }
 
 impl fmt::Debug for VectorIndexManager {
@@ -38,10 +38,12 @@ pub struct ScoredText {
 impl VectorIndexManager {
     pub fn new(coordinator_client: Arc<CoordinatorClient>, vector_db: VectorDBTS) -> Result<Self> {
         let extractor_router = ExtractorRouter::new(coordinator_client.clone())?;
+        let content_reader = Arc::new(ContentReader::new());
         Ok(Self {
             vector_db,
             extractor_router,
             coordinator_client: coordinator_client.clone(),
+            content_reader,
         })
     }
 
@@ -125,40 +127,25 @@ impl VectorIndexManager {
             ));
         }
 
-        let content_id_to_blob = BlobStorage::new()
-            .get(
-                &content_metadata_list
-                    .content_list
-                    .iter()
-                    .map(|item| item.storage_url.as_str())
-                    .collect::<Vec<_>>(),
-            )
-            .await?
-            .into_iter()
-            .zip(content_metadata_list.content_list.into_iter())
-            .map(|(data, content)| {
-                let text = match content.mime.as_str() {
-                    "text/plain" => String::from_utf8(data)?,
-                    "application/json" => {
-                        let json: serde_json::Value = serde_json::from_slice(&data)?;
-                        json.to_string()
-                    }
-                    _ => general_purpose::STANDARD.encode(&data),
-                };
-                Ok::<_, Error>((content.id, text))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .collect::<HashMap<_, _>>();
+        let mut content_byte_map = HashMap::new();
+        for content_meta in content_metadata_list.content_list {
+            let content = self
+                .content_reader
+                .bytes(&content_meta.storage_url)
+                .await
+                .map_err(|e| anyhow!("unable to get content: {}", e.to_string()))?;
+            content_byte_map.insert(content_meta.id.clone(), content);
+        }
 
         let mut index_search_results = Vec::new();
         for result in search_result {
-            let chunk = content_id_to_blob.get(&result.content_id);
-            if chunk.is_none() {
+            let content = content_byte_map.get(result.content_id.as_str());
+            if content.is_none() {
                 continue;
             }
+            let content = content.unwrap().clone();
             let search_result = ScoredText {
-                text: chunk.unwrap().to_string(),
+                text: String::from_utf8(content.to_vec()).unwrap(),
                 content_id: result.content_id.clone(),
                 labels: HashMap::new(),
                 confidence_score: result.confidence_score,

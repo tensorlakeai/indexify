@@ -1211,6 +1211,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-streams"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c91f2b249e5711a934fce7b81a04a44033ecda0d74d2632cafaea2d8c3cc260f"
+dependencies = [
+ "axum 0.7.4",
+ "bytes",
+ "cargo-husky",
+ "futures",
+ "futures-util",
+ "http 1.0.0",
+ "http-body 1.0.0",
+ "mime",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+]
+
+[[package]]
 name = "axum-tracing-opentelemetry"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,6 +1502,12 @@ checksum = "c59e92b5a388f549b863a7bea62612c09f24c8393560709a54558a9abdfb3b9c"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "cargo-husky"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b02b629252fe8ef6460461409564e2c21d0c8e77e0944f3d189ff06c4e932ad"
 
 [[package]]
 name = "cargo-platform"
@@ -3011,10 +3036,12 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "askama",
+ "async-stream",
  "async-trait",
  "axum 0.7.4",
  "axum-otel-metrics",
  "axum-server",
+ "axum-streams",
  "axum-tracing-opentelemetry",
  "axum-typed-websockets",
  "base64",
@@ -3065,6 +3092,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.25.0",
  "tokio-stream",
+ "tokio-util",
  "tonic 0.11.0",
  "tonic-build",
  "tower",

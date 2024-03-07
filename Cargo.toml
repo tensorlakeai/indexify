@@ -21,6 +21,7 @@ axum-otel-metrics = "0.8"
 axum-tracing-opentelemetry = "0.16"
 axum-server = {version = "0.6.0", features = ["tls-rustls"]}
 axum-typed-websockets = "0.6.0"
+axum-streams = {version = "0.12.0"}
 backtrace = "0.3"
 base64 = "0.21.0"
 bytes = "1"
@@ -94,6 +95,7 @@ tonic = { version = "0.11.0", features = ["prost"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-rustls = { version = "0.25" }
+tokio-util = {version ="0.7.10"}
 tower = { version = "0.4" }
 tower-http = { version = "0.5.1", default_features = false, features = [
     "cors",
@@ -127,6 +129,7 @@ axum-otel-metrics = { workspace = true }
 axum-tracing-opentelemetry = { workspace = true }
 axum-server = {workspace = true }
 axum-typed-websockets = { workspace = true }
+axum-streams = {workspace = true}
 base64 = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -171,6 +174,7 @@ tonic = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = {workspace = true}
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
@@ -189,6 +193,7 @@ tar = { workspace = true }
 walkdir = { workspace = true }
 vectordb = { workspace = true }
 lance = { workspace = true }
+async-stream = "0.3.5"
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
