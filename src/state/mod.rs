@@ -828,7 +828,7 @@ impl App {
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
-        let app_clone = Arc::clone(&self);
+        let app_clone = Arc::clone(self);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(MEMBERSHIP_CHECK_INTERVAL);
             loop {

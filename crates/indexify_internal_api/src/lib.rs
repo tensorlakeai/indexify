@@ -350,6 +350,7 @@ pub struct ContentMetadata {
     pub storage_url: String,
     pub created_at: i64,
     pub source: String,
+    pub size_bytes: u64,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -364,6 +365,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             created_at: value.created_at,
             namespace: value.namespace,
             source: value.source,
+            size_bytes: value.size_bytes,
         }
     }
 }
@@ -385,6 +387,7 @@ impl Default for ContentMetadata {
             storage_url: "http://example.com/test_url".to_string(),
             created_at: 1234567890, // example timestamp
             source: "test_source".to_string(),
+            size_bytes: 1234567890,
         }
     }
 }
@@ -403,6 +406,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             created_at: value.created_at,
             namespace: value.namespace,
             source: value.source,
+            size_bytes: value.size_bytes,
         })
     }
 }
