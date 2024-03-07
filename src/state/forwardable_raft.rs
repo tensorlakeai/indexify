@@ -1,21 +1,18 @@
-use std::collections::BTreeMap;
-use std::fmt::Debug;
+use std::{collections::BTreeMap, fmt::Debug};
 
-use super::network::Network;
-use super::typ::CheckIsLeaderError;
-use super::typ::ForwardToLeader;
-use super::typ::InitializeError;
-use super::typ::RaftError;
-use super::BasicNode;
-use super::NodeId;
-use super::Raft;
-use super::Request;
-use super::Response;
-use super::SnapshotData;
-use super::TokioRuntime;
+use anyhow::{anyhow, Result as AnyhowResult};
 
-use anyhow::anyhow;
-use anyhow::Result as AnyhowResult;
+use super::{
+    network::Network,
+    typ::{CheckIsLeaderError, ForwardToLeader, InitializeError, RaftError},
+    BasicNode,
+    NodeId,
+    Raft,
+    Request,
+    Response,
+    SnapshotData,
+    TokioRuntime,
+};
 
 openraft::declare_raft_types!(
   pub TypeConfig:
