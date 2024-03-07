@@ -50,6 +50,14 @@ client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="wiki-embedd
 
 ### Perform RAG
 
+Create a retriever to feed in data from Indexify. 
+
+```python
+from indexify_langchain import IndexifyRetriever
+params = {"name": "wiki-embedding.embedding", "top_k": 20}
+retriever = IndexifyRetriever(client=client, params=params)
+```
+
 Initialize the Langchain Retreiver, create a chain to prompt OpenAI with data retreived from Indexify to create a simple Q and A bot
 ```python
 from langchain_core.output_parsers import StrOutputParser
