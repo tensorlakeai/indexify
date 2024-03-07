@@ -39,14 +39,14 @@ impl ForwardableRaft {
     }
 
     pub async fn client_write(&self, request: Request) -> AnyhowResult<()> {
-        //  check whether this node is the leader
+        //  check whether this node is not the leader
         if let Some(forward_to_leader) = self.ensure_leader().await? {
-            //  TODO: Forward this request to the leader
             let leader_address = forward_to_leader
                 .leader_node
                 .ok_or_else(|| anyhow!("Could not get leader address"))?;
             return self.network.forward(&leader_address.addr, request).await;
         }
+
         self.raft.client_write(request).await?;
         Ok(())
     }
