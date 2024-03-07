@@ -13,10 +13,7 @@ use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
-    coordinator_filters::*,
-    scheduler::Scheduler,
-    state::SharedState,
-    task_allocator::TaskAllocator,
+    coordinator_filters::*, scheduler::Scheduler, state::SharedState, task_allocator::TaskAllocator,
 };
 
 pub struct Coordinator {
@@ -478,7 +475,7 @@ mod tests {
                 return Ok(());
             }
             // If the cluster is not yet ready, sleep a bit before retrying
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 
