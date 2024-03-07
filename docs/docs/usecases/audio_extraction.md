@@ -65,7 +65,14 @@ You can upload 100s of audio files parallely into Indexify and it will handle tr
 
 ### Perform RAG
 
-Initialize the Langchain Retreiver, create a chain to prompt OpenAI with data retreived from Indexify to create a simple Q and A bot
+Initialize the Langchain Retreiver.
+```python
+from indexify_langchain import IndexifyRetriever
+params = {"name": "minilml6.embedding", "top_k": 3}
+retriever = IndexifyRetriever(client=client, params=params)
+```
+
+Now create a chain to prompt OpenAI with data retreived from Indexify to create a simple Q and A bot
 ```python
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
