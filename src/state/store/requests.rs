@@ -22,7 +22,7 @@ pub struct StateChangeProcessed {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum RequestPayload {
-    JoinClusterMembership {
+    JoinCluster {
         node_id: NodeId,
         address: String,
     },

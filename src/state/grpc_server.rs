@@ -90,13 +90,12 @@ impl RaftApi for RaftGrpcServer {
     async fn forward(&self, request: Request<RaftRequest>) -> Result<Response<RaftReply>, Status> {
         let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
         let (node_id, address) = match req.payload {
-            RequestPayload::JoinClusterMembership { node_id, address } => (node_id, address),
+            RequestPayload::JoinCluster { node_id, address } => (node_id, address),
             _ => return Err(Status::internal("Invalid request")),
         };
 
         //  check if this node is the leader
-        let maybe_forward_to_leader = self.ensure_leader().await?;
-        if let Some(_) = maybe_forward_to_leader {
+        if let Some(_) = self.ensure_leader().await? {
             return Err(GrpcHelper::internal_err(
                 "The node we thought was the leader is not the leader",
             ));
@@ -160,16 +159,12 @@ impl RaftApi for RaftGrpcServer {
     ) -> Result<Response<RaftReply>, Status> {
         let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
 
-        let RequestPayload::JoinClusterMembership { node_id, address } = req.payload else {
+        let RequestPayload::JoinCluster { node_id, address } = req.payload else {
             return Err(GrpcHelper::internal_err("Invalid request"));
         };
 
         //  check if this node is the leader
-        let maybe_forward_to_leader = self.ensure_leader().await?;
-        if let Some(forward_to_leader) = maybe_forward_to_leader {
-            let _leader_id = forward_to_leader
-                .leader_id
-                .ok_or_else(|| GrpcHelper::internal_err("Leader id not found"))?;
+        if let Some(forward_to_leader) = self.ensure_leader().await? {
             let leader_address = forward_to_leader
                 .leader_node
                 .ok_or_else(|| GrpcHelper::internal_err("Leader node not found"))?
@@ -180,7 +175,7 @@ impl RaftApi for RaftGrpcServer {
                 .await
                 .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
             let forwarding_req = GrpcHelper::encode_raft_request(&requests::Request {
-                payload: requests::RequestPayload::JoinClusterMembership { node_id, address },
+                payload: requests::RequestPayload::JoinCluster { node_id, address },
                 new_state_changes: vec![],
                 state_changes_processed: vec![],
             })

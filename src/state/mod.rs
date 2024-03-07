@@ -18,15 +18,13 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -37,9 +35,7 @@ use self::{
     store::{
         requests::{RequestPayload, StateChangeProcessed},
         state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
+        ExecutorId, ExecutorIdRef, TaskId,
     },
 };
 use crate::{
@@ -241,9 +237,9 @@ impl App {
     }
 
     pub async fn initialize_raft(&self) -> Result<()> {
-        // if !self.is_seed_node() {
-        //     return Ok(());
-        // }
+        if !self.is_seed_node() {
+            return Ok(());
+        }
         match self.raft.initialize(self.nodes.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -856,7 +852,7 @@ impl App {
 
     pub async fn check_cluster_membership(&self) -> Result<(), anyhow::Error> {
         self.network
-            .join_cluster_membership(self.id, &self.node_addr, &self.seed_node)
+            .join_cluster(self.id, &self.node_addr, &self.seed_node)
             .await
     }
 }

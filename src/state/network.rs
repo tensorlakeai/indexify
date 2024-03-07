@@ -5,12 +5,8 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest,
-        AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
-        VoteRequest,
-        VoteResponse,
+        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
+        InstallSnapshotResponse, VoteRequest, VoteResponse,
     },
     BasicNode,
 };
@@ -22,8 +18,7 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{Request, RequestPayload},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId,
-        TypeConfig,
+        NodeId, TypeConfig,
     },
 };
 
@@ -51,7 +46,7 @@ impl Network {
         Self { raft_client }
     }
 
-    pub async fn join_cluster_membership(
+    pub async fn join_cluster(
         &self,
         node_id: NodeId,
         node_addr: &str,
@@ -64,7 +59,7 @@ impl Network {
             .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
 
         let request = GrpcHelper::encode_raft_request(&Request {
-            payload: RequestPayload::JoinClusterMembership {
+            payload: RequestPayload::JoinCluster {
                 node_id,
                 address: node_addr.into(),
             },

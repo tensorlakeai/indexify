@@ -7,13 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     requests::{Request, RequestPayload, StateChangeProcessed},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    NamespaceName,
-    StateChangeId,
-    TaskId,
+    ContentId, ExecutorId, ExtractionPolicyId, ExtractorName, NamespaceName, StateChangeId, TaskId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -214,7 +208,7 @@ impl IndexifyState {
                     self.mark_state_changes_processed(&state_change, state_change.processed_at);
                 }
             }
-            RequestPayload::JoinClusterMembership {
+            RequestPayload::JoinCluster {
                 node_id: _,
                 address: _,
             } => {} //  do nothing
