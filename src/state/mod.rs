@@ -18,30 +18,22 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{requests::Request, Response};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
 use tracing::{error, info, warn};
 
-use self::{
-    grpc_server::RaftGrpcServer,
-    store::{
-        requests::{RequestPayload, StateChangeProcessed},
-        state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
-    },
-};
+use grpc_server::RaftGrpcServer;
+use store::requests::{RequestPayload, StateChangeProcessed};
+use store::{state_machine_objects::IndexifyState, ExecutorId, ExecutorIdRef, TaskId};
+
 use crate::{
     coordinator_filters::matches_mime_type,
     server_config::ServerConfig,
@@ -168,6 +160,7 @@ impl App {
 
         info!("starting raft server at {}", addr.to_string());
         let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(
+            server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
         ));
@@ -893,5 +886,22 @@ async fn watch_for_leader_change(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, sync::Arc};
+
+    use crate::server_config::ServerConfig;
+
+    use super::App;
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_leader_redirect_policy_write() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config).await.unwrap();
     }
 }

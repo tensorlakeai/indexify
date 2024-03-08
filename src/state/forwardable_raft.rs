@@ -1,17 +1,11 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
-use anyhow::{anyhow, Result as AnyhowResult};
+use anyhow;
 
 use super::{
     network::Network,
     typ::{CheckIsLeaderError, ForwardToLeader, InitializeError, RaftError},
-    BasicNode,
-    NodeId,
-    Raft,
-    Request,
-    Response,
-    SnapshotData,
-    TokioRuntime,
+    BasicNode, NodeId, Raft, Request, Response, SnapshotData, TokioRuntime,
 };
 
 openraft::declare_raft_types!(
@@ -35,12 +29,12 @@ impl ForwardableRaft {
         Self { raft, network }
     }
 
-    pub async fn client_write(&self, request: Request) -> AnyhowResult<()> {
+    pub async fn client_write(&self, request: Request) -> anyhow::Result<()> {
         //  check whether this node is not the leader
         if let Some(forward_to_leader) = self.ensure_leader().await? {
             let leader_address = forward_to_leader
                 .leader_node
-                .ok_or_else(|| anyhow!("Could not get leader address"))?;
+                .ok_or_else(|| anyhow::anyhow!("Could not get leader address"))?;
             return self.network.forward(&leader_address.addr, request).await;
         }
 
@@ -62,7 +56,7 @@ impl ForwardableRaft {
     }
 
     /// Use this to detect whether the current node is the leader
-    async fn ensure_leader(&self) -> AnyhowResult<Option<ForwardToLeader>> {
+    async fn ensure_leader(&self) -> anyhow::Result<Option<ForwardToLeader>> {
         match self.raft.ensure_linearizable().await {
             Ok(_) => Ok(None),
             Err(e) => match e {

@@ -6,24 +6,30 @@ use openraft::{
     error::{CheckIsLeaderError, ForwardToLeader, RaftError},
     BasicNode,
 };
-use tonic::{Request, Response, Status};
+use tonic::{Request, Status};
 use tracing::info;
 
-use super::{raft_client::RaftClient, store::requests::RequestPayload, NodeId};
+use super::{raft_client::RaftClient, NodeId};
 use crate::{
     grpc_helper::GrpcHelper,
     state,
     state::{store::requests, Raft},
 };
+use requests::{RequestPayload, Response};
 
 pub struct RaftGrpcServer {
+    id: NodeId,
     raft: Arc<Raft>,
     raft_client: Arc<RaftClient>,
 }
 
 impl RaftGrpcServer {
-    pub fn new(raft: Arc<Raft>, raft_client: Arc<RaftClient>) -> Self {
-        Self { raft, raft_client }
+    pub fn new(id: NodeId, raft: Arc<Raft>, raft_client: Arc<RaftClient>) -> Self {
+        Self {
+            id,
+            raft,
+            raft_client,
+        }
     }
 
     /// Get nodes from the cluster
@@ -42,7 +48,7 @@ impl RaftGrpcServer {
         &self,
         node_id: NodeId,
         address: &str,
-    ) -> Result<Response<RaftReply>, Status> {
+    ) -> Result<tonic::Response<RaftReply>, Status> {
         let nodes_in_cluster = self.get_nodes_in_cluster();
         if nodes_in_cluster.contains_key(&node_id) {
             return GrpcHelper::ok_response("");
@@ -87,9 +93,12 @@ impl RaftGrpcServer {
     async fn handle_client_write(
         &self,
         request: state::store::requests::Request,
-    ) -> Result<Response<RaftReply>, Status> {
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        let response = Response {
+            handled_by: self.id,
+        };
         match self.raft.client_write(request).await {
-            Ok(_) => GrpcHelper::ok_response(""),
+            Ok(_) => GrpcHelper::ok_response(response),
             Err(e) => Err(GrpcHelper::internal_err(e.to_string())),
         }
     }
@@ -97,7 +106,10 @@ impl RaftGrpcServer {
 
 #[async_trait]
 impl RaftApi for RaftGrpcServer {
-    async fn forward(&self, request: Request<RaftRequest>) -> Result<Response<RaftReply>, Status> {
+    async fn forward(
+        &self,
+        request: Request<RaftRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
         //  check if this node is the leader
         if let Some(_) = self.ensure_leader().await? {
             return Err(GrpcHelper::internal_err(
@@ -117,7 +129,7 @@ impl RaftApi for RaftGrpcServer {
     async fn append_entries(
         &self,
         request: Request<RaftRequest>,
-    ) -> Result<Response<RaftReply>, Status> {
+    ) -> Result<tonic::Response<RaftReply>, Status> {
         async {
             let ae_req = GrpcHelper::parse_req(request)?;
             let resp = self
@@ -134,7 +146,7 @@ impl RaftApi for RaftGrpcServer {
     async fn install_snapshot(
         &self,
         request: Request<RaftRequest>,
-    ) -> Result<Response<RaftReply>, Status> {
+    ) -> Result<tonic::Response<RaftReply>, Status> {
         let is_req = GrpcHelper::parse_req(request)?;
         let resp = self
             .raft
@@ -148,7 +160,10 @@ impl RaftApi for RaftGrpcServer {
         }
     }
 
-    async fn vote(&self, request: Request<RaftRequest>) -> Result<Response<RaftReply>, Status> {
+    async fn vote(
+        &self,
+        request: Request<RaftRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
         async {
             let v_req = GrpcHelper::parse_req(request)?;
 
@@ -166,7 +181,7 @@ impl RaftApi for RaftGrpcServer {
     async fn join_cluster(
         &self,
         request: Request<RaftRequest>,
-    ) -> Result<Response<RaftReply>, Status> {
+    ) -> Result<tonic::Response<RaftReply>, Status> {
         let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
 
         let RequestPayload::JoinCluster { node_id, address } = req.payload else {

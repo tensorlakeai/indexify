@@ -65,3 +65,8 @@ pub enum RequestPayload {
         state_changes: Vec<StateChangeProcessed>,
     },
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Response {
+    pub handled_by: NodeId,
+}
