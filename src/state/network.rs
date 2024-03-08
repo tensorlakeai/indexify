@@ -1,6 +1,7 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
+use indexify_proto::indexify_raft::RaftReply;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -14,8 +15,9 @@ use openraft::{
     },
     BasicNode,
 };
-use tonic::IntoRequest;
+use tonic::{IntoRequest, Response};
 
+use super::store::requests::Response as RequestResponse;
 use crate::{
     grpc_helper::GrpcHelper,
     state::{
@@ -73,7 +75,7 @@ impl Network {
         node_id: NodeId,
         node_addr: &str,
         target_addr: &str,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<RequestResponse, anyhow::Error> {
         let mut client = self
             .raft_client
             .get(target_addr)
@@ -90,12 +92,14 @@ impl Network {
         })?
         .into_request();
 
-        client
+        let response = client
             .join_cluster(request)
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+        let result: Result<RequestResponse, _> = serde_json::from_str(&response.into_inner().data);
+        let reply = result.map_err(|e| anyhow::anyhow!("Failed to parse the repsonse"))?;
 
-        Ok(())
+        Ok(reply)
     }
 }
 

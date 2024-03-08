@@ -66,7 +66,7 @@ pub enum RequestPayload {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Response {
     pub handled_by: NodeId,
 }

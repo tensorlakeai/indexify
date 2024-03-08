@@ -122,6 +122,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
+    /// Helper function which accepts a callback to wait upon
     async fn wait_until_future<F, Fut>(
         &self,
         mut condition: F,
@@ -221,6 +222,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
+    /// Check that the node id provided corresponds to the leader of the cluster
     pub async fn assert_is_leader(&self, node_id: NodeId) -> bool {
         let node = self
             .nodes
@@ -233,6 +235,7 @@ impl RaftTestCluster {
         }
     }
 
+    /// Force the current leader of the cluster to step down
     pub async fn force_current_leader_abdication(&self) -> anyhow::Result<()> {
         let current_leader = self.get_current_leader().await?;
         current_leader.raft.runtime_config().heartbeat(false);
@@ -240,6 +243,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
+    /// "Push" a specific node to be promoted to the leader of the cluster
     pub async fn promote_node_to_leader(&self, node_id: NodeId) -> anyhow::Result<()> {
         let node_to_promote = self
             .nodes
@@ -260,5 +264,13 @@ impl RaftTestCluster {
         )
         .await?;
         Ok(())
+    }
+
+    /// Get a specific node from the cluster based on the node
+    pub fn get_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
+        Ok(Arc::clone(self.nodes.get(&node_id).expect(&format!(
+            "Could not find {} in node list",
+            node_id
+        ))))
     }
 }

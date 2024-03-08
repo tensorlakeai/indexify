@@ -49,9 +49,14 @@ impl RaftGrpcServer {
         node_id: NodeId,
         address: &str,
     ) -> Result<tonic::Response<RaftReply>, Status> {
+        println!("Called add_node_to_cluster_if_absent for node {}", self.id);
         let nodes_in_cluster = self.get_nodes_in_cluster();
         if nodes_in_cluster.contains_key(&node_id) {
-            return GrpcHelper::ok_response("");
+            println!("The node is already present in the cluster");
+            let response = Response {
+                handled_by: self.id,
+            };
+            return GrpcHelper::ok_response(response);
         }
 
         info!(
@@ -76,7 +81,10 @@ impl RaftGrpcServer {
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
-        GrpcHelper::ok_response("")
+        let response = Response {
+            handled_by: self.id,
+        };
+        GrpcHelper::ok_response(response)
     }
 
     /// Helper function to detect whether the current node is the leader
@@ -120,6 +128,10 @@ impl RaftApi for RaftGrpcServer {
         let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
 
         if let RequestPayload::JoinCluster { node_id, address } = req.payload {
+            println!(
+                "Going to call add_node_to_cluster_if_absent for node {}",
+                self.id
+            );
             return self.add_node_to_cluster_if_absent(node_id, &address).await;
         }
 

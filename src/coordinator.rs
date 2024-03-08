@@ -407,15 +407,25 @@ mod tests {
 
         //  assert that the seed node is the current leader
         cluster.assert_is_leader(cluster.seed_node_id).await;
+
+        //  force leader promotion of node 2
         cluster.force_current_leader_abdication().await?;
         let new_leader_id = 2;
         cluster.promote_node_to_leader(new_leader_id).await?;
         cluster.assert_is_leader(new_leader_id).await;
+
+        //  check leader re-direct
+        let alt_node = cluster.get_node(1)?;
+        let response = alt_node.check_cluster_membership().await?;
+        println!("The response is {:?}", response);
+        assert_eq!(response.handled_by, new_leader_id);
+        Ok(())
         // let server_configs = create_test_raft_configs(3)?;
 
         // let mut apps = Vec::new();
         // for config in server_configs {
-        //     let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        //     let _ =
+        // fs::remove_dir_all(config.state_store.clone().path.unwrap());
         //     let shared_state = App::new(config.clone()).await?;
         //     apps.push(shared_state);
         // }
@@ -431,16 +441,16 @@ mod tests {
         //     seed_node
         //         .initialize_raft()
         //         .await
-        //         .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
-        // });
+        //         .map_err(|e| anyhow::anyhow!("Error initializing raft: {}",
+        // e)) });
 
         // tokio::time::sleep(Duration::from_secs(1)).await;
 
         // //  check that seed node is current leader and force it to step down
         // match seed_node_clone.raft.ensure_linearizable().await {
         //     Ok(_) => {}
-        //     Err(e) => return Err(anyhow::anyhow!("The seed node is not the leader:
-        // {}", e)), }
+        //     Err(e) => return Err(anyhow::anyhow!("The seed node is not the
+        // leader: {}", e)), }
         // seed_node_clone.raft.runtime_config().heartbeat(false);
         // tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -454,6 +464,6 @@ mod tests {
         // //  check leader re-direct
         // let response = alternate_node.check_cluster_membership().await;
         // assert!(response.is_ok());
-        Ok(())
+        // Ok(())
     }
 }

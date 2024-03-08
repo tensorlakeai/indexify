@@ -12,7 +12,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
+use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, RaftReply};
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
@@ -854,7 +854,9 @@ impl App {
         });
     }
 
-    pub async fn check_cluster_membership(&self) -> Result<(), anyhow::Error> {
+    pub async fn check_cluster_membership(
+        &self,
+    ) -> Result<store::requests::Response, anyhow::Error> {
         self.network
             .join_cluster(self.id, &self.node_addr, &self.seed_node)
             .await
