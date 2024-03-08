@@ -891,17 +891,149 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::Arc};
+    use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
 
-    use crate::server_config::ServerConfig;
+    use crate::server_config::{ServerConfig, StateStoreConfig};
 
-    use super::App;
+    use super::{store::requests::Request, App, NodeId, Raft};
+
+    struct RaftTestCluster {
+        nodes: BTreeMap<NodeId, Arc<App>>,
+        seed_node_id: NodeId,
+    }
+
+    impl RaftTestCluster {
+        /// Helper function to create raft configs for as many nodes as required
+        fn create_test_raft_configs(
+            node_count: usize,
+        ) -> Result<Vec<Arc<ServerConfig>>, anyhow::Error> {
+            let append = nanoid::nanoid!();
+            let base_port = 18950;
+            let mut configs = Vec::new();
+            let seed_node = format!("localhost:{}", base_port + 1); //  use the first node as the seed node
+
+            // Generate configurations and peer information
+            for i in 0..node_count {
+                let port = (base_port + i * 2) as u64;
+
+                let config = Arc::new(ServerConfig {
+                    node_id: i as u64,
+                    coordinator_port: port,
+                    coordinator_addr: format!("localhost:{}", port),
+                    raft_port: port + 1,
+                    state_store: StateStoreConfig {
+                        path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
+                    },
+                    seed_node: seed_node.clone(),
+                    ..Default::default()
+                });
+
+                configs.push(config.clone());
+            }
+
+            Ok(configs)
+        }
+
+        /// This checks whether a node has been initialized by comparing the number of nodes in the cluster according to the node passed in
+        /// and the number of nodes that should be present by reading from the BTreeMap of nodes
+        fn is_node_initialized(&self, node: Arc<App>) -> bool {
+            let num_of_nodes_in_cluster = node
+                .raft
+                .metrics()
+                .borrow()
+                .membership_config
+                .nodes()
+                .count();
+            let expected_num_of_nodes_in_cluster = self.nodes.len();
+            num_of_nodes_in_cluster == expected_num_of_nodes_in_cluster
+        }
+
+        /// Use this method to get which node is the current leader in the cluster. This will use the `get_leader()` method on the
+        /// seed node to get the node id of the current leader
+        async fn get_current_leader(&self) -> Arc<App> {
+            let seed_node = self
+                .nodes
+                .get(&self.seed_node_id)
+                .expect("Expect seed node to be present");
+
+            let current_leader_id = seed_node
+                .raft
+                .current_leader()
+                .await
+                .expect("Expect a leader to be present in the cluster");
+
+            let current_leader = self.nodes.get(&current_leader_id).expect(
+                format!(
+                    "Expect node {} to be present in the cluster",
+                    current_leader_id
+                )
+                .as_str(),
+            );
+            Arc::clone(current_leader)
+        }
+
+        /// Create and return a new instance of the TestRaftCluster. The size of the cluster will be determined by the number of nodes passed in
+        pub async fn new(num_of_nodes: usize) -> anyhow::Result<Self> {
+            let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
+            let seed_node_id = server_configs.get(0).unwrap().node_id; //  the seed node will always be the first node in the list
+            let mut nodes = BTreeMap::new();
+            for config in server_configs {
+                let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+                let shared_state = App::new(config.clone()).await?;
+                nodes.insert(config.node_id, shared_state);
+            }
+            Ok(Self {
+                nodes,
+                seed_node_id,
+            })
+        }
+
+        /// Initialize the TestRaftCluster. This will always initialize the seed node as that must always be the first node initialized
+        pub async fn initialize(&self, timeout: Duration) -> anyhow::Result<()> {
+            let seed_node = self
+                .nodes
+                .get(&self.seed_node_id)
+                .expect("Seed node not found");
+            let seed_node_clone = Arc::clone(&seed_node);
+
+            tokio::spawn(async move {
+                seed_node_clone
+                    .initialize_raft()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
+            });
+
+            let start = tokio::time::Instant::now();
+            loop {
+                if start.elapsed() > timeout {
+                    return Err(anyhow::anyhow!(
+                        "Timeout error: Raft cluster failed to initialize within 10 seconds"
+                    ));
+                }
+
+                if self.is_node_initialized(Arc::clone(seed_node)) {
+                    return Ok(());
+                }
+            }
+        }
+
+        pub async fn send_write_to_leader(&self, request: Request) -> anyhow::Result<()> {
+            let leader = self.get_current_leader().await;
+            leader.raft.client_write(request).await?;
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_leader_redirect_policy_write() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config).await.unwrap();
+        // let config = Arc::new(ServerConfig::default());
+        // let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        // let app = App::new(config).await.unwrap();
+        // app.initialize_raft().await;
+        let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(10)).await?;
+
+        Ok(())
     }
 }

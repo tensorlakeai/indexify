@@ -14,7 +14,7 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{schema, ToSchema};
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct Index {
     // TODO FIXME: Add the Index ID
     pub namespace: String,
