@@ -12,7 +12,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApiServer, RaftReply};
+use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{ExtractionPolicy, StateChange};
 use itertools::Itertools;
 use network::Network;
