@@ -1,13 +1,32 @@
 # RAG on Videos
 
+In this tutorial we will build a RAG on the video to answer questions about topics from a video. We will ingest the [State of The Union address from President Biden](https://www.youtube.com/watch?v=cplSUhU2avc) and build Q&A bot to answer questions.
+
+At the end of the tutorial your application will be able to answer the following -
+```text
+Q: Whats biden doing to save climate?
+A: Biden is taking significant action on climate by cutting carbon emissions in half by 2030 ...
+```
+
 Indexify can extract information from videos, including key scenes in a video, audio of the video, the transcripts and also detects all the objects of interest in a video. All of these are done through extractors. 
 
-In this tutorial we will build a RAG on the video to answer questions about topics from a video. We will be using the following extractors - 
+We will be using the following extractors - 
+
 1. Audio Extractor - It will extract audio from ingested videos.
 2. Whisper Extractor - It will extract transcripts of the audio.
 3. Mini LM L6 Extractor - A Sentence Transformer to extract embedding from the audio extractor.
 
 The Q&A will be powered by Langchain and OpenAI. We will create a Indexify Retreiver and pass it to Langchain to retreive the relevant text of the questions based on semantic search.
+
+### Download Indexify and the necessary extractors
+```bash
+curl https://tensorlake.ai/download | sh
+
+pip install indexify-extractor-sdk
+indexify-extractor download hub://whisper-asr
+indexify-extractor download hub://video/audio-extractor
+indexify-extractor download hub://embedding/minilm-l6
+```
 
 ### Start Indexify and the necessary extractors in the terminal
 Start Indexify Server in the local dev mode.
@@ -16,15 +35,18 @@ indexify server -d
 ```
 Start the audio extractor
 ```bash
+cd indexify-extractor/audio-extractor/
 indexify-extractor join audio_extractor:AudioExtractor
 ```
 Start the minilm embedding extractor
 ```bash
+cd indexify-extractor/minilm-l6/
 indexify-extractor join minilm_l6:MiniLML6Extractor
 ```
 
 Start the whisper extractor
 ```bash
+cd indexify-extractor
 indexify-extractor join whisper_extractor:WhisperExtractor
 ```
 
@@ -103,6 +125,6 @@ chain.invoke("Whats biden doing to save climate and the evidences he provides?")
 ```
 
 Answer:
-```python
-'Biden is taking significant action on climate by cutting carbon emissions in half by 2030, creating clean energy jobs, launching the Climate Corps, and working towards environmental justice. He mentions that the world is facing a climate crisis and that all Americans deserve the freedom to be safe. Biden also mentions that America is safer today than when he took office and provides statistics on murder rates and violent crime decreasing.'
+```text
+Biden is taking significant action on climate by cutting carbon emissions in half by 2030, creating clean energy jobs, launching the Climate Corps, and working towards environmental justice. He mentions that the world is facing a climate crisis and that all Americans deserve the freedom to be safe. Biden also mentions that America is safer today than when he took office and provides statistics on murder rates and violent crime decreasing.
 ```
