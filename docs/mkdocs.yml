@@ -41,7 +41,7 @@ nav:
     - Audio Extraction: 'usecases/audio_extraction.md'
     - PDF Extraction: 'usecases/pdf_extraction.md'
     - Image Extraction: 'usecases/image_extraction.md'
-    - Video Extraction: 'usecases/video_extraction.md'
+    - RAG on Video: 'usecases/video_rag.md'
   - Integrations:
     - Langchain:
       - Python: 'integrations/langchain/python_langchain.md'
