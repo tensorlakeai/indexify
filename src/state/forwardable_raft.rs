@@ -5,7 +5,13 @@ use anyhow;
 use super::{
     network::Network,
     typ::{CheckIsLeaderError, ForwardToLeader, InitializeError, RaftError},
-    BasicNode, NodeId, Raft, Request, Response, SnapshotData, TokioRuntime,
+    BasicNode,
+    NodeId,
+    Raft,
+    Request,
+    Response,
+    SnapshotData,
+    TokioRuntime,
 };
 
 openraft::declare_raft_types!(

@@ -6,6 +6,7 @@ use openraft::{
     error::{CheckIsLeaderError, ForwardToLeader, RaftError},
     BasicNode,
 };
+use requests::{RequestPayload, Response};
 use tonic::{Request, Status};
 use tracing::info;
 
@@ -15,7 +16,6 @@ use crate::{
     state,
     state::{store::requests, Raft},
 };
-use requests::{RequestPayload, Response};
 
 pub struct RaftGrpcServer {
     id: NodeId,

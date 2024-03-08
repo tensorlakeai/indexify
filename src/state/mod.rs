@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{ExtractionPolicy, StateChange};
@@ -18,21 +19,26 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
-use store::{requests::Request, Response};
+use store::{
+    requests::{Request, RequestPayload, StateChangeProcessed},
+    state_machine_objects::IndexifyState,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
+};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex, RwLock,
+        Mutex,
+        RwLock,
     },
     task::JoinHandle,
 };
 use tracing::{error, info, warn};
-
-use grpc_server::RaftGrpcServer;
-use store::requests::{RequestPayload, StateChangeProcessed};
-use store::{state_machine_objects::IndexifyState, ExecutorId, ExecutorIdRef, TaskId};
 
 use crate::{
     coordinator_filters::matches_mime_type,
@@ -900,12 +906,12 @@ mod tests {
 
     use indexify_internal_api::Index;
 
-    use crate::server_config::{ServerConfig, StateStoreConfig};
-
     use super::{
         store::requests::{Request, RequestPayload},
-        App, NodeId,
+        App,
+        NodeId,
     };
+    use crate::server_config::{ServerConfig, StateStoreConfig};
 
     struct RaftTestCluster {
         nodes: BTreeMap<NodeId, Arc<App>>,
@@ -944,8 +950,10 @@ mod tests {
             Ok(configs)
         }
 
-        /// This checks whether a node has been initialized by comparing the number of nodes in the cluster according to the node passed in
-        /// and the number of nodes that should be present by reading from the BTreeMap of nodes
+        /// This checks whether a node has been initialized by comparing the
+        /// number of nodes in the cluster according to the node passed in
+        /// and the number of nodes that should be present by reading from the
+        /// BTreeMap of nodes
         fn is_node_initialized(&self, node: Arc<App>) -> bool {
             let num_of_nodes_in_cluster = node
                 .raft
@@ -958,8 +966,9 @@ mod tests {
             num_of_nodes_in_cluster == expected_num_of_nodes_in_cluster
         }
 
-        /// Use this method to get which node is the current leader in the cluster. This will use the `get_leader()` method on the
-        /// seed node to get the node id of the current leader
+        /// Use this method to get which node is the current leader in the
+        /// cluster. This will use the `get_leader()` method on the seed
+        /// node to get the node id of the current leader
         async fn get_current_leader(&self) -> Arc<App> {
             let seed_node = self
                 .nodes
@@ -982,7 +991,9 @@ mod tests {
             Arc::clone(current_leader)
         }
 
-        /// Get a handle on a node that is not currently the leader in the cluster. In a single node cluster, this will return the handle of the leader
+        /// Get a handle on a node that is not currently the leader in the
+        /// cluster. In a single node cluster, this will return the handle of
+        /// the leader
         async fn get_non_leader_node(&self) -> Arc<App> {
             let leader = self.get_current_leader().await;
             if self.nodes.len() == 1 {
@@ -1022,7 +1033,8 @@ mod tests {
             Err(anyhow::anyhow!("Timeout waiting for condition"))
         }
 
-        /// Create and return a new instance of the TestRaftCluster. The size of the cluster will be determined by the number of nodes passed in
+        /// Create and return a new instance of the TestRaftCluster. The size of
+        /// the cluster will be determined by the number of nodes passed in
         pub async fn new(num_of_nodes: usize) -> anyhow::Result<Self> {
             let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
             let seed_node_id = server_configs.get(0).unwrap().node_id; //  the seed node will always be the first node in the list
@@ -1038,7 +1050,8 @@ mod tests {
             })
         }
 
-        /// Initialize the TestRaftCluster. This will always initialize the seed node as that must always be the first node initialized
+        /// Initialize the TestRaftCluster. This will always initialize the seed
+        /// node as that must always be the first node initialized
         pub async fn initialize(&self, timeout: Duration) -> anyhow::Result<()> {
             let seed_node = self
                 .nodes
@@ -1067,9 +1080,11 @@ mod tests {
             }
         }
 
-        /// This function will send a write request to the cluster and then check if the write can be read back from any node
-        /// it takes a to_leader value to indicate whether this write should go to the leader or not
-        /// NOTE: Currently, this is exclusive to creating and reading an index. Need to generalise it using generics
+        /// This function will send a write request to the cluster and then
+        /// check if the write can be read back from any node it takes a
+        /// to_leader value to indicate whether this write should go to the
+        /// leader or not NOTE: Currently, this is exclusive to creating
+        /// and reading an index. Need to generalise it using generics
         pub async fn read_own_write(&self, _to_leader: bool) -> anyhow::Result<()> {
             let request = Request {
                 payload: RequestPayload::CreateIndex {
