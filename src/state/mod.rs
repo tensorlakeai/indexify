@@ -1057,7 +1057,6 @@ mod tests {
                 .nodes
                 .get(&self.seed_node_id)
                 .expect("Seed node not found");
-            let seed_node_clone = Arc::clone(&seed_node);
 
             seed_node
                 .initialize_raft()
@@ -1110,11 +1109,6 @@ mod tests {
                 Duration::from_secs(2),
             )
             .await?;
-
-            // let non_leader_node = self.get_non_leader_node().await;
-            // let read_result = non_leader_node.get_index("id").await?;
-            // assert_eq!(read_result, Index::default());
-            // println!("The read result {:#?}", read_result);
 
             Ok(())
         }
