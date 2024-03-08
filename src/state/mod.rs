@@ -891,7 +891,12 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
+    use std::{
+        collections::BTreeMap,
+        fs,
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use indexify_internal_api::Index;
 
@@ -998,6 +1003,25 @@ mod tests {
             Ok(())
         }
 
+        async fn wait_until_future<F, Fut>(
+            &self,
+            mut condition: F,
+            timeout: Duration,
+        ) -> anyhow::Result<()>
+        where
+            F: FnMut() -> Fut,
+            Fut: std::future::Future<Output = anyhow::Result<bool>>,
+        {
+            let start = Instant::now();
+            while start.elapsed() < timeout {
+                if condition().await? {
+                    return Ok(());
+                }
+                tokio::time::sleep(Duration::from_secs(100)).await;
+            }
+            Err(anyhow::anyhow!("Timeout waiting for condition"))
+        }
+
         /// Create and return a new instance of the TestRaftCluster. The size of the cluster will be determined by the number of nodes passed in
         pub async fn new(num_of_nodes: usize) -> anyhow::Result<Self> {
             let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
@@ -1057,9 +1081,25 @@ mod tests {
                 state_changes_processed: vec![],
             };
             self.send_write_to_leader(request).await?;
-            let non_leader_node = self.get_non_leader_node().await;
-            let read_result = non_leader_node.get_index("id").await?;
-            println!("The read result {:#?}", read_result);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            self.wait_until_future(
+                || async {
+                    let non_leader_node = self.get_non_leader_node().await;
+                    match non_leader_node.get_index("id").await {
+                        Ok(read_result) if read_result == Index::default() => Ok(true),
+                        Ok(_) => Ok(false),
+                        Err(e) => Err(e),
+                    }
+                },
+                Duration::from_secs(2),
+            )
+            .await?;
+
+            // let non_leader_node = self.get_non_leader_node().await;
+            // let read_result = non_leader_node.get_index("id").await?;
+            // assert_eq!(read_result, Index::default());
+            // println!("The read result {:#?}", read_result);
 
             Ok(())
         }
@@ -1070,7 +1110,7 @@ mod tests {
     async fn test_basic_read_own_write() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        // cluster.read_own_write(true).await?;
+        cluster.read_own_write(true).await?;
         Ok(())
     }
 }
