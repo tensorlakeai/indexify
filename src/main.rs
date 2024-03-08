@@ -32,6 +32,10 @@ mod utils;
 mod vector_index;
 mod vectordbs;
 
+//  test modules
+#[cfg(test)]
+mod test_utils;
+
 struct OtelGuard;
 
 impl OtelGuard {

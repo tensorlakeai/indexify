@@ -276,6 +276,7 @@ mod tests {
         server_config::{ServerConfig, ServerPeer, StateStoreConfig},
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
+        test_utils::RaftTestCluster,
     };
 
     #[tokio::test]
@@ -428,58 +429,9 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        let server_configs = create_test_raft_configs(10)?;
-
-        let mut apps = Vec::new();
-        for config in server_configs {
-            let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-            let shared_state = App::new(config.clone()).await?;
-            apps.push(shared_state);
-        }
-
-        //  initialize the seed node
-        let seed_node = apps.remove(0);
-        let seed_node_clone = Arc::clone(&seed_node);
-        tokio::spawn(async move {
-            seed_node
-                .initialize_raft()
-                .await
-                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
-        });
-
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        let timeout = Duration::from_secs(10);
-        let start_time = tokio::time::Instant::now();
-
-        loop {
-            if start_time.elapsed() > timeout {
-                return Err(anyhow::anyhow!(
-                    "Timeout error: Raft cluster failed to initialize within 10 seconds"
-                ));
-            }
-            let metrics = seed_node_clone.as_ref().raft.metrics().borrow().clone();
-            let num_of_nodes_in_cluster = metrics.membership_config.nodes().count();
-            if num_of_nodes_in_cluster == apps.len() + 1 {
-                let num_of_nodes_according_to_learner = apps
-                    .remove(0)
-                    .as_ref()
-                    .raft
-                    .metrics()
-                    .borrow()
-                    .clone()
-                    .membership_config
-                    .nodes()
-                    .count();
-                assert_eq!(
-                    num_of_nodes_in_cluster, num_of_nodes_according_to_learner,
-                    "The number of nodes according to the seed node and a learner should be equal"
-                );
-                return Ok(());
-            }
-            // If the cluster is not yet ready, sleep a bit before retrying
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        let cluster = RaftTestCluster::new(5).await?;
+        cluster.initialize(Duration::from_secs(10)).await?;
+        Ok(())
     }
 
     #[tokio::test]
