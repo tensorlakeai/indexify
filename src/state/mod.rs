@@ -893,9 +893,14 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
 
+    use indexify_internal_api::Index;
+
     use crate::server_config::{ServerConfig, StateStoreConfig};
 
-    use super::{store::requests::Request, App, NodeId, Raft};
+    use super::{
+        store::requests::{Request, RequestPayload},
+        App, NodeId,
+    };
 
     struct RaftTestCluster {
         nodes: BTreeMap<NodeId, Arc<App>>,
@@ -972,6 +977,27 @@ mod tests {
             Arc::clone(current_leader)
         }
 
+        /// Get a handle on a node that is not currently the leader in the cluster. In a single node cluster, this will return the handle of the leader
+        async fn get_non_leader_node(&self) -> Arc<App> {
+            let leader = self.get_current_leader().await;
+            if self.nodes.len() == 1 {
+                return leader;
+            }
+            let non_leader = self
+                .nodes
+                .iter()
+                .find(|(id, _)| **id != leader.id)
+                .expect("Expect non leader to be present");
+            Arc::clone(non_leader.1)
+        }
+
+        /// Send the current write to the leader of the cluster
+        async fn send_write_to_leader(&self, request: Request) -> anyhow::Result<()> {
+            let leader = self.get_current_leader().await;
+            leader.raft.client_write(request).await?;
+            Ok(())
+        }
+
         /// Create and return a new instance of the TestRaftCluster. The size of the cluster will be determined by the number of nodes passed in
         pub async fn new(num_of_nodes: usize) -> anyhow::Result<Self> {
             let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
@@ -996,44 +1022,55 @@ mod tests {
                 .expect("Seed node not found");
             let seed_node_clone = Arc::clone(&seed_node);
 
-            tokio::spawn(async move {
-                seed_node_clone
-                    .initialize_raft()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
-            });
+            seed_node
+                .initialize_raft()
+                .await
+                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))?;
 
             let start = tokio::time::Instant::now();
             loop {
                 if start.elapsed() > timeout {
-                    return Err(anyhow::anyhow!(
-                        "Timeout error: Raft cluster failed to initialize within 10 seconds"
-                    ));
+                    return Err(anyhow::anyhow!(format!(
+                        "Timeout error: Raft cluster failed to initialize within {:#?} seconds",
+                        timeout
+                    )));
                 }
 
                 if self.is_node_initialized(Arc::clone(seed_node)) {
                     return Ok(());
                 }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
 
-        pub async fn send_write_to_leader(&self, request: Request) -> anyhow::Result<()> {
-            let leader = self.get_current_leader().await;
-            leader.raft.client_write(request).await?;
+        /// This function will send a write request to the cluster and then check if the write can be read back from any node
+        /// it takes a to_leader value to indicate whether this write should go to the leader or not
+        /// NOTE: Currently, this is exclusive to creating and reading an index. Need to generalise it using generics
+        pub async fn read_own_write(&self, _to_leader: bool) -> anyhow::Result<()> {
+            let request = Request {
+                payload: RequestPayload::CreateIndex {
+                    index: Index::default(),
+                    namespace: "namespace".into(),
+                    id: "id".into(),
+                },
+                new_state_changes: vec![],
+                state_changes_processed: vec![],
+            };
+            self.send_write_to_leader(request).await?;
+            let non_leader_node = self.get_non_leader_node().await;
+            let read_result = non_leader_node.get_index("id").await?;
+            println!("The read result {:#?}", read_result);
+
             Ok(())
         }
     }
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_leader_redirect_policy_write() -> Result<(), anyhow::Error> {
-        // let config = Arc::new(ServerConfig::default());
-        // let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        // let app = App::new(config).await.unwrap();
-        // app.initialize_raft().await;
+    async fn test_basic_read_own_write() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3).await?;
-        cluster.initialize(Duration::from_secs(10)).await?;
-
+        cluster.initialize(Duration::from_secs(2)).await?;
+        // cluster.read_own_write(true).await?;
         Ok(())
     }
 }
