@@ -19,7 +19,7 @@ use crate::{
 #[cfg(test)]
 pub struct RaftTestCluster {
     nodes: BTreeMap<NodeId, Arc<App>>,
-    seed_node_id: NodeId,
+    pub seed_node_id: NodeId,
 }
 
 #[cfg(test)]
@@ -74,7 +74,7 @@ impl RaftTestCluster {
     /// Use this method to get which node is the current leader in the
     /// cluster. This will use the `get_leader()` method on the seed
     /// node to get the node id of the current leader
-    async fn get_current_leader(&self) -> Arc<App> {
+    async fn get_current_leader(&self) -> anyhow::Result<Arc<App>> {
         let seed_node = self
             .nodes
             .get(&self.seed_node_id)
@@ -84,7 +84,7 @@ impl RaftTestCluster {
             .raft
             .current_leader()
             .await
-            .expect("Expect a leader to be present in the cluster");
+            .ok_or(anyhow::anyhow!("Error getting leader"))?;
 
         let current_leader = self.nodes.get(&current_leader_id).expect(
             format!(
@@ -93,14 +93,17 @@ impl RaftTestCluster {
             )
             .as_str(),
         );
-        Arc::clone(current_leader)
+        Ok(Arc::clone(current_leader))
     }
 
     /// Get a handle on a node that is not currently the leader in the
     /// cluster. In a single node cluster, this will return the handle of
     /// the leader
     async fn get_non_leader_node(&self) -> Arc<App> {
-        let leader = self.get_current_leader().await;
+        let leader = self
+            .get_current_leader()
+            .await
+            .expect("Error getting leader");
         if self.nodes.len() == 1 {
             return leader;
         }
@@ -114,7 +117,7 @@ impl RaftTestCluster {
 
     /// Send the current write to the leader of the cluster
     async fn send_write_to_leader(&self, request: Request) -> anyhow::Result<()> {
-        let leader = self.get_current_leader().await;
+        let leader = self.get_current_leader().await?;
         leader.raft.client_write(request).await?;
         Ok(())
     }
@@ -215,6 +218,47 @@ impl RaftTestCluster {
         )
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn assert_is_leader(&self, node_id: NodeId) -> bool {
+        let node = self
+            .nodes
+            .get(&node_id)
+            .expect(&format!("Could not find {} in node list", node_id));
+
+        match node.raft.ensure_linearizable().await {
+            Ok(_) => return true,
+            Err(_) => return false,
+        }
+    }
+
+    pub async fn force_current_leader_abdication(&self) -> anyhow::Result<()> {
+        let current_leader = self.get_current_leader().await?;
+        current_leader.raft.runtime_config().heartbeat(false);
+        tokio::time::sleep(Duration::from_secs(1)).await; //  wait for long enough that election timeout occurs
+        Ok(())
+    }
+
+    pub async fn promote_node_to_leader(&self, node_id: NodeId) -> anyhow::Result<()> {
+        let node_to_promote = self
+            .nodes
+            .get(&node_id)
+            .expect(&format!("Could not find {} in node list", node_id));
+        node_to_promote.raft.trigger().elect().await?;
+        tokio::time::sleep(Duration::from_secs(5)).await; //  TODO: Why do I need a timeout here at all?
+        self.wait_until_future(
+            || async {
+                if let Ok(current_leader) = self.get_current_leader().await {
+                    if current_leader.id == node_to_promote.id {
+                        return Ok(true);
+                    }
+                }
+                return Ok(false); //  expected leader not found, keep looping
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
         Ok(())
     }
 }

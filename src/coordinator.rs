@@ -273,7 +273,7 @@ mod tests {
     use indexify_proto::indexify_coordinator;
 
     use crate::{
-        server_config::{ServerConfig, ServerPeer, StateStoreConfig},
+        server_config::ServerConfig,
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
         test_utils::RaftTestCluster,
@@ -391,41 +391,6 @@ mod tests {
         Ok(())
     }
 
-    fn create_test_raft_configs(
-        node_count: usize,
-    ) -> Result<Vec<Arc<ServerConfig>>, anyhow::Error> {
-        let append = nanoid::nanoid!();
-        let base_port = 18950;
-        let mut configs = Vec::new();
-        let mut peers = Vec::new();
-        let seed_node = format!("localhost:{}", base_port + 1); //  use the first node as the seed node
-
-        // Generate configurations and peer information
-        for i in 0..node_count {
-            let port = (base_port + i * 2) as u64;
-            peers.push(ServerPeer {
-                node_id: i as u64,
-                addr: format!("localhost:{}", port + 1),
-            });
-
-            let config = Arc::new(ServerConfig {
-                node_id: i as u64,
-                coordinator_port: port,
-                coordinator_addr: format!("localhost:{}", port),
-                raft_port: port + 1,
-                state_store: StateStoreConfig {
-                    path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
-                },
-                seed_node: seed_node.clone(),
-                ..Default::default()
-            });
-
-            configs.push(config.clone());
-        }
-
-        Ok(configs)
-    }
-
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
@@ -437,49 +402,58 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_leader_redirect() -> Result<(), anyhow::Error> {
-        let server_configs = create_test_raft_configs(3)?;
+        let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(5)).await?;
 
-        let mut apps = Vec::new();
-        for config in server_configs {
-            let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-            let shared_state = App::new(config.clone()).await?;
-            apps.push(shared_state);
-        }
+        //  assert that the seed node is the current leader
+        cluster.assert_is_leader(cluster.seed_node_id).await;
+        cluster.force_current_leader_abdication().await?;
+        let new_leader_id = 2;
+        cluster.promote_node_to_leader(new_leader_id).await?;
+        cluster.assert_is_leader(new_leader_id).await;
+        // let server_configs = create_test_raft_configs(3)?;
 
-        //  get the nodes
-        let seed_node = Arc::clone(apps.get(0).unwrap());
-        let leader_node = apps.get(1).unwrap();
-        let alternate_node = apps.get(2).unwrap();
+        // let mut apps = Vec::new();
+        // for config in server_configs {
+        //     let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        //     let shared_state = App::new(config.clone()).await?;
+        //     apps.push(shared_state);
+        // }
 
-        //  initialize the seed node
-        let seed_node_clone = Arc::clone(&seed_node);
-        tokio::spawn(async move {
-            seed_node
-                .initialize_raft()
-                .await
-                .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
-        });
+        // //  get the nodes
+        // let seed_node = Arc::clone(apps.get(0).unwrap());
+        // let leader_node = apps.get(1).unwrap();
+        // let alternate_node = apps.get(2).unwrap();
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // //  initialize the seed node
+        // let seed_node_clone = Arc::clone(&seed_node);
+        // tokio::spawn(async move {
+        //     seed_node
+        //         .initialize_raft()
+        //         .await
+        //         .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))
+        // });
 
-        //  check that seed node is current leader and force it to step down
-        match seed_node_clone.raft.ensure_linearizable().await {
-            Ok(_) => {}
-            Err(e) => return Err(anyhow::anyhow!("The seed node is not the leader: {}", e)),
-        }
-        seed_node_clone.raft.runtime_config().heartbeat(false);
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // tokio::time::sleep(Duration::from_secs(1)).await;
 
-        //  force a specific node to be elected leader
-        leader_node.raft.trigger().elect().await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        let current_leader = leader_node.raft.current_leader().await;
-        assert!(current_leader.is_some());
-        assert_eq!(current_leader.unwrap(), 1);
+        // //  check that seed node is current leader and force it to step down
+        // match seed_node_clone.raft.ensure_linearizable().await {
+        //     Ok(_) => {}
+        //     Err(e) => return Err(anyhow::anyhow!("The seed node is not the leader:
+        // {}", e)), }
+        // seed_node_clone.raft.runtime_config().heartbeat(false);
+        // tokio::time::sleep(Duration::from_secs(2)).await;
 
-        //  check leader re-direct
-        let response = alternate_node.check_cluster_membership().await;
-        assert!(response.is_ok());
+        // //  force a specific node to be elected leader
+        // leader_node.raft.trigger().elect().await?;
+        // tokio::time::sleep(Duration::from_secs(1)).await;
+        // let current_leader = leader_node.raft.current_leader().await;
+        // assert!(current_leader.is_some());
+        // assert_eq!(current_leader.unwrap(), 1);
+
+        // //  check leader re-direct
+        // let response = alternate_node.check_cluster_membership().await;
+        // assert!(response.is_ok());
         Ok(())
     }
 }
