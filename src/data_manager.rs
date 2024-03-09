@@ -18,7 +18,7 @@ use tracing::{error, info};
 
 pub(crate) use crate::unwrap_or_continue;
 use crate::{
-    api::{self, BeginExtractedContentIngest, EmbeddingSchema},
+    api::{self, BeginExtractedContentIngest},
     blob_storage::{BlobStorage, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
@@ -141,27 +141,26 @@ impl DataManager {
             let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
-            let index_schema = match output_schema {
+            let schema_json = serde_json::to_value(&output_schema)?;
+            let _ = match output_schema {
                 internal_api::OutputSchema::Embedding(embedding_schema) => {
                     let _ = self
                         .vector_index_manager
                         .create_index(table_name, embedding_schema.clone())
                         .await?;
-                    serde_json::to_value(&embedding_schema)
                 }
-                internal_api::OutputSchema::Attributes(schema) => {
+                internal_api::OutputSchema::Attributes(_schema) => {
                     let _ = self
                         .metadata_index_manager
                         .create_index(index_name, table_name)
                         .await?;
-                    Ok(schema)
                 }
-            }?;
+            };
             self.create_index_metadata(
                 namespace,
                 index_name,
                 table_name,
-                index_schema,
+                schema_json,
                 &extraction_policy.name,
                 &extractor.name,
             )
@@ -486,19 +485,22 @@ impl DataManager {
             .await?
             .list_indexes(req)
             .await?;
-        let indexes = resp
-            .into_inner()
-            .indexes
-            .into_iter()
-            .map(|i| api::Index {
-                name: i.name,
-                schema: api::ExtractorOutputSchema::Embedding(EmbeddingSchema {
-                    dim: 384,
-                    distance: api::IndexDistance::Cosine,
-                }),
-            })
-            .collect();
-        Ok(indexes)
+        let mut api_indexes = Vec::new();
+        for index in resp.into_inner().indexes {
+            let schema: api::ExtractorOutputSchema =
+                serde_json::from_str(&index.schema).map_err(|e| {
+                    anyhow!(
+                        "unable to parse schema for index {} {}",
+                        index.name,
+                        e.to_string()
+                    )
+                })?;
+            api_indexes.push(api::Index {
+                name: index.name,
+                schema,
+            });
+        }
+        Ok(api_indexes)
     }
 
     #[tracing::instrument]

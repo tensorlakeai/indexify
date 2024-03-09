@@ -559,7 +559,8 @@ async fn ingest_extracted_content(
     ws: WebSocketUpgrade<IngestExtractedContentResponse, IngestExtractedContent>,
     State(state): State<NamespaceEndpointState>,
 ) -> impl IntoResponse {
-    // TODO - Figure out a protocol which breaks up large messages into smaller chunks and reassembles them
+    // TODO - Figure out a protocol which breaks up large messages into smaller
+    // chunks and reassembles them
     ws.map(|ws| ws.max_message_size(592323536))
         .map(|ws| ws.max_frame_size(592323536))
         .on_upgrade(|socket| inner_ingest_extracted_content(socket, state))
