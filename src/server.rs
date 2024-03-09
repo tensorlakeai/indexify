@@ -65,7 +65,6 @@ pub struct NamespaceEndpointState {
             index_search,
             list_extractors,
             create_extraction_policy,
-            metadata_lookup,
             list_executors,
             list_content,
             get_content_metadata,
@@ -171,6 +170,10 @@ impl Server {
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/content/:content_id/metadata",
+                get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()),
             )
@@ -193,10 +196,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace",
                 get(get_namespace).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/metadata",
-                get(metadata_lookup).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/executors",
@@ -834,7 +833,7 @@ async fn index_search(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespace/{namespace}/metadata",
+    path = "/namespace/{namespace}/content/{content_id}/metadata",
     tag = "indexify",
     params(MetadataRequest),
     responses(
@@ -842,23 +841,20 @@ async fn index_search(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in namespace")
     ),
 )]
-#[axum::debug_handler]
-async fn metadata_lookup(
-    Path(namespace): Path<String>,
+#[tracing::instrument]
+async fn get_extracted_metadata(
+    Path((namespace, content_id)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-    Query(query): Query<MetadataRequest>,
 ) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
-    let attributes = state
+    let extracted_metadata = state
         .data_manager
-        .metadata_lookup(&namespace, &query.index, &query.content_id)
+        .metadata_lookup(&namespace, &content_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     Ok(Json(MetadataResponse {
-        attributes: attributes.into_iter().map(|r| r.into()).collect(),
+        metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
     }))
 }
-
 #[axum::debug_handler]
 #[tracing::instrument(skip_all)]
 async fn ui_index_handler() -> impl IntoResponse {

@@ -335,7 +335,7 @@ pub struct MetadataRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MetadataResponse {
-    pub attributes: Vec<ExtractedMetadata>,
+    pub metadata: Vec<ExtractedMetadata>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
@@ -516,6 +516,11 @@ pub struct FinishExtractedContentIngest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GetContentMetadataResponse {
     pub content_metadata: ContentMetadata,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GetExtractedMetadataResponse {
+    pub extracted_metadata: Vec<ExtractedMetadata>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

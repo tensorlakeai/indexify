@@ -79,6 +79,10 @@ impl DataManager {
             .into_iter()
             .map(|b| b.into())
             .collect();
+        let _ = self
+            .metadata_index_manager
+            .create_metadata_table(&namespace.name)
+            .await?;
         let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
             policies,
@@ -149,12 +153,7 @@ impl DataManager {
                         .create_index(table_name, embedding_schema.clone())
                         .await?;
                 }
-                internal_api::OutputSchema::Attributes(_schema) => {
-                    let _ = self
-                        .metadata_index_manager
-                        .create_index(index_name, table_name)
-                        .await?;
-                }
+                _ => {}
             };
             self.create_index_metadata(
                 namespace,
@@ -434,15 +433,12 @@ impl DataManager {
                             &content_metadata.parent_id,
                             feature.data.clone(),
                             "extractor_name",
+                            &ingest_metadata.extraction_policy,
                             &namespace,
                         );
                         info!("adding metadata to index {}", feature.data.to_string());
                         self.metadata_index_manager
-                            .add_metadata(
-                                &namespace,
-                                &index_table_name.clone(),
-                                extracted_attributes,
-                            )
+                            .add_metadata(&namespace, extracted_attributes)
                             .await?;
                     }
                     _ => {}
@@ -533,25 +529,10 @@ impl DataManager {
     pub async fn metadata_lookup(
         &self,
         namespace: &str,
-        index_name: &str,
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
-        let req = indexify_coordinator::GetIndexRequest {
-            namespace: namespace.to_string(),
-            name: index_name.to_string(),
-        };
-        let index = self
-            .coordinator_client
-            .get()
-            .await?
-            .get_index(req)
-            .await?
-            .into_inner()
-            .index
-            .ok_or(anyhow!("Index not found"))?;
-
         self.metadata_index_manager
-            .get_metadata(namespace, &index.table_name, content_id)
+            .get_metadata(namespace, content_id)
             .await
     }
 

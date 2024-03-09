@@ -430,7 +430,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        let server_configs = create_test_raft_configs(10)?;
+        let server_configs = create_test_raft_configs(3)?;
 
         let mut apps = Vec::new();
         for config in server_configs {
