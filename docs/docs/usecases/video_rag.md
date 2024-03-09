@@ -1,6 +1,6 @@
 # RAG on Videos
 
-In this tutorial we will build a RAG on the video to answer questions about topics from a video. We will ingest the [State of The Union address from President Biden](https://www.youtube.com/watch?v=cplSUhU2avc) and build Q&A bot to answer questions.
+In this tutorial we will build a RAG application to answer questions about topics from a video. We will ingest the [State of The Union address from President Biden](https://www.youtube.com/watch?v=cplSUhU2avc) and build Q&A bot to answer questions.
 
 At the end of the tutorial your application will be able to answer the following -
 ```text
