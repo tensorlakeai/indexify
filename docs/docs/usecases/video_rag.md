@@ -12,9 +12,9 @@ Indexify can extract information from videos, including key scenes in a video, a
 
 We will be using the following extractors - 
 
-1. Audio Extractor - It will extract audio from ingested videos.
-2. Whisper Extractor - It will extract transcripts of the audio.
-3. Mini LM L6 Extractor - A Sentence Transformer to extract embedding from the audio extractor.
+1. [Audio Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/audio-extractor) - It will extract audio from ingested videos.
+2. [Whisper Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/whisper-asr) - It will extract transcripts of the audio.
+3. [Mini LM L6 Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/minilm-l6) - A Sentence Transformer to extract embedding from the audio extractor.
 
 The Q&A will be powered by Langchain and OpenAI. We will create a Indexify Retreiver and pass it to Langchain to retreive the relevant text of the questions based on semantic search.
 
