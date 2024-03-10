@@ -8,7 +8,7 @@ Q: Whats biden doing to save climate?
 A: Biden is taking significant action on climate by cutting carbon emissions in half by 2030 ...
 ```
 
-Indexify can extract information from videos, including key scenes in a video, audio of the video, the transcripts and also detects all the objects of interest in a video. All of these are done through extractors. 
+Indexify can extract information from videos, including key scenes in a video, audio of the video, the transcripts and also detects all the objects of interest in a video. All of these are done through Indexify's open source extractors. 
 
 We will be using the following extractors - 
 
