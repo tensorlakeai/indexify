@@ -72,12 +72,11 @@ impl ForwardableRaft {
 
     /// Use this to detect whether the current node is the leader
     async fn ensure_leader(&self) -> anyhow::Result<Option<ForwardToLeader>> {
-        match self.raft.ensure_linearizable().await {
+        let result = self.raft.ensure_linearizable().await;
+        match result {
             Ok(_) => Ok(None),
-            Err(e) => match e {
-                RaftError::APIError(CheckIsLeaderError::ForwardToLeader(err)) => Ok(Some(err)),
-                _ => Err(anyhow::anyhow!("Error occurred")),
-            },
+            Err(RaftError::APIError(CheckIsLeaderError::ForwardToLeader(err))) => Ok(Some(err)),
+            Err(e) => Err(anyhow::anyhow!("Error occurred: {}", e.to_string())),
         }
     }
 }

@@ -86,12 +86,11 @@ impl RaftGrpcServer {
 
     /// Helper function to detect whether the current node is the leader
     async fn ensure_leader(&self) -> Result<Option<ForwardToLeader<NodeId, BasicNode>>, Status> {
-        match self.raft.ensure_linearizable().await {
+        let result = self.raft.ensure_linearizable().await;
+        match result {
             Ok(_) => Ok(None),
-            Err(e) => match e {
-                RaftError::APIError(CheckIsLeaderError::ForwardToLeader(err)) => Ok(Some(err)),
-                _ => Err(GrpcHelper::internal_err(e.to_string())),
-            },
+            Err(RaftError::APIError(CheckIsLeaderError::ForwardToLeader(err))) => Ok(Some(err)),
+            Err(e) => Err(GrpcHelper::internal_err(e.to_string())),
         }
     }
 
@@ -102,10 +101,11 @@ impl RaftGrpcServer {
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
         };
-        match self.raft.client_write(request).await {
-            Ok(_) => GrpcHelper::ok_response(response),
-            Err(e) => Err(GrpcHelper::internal_err(e.to_string())),
-        }
+        self.raft
+            .client_write(request)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+        GrpcHelper::ok_response(response)
     }
 }
 
