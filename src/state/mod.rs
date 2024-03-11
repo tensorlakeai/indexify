@@ -19,22 +19,17 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -134,7 +129,20 @@ impl App {
             .unwrap_or_default()
             .clone();
         let db_path: &Path = Path::new(db_path.as_str());
-        let (log_store, state_machine) = new_storage(db_path).await;
+        println!("The db path is: {:?}", db_path);
+        let state_machine_blob_store_path = server_config
+            .state_machine_blob_store
+            .path
+            .clone()
+            .unwrap_or_default()
+            .clone();
+        let state_machine_blob_store_path: &Path =
+            Path::new(state_machine_blob_store_path.as_str());
+        println!(
+            "The state machine storage path is: {:?}",
+            state_machine_blob_store_path
+        );
+        let (log_store, state_machine) = new_storage(db_path, state_machine_blob_store_path).await;
         let state_change_rx = state_machine.state_change_rx.clone();
 
         let indexify_state = state_machine.data.indexify_state.clone();

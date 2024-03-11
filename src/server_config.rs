@@ -1,6 +1,5 @@
 use std::{
-    fmt,
-    fs,
+    fmt, fs,
     net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
 };
@@ -360,6 +359,19 @@ impl Default for StateStoreConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateMachineBlobStoreConfig {
+    pub path: Option<String>,
+}
+
+impl Default for StateMachineBlobStoreConfig {
+    fn default() -> Self {
+        Self {
+            path: Some("/tmp/indexy-state-machine-blob".to_string()),
+        }
+    }
+}
+
 /// ServerCacheBackend is an enum that represents the different cache backends
 /// supported by the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -407,6 +419,8 @@ pub struct ServerConfig {
     pub cache: ServerCacheConfig,
     #[serde(default)]
     pub state_store: StateStoreConfig,
+    #[serde(default)]
+    pub state_machine_blob_store: StateMachineBlobStoreConfig,
 }
 
 impl Default for ServerConfig {
@@ -431,6 +445,7 @@ impl Default for ServerConfig {
             node_id: 0,
             cache: ServerCacheConfig::default(),
             state_store: StateStoreConfig::default(),
+            state_machine_blob_store: StateMachineBlobStoreConfig::default(),
         }
     }
 }

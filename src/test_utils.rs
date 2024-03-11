@@ -11,8 +11,7 @@ use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App,
-        NodeId,
+        App, NodeId,
     },
 };
 
@@ -292,7 +291,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
-    /// Get a specific node from the cluster based on the node
+    /// Get a specific node from the cluster based on the node id
     pub fn get_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
         Ok(Arc::clone(self.nodes.get(&node_id).expect(&format!(
             "Could not find {} in node list",

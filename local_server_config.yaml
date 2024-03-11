@@ -80,6 +80,10 @@ cache:
 state_store:
   path: /tmp/indexify-state
 
+# provide a path to where the state machine will be written as a json blob
+state_machine_blob_store:
+  path: /tmp/indexy-state-machine-blob
+
 metadata_storage:
   metadata_store: sqlite
   conn_url: /tmp/indexify-metadata-index.db
