@@ -9,7 +9,10 @@ use futures::Future;
 
 use crate::{
     server_config::{ServerConfig, StateStoreConfig},
-    state::{store::requests::StateMachineUpdateRequest, App, NodeId},
+    state::{
+        store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
+        App, NodeId,
+    },
 };
 
 #[cfg(test)]
@@ -114,10 +117,22 @@ impl RaftTestCluster {
     }
 
     /// Send the current write to the leader of the cluster
-    async fn send_write_to_leader(&self, request: StateMachineUpdateRequest) -> anyhow::Result<()> {
+    async fn send_write_to_leader(
+        &self,
+        request: StateMachineUpdateRequest,
+    ) -> anyhow::Result<StateMachineUpdateResponse> {
         let leader = self.get_current_leader().await?;
-        leader.forwardable_raft.client_write(request).await?;
-        Ok(())
+        let response = leader.forwardable_raft.client_write(request).await?;
+        Ok(response)
+    }
+
+    async fn send_write_to_non_leader(
+        &self,
+        request: StateMachineUpdateRequest,
+    ) -> anyhow::Result<StateMachineUpdateResponse> {
+        let node = self.get_non_leader_node().await;
+        let response = node.forwardable_raft.client_write(request).await?;
+        Ok(response)
     }
 
     /// Helper function which accepts a callback to wait upon
@@ -187,23 +202,32 @@ impl RaftTestCluster {
     }
 
     /// This function will send a write request to the cluster and then
-    /// check if the write can be read back from any node it takes a
-    /// to_leader value to indicate whether this write should go to the
-    /// leader or not
+    /// check if the write can be read back from a different node
+    /// It takes a to_leader variable which will determine whether the write
+    /// should go to a leader or a non-leader If the write goes to a leader,
+    /// the read is from a non-leader and vice-versa
     pub async fn read_own_write<F, Fut>(
         &self,
         request: StateMachineUpdateRequest,
         read_back: F,
-        _to_leader: bool,
+        to_leader: bool,
     ) -> anyhow::Result<()>
     where
         F: Fn(Arc<App>) -> Fut,
         Fut: Future<Output = anyhow::Result<bool>>,
     {
-        self.send_write_to_leader(request).await?;
+        if to_leader {
+            self.send_write_to_leader(request).await?;
+        } else {
+            self.send_write_to_non_leader(request).await?;
+        }
         self.wait_until_future(
             || async {
-                let non_leader_node = self.get_non_leader_node().await;
+                let non_leader_node = if to_leader {
+                    self.get_non_leader_node().await
+                } else {
+                    self.get_current_leader().await?
+                };
                 read_back(non_leader_node).await
             },
             Duration::from_secs(2),

@@ -940,4 +940,30 @@ mod tests {
         cluster.read_own_write(request, read_back, true).await?;
         Ok(())
     }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_read_own_write_forwarding() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateIndex {
+                index: Index::default(),
+                namespace: "namespace".into(),
+                id: "id".into(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+
+        let read_back = |node: Arc<App>| async move {
+            match node.get_index("id").await {
+                Ok(read_result) if read_result == Index::default() => Ok(true),
+                Ok(_) => Ok(false),
+                Err(_) => Ok(false),
+            }
+        };
+        cluster.read_own_write(request, read_back, false).await?;
+        Ok(())
+    }
 }
