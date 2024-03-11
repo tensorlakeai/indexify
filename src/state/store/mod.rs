@@ -147,7 +147,8 @@ impl StateMachineStore {
         Ok(sm)
     }
 
-    /// This method is used to update the in-memory state machine when a new state machine is provided via the InstallSnapshot RPC
+    /// This method is used to update the in-memory state machine when a new
+    /// state machine is provided via the InstallSnapshot RPC
     async fn update_state_machine_(
         &mut self,
         snapshot: StoredSnapshot,
@@ -173,8 +174,10 @@ impl StateMachineStore {
             .and_then(|v| serde_json::from_slice(&v).ok()))
     }
 
-    /// This method is called when a new snapshot is received via InstallSnapshot RPC and is used to write the snapshot to disk
+    /// This method is called when a new snapshot is received via
+    /// InstallSnapshot RPC and is used to write the snapshot to disk
     // TODO - Write the snapshot to disk instead of the database
+    //  NOTE: Write to a new file and mv the new file to the old file and swap the inode pointers
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
         let serialized_data = serde_json::to_vec(&snap).unwrap();
         let mut file = File::create(&self.snapshot_file_path).map_err(|e| StorageError::IO {
