@@ -18,6 +18,6 @@ service RaftApi {
     rpc AppendEntries(RaftRequest) returns (RaftReply);
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
-    rpc JoinClusterMembership(RaftRequest) returns (RaftReply);
+    rpc JoinCluster(RaftRequest) returns (RaftReply);
 }
 

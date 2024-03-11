@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{ExtractionPolicy, StateChange};
@@ -21,7 +22,14 @@ use openraft::{
     BasicNode,
     TokioRuntime,
 };
-use store::{requests::Request, Response};
+use store::{
+    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    state_machine_objects::IndexifyState,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
+};
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
@@ -32,16 +40,7 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 
-use self::{
-    grpc_server::RaftGrpcServer,
-    store::{
-        requests::{RequestPayload, StateChangeProcessed},
-        state_machine_objects::IndexifyState,
-        ExecutorId,
-        ExecutorIdRef,
-        TaskId,
-    },
-};
+use self::forwardable_raft::ForwardableRaft;
 use crate::{
     coordinator_filters::matches_mime_type,
     server_config::ServerConfig,
@@ -49,6 +48,7 @@ use crate::{
     utils::timestamp_secs,
 };
 
+pub mod forwardable_raft;
 pub mod grpc_server;
 pub mod network;
 pub mod raft_client;
@@ -60,7 +60,7 @@ pub type SnapshotData = Cursor<Vec<u8>>;
 
 openraft::declare_raft_types!(
     pub TypeConfig:
-        D = Request,
+        D = StateMachineUpdateRequest,
         R = Response,
         NodeId = NodeId,
         Node = BasicNode,
@@ -99,7 +99,7 @@ pub struct App {
     pub id: NodeId,
     pub addr: String,
     seed_node: String,
-    pub raft: Raft,
+    pub forwardable_raft: ForwardableRaft,
     nodes: BTreeMap<NodeId, BasicNode>,
     shutdown_rx: Receiver<()>,
     shutdown_tx: Sender<()>,
@@ -152,6 +152,9 @@ impl App {
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
+        let forwardable_raft =
+            ForwardableRaft::new(server_config.node_id, raft.clone(), network.clone());
+
         let mut nodes = BTreeMap::new();
         nodes.insert(
             server_config.node_id,
@@ -167,6 +170,7 @@ impl App {
 
         info!("starting raft server at {}", addr.to_string());
         let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(
+            server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
         ));
@@ -179,7 +183,7 @@ impl App {
                 .map_err(|e| anyhow!("unable to get coordinator address : {}", e.to_string()))?
                 .to_string(),
             seed_node: server_config.seed_node.clone(),
-            raft,
+            forwardable_raft,
             shutdown_rx: rx,
             shutdown_tx: tx,
             leader_change_rx,
@@ -192,7 +196,7 @@ impl App {
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
         });
 
-        let raft_clone = app.raft.clone();
+        let raft_clone = app.forwardable_raft.clone();
 
         let mut rx = app.shutdown_rx.clone();
         let shutdown_rx = app.shutdown_rx.clone();
@@ -244,7 +248,7 @@ impl App {
         if !self.is_seed_node() {
             return Ok(());
         }
-        match self.raft.initialize(self.nodes.clone()).await {
+        match self.forwardable_raft.initialize(self.nodes.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 // match the type of the initialize error. if it's NotAllowed, ignore it.
@@ -266,7 +270,7 @@ impl App {
 
     pub async fn stop(&self) -> Result<()> {
         info!("stopping raft server");
-        let _ = self.raft.shutdown().await;
+        let _ = self.forwardable_raft.shutdown().await;
         self.shutdown_tx.send(()).unwrap();
         for j in self.join_handles.lock().await.iter_mut() {
             let res = j.await;
@@ -302,12 +306,12 @@ impl App {
                 processed_at: timestamp_secs(),
             });
         }
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::MarkStateChangesProcessed { state_changes },
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -494,7 +498,7 @@ impl App {
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::RemoveExecutor {
                 executor_id: executor_id.to_string(),
             },
@@ -506,7 +510,7 @@ impl App {
             state_changes_processed: vec![],
         };
         let _resp = self
-            .raft
+            .forwardable_raft
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
@@ -517,7 +521,7 @@ impl App {
         &self,
         extraction_policy: ExtractionPolicy,
     ) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
             },
@@ -528,7 +532,7 @@ impl App {
             )],
             state_changes_processed: vec![],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -547,7 +551,7 @@ impl App {
             ));
         }
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
                 task: task.clone(),
                 mark_finished,
@@ -557,7 +561,7 @@ impl App {
             new_state_changes: state_changes,
             state_changes_processed: vec![],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -586,14 +590,14 @@ impl App {
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateNamespace {
                 name: namespace.to_string(),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -635,7 +639,7 @@ impl App {
         executor_id: &str,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::RegisterExecutor {
                 addr: addr.to_string(),
                 executor_id: executor_id.to_string(),
@@ -649,7 +653,7 @@ impl App {
             )],
             state_changes_processed: vec![],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -682,7 +686,7 @@ impl App {
         assignments: HashMap<TaskId, ExecutorId>,
         state_change_id: &str,
     ) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::AssignTask { assignments },
             new_state_changes: vec![],
             state_changes_processed: vec![StateChangeProcessed {
@@ -690,7 +694,7 @@ impl App {
                 processed_at: timestamp_secs(),
             }],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -706,13 +710,13 @@ impl App {
                 timestamp_secs(),
             ));
         }
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateContent { content_metadata },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
         };
         let _ = self
-            .raft
+            .forwardable_raft
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to create content metadata: {}", e.to_string()))?;
@@ -751,7 +755,7 @@ impl App {
         tasks: Vec<internal_api::Task>,
         state_change_id: &str,
     ) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateTasks { tasks },
             new_state_changes: vec![],
             state_changes_processed: vec![StateChangeProcessed {
@@ -759,7 +763,7 @@ impl App {
                 processed_at: timestamp_secs(),
             }],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -818,7 +822,7 @@ impl App {
         index: internal_api::Index,
         id: String,
     ) -> Result<()> {
-        let req = Request {
+        let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {
                 namespace: namespace.to_string(),
                 index,
@@ -827,7 +831,7 @@ impl App {
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
-        let _resp = self.raft.client_write(req).await?;
+        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -854,7 +858,9 @@ impl App {
         });
     }
 
-    pub async fn check_cluster_membership(&self) -> Result<(), anyhow::Error> {
+    pub async fn check_cluster_membership(
+        &self,
+    ) -> Result<store::requests::StateMachineUpdateResponse, anyhow::Error> {
         self.network
             .join_cluster(self.id, &self.node_addr, &self.seed_node)
             .await
@@ -862,11 +868,11 @@ impl App {
 }
 
 async fn watch_for_leader_change(
-    raft: Raft,
+    forwardable_raft: ForwardableRaft,
     leader_change_tx: Sender<bool>,
     mut shutdown_rx: Receiver<()>,
 ) -> Result<()> {
-    let mut rx = raft.metrics();
+    let mut rx = forwardable_raft.raft.metrics();
     let prev_server_state = RefCell::new(openraft::ServerState::Learner);
 
     loop {
@@ -892,5 +898,72 @@ async fn watch_for_leader_change(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use indexify_internal_api::Index;
+
+    use crate::{
+        state::{
+            store::requests::{RequestPayload, StateMachineUpdateRequest},
+            App,
+        },
+        test_utils::RaftTestCluster,
+    };
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_basic_read_own_write() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateIndex {
+                index: Index::default(),
+                namespace: "namespace".into(),
+                id: "id".into(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        let read_back = |node: Arc<App>| async move {
+            match node.get_index("id").await {
+                Ok(read_result) if read_result == Index::default() => Ok(true),
+                Ok(_) => Ok(false),
+                Err(_) => Ok(false), /*  NOTE: It isn't a mistake to return false here because if
+                                      * the index cannot be found `get_index` throws an error */
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_read_own_write_forwarding() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateIndex {
+                index: Index::default(),
+                namespace: "namespace".into(),
+                id: "id".into(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+
+        let read_back = |node: Arc<App>| async move {
+            match node.get_index("id").await {
+                Ok(read_result) if read_result == Index::default() => Ok(true),
+                Ok(_) => Ok(false),
+                Err(_) => Ok(false),
+            }
+        };
+        cluster.read_own_write(request, read_back, false).await?;
+        Ok(())
     }
 }

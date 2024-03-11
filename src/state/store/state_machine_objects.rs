@@ -5,7 +5,7 @@ use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    requests::{Request, RequestPayload, StateChangeProcessed},
+    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
     ContentId,
     ExecutorId,
@@ -36,6 +36,7 @@ pub struct IndexifyState {
 
     pub index_table: HashMap<String, internal_api::Index>,
 
+    //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
     /// The tasks that are currently unassigned
     pub unassigned_tasks: HashSet<TaskId>,
@@ -47,13 +48,13 @@ pub struct IndexifyState {
     pub content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
 
     /// Namespace -> Extractor bindings
-    pub extraction_policies_table: HashMap<NamespaceName, HashSet<internal_api::ExtractionPolicy>>,
+    pub extraction_policies_table: HashMap<NamespaceName, HashSet<internal_api::ExtractionPolicy>>, /* TODO: Change this to store extraction policy id in the second col because we have data elsewhere */
 
     /// Extractor -> Executors table
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     /// Namespace -> Index index
-    pub namespace_index_table: HashMap<NamespaceName, HashSet<internal_api::Index>>,
+    pub namespace_index_table: HashMap<NamespaceName, HashSet<internal_api::Index>>, /* TODO: Store id in the second column, not the entire index */
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
@@ -64,7 +65,7 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
-    pub fn apply(&mut self, request: Request) {
+    pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         for change in request.new_state_changes {
             self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());

@@ -8,7 +8,7 @@ use super::{ExecutorId, TaskId};
 use crate::state::NodeId;
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct Request {
+pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub new_state_changes: Vec<StateChange>,
     pub state_changes_processed: Vec<StateChangeProcessed>,
@@ -22,6 +22,7 @@ pub struct StateChangeProcessed {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum RequestPayload {
+    //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
         node_id: NodeId,
         address: String,
@@ -64,4 +65,9 @@ pub enum RequestPayload {
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StateMachineUpdateResponse {
+    pub handled_by: NodeId,
 }
