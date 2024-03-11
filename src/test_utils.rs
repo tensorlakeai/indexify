@@ -6,15 +6,10 @@ use std::{
 };
 
 use futures::Future;
-use indexify_internal_api::Index;
 
 use crate::{
     server_config::{ServerConfig, StateStoreConfig},
-    state::{
-        store::requests::{RequestPayload, StateMachineUpdateRequest},
-        App,
-        NodeId,
-    },
+    state::{store::requests::StateMachineUpdateRequest, App, NodeId},
 };
 
 #[cfg(test)]
