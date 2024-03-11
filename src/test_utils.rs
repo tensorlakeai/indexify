@@ -135,7 +135,7 @@ impl RaftTestCluster {
             if condition().await? {
                 return Ok(());
             }
-            tokio::time::sleep(Duration::from_secs(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
         Err(anyhow::anyhow!("Timeout waiting for condition"))
     }
@@ -190,8 +190,6 @@ impl RaftTestCluster {
     /// check if the write can be read back from any node it takes a
     /// to_leader value to indicate whether this write should go to the
     /// leader or not
-    /// NOTE: Currently, this is exclusive to creating and reading an index.
-    /// Need to generalise it using generics
     pub async fn read_own_write<F, Fut>(
         &self,
         request: StateMachineUpdateRequest,
@@ -203,8 +201,6 @@ impl RaftTestCluster {
         Fut: Future<Output = anyhow::Result<bool>>,
     {
         self.send_write_to_leader(request).await?;
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
         self.wait_until_future(
             || async {
                 let non_leader_node = self.get_non_leader_node().await;
@@ -215,35 +211,6 @@ impl RaftTestCluster {
         .await?;
         Ok(())
     }
-
-    // pub async fn read_own_write(&self, _to_leader: bool) -> anyhow::Result<()> {
-    //     let request = StateMachineUpdateRequest {
-    //         payload: RequestPayload::CreateIndex {
-    //             index: Index::default(),
-    //             namespace: "namespace".into(),
-    //             id: "id".into(),
-    //         },
-    //         new_state_changes: vec![],
-    //         state_changes_processed: vec![],
-    //     };
-    //     self.send_write_to_leader(request).await?;
-    //     tokio::time::sleep(Duration::from_secs(2)).await;
-
-    //     self.wait_until_future(
-    //         || async {
-    //             let non_leader_node = self.get_non_leader_node().await;
-    //             match non_leader_node.get_index("id").await {
-    //                 Ok(read_result) if read_result == Index::default() =>
-    // Ok(true),                 Ok(_) => Ok(false),
-    //                 Err(e) => Err(e),
-    //             }
-    //         },
-    //         Duration::from_secs(2),
-    //     )
-    //     .await?;
-
-    //     Ok(())
-    // }
 
     /// Check that the node id provided corresponds to the leader of the cluster
     pub async fn assert_is_leader(&self, node_id: NodeId) -> bool {

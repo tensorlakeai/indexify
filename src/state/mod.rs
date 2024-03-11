@@ -933,7 +933,8 @@ mod tests {
             match node.get_index("id").await {
                 Ok(read_result) if read_result == Index::default() => Ok(true),
                 Ok(_) => Ok(false),
-                Err(e) => Err(e),
+                Err(_) => Ok(false), /*  NOTE: It isn't a mistake to return false here because if
+                                      * the index cannot be found `get_index` throws an error */
             }
         };
         cluster.read_own_write(request, read_back, true).await?;
