@@ -88,13 +88,8 @@ impl RaftTestCluster {
             .await
             .ok_or(anyhow::anyhow!("Error getting leader"))?;
 
-        let current_leader = self.nodes.get(&current_leader_id).expect(
-            format!(
-                "Expect node {} to be present in the cluster",
-                current_leader_id
-            )
-            .as_str(),
-        );
+        let current_leader = self.nodes.get(&current_leader_id).unwrap_or_else(|| panic!("Expect node {} to be present in the cluster",
+                current_leader_id));
         Ok(Arc::clone(current_leader))
     }
 
@@ -160,7 +155,7 @@ impl RaftTestCluster {
     /// the cluster will be determined by the number of nodes passed in
     pub async fn new(num_of_nodes: usize) -> anyhow::Result<Self> {
         let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
-        let seed_node_id = server_configs.get(0).unwrap().node_id; //  the seed node will always be the first node in the list
+        let seed_node_id = server_configs.first().unwrap().node_id; //  the seed node will always be the first node in the list
         let mut nodes = BTreeMap::new();
         for config in server_configs {
             let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
@@ -244,11 +239,11 @@ impl RaftTestCluster {
         let node = self
             .nodes
             .get(&node_id)
-            .expect(&format!("Could not find {} in node list", node_id));
+            .unwrap_or_else(|| panic!("Could not find {} in node list", node_id));
 
         match node.forwardable_raft.raft.ensure_linearizable().await {
-            Ok(_) => return true,
-            Err(_) => return false,
+            Ok(_) => true,
+            Err(_) => false,
         }
     }
 
@@ -269,7 +264,7 @@ impl RaftTestCluster {
         let node_to_promote = self
             .nodes
             .get(&node_id)
-            .expect(&format!("Could not find {} in node list", node_id));
+            .unwrap_or_else(|| panic!("Could not find {} in node list", node_id));
         node_to_promote
             .forwardable_raft
             .raft
@@ -284,7 +279,7 @@ impl RaftTestCluster {
                         return Ok(true);
                     }
                 }
-                return Ok(false); //  expected leader not found, keep looping
+                Ok(false)//  expected leader not found, keep looping
             },
             Duration::from_secs(5),
         )
@@ -294,9 +289,7 @@ impl RaftTestCluster {
 
     /// Get a specific node from the cluster based on the node
     pub fn get_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
-        Ok(Arc::clone(self.nodes.get(&node_id).expect(&format!(
-            "Could not find {} in node list",
-            node_id
-        ))))
+        Ok(Arc::clone(self.nodes.get(&node_id).unwrap_or_else(|| panic!("Could not find {} in node list",
+            node_id))))
     }
 }

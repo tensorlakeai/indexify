@@ -142,7 +142,7 @@ impl DataManager {
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
             let schema_json = serde_json::to_value(&output_schema)?;
-            let _ = match output_schema {
+            match output_schema {
                 internal_api::OutputSchema::Embedding(embedding_schema) => {
                     let _ = self
                         .vector_index_manager
