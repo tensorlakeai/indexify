@@ -24,7 +24,7 @@ pub struct ExtractedMetadata {
     pub parent_content_id: String,
     pub metadata: serde_json::Value,
     pub extractor_name: String,
-    pub extractor_policy_name: String,
+    pub extraction_policy: String,
 }
 
 impl ExtractedMetadata {
@@ -33,7 +33,7 @@ impl ExtractedMetadata {
         parent_content_id: &str,
         metadata: serde_json::Value,
         extractor_name: &str,
-        extractor_policy_name: &str,
+        extraction_policy: &str,
         namespace: &str,
     ) -> Self {
         let mut s = DefaultHasher::new();
@@ -41,7 +41,7 @@ impl ExtractedMetadata {
         extractor_name.hash(&mut s);
         namespace.hash(&mut s);
         metadata.to_string().hash(&mut s);
-        extractor_policy_name.hash(&mut s);
+        extraction_policy.hash(&mut s);
         let id = format!("{:x}", s.finish());
         Self {
             id,
@@ -49,7 +49,7 @@ impl ExtractedMetadata {
             parent_content_id: parent_content_id.into(),
             metadata,
             extractor_name: extractor_name.into(),
-            extractor_policy_name: extractor_policy_name.into(),
+            extraction_policy: extraction_policy.into(),
         }
     }
 }

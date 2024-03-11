@@ -55,10 +55,9 @@ impl MetadataStorage for PostgresIndexManager {
     }
 
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
-        if self
+        if !self
             .default_index_created
-            .load(std::sync::atomic::Ordering::Relaxed) ==
-            false
+            .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.create_metadata_table(namespace).await?;
             self.default_index_created
@@ -75,7 +74,7 @@ impl MetadataStorage for PostgresIndexManager {
             .bind(metadata.content_id)
             .bind(metadata.parent_content_id)
             .bind(timestamp_secs() as i64)
-            .bind(metadata.extractor_policy_name)
+            .bind(metadata.extraction_policy)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -100,17 +99,17 @@ impl MetadataStorage for PostgresIndexManager {
         for row in rows {
             let id: String = row.get(0);
             let extractor: String = row.get(2);
-            let extractor_policy_name: String = row.get(3);
+            let extraction_policy: String = row.get(3);
             let data: serde_json::Value = row.get(5);
             let content_id: String = row.get(6);
             let parent_content_id: String = row.get(7);
             let attributes = ExtractedMetadata {
                 id,
-                extractor_name: extractor,
-                extractor_policy_name,
-                metadata: data,
                 content_id,
                 parent_content_id,
+                metadata: data,
+                extractor_name: extractor,
+                extraction_policy,
             };
             extracted_attributes.push(attributes);
         }
@@ -128,7 +127,7 @@ mod tests {
             PostgresIndexManager::new("postgres://postgres:postgres@localhost:5432/indexify")
                 .unwrap();
         let namespace = "test_namespace";
-        let _ = index_manager
+        index_manager
             .create_metadata_table(namespace)
             .await
             .unwrap();
@@ -138,7 +137,7 @@ mod tests {
             parent_content_id: "test_parent_content_id".into(),
             metadata: serde_json::json!({"test": "test"}),
             extractor_name: "test_extractor".into(),
-            extractor_policy_name: "test_extractor_policy".into(),
+            extraction_policy: "test_extractor_policy".into(),
         };
         index_manager
             .add_metadata(namespace, metadata.clone())

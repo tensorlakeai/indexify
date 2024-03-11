@@ -49,10 +49,9 @@ impl MetadataStorage for SqliteIndexManager {
 
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
         let index_name = PostgresIndexName::new(&table_name(namespace));
-        if self
+        if !self
             .default_table_created
-            .load(std::sync::atomic::Ordering::Relaxed) ==
-            false
+            .load(std::sync::atomic::Ordering::Relaxed)
         {
             self.create_metadata_table(namespace).await?;
             self.default_table_created
@@ -66,7 +65,7 @@ impl MetadataStorage for SqliteIndexManager {
                 metadata.id,
                 namespace,
                 metadata.extractor_name,
-                metadata.extractor_policy_name,
+                metadata.extraction_policy,
                 index_name.to_string(),
                 metadata.metadata,
                 metadata.content_id,
@@ -112,7 +111,7 @@ fn row_to_extracted_metadata(
     Ok(ExtractedMetadata {
         id,
         extractor_name: extractor,
-        extractor_policy_name,
+        extraction_policy: extractor_policy_name,
         metadata: data,
         content_id,
         parent_content_id,
@@ -135,7 +134,7 @@ mod tests {
             default_table_created: AtomicBool::new(false),
         };
         let namespace = "test_namespace";
-        let _ = index_manager
+        index_manager
             .create_metadata_table(namespace)
             .await
             .unwrap();
@@ -157,7 +156,7 @@ mod tests {
             default_table_created: AtomicBool::new(false),
         };
         let namespace = "test_namespace";
-        let _ = index_manager
+        index_manager
             .create_metadata_table(namespace)
             .await
             .unwrap();
@@ -167,7 +166,7 @@ mod tests {
             parent_content_id: "test_parent_content_id".into(),
             metadata: serde_json::json!({"test": "test"}),
             extractor_name: "test_extractor".into(),
-            extractor_policy_name: "test_extractor_policy".into(),
+            extraction_policy: "test_extractor_policy".into(),
         };
         index_manager
             .add_metadata(namespace, metadata.clone())

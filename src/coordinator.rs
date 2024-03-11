@@ -497,7 +497,7 @@ mod tests {
         }
 
         //  get the nodes
-        let seed_node = Arc::clone(apps.get(0).unwrap());
+        let seed_node = Arc::clone(apps.first().unwrap());
         let leader_node = apps.get(1).unwrap();
         let alternate_node = apps.get(2).unwrap();
 

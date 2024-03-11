@@ -413,11 +413,11 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
 
 #[derive(Debug, Serialize, Deserialize, Clone, EnumString, ToSchema)]
 pub enum FeatureType {
-    #[strum(serialize = "embedding")]
+    #[serde(rename = "embedding")]
     Embedding,
-    #[strum(serialize = "metadata")]
+    #[serde(rename = "metadata")]
     Metadata,
-    #[strum(serialize = "unknown")]
+    #[serde(rename = "unknown")]
     Unknown,
 }
 
@@ -485,6 +485,7 @@ pub struct ExtractResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum IngestExtractedContent {
     BeginExtractedContentIngest(BeginExtractedContentIngest),
+    ExtractedFeatures(ExtractedFeatures),
     ExtractedContent(ExtractedContent),
     FinishExtractedContentIngest(FinishExtractedContentIngest),
 }
@@ -501,11 +502,18 @@ pub struct BeginExtractedContentIngest {
     pub executor_id: String,
     pub task_outcome: internal_api::TaskOutcome,
     pub extraction_policy: String,
+    pub extractor: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ExtractedContent {
     pub content_list: Vec<internal_api::Content>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct ExtractedFeatures {
+    pub content_id: String,
+    pub features: Vec<Feature>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]

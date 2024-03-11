@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Instant};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_typed_websockets::{Message, WebSocket, WebSocketUpgrade};
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
+use indexify_proto::indexify_coordinator::{self, ListStateChangesRequest, ListTasksRequest};
 use rust_embed::RustEmbed;
 use tokio::signal;
 use tokio_stream::StreamExt;
@@ -572,11 +572,9 @@ async fn inner_ingest_extracted_content(
 ) {
     let _ = socket.send(Message::Ping(vec![])).await;
     let mut ingest_metadata: Option<BeginExtractedContentIngest> = None;
-    let now = Instant::now();
-    println!("Instat {}", Instant::now().elapsed().as_secs());
+    let mut content_metadata: Option<indexify_coordinator::ContentMetadata> = None;
     while let Some(msg) = socket.recv().await {
         if let Err(err) = &msg {
-            println!("Instat {}", now.elapsed().as_secs());
             tracing::error!("error receiving message: {:?}", err);
             return;
         }
@@ -594,6 +592,48 @@ async fn inner_ingest_extracted_content(
                     let _ = state
                         .data_manager
                         .write_extracted_content(ingest_metadata.clone().unwrap(), payload)
+                        .await;
+                }
+                IngestExtractedContent::ExtractedFeatures(payload) => {
+                    if ingest_metadata.is_none() {
+                        tracing::error!("received extracted features without header metadata");
+                        return;
+                    }
+                    if content_metadata.is_none() {
+                        content_metadata = Some(
+                            state
+                                .coordinator_client
+                                .get()
+                                .await
+                                .unwrap()
+                                .get_content_metadata(
+                                    indexify_coordinator::GetContentMetadataRequest {
+                                        content_list: vec![payload.content_id.clone()],
+                                    },
+                                )
+                                .await
+                                .unwrap()
+                                .into_inner()
+                                .content_list
+                                .first()
+                                .unwrap()
+                                .clone(),
+                        );
+                    }
+                    let content_meta = content_metadata.clone().unwrap();
+                    let _ = state
+                        .data_manager
+                        .write_extracted_features(
+                            &ingest_metadata.clone().unwrap().extractor,
+                            &ingest_metadata.clone().unwrap().extraction_policy,
+                            &content_meta,
+                            payload.features,
+                            ingest_metadata
+                                .clone()
+                                .unwrap()
+                                .output_to_index_table_mapping
+                                .clone(),
+                        )
                         .await;
                 }
                 IngestExtractedContent::FinishExtractedContentIngest(_payload) => {

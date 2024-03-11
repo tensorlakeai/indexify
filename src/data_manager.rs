@@ -11,19 +11,16 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use nanoid::nanoid;
 use tracing::{error, info};
 
-pub(crate) use crate::unwrap_or_continue;
 use crate::{
     api::{self, BeginExtractedContentIngest},
     blob_storage::{BlobStorage, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     metadata_storage::{ExtractedMetadata, MetadataStorageTS},
-    utils::OptionInspectNone,
     vector_index::{ScoredText, VectorIndexManager},
 };
 
@@ -79,8 +76,7 @@ impl DataManager {
             .into_iter()
             .map(|b| b.into())
             .collect();
-        let _ = self
-            .metadata_index_manager
+        self.metadata_index_manager
             .create_metadata_table(&namespace.name)
             .await?;
         let request = indexify_coordinator::CreateNamespaceRequest {
@@ -146,15 +142,12 @@ impl DataManager {
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
             let schema_json = serde_json::to_value(&output_schema)?;
-            let _ = match output_schema {
-                internal_api::OutputSchema::Embedding(embedding_schema) => {
-                    let _ = self
-                        .vector_index_manager
-                        .create_index(table_name, embedding_schema.clone())
-                        .await?;
-                }
-                _ => {}
-            };
+            if let internal_api::OutputSchema::Embedding(embedding_schema) = output_schema {
+                let _ = self
+                    .vector_index_manager
+                    .create_index(table_name, embedding_schema.clone())
+                    .await?;
+            }
             self.create_index_metadata(
                 namespace,
                 index_name,
@@ -231,7 +224,7 @@ impl DataManager {
         for text in content_list {
             let size_bytes = text.bytes.len() as u64;
             let content_metadata = self
-                .write_content(namespace, text, None, None, "ingestion", size_bytes)
+                .write_content_bytes(namespace, text, None, None, "ingestion", size_bytes)
                 .await?;
             let req: indexify_coordinator::CreateContentRequest =
                 indexify_coordinator::CreateContentRequest {
@@ -290,7 +283,7 @@ impl DataManager {
         };
         let size_bytes = data.len() as u64;
         let content_metadata = self
-            .write_content(
+            .write_content_bytes(
                 namespace,
                 content,
                 Some(name),
@@ -317,7 +310,7 @@ impl DataManager {
         Ok(())
     }
 
-    async fn write_content(
+    async fn write_content_bytes(
         &self,
         namespace: &str,
         content: api::Content,
@@ -380,6 +373,53 @@ impl DataManager {
         Ok(())
     }
 
+    pub async fn write_extracted_features(
+        &self,
+        extractor_name: &str,
+        extraction_policy: &str,
+        content_meta: &indexify_coordinator::ContentMetadata,
+        features: Vec<api::Feature>,
+        output_index_map: HashMap<String, String>,
+    ) -> Result<()> {
+        for feature in features {
+            match feature.feature_type {
+                api::FeatureType::Embedding => {
+                    let embedding_payload: internal_api::Embedding =
+                        serde_json::from_value(feature.data).map_err(|e| {
+                            anyhow!("unable to get embedding from extracted data {}", e)
+                        })?;
+                    let embeddings = internal_api::ExtractedEmbeddings {
+                        content_id: content_meta.id.to_string(),
+                        embedding: embedding_payload.values,
+                    };
+                    let index_table = output_index_map
+                        .get(&feature.name)
+                        .ok_or(anyhow!("index table not found"))?;
+                    self.vector_index_manager
+                        .add_embedding(index_table, vec![embeddings])
+                        .await
+                        .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
+                }
+                api::FeatureType::Metadata => {
+                    let extracted_attributes = ExtractedMetadata::new(
+                        &content_meta.id,
+                        &content_meta.parent_id,
+                        feature.data.clone(),
+                        extractor_name,
+                        extraction_policy,
+                        &content_meta.namespace,
+                    );
+                    info!("adding metadata to index {}", feature.data.to_string());
+                    self.metadata_index_manager
+                        .add_metadata(&content_meta.namespace, extracted_attributes)
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     pub async fn write_extracted_content(
         &self,
         ingest_metadata: BeginExtractedContentIngest,
@@ -387,11 +427,12 @@ impl DataManager {
     ) -> Result<()> {
         let namespace = ingest_metadata.namespace.clone();
         let mut new_content_metadata = Vec::new();
+        let mut features = HashMap::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
             let size_bytes = content.bytes.len() as u64;
             let content_metadata = self
-                .write_content(
+                .write_content_bytes(
                     namespace.as_str(),
                     content.clone(),
                     None,
@@ -400,60 +441,12 @@ impl DataManager {
                     size_bytes,
                 )
                 .await?;
+            features.insert(content_metadata.id.clone(), content.features.clone());
             new_content_metadata.push(content_metadata.clone());
-            let mut new_embeddings: HashMap<&str, Vec<ExtractedEmbeddings>> = HashMap::new();
-            for feature in content.features {
-                let index_table_name = ingest_metadata
-                    .output_to_index_table_mapping
-                    .get(&feature.name);
-                let index_table_name = unwrap_or_continue!(index_table_name.inspect_none(|| {
-                    error!(
-                        "unable to find index table name for feature {}",
-                        feature.name
-                    )
-                }));
-                match feature.feature_type {
-                    api::FeatureType::Embedding => {
-                        let embedding_payload: internal_api::Embedding =
-                            serde_json::from_value(feature.data).map_err(|e| {
-                                anyhow!("unable to get embedding from extracted data {}", e)
-                            })?;
-                        let embeddings = internal_api::ExtractedEmbeddings {
-                            content_id: content_metadata.id.to_string(),
-                            embedding: embedding_payload.values,
-                        };
-                        new_embeddings
-                            .entry(index_table_name)
-                            .or_default()
-                            .push(embeddings);
-                    }
-                    api::FeatureType::Metadata => {
-                        let extracted_attributes = ExtractedMetadata::new(
-                            &content_metadata.id,
-                            &content_metadata.parent_id,
-                            feature.data.clone(),
-                            "extractor_name",
-                            &ingest_metadata.extraction_policy,
-                            &namespace,
-                        );
-                        info!("adding metadata to index {}", feature.data.to_string());
-                        self.metadata_index_manager
-                            .add_metadata(&namespace, extracted_attributes)
-                            .await?;
-                    }
-                    _ => {}
-                }
-            }
-            for (index_table_name, embeddings) in new_embeddings {
-                self.vector_index_manager
-                    .add_embedding(index_table_name, embeddings)
-                    .await
-                    .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
-            }
         }
         for content_meta in new_content_metadata {
             let req = indexify_coordinator::CreateContentRequest {
-                content: Some(content_meta),
+                content: Some(content_meta.clone()),
             };
             self.coordinator_client
                 .get()
@@ -466,6 +459,14 @@ impl DataManager {
                         e.to_string()
                     )
                 })?;
+            self.write_extracted_features(
+                &ingest_metadata.extractor,
+                &ingest_metadata.extraction_policy,
+                &content_meta,
+                features.get(&content_meta.id).unwrap().clone(),
+                ingest_metadata.output_to_index_table_mapping.clone(),
+            )
+            .await?;
         }
         Ok(())
     }
