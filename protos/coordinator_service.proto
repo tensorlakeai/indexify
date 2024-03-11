@@ -273,6 +273,7 @@ message ContentMetadata {
     int64 created_at = 7;
     string namespace = 8;
     string source = 9;
+    uint64 size_bytes = 10;
 }
 
 message CreateContentRequest {

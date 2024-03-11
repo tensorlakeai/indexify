@@ -18,7 +18,7 @@ use tracing::{error, info};
 
 pub(crate) use crate::unwrap_or_continue;
 use crate::{
-    api::{self, BeginExtractedContentIngest, EmbeddingSchema},
+    api::{self, BeginExtractedContentIngest},
     blob_storage::{BlobStorage, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
@@ -141,27 +141,26 @@ impl DataManager {
             let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
-            let index_schema = match output_schema {
+            let schema_json = serde_json::to_value(&output_schema)?;
+            let _ = match output_schema {
                 internal_api::OutputSchema::Embedding(embedding_schema) => {
                     let _ = self
                         .vector_index_manager
                         .create_index(table_name, embedding_schema.clone())
                         .await?;
-                    serde_json::to_value(&embedding_schema)
                 }
-                internal_api::OutputSchema::Attributes(schema) => {
+                internal_api::OutputSchema::Attributes(_schema) => {
                     let _ = self
                         .metadata_index_manager
                         .create_index(index_name, table_name)
                         .await?;
-                    Ok(schema)
                 }
-            }?;
+            };
             self.create_index_metadata(
                 namespace,
                 index_name,
                 table_name,
-                index_schema,
+                schema_json,
                 &extraction_policy.name,
                 &extractor.name,
             )
@@ -231,8 +230,9 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
+            let size_bytes = text.bytes.len() as u64;
             let content_metadata = self
-                .write_content(namespace, text, None, None, "ingestion")
+                .write_content(namespace, text, None, None, "ingestion", size_bytes)
                 .await?;
             let req: indexify_coordinator::CreateContentRequest =
                 indexify_coordinator::CreateContentRequest {
@@ -289,8 +289,16 @@ impl DataManager {
             labels: HashMap::new(),
             features: vec![],
         };
+        let size_bytes = data.len() as u64;
         let content_metadata = self
-            .write_content(namespace, content, Some(name), None, "ingestion")
+            .write_content(
+                namespace,
+                content,
+                Some(name),
+                None,
+                "ingestion",
+                size_bytes,
+            )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
         let req = indexify_coordinator::CreateContentRequest {
@@ -317,6 +325,7 @@ impl DataManager {
         file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
+        size_bytes: u64,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -349,6 +358,7 @@ impl DataManager {
             namespace: namespace.to_string(),
             labels,
             source: source.to_string(),
+            size_bytes,
         })
     }
 
@@ -380,6 +390,7 @@ impl DataManager {
         let mut new_content_metadata = Vec::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
+            let size_bytes = content.bytes.len() as u64;
             let content_metadata = self
                 .write_content(
                     namespace.as_str(),
@@ -387,6 +398,7 @@ impl DataManager {
                     None,
                     Some(ingest_metadata.parent_content_id.to_string()),
                     &ingest_metadata.extraction_policy,
+                    size_bytes,
                 )
                 .await?;
             new_content_metadata.push(content_metadata.clone());
@@ -473,19 +485,22 @@ impl DataManager {
             .await?
             .list_indexes(req)
             .await?;
-        let indexes = resp
-            .into_inner()
-            .indexes
-            .into_iter()
-            .map(|i| api::Index {
-                name: i.name,
-                schema: api::ExtractorOutputSchema::Embedding(EmbeddingSchema {
-                    dim: 384,
-                    distance: api::IndexDistance::Cosine,
-                }),
-            })
-            .collect();
-        Ok(indexes)
+        let mut api_indexes = Vec::new();
+        for index in resp.into_inner().indexes {
+            let schema: api::ExtractorOutputSchema =
+                serde_json::from_str(&index.schema).map_err(|e| {
+                    anyhow!(
+                        "unable to parse schema for index {} {}",
+                        index.name,
+                        e.to_string()
+                    )
+                })?;
+            api_indexes.push(api::Index {
+                name: index.name,
+                schema,
+            });
+        }
+        Ok(api_indexes)
     }
 
     #[tracing::instrument]

@@ -303,6 +303,7 @@ mod tests {
                 storage_url: "test".to_string(),
                 labels: HashMap::new(),
                 source: "ingestion".to_string(),
+                size_bytes: 100,
             }])
             .await?;
 
@@ -373,6 +374,7 @@ mod tests {
                 storage_url: "test2".to_string(),
                 labels: HashMap::new(),
                 source: "some_extractor_produced_this".to_string(),
+                size_bytes: 100,
             }])
             .await?;
         coordinator.run_scheduler().await?;
