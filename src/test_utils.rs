@@ -88,8 +88,12 @@ impl RaftTestCluster {
             .await
             .ok_or(anyhow::anyhow!("Error getting leader"))?;
 
-        let current_leader = self.nodes.get(&current_leader_id).unwrap_or_else(|| panic!("Expect node {} to be present in the cluster",
-                current_leader_id));
+        let current_leader = self.nodes.get(&current_leader_id).unwrap_or_else(|| {
+            panic!(
+                "Expect node {} to be present in the cluster",
+                current_leader_id
+            )
+        });
         Ok(Arc::clone(current_leader))
     }
 
@@ -241,10 +245,11 @@ impl RaftTestCluster {
             .get(&node_id)
             .unwrap_or_else(|| panic!("Could not find {} in node list", node_id));
 
-        match node.forwardable_raft.raft.ensure_linearizable().await {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        node.forwardable_raft
+            .raft
+            .ensure_linearizable()
+            .await
+            .is_ok()
     }
 
     /// Force the current leader of the cluster to step down
@@ -279,7 +284,7 @@ impl RaftTestCluster {
                         return Ok(true);
                     }
                 }
-                Ok(false)//  expected leader not found, keep looping
+                Ok(false) //  expected leader not found, keep looping
             },
             Duration::from_secs(5),
         )
@@ -289,7 +294,8 @@ impl RaftTestCluster {
 
     /// Get a specific node from the cluster based on the node
     pub fn get_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
-        Ok(Arc::clone(self.nodes.get(&node_id).unwrap_or_else(|| panic!("Could not find {} in node list",
-            node_id))))
+        Ok(Arc::clone(self.nodes.get(&node_id).unwrap_or_else(|| {
+            panic!("Could not find {} in node list", node_id)
+        })))
     }
 }
