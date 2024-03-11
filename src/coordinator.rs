@@ -419,7 +419,6 @@ mod tests {
         //  check leader re-direct
         let alt_node = cluster.get_node(1)?;
         let response = alt_node.check_cluster_membership().await?;
-        println!("The response is {:?}", response);
         assert_eq!(response.handled_by, new_leader_id);
         Ok(())
     }

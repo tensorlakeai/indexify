@@ -6,14 +6,13 @@ use openraft::{
     error::{CheckIsLeaderError, ForwardToLeader, RaftError},
     BasicNode,
 };
-use requests::{RequestPayload, Response};
+use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResponse};
 use tonic::{Request, Status};
 use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
 use crate::{
     grpc_helper::GrpcHelper,
-    state,
     state::{store::requests, Raft},
 };
 
@@ -49,11 +48,9 @@ impl RaftGrpcServer {
         node_id: NodeId,
         address: &str,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        println!("Called add_node_to_cluster_if_absent for node {}", self.id);
         let nodes_in_cluster = self.get_nodes_in_cluster();
         if nodes_in_cluster.contains_key(&node_id) {
-            println!("The node is already present in the cluster");
-            let response = Response {
+            let response = StateMachineUpdateResponse {
                 handled_by: self.id,
             };
             return GrpcHelper::ok_response(response);
@@ -81,7 +78,7 @@ impl RaftGrpcServer {
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
-        let response = Response {
+        let response = StateMachineUpdateResponse {
             handled_by: self.id,
         };
         GrpcHelper::ok_response(response)
@@ -100,9 +97,9 @@ impl RaftGrpcServer {
 
     async fn handle_client_write(
         &self,
-        request: state::store::requests::Request,
+        request: StateMachineUpdateRequest,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let response = Response {
+        let response = StateMachineUpdateResponse {
             handled_by: self.id,
         };
         match self.raft.client_write(request).await {
@@ -125,13 +122,9 @@ impl RaftApi for RaftGrpcServer {
             ));
         };
 
-        let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
+        let req = GrpcHelper::parse_req::<StateMachineUpdateRequest>(request)?;
 
         if let RequestPayload::JoinCluster { node_id, address } = req.payload {
-            println!(
-                "Going to call add_node_to_cluster_if_absent for node {}",
-                self.id
-            );
             return self.add_node_to_cluster_if_absent(node_id, &address).await;
         }
 
@@ -194,7 +187,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let req = GrpcHelper::parse_req::<state::store::requests::Request>(request)?;
+        let req = GrpcHelper::parse_req::<StateMachineUpdateRequest>(request)?;
 
         let RequestPayload::JoinCluster { node_id, address } = req.payload else {
             return Err(GrpcHelper::internal_err("Invalid request"));
@@ -211,7 +204,7 @@ impl RaftApi for RaftGrpcServer {
                 .get(&leader_address)
                 .await
                 .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
-            let forwarding_req = GrpcHelper::encode_raft_request(&requests::Request {
+            let forwarding_req = GrpcHelper::encode_raft_request(&StateMachineUpdateRequest {
                 payload: requests::RequestPayload::JoinCluster { node_id, address },
                 new_state_changes: vec![],
                 state_changes_processed: vec![],

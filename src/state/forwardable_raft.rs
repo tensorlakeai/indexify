@@ -8,15 +8,16 @@ use super::{
     BasicNode,
     NodeId,
     Raft,
-    Request,
     Response,
     SnapshotData,
+    StateMachineUpdateRequest,
     TokioRuntime,
 };
+use crate::state::store::requests::StateMachineUpdateResponse;
 
 openraft::declare_raft_types!(
   pub TypeConfig:
-      D = Request,
+      D = StateMachineUpdateRequest,
       R = Response,
       NodeId = NodeId,
       Node = BasicNode,
@@ -25,17 +26,22 @@ openraft::declare_raft_types!(
       AsyncRuntime = TokioRuntime
 );
 
+#[derive(Clone)]
 pub struct ForwardableRaft {
-    raft: Raft,
+    id: NodeId,
+    pub raft: Raft, //  the OpenRaft instance
     network: Network,
 }
 
 impl ForwardableRaft {
-    pub fn new(raft: Raft, network: Network) -> Self {
-        Self { raft, network }
+    pub fn new(id: NodeId, raft: Raft, network: Network) -> Self {
+        Self { id, raft, network }
     }
 
-    pub async fn client_write(&self, request: Request) -> anyhow::Result<()> {
+    pub async fn client_write(
+        &self,
+        request: StateMachineUpdateRequest,
+    ) -> anyhow::Result<StateMachineUpdateResponse> {
         //  check whether this node is not the leader
         if let Some(forward_to_leader) = self.ensure_leader().await? {
             let leader_address = forward_to_leader
@@ -45,7 +51,10 @@ impl ForwardableRaft {
         }
 
         self.raft.client_write(request).await?;
-        Ok(())
+        let response = StateMachineUpdateResponse {
+            handled_by: self.id,
+        };
+        Ok(response)
     }
 
     pub async fn shutdown(

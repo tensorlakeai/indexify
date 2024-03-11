@@ -1,7 +1,6 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use indexify_proto::indexify_raft::RaftReply;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -15,14 +14,14 @@ use openraft::{
     },
     BasicNode,
 };
-use tonic::{IntoRequest, Response};
+use tonic::IntoRequest;
 
-use super::store::requests::Response as RequestResponse;
+use super::store::requests::StateMachineUpdateResponse;
 use crate::{
     grpc_helper::GrpcHelper,
     state::{
         raft_client::RaftClient,
-        store::requests::{Request, RequestPayload},
+        store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
         NodeId,
         TypeConfig,
@@ -53,7 +52,13 @@ impl Network {
         Self { raft_client }
     }
 
-    pub async fn forward(&self, target_addr: &str, request: Request) -> Result<(), anyhow::Error> {
+    /// This method is used when a state machine request was received by a
+    /// non-leader node to forward it to a leader node
+    pub async fn forward(
+        &self,
+        target_addr: &str,
+        request: StateMachineUpdateRequest,
+    ) -> Result<StateMachineUpdateResponse, anyhow::Error> {
         let mut client = self
             .raft_client
             .get(target_addr)
@@ -62,27 +67,38 @@ impl Network {
 
         let tonic_request = GrpcHelper::encode_raft_request(&request)?.into_request();
 
-        client
+        let response = client
             .forward(tonic_request)
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
-        Ok(())
+        let result: Result<StateMachineUpdateResponse, _> =
+            serde_json::from_str(&response.into_inner().data);
+        let reply = result.map_err(|e| {
+            anyhow::anyhow!(format!(
+                "Failed to parse the response received from forwarding a state machine request: {}",
+                e.to_string()
+            ))
+        })?;
+
+        Ok(reply)
     }
 
+    /// This method is used to allow a node to try to join the main cluster
+    /// after it comes up. The node makes this request periodically
     pub async fn join_cluster(
         &self,
         node_id: NodeId,
         node_addr: &str,
         target_addr: &str,
-    ) -> Result<RequestResponse, anyhow::Error> {
+    ) -> Result<StateMachineUpdateResponse, anyhow::Error> {
         let mut client = self
             .raft_client
             .get(target_addr)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
 
-        let request = GrpcHelper::encode_raft_request(&Request {
+        let request = GrpcHelper::encode_raft_request(&StateMachineUpdateRequest {
             payload: RequestPayload::JoinCluster {
                 node_id,
                 address: node_addr.into(),
@@ -96,8 +112,14 @@ impl Network {
             .join_cluster(request)
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
-        let result: Result<RequestResponse, _> = serde_json::from_str(&response.into_inner().data);
-        let reply = result.map_err(|e| anyhow::anyhow!("Failed to parse the repsonse"))?;
+
+        let reply = serde_json::from_str::<StateMachineUpdateResponse>(&response.into_inner().data)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to parse the response received from sending a join_cluster request: {}",
+                    e.to_string()
+                )
+            })?;
 
         Ok(reply)
     }

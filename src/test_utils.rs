@@ -5,12 +5,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use futures::Future;
 use indexify_internal_api::Index;
 
 use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
-        store::requests::{Request, RequestPayload},
+        store::requests::{RequestPayload, StateMachineUpdateRequest},
         App,
         NodeId,
     },
@@ -61,6 +62,7 @@ impl RaftTestCluster {
     /// BTreeMap of nodes
     fn is_node_initialized(&self, node: Arc<App>) -> bool {
         let num_of_nodes_in_cluster = node
+            .forwardable_raft
             .raft
             .metrics()
             .borrow()
@@ -81,6 +83,7 @@ impl RaftTestCluster {
             .expect("Expect seed node to be present");
 
         let current_leader_id = seed_node
+            .forwardable_raft
             .raft
             .current_leader()
             .await
@@ -116,9 +119,9 @@ impl RaftTestCluster {
     }
 
     /// Send the current write to the leader of the cluster
-    async fn send_write_to_leader(&self, request: Request) -> anyhow::Result<()> {
+    async fn send_write_to_leader(&self, request: StateMachineUpdateRequest) -> anyhow::Result<()> {
         let leader = self.get_current_leader().await?;
-        leader.raft.client_write(request).await?;
+        leader.forwardable_raft.client_write(request).await?;
         Ok(())
     }
 
@@ -191,36 +194,61 @@ impl RaftTestCluster {
     /// This function will send a write request to the cluster and then
     /// check if the write can be read back from any node it takes a
     /// to_leader value to indicate whether this write should go to the
-    /// leader or not NOTE: Currently, this is exclusive to creating
-    /// and reading an index. Need to generalise it using generics
-    pub async fn read_own_write(&self, _to_leader: bool) -> anyhow::Result<()> {
-        let request = Request {
-            payload: RequestPayload::CreateIndex {
-                index: Index::default(),
-                namespace: "namespace".into(),
-                id: "id".into(),
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
+    /// leader or not
+    /// NOTE: Currently, this is exclusive to creating and reading an index.
+    /// Need to generalise it using generics
+    pub async fn read_own_write<F, Fut>(
+        &self,
+        request: StateMachineUpdateRequest,
+        read_back: F,
+        _to_leader: bool,
+    ) -> anyhow::Result<()>
+    where
+        F: Fn(Arc<App>) -> Fut,
+        Fut: Future<Output = anyhow::Result<bool>>,
+    {
         self.send_write_to_leader(request).await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         self.wait_until_future(
             || async {
                 let non_leader_node = self.get_non_leader_node().await;
-                match non_leader_node.get_index("id").await {
-                    Ok(read_result) if read_result == Index::default() => Ok(true),
-                    Ok(_) => Ok(false),
-                    Err(e) => Err(e),
-                }
+                read_back(non_leader_node).await
             },
             Duration::from_secs(2),
         )
         .await?;
-
         Ok(())
     }
+
+    // pub async fn read_own_write(&self, _to_leader: bool) -> anyhow::Result<()> {
+    //     let request = StateMachineUpdateRequest {
+    //         payload: RequestPayload::CreateIndex {
+    //             index: Index::default(),
+    //             namespace: "namespace".into(),
+    //             id: "id".into(),
+    //         },
+    //         new_state_changes: vec![],
+    //         state_changes_processed: vec![],
+    //     };
+    //     self.send_write_to_leader(request).await?;
+    //     tokio::time::sleep(Duration::from_secs(2)).await;
+
+    //     self.wait_until_future(
+    //         || async {
+    //             let non_leader_node = self.get_non_leader_node().await;
+    //             match non_leader_node.get_index("id").await {
+    //                 Ok(read_result) if read_result == Index::default() =>
+    // Ok(true),                 Ok(_) => Ok(false),
+    //                 Err(e) => Err(e),
+    //             }
+    //         },
+    //         Duration::from_secs(2),
+    //     )
+    //     .await?;
+
+    //     Ok(())
+    // }
 
     /// Check that the node id provided corresponds to the leader of the cluster
     pub async fn assert_is_leader(&self, node_id: NodeId) -> bool {
@@ -229,7 +257,7 @@ impl RaftTestCluster {
             .get(&node_id)
             .expect(&format!("Could not find {} in node list", node_id));
 
-        match node.raft.ensure_linearizable().await {
+        match node.forwardable_raft.raft.ensure_linearizable().await {
             Ok(_) => return true,
             Err(_) => return false,
         }
@@ -238,7 +266,11 @@ impl RaftTestCluster {
     /// Force the current leader of the cluster to step down
     pub async fn force_current_leader_abdication(&self) -> anyhow::Result<()> {
         let current_leader = self.get_current_leader().await?;
-        current_leader.raft.runtime_config().heartbeat(false);
+        current_leader
+            .forwardable_raft
+            .raft
+            .runtime_config()
+            .heartbeat(false);
         tokio::time::sleep(Duration::from_secs(1)).await; //  wait for long enough that election timeout occurs
         Ok(())
     }
@@ -249,7 +281,12 @@ impl RaftTestCluster {
             .nodes
             .get(&node_id)
             .expect(&format!("Could not find {} in node list", node_id));
-        node_to_promote.raft.trigger().elect().await?;
+        node_to_promote
+            .forwardable_raft
+            .raft
+            .trigger()
+            .elect()
+            .await?;
         tokio::time::sleep(Duration::from_secs(5)).await; //  TODO: Why do I need a timeout here at all?
         self.wait_until_future(
             || async {
