@@ -220,7 +220,9 @@ impl RaftTestCluster {
         if to_leader {
             self.send_write_to_leader(request).await?;
         } else {
-            self.send_write_to_non_leader(request).await?;
+            let response = self.send_write_to_non_leader(request).await?;
+            let current_leader = self.get_current_leader().await?;
+            assert_eq!(response.handled_by, current_leader.id);
         }
         self.wait_until_future(
             || async {
@@ -274,7 +276,7 @@ impl RaftTestCluster {
             .trigger()
             .elect()
             .await?;
-        tokio::time::sleep(Duration::from_secs(5)).await; //  TODO: Why do I need a timeout here at all?
+
         self.wait_until_future(
             || async {
                 if let Ok(current_leader) = self.get_current_leader().await {
