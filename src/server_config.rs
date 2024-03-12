@@ -1,6 +1,5 @@
 use std::{
-    fmt,
-    fs,
+    fmt, fs,
     net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
 };
@@ -498,7 +497,6 @@ mod tests {
     fn parse_config() {
         // Uses the sample config file to test the config parsing
         let config = super::ServerConfig::from_path("sample_config.yaml").unwrap();
-        println!("The config {:#?}", config);
         assert_eq!(
             config.index_config.index_store,
             super::IndexStoreKind::PgVector
