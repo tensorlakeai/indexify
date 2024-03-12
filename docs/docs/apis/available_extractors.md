@@ -4,7 +4,7 @@ Indexify comes with some pre-built extractors that you can download and deploy w
 
 
 ## Embedding Extractors
-#### [Clip](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding-extractors/clip)
+#### [OpenAI Clip](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding-extractors/clip)
 This extractor utilizes OpenAI's CLIP model to generate embeddings for both images and text.
 
 
