@@ -126,7 +126,6 @@ impl App {
             election_timeout_min: 1500,
             election_timeout_max: 3000,
             enable_heartbeat: true,
-            snapshot_policy: openraft::SnapshotPolicy::LogsSinceLast(1),
             ..Default::default()
         };
 
