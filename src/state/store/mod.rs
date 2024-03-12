@@ -1,13 +1,14 @@
 use std::{
     fmt::Debug,
     fs::{self, File},
-    io::{Cursor, Read, Write},
+    io::{BufReader, Cursor, Read, Write},
     ops::RangeBounds,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::StateChange;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
@@ -173,16 +174,23 @@ impl StateMachineStore {
             return Ok(None);
         }
 
-        let mut file = File::open(&self.snapshot_file_path).map_err(|e| StorageError::IO {
+        let file = File::open(&self.snapshot_file_path).map_err(|e| StorageError::IO {
             source: StorageIOError::read(&e),
         })?;
-        let mut serialized_data = Vec::new();
-        file.read_to_end(&mut serialized_data)
+
+        //  Decompress the data with ZLib decoder
+        let buf_reader = BufReader::new(file);
+        let mut decoder = ZlibDecoder::new(buf_reader);
+        let mut decompressed_data = Vec::new();
+        decoder
+            .read_to_end(&mut decompressed_data)
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?;
+
+        //  deserialize the data and return it
         let snapshot: StoredSnapshot =
-            serde_json::from_slice(&serialized_data).map_err(|e| StorageError::IO {
+            serde_json::from_slice(&decompressed_data).map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?;
         Ok(Some(snapshot))
@@ -192,13 +200,33 @@ impl StateMachineStore {
     /// InstallSnapshot RPC and is used to write the snapshot to disk
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
         debug!("Called set_current_snapshot_");
-        let serialized_data = serde_json::to_vec(&snap).unwrap();
+
+        //  Serialize the data into JSON bytes
+        let serialized_data = serde_json::to_vec(&snap).map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
+        let uncompressed_size = serialized_data.len();
+
+        //  Compress the serialized meta and data using Zlib
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(&serialized_data)
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+            })?;
+        let compressed_data = encoder.finish().map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
+        let compressed_size = compressed_data.len();
+
+        //  Create a temp file, write to temp file and then swap inode pointers
         let temp_file_path = self.snapshot_file_path.with_extension("tmp");
         let mut temp_file = File::create(&temp_file_path).map_err(|e| StorageError::IO {
             source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
         })?;
         temp_file
-            .write_all(&serialized_data)
+            .write_all(&compressed_data)
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
             })?;
@@ -208,6 +236,16 @@ impl StateMachineStore {
         fs::rename(&temp_file_path, &self.snapshot_file_path).map_err(|e| StorageError::IO {
             source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
         })?;
+
+        // Calculate compression ratio or percentage
+        let compression_ratio = compressed_size as f64 / uncompressed_size as f64;
+        let compression_percentage = (1.0 - compression_ratio) * 100.0;
+
+        debug!("Uncompressed size: {} bytes", uncompressed_size);
+        debug!("Compressed size: {} bytes", compressed_size);
+        debug!("Compression ratio: {:.2}", compression_ratio);
+        debug!("Compressed by: {:.2}%", compression_percentage);
+
         Ok(())
     }
 }
@@ -565,36 +603,20 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
-    use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
+    use openraft::SnapshotPolicy;
 
-    use crate::{state, test_utils::RaftTestCluster};
+    use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
 
+    /// This is a dummy test which forces building a snapshot on the cluster by passing in some overrides
+    /// Manually check that the snapshot file was actually created. Still need to find a way to force reading and deserialization
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
-        let cluster = RaftTestCluster::new(3).await?;
+        let raft_overrides = RaftConfigOverrides {
+            snapshot_policy: Some(SnapshotPolicy::LogsSinceLast(1)),
+        };
+        let cluster = RaftTestCluster::new(3, Some(raft_overrides)).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        println!("Installing snapshot");
-        let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
-            InstallSnapshotRequest {
-                vote: Vote::new_committed(2, 1),
-                meta: SnapshotMeta {
-                    snapshot_id: "ss1".into(),
-                    last_log_id: Some(log_id(1, 0, 0)),
-                    last_membership: Default::default(),
-                },
-                offset: 0,
-                data: vec![1, 2, 3],
-                done: false,
-            };
-        let node = cluster.get_node(2)?;
-        let response = node
-            .forwardable_raft
-            .raft
-            .install_snapshot(install_snapshot_req)
-            .await;
-        println!("The response is: {:#?}", response);
-
         Ok(())
     }
 }

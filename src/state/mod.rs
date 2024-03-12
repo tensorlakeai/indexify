@@ -106,16 +106,31 @@ pub struct App {
     pub network: Network,
     pub node_addr: String,
 }
+#[derive(Clone)]
+pub struct RaftConfigOverrides {
+    snapshot_policy: Option<openraft::SnapshotPolicy>,
+}
 
 impl App {
-    pub async fn new(server_config: Arc<ServerConfig>) -> Result<Arc<Self>> {
-        let raft_config = openraft::Config {
+    pub async fn new(
+        server_config: Arc<ServerConfig>,
+        overrides: Option<RaftConfigOverrides>,
+    ) -> Result<Arc<Self>> {
+        let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
             election_timeout_min: 1500,
             election_timeout_max: 3000,
             enable_heartbeat: true,
+            snapshot_policy: openraft::SnapshotPolicy::LogsSinceLast(1),
             ..Default::default()
         };
+
+        // Apply any overrides provided
+        if let Some(overrides) = overrides {
+            if let Some(snapshot_policy) = overrides.snapshot_policy {
+                raft_config.snapshot_policy = snapshot_policy;
+            }
+        }
 
         let config = Arc::new(
             raft_config
@@ -917,7 +932,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_basic_read_own_write() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {
@@ -943,7 +958,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_read_own_write_forwarding() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {

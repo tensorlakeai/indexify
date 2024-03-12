@@ -11,8 +11,7 @@ use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App,
-        NodeId,
+        App, NodeId, RaftConfigOverrides,
     },
 };
 
@@ -157,13 +156,16 @@ impl RaftTestCluster {
 
     /// Create and return a new instance of the TestRaftCluster. The size of
     /// the cluster will be determined by the number of nodes passed in
-    pub async fn new(num_of_nodes: usize) -> anyhow::Result<Self> {
+    pub async fn new(
+        num_of_nodes: usize,
+        overrides: Option<RaftConfigOverrides>,
+    ) -> anyhow::Result<Self> {
         let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
         let seed_node_id = server_configs.first().unwrap().node_id; //  the seed node will always be the first node in the list
         let mut nodes = BTreeMap::new();
         for config in server_configs {
             let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-            let shared_state = App::new(config.clone()).await?;
+            let shared_state = App::new(config.clone(), overrides.clone()).await?;
             nodes.insert(config.node_id, shared_state);
         }
         Ok(Self {
