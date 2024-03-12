@@ -82,7 +82,7 @@ state_store:
 
 # provide a path to where the state machine will be written as a json blob
 state_machine_blob_store:
-  path: /tmp/indexy-state-machine-blob
+  path: /tmp/indexify-state-machine-blob
 
 metadata_storage:
   metadata_store: sqlite
