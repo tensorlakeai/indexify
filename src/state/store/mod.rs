@@ -12,9 +12,21 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::StateChange;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
 use serde::{Deserialize, Serialize};
@@ -607,8 +619,10 @@ mod tests {
 
     use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
 
-    /// This is a dummy test which forces building a snapshot on the cluster by passing in some overrides
-    /// Manually check that the snapshot file was actually created. Still need to find a way to force reading and deserialization
+    /// This is a dummy test which forces building a snapshot on the cluster by
+    /// passing in some overrides Manually check that the snapshot file was
+    /// actually created. Still need to find a way to force reading and
+    /// deserialization
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {

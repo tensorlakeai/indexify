@@ -19,17 +19,22 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex, RwLock,
+        Mutex,
+        RwLock,
     },
     task::JoinHandle,
 };
