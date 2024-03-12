@@ -76,7 +76,7 @@ cache:
   memory:
     max_size: 1000000
 
-# provide a path to storing indexify's internal state
+# provide a path to storing indexify's internal state (this includes the database + blob store for state machine)
 state_store:
   path: /tmp/indexify-state
 

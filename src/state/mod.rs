@@ -111,16 +111,30 @@ pub struct App {
     pub network: Network,
     pub node_addr: String,
 }
+#[derive(Clone)]
+pub struct RaftConfigOverrides {
+    snapshot_policy: Option<openraft::SnapshotPolicy>,
+}
 
 impl App {
-    pub async fn new(server_config: Arc<ServerConfig>) -> Result<Arc<Self>> {
-        let raft_config = openraft::Config {
+    pub async fn new(
+        server_config: Arc<ServerConfig>,
+        overrides: Option<RaftConfigOverrides>,
+    ) -> Result<Arc<Self>> {
+        let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
             election_timeout_min: 1500,
             election_timeout_max: 3000,
             enable_heartbeat: true,
             ..Default::default()
         };
+
+        // Apply any overrides provided
+        if let Some(overrides) = overrides {
+            if let Some(snapshot_policy) = overrides.snapshot_policy {
+                raft_config.snapshot_policy = snapshot_policy;
+            }
+        }
 
         let config = Arc::new(
             raft_config
@@ -133,8 +147,12 @@ impl App {
             .clone()
             .unwrap_or_default()
             .clone();
-        let db_path: &Path = Path::new(db_path.as_str());
-        let (log_store, state_machine) = new_storage(db_path).await;
+        let db_path_str = db_path.as_str().to_owned() + "/db";
+        let sm_blob_store_path_str = db_path.as_str().to_owned() + "/sm-blob";
+        let db_path: &Path = Path::new(&db_path_str);
+        let sm_blob_store_path: &Path = Path::new(&sm_blob_store_path_str);
+
+        let (log_store, state_machine) = new_storage(db_path, sm_blob_store_path).await;
         let state_change_rx = state_machine.state_change_rx.clone();
 
         let indexify_state = state_machine.data.indexify_state.clone();
@@ -918,7 +936,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_basic_read_own_write() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {
@@ -944,7 +962,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_read_own_write_forwarding() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {

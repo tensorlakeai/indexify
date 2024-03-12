@@ -356,7 +356,7 @@ mod tests {
     async fn test_plan_allocations_empty() {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
-        let shared_state = App::new(config).await.unwrap();
+        let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let _coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
         let sm = shared_state.indexify_state.read().await;
@@ -378,7 +378,7 @@ mod tests {
     async fn test_allocate_task() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
-        let shared_state = App::new(config).await.unwrap();
+        let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
@@ -408,7 +408,7 @@ mod tests {
     async fn test_round_robin_distribution() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
-        let shared_state = App::new(config).await.unwrap();
+        let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         let text_extractor = {
@@ -496,7 +496,7 @@ mod tests {
     async fn test_balance_imbalanced_executors() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
-        let shared_state = App::new(config).await.unwrap();
+        let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         let text_extractor = {
@@ -606,7 +606,7 @@ mod tests {
         assert_eq!(total_tasks % 200, 0);
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
-        let shared_state = App::new(config).await.unwrap();
+        let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         let text_extractor = {

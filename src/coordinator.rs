@@ -284,7 +284,7 @@ mod tests {
     async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config).await.unwrap();
+        let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
@@ -396,7 +396,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(5).await?;
+        let cluster = RaftTestCluster::new(5, None).await?;
         cluster.initialize(Duration::from_secs(10)).await?;
         Ok(())
     }
@@ -404,7 +404,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_leader_redirect() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(5)).await?;
 
         //  assert that the seed node is the current leader
