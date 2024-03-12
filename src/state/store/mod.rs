@@ -1,7 +1,7 @@
 use std::{
     fmt::Debug,
-    fs::File,
-    io::{Cursor, Write},
+    fs::{self, File},
+    io::{Cursor, Read, Write},
     ops::RangeBounds,
     path::{Path, PathBuf},
     sync::Arc,
@@ -64,7 +64,7 @@ pub struct StateMachineStore {
     snapshot_idx: u64,
 
     /// State machine stores snapshot in db.
-    db: Arc<DB>,
+    _db: Arc<DB>,
 
     pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
 
@@ -134,7 +134,7 @@ impl StateMachineStore {
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
             snapshot_idx: 0,
-            db,
+            _db: db,
             state_change_rx: rx,
             snapshot_file_path,
         };
@@ -165,33 +165,45 @@ impl StateMachineStore {
     }
 
     fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
-        Ok(self
-            .db
-            .get_cf(self.store(), b"snapshot")
+        if !self.snapshot_file_path.exists() {
+            return Ok(None);
+        }
+
+        let mut file = File::open(&self.snapshot_file_path).map_err(|e| StorageError::IO {
+            source: StorageIOError::read(&e),
+        })?;
+        let mut serialized_data = Vec::new();
+        file.read_to_end(&mut serialized_data)
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
-            })?
-            .and_then(|v| serde_json::from_slice(&v).ok()))
+            })?;
+        let snapshot: StoredSnapshot =
+            serde_json::from_slice(&serialized_data).map_err(|e| StorageError::IO {
+                source: StorageIOError::read(&e),
+            })?;
+        Ok(Some(snapshot))
     }
 
     /// This method is called when a new snapshot is received via
     /// InstallSnapshot RPC and is used to write the snapshot to disk
-    // TODO - Write the snapshot to disk instead of the database
-    //  NOTE: Write to a new file and mv the new file to the old file and swap the inode pointers
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
         let serialized_data = serde_json::to_vec(&snap).unwrap();
-        let mut file = File::create(&self.snapshot_file_path).map_err(|e| StorageError::IO {
+        let temp_file_path = self.snapshot_file_path.with_extension("tmp");
+        let mut temp_file = File::create(&temp_file_path).map_err(|e| StorageError::IO {
             source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
         })?;
-        file.write_all(&serialized_data)
+        temp_file
+            .write_all(&serialized_data)
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
             })?;
+        temp_file.sync_all().map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
+        fs::rename(&temp_file_path, &self.snapshot_file_path).map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
         Ok(())
-    }
-
-    fn store(&self) -> &ColumnFamily {
-        self.db.cf_handle("store").unwrap()
     }
 }
 
@@ -545,6 +557,8 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
 
     use crate::{state, test_utils::RaftTestCluster};
@@ -553,6 +567,8 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
         let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        println!("Installing snapshot");
         let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
             InstallSnapshotRequest {
                 vote: Vote::new_committed(2, 1),
@@ -561,7 +577,7 @@ mod tests {
                     last_log_id: Some(log_id(1, 0, 0)),
                     last_membership: Default::default(),
                 },
-                offset: 2,
+                offset: 0,
                 data: vec![1, 2, 3],
                 done: false,
             };
