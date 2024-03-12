@@ -76,13 +76,9 @@ cache:
   memory:
     max_size: 1000000
 
-# provide a path to storing indexify's internal state
+# provide a path to storing indexify's internal state (this includes the database + blob store for state machine)
 state_store:
   path: /tmp/indexify-state
-
-# provide a path to where the state machine will be written as a json blob
-state_machine_blob_store:
-  path: /tmp/indexify-state-machine-blob
 
 metadata_storage:
   metadata_store: sqlite

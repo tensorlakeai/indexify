@@ -18,6 +18,7 @@ use openraft::{
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use tracing::debug;
 
 type Node = BasicNode;
 
@@ -85,6 +86,7 @@ pub struct StateMachineData {
 
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
+        debug!("Called build_snapshot");
         let last_applied_log = self.data.last_applied_log_id;
         let last_membership = self.data.last_membership.clone();
 
@@ -165,7 +167,9 @@ impl StateMachineStore {
     }
 
     fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
+        debug!("Called get_current_snapshot_");
         if !self.snapshot_file_path.exists() {
+            debug!("The snapshot file does not exist");
             return Ok(None);
         }
 
@@ -187,6 +191,7 @@ impl StateMachineStore {
     /// This method is called when a new snapshot is received via
     /// InstallSnapshot RPC and is used to write the snapshot to disk
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
+        debug!("Called set_current_snapshot_");
         let serialized_data = serde_json::to_vec(&snap).unwrap();
         let temp_file_path = self.snapshot_file_path.with_extension("tmp");
         let mut temp_file = File::create(&temp_file_path).map_err(|e| StorageError::IO {
@@ -269,7 +274,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
-        println!("Received a new snapshot");
+        debug!("Called install_snapshot");
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
@@ -285,6 +290,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
+        debug!("Called get_current_snapshot");
         let x = self.get_current_snapshot_()?;
         Ok(x.map(|s| Snapshot {
             meta: s.meta.clone(),

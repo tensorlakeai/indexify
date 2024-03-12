@@ -419,8 +419,6 @@ pub struct ServerConfig {
     pub cache: ServerCacheConfig,
     #[serde(default)]
     pub state_store: StateStoreConfig,
-    #[serde(default)]
-    pub state_machine_blob_store: StateMachineBlobStoreConfig,
 }
 
 impl Default for ServerConfig {
@@ -445,7 +443,6 @@ impl Default for ServerConfig {
             node_id: 0,
             cache: ServerCacheConfig::default(),
             state_store: StateStoreConfig::default(),
-            state_machine_blob_store: StateMachineBlobStoreConfig::default(),
         }
     }
 }
