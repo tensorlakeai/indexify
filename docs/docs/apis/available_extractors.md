@@ -2,7 +2,12 @@
 
 Indexify comes with some pre-built extractors that you can download and deploy with your installation. We keep these extractors always updated with new releases of models and our internal code.
 
+
 ## Embedding Extractors
+#### [Clip](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding-extractors/clip)
+This extractor utilizes OpenAI's CLIP model to generate embeddings for both images and text.
+
+
 #### [ColBERT](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding-extractors/colbert)
 This ColBERTv2-based extractor is a Python class that encapsulates the functionality to convert text inputs into vector embeddings using the ColBERTv2 model. It leverages ColBERTv2's transformer-based architecture to generate context-aware embeddings suitable for various natural language processing tasks.
 
@@ -47,6 +52,12 @@ chunks with timestamps are represented as metadata of the content.
 ## Video
 #### [Frames](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/frames)
 Dissect a video into its individual frames and generate JPEG image content for each extracted frame. Comes with frame frequency and scene detection configuration that can be changed with input parameters.
+
+#### [Audio](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/audio-extractor)
+Extract the audio from a video file.
+
+#### [Face](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/face-extractor)
+Extract unique faces from video. This extractor uses face_detection to locate and extract facial features and sklearn DBSCAN to cluster and find uniqueness.
 
 
 ## Invoice
