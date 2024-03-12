@@ -360,19 +360,6 @@ impl Default for StateStoreConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateMachineBlobStoreConfig {
-    pub path: Option<String>,
-}
-
-impl Default for StateMachineBlobStoreConfig {
-    fn default() -> Self {
-        Self {
-            path: Some("/tmp/indexy-state-machine-blob".to_string()),
-        }
-    }
-}
-
 /// ServerCacheBackend is an enum that represents the different cache backends
 /// supported by the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
