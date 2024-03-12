@@ -43,6 +43,12 @@ Works best with scientific text embedding extraction.
 This extractor converts extracts transcriptions from audio. The entire text and
 chunks with timestamps are represented as metadata of the content.
 
+
+## Video
+#### [Frames](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/frames)
+Dissect a video into its individual frames and generate JPEG image content for each extracted frame. Comes with frame frequency and scene detection configuration that can be changed with input parameters.
+
+
 ## Invoice
 #### [Donut CORD](https://github.com/tensorlakeai/indexify-extractors/tree/main/invoice-extractor/donut_cord)
 This extractor parses pdf or image form of invoice which is provided in JSON format. It uses the pre-trained [donut cord fine-tune model from huggingface](https://huggingface.co/naver-clova-ix/donut-base-finetuned-cord-v2).
@@ -51,6 +57,7 @@ This model is specially good at extracting list of product and its price from in
 #### [Donut Invoice](https://github.com/tensorlakeai/indexify-extractors/tree/main/invoice-extractor/donut_invoice)
 This extractor parses some invoice-related data from a PDF.
 It uses the pre-trained [donut model from huggingface](https://huggingface.co/docs/transformers/model_doc/donut).
+
 
 ## Web Extractors
 
