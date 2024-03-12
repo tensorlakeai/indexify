@@ -1,24 +1,19 @@
-use std::{fmt::Debug, io::Cursor, ops::RangeBounds, path::Path, sync::Arc};
+use std::{
+    fmt::Debug,
+    fs::{self, File},
+    io::{Cursor, Read, Write},
+    ops::RangeBounds,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use indexify_internal_api::StateChange;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
 use serde::{Deserialize, Serialize};
@@ -69,9 +64,11 @@ pub struct StateMachineStore {
     snapshot_idx: u64,
 
     /// State machine stores snapshot in db.
-    db: Arc<DB>,
+    _db: Arc<DB>,
 
     pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+
+    snapshot_file_path: PathBuf,
 }
 
 #[derive(Clone)]
@@ -124,7 +121,10 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
 }
 
 impl StateMachineStore {
-    async fn new(db: Arc<DB>) -> Result<StateMachineStore, StorageError<NodeId>> {
+    async fn new(
+        db: Arc<DB>,
+        snapshot_file_path: PathBuf,
+    ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
         let mut sm = Self {
             data: StateMachineData {
@@ -134,8 +134,9 @@ impl StateMachineStore {
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
             snapshot_idx: 0,
-            db,
+            _db: db,
             state_change_rx: rx,
+            snapshot_file_path,
         };
 
         let snapshot = sm.get_current_snapshot_()?;
@@ -146,6 +147,8 @@ impl StateMachineStore {
         Ok(sm)
     }
 
+    /// This method is used to update the in-memory state machine when a new
+    /// state machine is provided via the InstallSnapshot RPC
     async fn update_state_machine_(
         &mut self,
         snapshot: StoredSnapshot,
@@ -162,46 +165,45 @@ impl StateMachineStore {
     }
 
     fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
-        Ok(self
-            .db
-            .get_cf(self.store(), b"snapshot")
+        if !self.snapshot_file_path.exists() {
+            return Ok(None);
+        }
+
+        let mut file = File::open(&self.snapshot_file_path).map_err(|e| StorageError::IO {
+            source: StorageIOError::read(&e),
+        })?;
+        let mut serialized_data = Vec::new();
+        file.read_to_end(&mut serialized_data)
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
-            })?
-            .and_then(|v| serde_json::from_slice(&v).ok()))
+            })?;
+        let snapshot: StoredSnapshot =
+            serde_json::from_slice(&serialized_data).map_err(|e| StorageError::IO {
+                source: StorageIOError::read(&e),
+            })?;
+        Ok(Some(snapshot))
     }
 
-    // TODO - Write the snapshot to disk instead of the database
+    /// This method is called when a new snapshot is received via
+    /// InstallSnapshot RPC and is used to write the snapshot to disk
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
-        self.db
-            .put_cf(
-                self.store(),
-                b"snapshot",
-                serde_json::to_vec(&snap).unwrap().as_slice(),
-            )
+        let serialized_data = serde_json::to_vec(&snap).unwrap();
+        let temp_file_path = self.snapshot_file_path.with_extension("tmp");
+        let mut temp_file = File::create(&temp_file_path).map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
+        temp_file
+            .write_all(&serialized_data)
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
             })?;
-        self.flush(
-            ErrorSubject::Snapshot(Some(snap.meta.signature())),
-            ErrorVerb::Write,
-        )?;
+        temp_file.sync_all().map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
+        fs::rename(&temp_file_path, &self.snapshot_file_path).map_err(|e| StorageError::IO {
+            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
+        })?;
         Ok(())
-    }
-
-    fn flush(
-        &self,
-        subject: ErrorSubject<NodeId>,
-        verb: ErrorVerb,
-    ) -> Result<(), StorageIOError<NodeId>> {
-        self.db
-            .flush_wal(true)
-            .map_err(|e| StorageIOError::new(subject, verb, AnyError::new(&e)))?;
-        Ok(())
-    }
-
-    fn store(&self) -> &ColumnFamily {
-        self.db.cf_handle("store").unwrap()
     }
 }
 
@@ -267,6 +269,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
+        println!("Received a new snapshot");
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
@@ -529,7 +532,10 @@ impl RaftLogStorage<TypeConfig> for LogStore {
     }
 }
 
-pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateMachineStore) {
+pub(crate) async fn new_storage<P: AsRef<Path>>(
+    db_path: P,
+    snapshot_path: P,
+) -> (LogStore, StateMachineStore) {
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);
@@ -541,7 +547,48 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, StateM
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };
-    let sm_store = StateMachineStore::new(db).await.unwrap();
+
+    let snapshot_path = PathBuf::from(snapshot_path.as_ref());
+
+    let sm_store = StateMachineStore::new(db, snapshot_path).await.unwrap();
 
     (log_store, sm_store)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
+
+    use crate::{state, test_utils::RaftTestCluster};
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_install_snapshot() -> anyhow::Result<()> {
+        let cluster = RaftTestCluster::new(3).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        println!("Installing snapshot");
+        let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
+            InstallSnapshotRequest {
+                vote: Vote::new_committed(2, 1),
+                meta: SnapshotMeta {
+                    snapshot_id: "ss1".into(),
+                    last_log_id: Some(log_id(1, 0, 0)),
+                    last_membership: Default::default(),
+                },
+                offset: 0,
+                data: vec![1, 2, 3],
+                done: false,
+            };
+        let node = cluster.get_node(2)?;
+        let response = node
+            .forwardable_raft
+            .raft
+            .install_snapshot(install_snapshot_req)
+            .await;
+        println!("The response is: {:#?}", response);
+
+        Ok(())
+    }
 }

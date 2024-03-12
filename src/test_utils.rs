@@ -292,7 +292,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
-    /// Get a specific node from the cluster based on the node
+    /// Get a specific node from the cluster based on the node id
     pub fn get_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
         Ok(Arc::clone(self.nodes.get(&node_id).unwrap_or_else(|| {
             panic!("Could not find {} in node list", node_id)
