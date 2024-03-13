@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use bevy_reflect::Reflect;
 use indexify_internal_api as internal_api;
 use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
@@ -7,13 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    NamespaceName,
-    StateChangeId,
-    TaskId,
+    ContentId, ExecutorId, ExtractionPolicyId, ExtractorName, NamespaceName, StateChangeId, TaskId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -66,6 +61,7 @@ pub struct IndexifyState {
 
 impl IndexifyState {
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
+        println!("ENTER: IndexifyState::apply");
         for change in request.new_state_changes {
             self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());
@@ -220,6 +216,7 @@ impl IndexifyState {
                 address: _,
             } => {} //  do nothing
         }
+        println!("EXIT: IndexifyState::apply");
     }
 
     pub fn mark_state_changes_processed(

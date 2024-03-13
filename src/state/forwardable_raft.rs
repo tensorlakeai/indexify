@@ -5,13 +5,7 @@ use anyhow;
 use super::{
     network::Network,
     typ::{CheckIsLeaderError, ForwardToLeader, InitializeError, RaftError},
-    BasicNode,
-    NodeId,
-    Raft,
-    Response,
-    SnapshotData,
-    StateMachineUpdateRequest,
-    TokioRuntime,
+    BasicNode, NodeId, Raft, Response, SnapshotData, StateMachineUpdateRequest, TokioRuntime,
 };
 use crate::state::store::requests::StateMachineUpdateResponse;
 
@@ -43,6 +37,7 @@ impl ForwardableRaft {
         request: StateMachineUpdateRequest,
     ) -> anyhow::Result<StateMachineUpdateResponse> {
         //  check whether this node is not the leader
+        println!("ENTER: forwardable_raft::client_write");
         if let Some(forward_to_leader) = self.ensure_leader().await? {
             let leader_address = forward_to_leader
                 .leader_node
@@ -54,6 +49,7 @@ impl ForwardableRaft {
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
         };
+        println!("EXIT: forwardable_raft::client_write");
         Ok(response)
     }
 

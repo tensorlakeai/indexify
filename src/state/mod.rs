@@ -19,26 +19,21 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use self::forwardable_raft::ForwardableRaft;
 use crate::{
@@ -840,6 +835,7 @@ impl App {
         index: internal_api::Index,
         id: String,
     ) -> Result<()> {
+        println!("ENTER: state::create_index");
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {
                 namespace: namespace.to_string(),
@@ -850,6 +846,7 @@ impl App {
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
+        println!("EXIT: state::create_index");
         Ok(())
     }
 
@@ -982,6 +979,20 @@ mod tests {
             }
         };
         cluster.read_own_write(request, read_back, false).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn dummy_test() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        println!("Creating index");
+        let node = cluster.get_node(0)?;
+        node.create_index("namespace".into(), Index::default(), "id".into())
+            .await?;
+        let result = node.get_index("id").await?;
+        println!("The result is: {:#?}", result);
         Ok(())
     }
 }

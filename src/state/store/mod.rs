@@ -12,30 +12,21 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::StateChange;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, DB,
+};
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
 use tokio::sync::RwLock;
 use tracing::debug;
 
 type Node = BasicNode;
 
-use self::state_machine_objects::IndexifyState;
+use self::{requests::StateMachineUpdateRequest, state_machine_objects::IndexifyState};
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 
 pub type NamespaceName = String;
@@ -78,7 +69,7 @@ pub struct StateMachineStore {
     snapshot_idx: u64,
 
     /// State machine stores snapshot in db.
-    _db: Arc<DB>,
+    _db: Arc<OptimisticTransactionDB>,
 
     pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
 
@@ -95,6 +86,19 @@ pub struct StateMachineData {
     pub indexify_state: Arc<RwLock<IndexifyState>>,
 
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
+}
+#[derive(strum::Display, strum::EnumIter)]
+#[allow(non_camel_case_types)]
+pub enum StateMachineColumns {
+    executors,
+    tasks,
+    task_assignments,
+    state_changes,
+    content_table,
+    extraction_policies,
+    extractors,
+    namespaces,
+    index_table,
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
@@ -137,7 +141,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
 
 impl StateMachineStore {
     async fn new(
-        db: Arc<DB>,
+        db: Arc<OptimisticTransactionDB>,
         snapshot_file_path: PathBuf,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
@@ -260,6 +264,13 @@ impl StateMachineStore {
 
         Ok(())
     }
+
+    async fn modify_sm_in_db(
+        &self,
+        request: StateMachineUpdateRequest,
+    ) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
 }
 
 impl RaftStateMachine<TypeConfig> for StateMachineStore {
@@ -279,12 +290,14 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         I: IntoIterator<Item = typ::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
     {
+        println!("ENTER: store::apply");
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
         let mut sm = self.data.indexify_state.write().await;
         let mut change_events: Vec<StateChange> = Vec::new();
 
         for ent in entries {
+            println!("Entry: {:#?}", ent);
             self.data.last_applied_log_id = Some(ent.log_id);
             let resp_value = None;
             match ent.payload {
@@ -305,6 +318,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 tracing::error!("error sending state change event: {}", err);
             }
         }
+        println!("EXIT: store::apply");
         Ok(replies)
     }
 
@@ -351,7 +365,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
 
 #[derive(Debug, Clone)]
 pub struct LogStore {
-    db: Arc<DB>,
+    db: Arc<OptimisticTransactionDB>,
 }
 type StorageResult<T> = Result<T, StorageError<NodeId>>;
 
@@ -567,7 +581,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         let from = id_to_bin(log_id.index);
         let to = id_to_bin(0xff_ff_ff_ff_ff_ff_ff_ff);
         self.db
-            .delete_range_cf(self.logs(), &from, &to)
+            .delete_file_in_range_cf(self.logs(), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
@@ -579,8 +593,11 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         let from = id_to_bin(0);
         let to = id_to_bin(log_id.index + 1);
         self.db
-            .delete_range_cf(self.logs(), &from, &to)
+            .delete_file_in_range_cf(self.logs(), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
+        // self.db
+        //     .delete_range_cf(self.logs(), &from, &to)
+        //     .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {
@@ -599,7 +616,21 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     let store = ColumnFamilyDescriptor::new("store", Options::default());
     let logs = ColumnFamilyDescriptor::new("logs", Options::default());
 
-    let db = DB::open_cf_descriptors(&db_opts, db_path, vec![store, logs]).unwrap();
+    //  Create the column families for the state machine columns
+    let sm_columns: Vec<String> = StateMachineColumns::iter()
+        .map(|cf| cf.to_string())
+        .collect();
+    let sm_column_families: Vec<ColumnFamilyDescriptor> = sm_columns
+        .iter()
+        .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+        .collect();
+    let mut all_column_families = vec![store, logs];
+    all_column_families.extend(sm_column_families);
+
+    let db: OptimisticTransactionDB =
+        OptimisticTransactionDB::open_cf_descriptors(&db_opts, db_path, all_column_families)
+            .unwrap();
+    // let db = DB::open_cf_descriptors(&db_opts, db_path, all_column_families).unwrap();
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };
