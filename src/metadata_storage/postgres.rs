@@ -1,14 +1,18 @@
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
-use super::{ExtractedMetadata, MetadataStorage};
+use super::{table_name, ExtractedMetadata, MetadataStorage};
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
 pub struct PostgresIndexManager {
     pool: Pool<Postgres>,
+    default_index_created: AtomicBool,
 }
 
 impl fmt::Debug for PostgresIndexManager {
@@ -22,19 +26,23 @@ impl PostgresIndexManager {
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect_lazy(conn_url)?;
-        Ok(Arc::new(Self { pool }))
+        Ok(Arc::new(Self {
+            pool,
+            default_index_created: AtomicBool::new(false),
+        }))
     }
 }
 
 #[async_trait]
 impl MetadataStorage for PostgresIndexManager {
-    async fn create_index(&self, index_name: &str, table_name: &str) -> Result<String> {
-        let table_name = PostgresIndexName::new(table_name);
+    async fn create_metadata_table(&self, namespace: &str) -> Result<()> {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!(
             "CREATE TABLE IF NOT EXISTS \"{table_name}\" (
             id TEXT PRIMARY KEY,
             namespace TEXT,
             extractor TEXT,
+            extractor_policy TEXT,
             index_name TEXT,
             data JSONB,
             content_id TEXT,
@@ -43,26 +51,30 @@ impl MetadataStorage for PostgresIndexManager {
         );"
         );
         let _ = sqlx::query(&query).execute(&self.pool).await?;
-        Ok(index_name.to_string())
+        Ok(())
     }
 
-    async fn add_metadata(
-        &self,
-        namespace: &str,
-        index_name: &str,
-        metadata: ExtractedMetadata,
-    ) -> Result<()> {
-        let index_name = PostgresIndexName::new(index_name);
-        let query = format!("INSERT INTO \"{index_name}\" (id, namespace, extractor, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+    async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
+        if !self
+            .default_index_created
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            self.create_metadata_table(namespace).await?;
+            self.default_index_created
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("INSERT INTO \"{table_name}\" (id, namespace, extractor, extractor_policy, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $9, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
             .bind(namespace)
             .bind(metadata.extractor_name)
-            .bind(index_name.to_string())
+            .bind(table_name.to_string())
             .bind(metadata.metadata)
             .bind(metadata.content_id)
             .bind(metadata.parent_content_id)
             .bind(timestamp_secs() as i64)
+            .bind(metadata.extraction_policy)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -71,10 +83,9 @@ impl MetadataStorage for PostgresIndexManager {
     async fn get_metadata(
         &self,
         namespace: &str,
-        index_table_name: &str,
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>> {
-        let index_table_name = PostgresIndexName::new(index_table_name);
+        let index_table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!(
             "SELECT * FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2"
         );
@@ -88,15 +99,17 @@ impl MetadataStorage for PostgresIndexManager {
         for row in rows {
             let id: String = row.get(0);
             let extractor: String = row.get(2);
-            let data: serde_json::Value = row.get(4);
-            let content_id: String = row.get(5);
-            let parent_content_id: String = row.get(6);
+            let extraction_policy: String = row.get(3);
+            let data: serde_json::Value = row.get(5);
+            let content_id: String = row.get(6);
+            let parent_content_id: String = row.get(7);
             let attributes = ExtractedMetadata {
                 id,
-                extractor_name: extractor,
-                metadata: data,
                 content_id,
                 parent_content_id,
+                metadata: data,
+                extractor_name: extractor,
+                extraction_policy,
             };
             extracted_attributes.push(attributes);
         }
@@ -113,10 +126,9 @@ mod tests {
         let index_manager =
             PostgresIndexManager::new("postgres://postgres:postgres@localhost:5432/indexify")
                 .unwrap();
-        let index_name = "test_index";
-        let table_name = "test_table";
-        let _ = index_manager
-            .create_index(index_name, table_name)
+        let namespace = "test_namespace";
+        index_manager
+            .create_metadata_table(namespace)
             .await
             .unwrap();
         let metadata = ExtractedMetadata {
@@ -125,16 +137,16 @@ mod tests {
             parent_content_id: "test_parent_content_id".into(),
             metadata: serde_json::json!({"test": "test"}),
             extractor_name: "test_extractor".into(),
+            extraction_policy: "test_extractor_policy".into(),
         };
-        let namespace = "test_namespace";
         index_manager
-            .add_metadata(namespace, table_name, metadata.clone())
+            .add_metadata(namespace, metadata.clone())
             .await
             .unwrap();
 
         // Retreive the metadata from the database
         let metadata_out = index_manager
-            .get_metadata(namespace, table_name, "test_content_id")
+            .get_metadata(namespace, "test_content_id")
             .await
             .unwrap();
 
