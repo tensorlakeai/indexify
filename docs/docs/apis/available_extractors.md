@@ -60,6 +60,11 @@ Extract the audio from a video file.
 Extract unique faces from video. This extractor uses face_detection to locate and extract facial features and sklearn DBSCAN to cluster and find uniqueness.
 
 
+## PDF
+#### [OCRMyPdf](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf)
+Extract text content from image based pdf files using this ocrmypdf based extractor.
+
+
 ## Invoice
 #### [Donut CORD](https://github.com/tensorlakeai/indexify-extractors/tree/main/invoice-extractor/donut_cord)
 This extractor parses pdf or image form of invoice which is provided in JSON format. It uses the pre-trained [donut cord fine-tune model from huggingface](https://huggingface.co/naver-clova-ix/donut-base-finetuned-cord-v2).
