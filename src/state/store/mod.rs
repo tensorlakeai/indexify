@@ -21,12 +21,16 @@ use rocksdb::{
 };
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
+use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::debug;
 
 type Node = BasicNode;
 
-use self::{requests::StateMachineUpdateRequest, state_machine_objects::IndexifyState};
+use self::{
+    requests::{RequestPayload, StateMachineUpdateRequest},
+    state_machine_objects::IndexifyState,
+};
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 
 pub type NamespaceName = String;
@@ -58,25 +62,6 @@ pub struct StoredSnapshot {
 }
 
 #[derive(Clone)]
-pub struct StateMachineStore {
-    pub data: StateMachineData,
-
-    /// snapshot index is not persisted in this example.
-    ///
-    /// It is only used as a suffix of snapshot id, and should be globally
-    /// unique. In practice, using a timestamp in micro-second would be good
-    /// enough.
-    snapshot_idx: u64,
-
-    /// State machine stores snapshot in db.
-    _db: Arc<OptimisticTransactionDB>,
-
-    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
-
-    snapshot_file_path: PathBuf,
-}
-
-#[derive(Clone)]
 pub struct StateMachineData {
     pub last_applied_log_id: Option<LogId<NodeId>>,
 
@@ -87,6 +72,37 @@ pub struct StateMachineData {
 
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
 }
+
+#[derive(Clone)]
+pub struct StateMachineStore {
+    pub data: StateMachineData,
+
+    /// snapshot index is not persisted in this example.
+    ///
+    /// It is only used as a suffix of snapshot id, and should be globally
+    /// unique. In practice, using a timestamp in micro-second would be good
+    /// enough.
+    snapshot_idx: u64,
+
+    db: Arc<OptimisticTransactionDB>,
+
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+
+    snapshot_file_path: PathBuf,
+}
+
+#[derive(Error, Debug)]
+pub enum StateMachineError {
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+
+    #[error("RocksDB transaction error: {0}")]
+    TransactionError(String),
+}
+
 #[derive(strum::Display, strum::EnumIter)]
 #[allow(non_camel_case_types)]
 pub enum StateMachineColumns {
@@ -99,44 +115,6 @@ pub enum StateMachineColumns {
     extractors,
     namespaces,
     index_table,
-}
-
-impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
-    async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        debug!("Called build_snapshot");
-        let last_applied_log = self.data.last_applied_log_id;
-        let last_membership = self.data.last_membership.clone();
-
-        let indexify_state_json = {
-            let indexify_state = self.data.indexify_state.read().await;
-            serde_json::to_vec(&*indexify_state)
-                .map_err(|e| StorageIOError::read_state_machine(&e))?
-        };
-
-        let snapshot_id = if let Some(last) = last_applied_log {
-            format!("{}-{}-{}", last.leader_id, last.index, self.snapshot_idx)
-        } else {
-            format!("--{}", self.snapshot_idx)
-        };
-
-        let meta = SnapshotMeta {
-            last_log_id: last_applied_log,
-            last_membership,
-            snapshot_id,
-        };
-
-        let snapshot = StoredSnapshot {
-            meta: meta.clone(),
-            data: indexify_state_json.clone(),
-        };
-
-        self.set_current_snapshot_(snapshot)?;
-
-        Ok(Snapshot {
-            meta,
-            snapshot: Box::new(Cursor::new(indexify_state_json)),
-        })
-    }
 }
 
 impl StateMachineStore {
@@ -153,7 +131,7 @@ impl StateMachineStore {
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
             snapshot_idx: 0,
-            _db: db,
+            db,
             state_change_rx: rx,
             snapshot_file_path,
         };
@@ -265,11 +243,148 @@ impl StateMachineStore {
         Ok(())
     }
 
-    async fn modify_sm_in_db(
+    /// This method updates the state machine columns in RocksDB
+    async fn _update_state_machine_column<T: AsRef<[u8]>>(
+        &self,
+        column_family: &str,
+        key: T,
+        value: T,
+    ) -> Result<(), anyhow::Error> {
+        let txn = self.db.transaction();
+        txn.put_cf(self.db.cf_handle(column_family).unwrap(), key, value)
+            .expect("Something went wrong while inserting");
+        txn.commit().unwrap();
+        Ok(())
+    }
+
+    /// This method handles the writing of updates to RocksDB for each state machine column
+    /// It then hands over the processing to IndexifyState::apply to handle writing the in-memory reverse indexes
+    async fn update_state_machine_columns(
         &self,
         request: StateMachineUpdateRequest,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), StateMachineError> {
+        let txn = self.db.transaction();
+
+        let state_changes_cf = self
+            .db
+            .cf_handle(StateMachineColumns::state_changes.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'state_changes' not found".into())
+            })?;
+
+        for change in &request.new_state_changes {
+            let serialized_change = serde_json::to_vec(change)?;
+            txn.put_cf(state_changes_cf, &change.id, &serialized_change)
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+
+        for change in &request.state_changes_processed {
+            let result = txn
+                .get_cf(state_changes_cf, &change.state_change_id.to_string())
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
+            let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
+            state_change.processed_at = Some(change.processed_at);
+            let serialized_change = serde_json::to_vec(&state_change)?;
+            txn.put_cf(
+                state_changes_cf,
+                &change.state_change_id.to_string(),
+                &serialized_change,
+            )
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+
+        match &request.payload {
+            RequestPayload::CreateIndex {
+                index,
+                namespace: _,
+                id,
+            } => {
+                let index_table_cf = self
+                    .db
+                    .cf_handle(StateMachineColumns::index_table.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'index_table' not found".into(),
+                        )
+                    })?;
+                let serialized_index = serde_json::to_vec(&index)?;
+                txn.put_cf(index_table_cf, id, &serialized_index)
+                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            }
+            _ => (),
+        };
+
+        txn.commit()
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+        // Apply in-memory state changes
+        let mut sm = self.data.indexify_state.write().await;
+        sm.apply(request);
+
         Ok(())
+    }
+
+    /// This method fetches a key from a specific column family within a transaction
+    pub async fn get_from_cf<T>(
+        &self,
+        column: StateMachineColumns,
+        key: T,
+    ) -> Result<Vec<u8>, anyhow::Error>
+    where
+        T: AsRef<[u8]>,
+    {
+        let cf = self
+            .db
+            .cf_handle(column.to_string().as_str())
+            .ok_or(anyhow::anyhow!(
+                "Failed to get column family {}",
+                column.to_string()
+            ))?;
+        let txn = self.db.transaction();
+        let result = txn.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
+            "Failed to get value from column family {}",
+            column.to_string()
+        ))?;
+        Ok(result)
+    }
+}
+
+impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
+    async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
+        debug!("Called build_snapshot");
+        let last_applied_log = self.data.last_applied_log_id;
+        let last_membership = self.data.last_membership.clone();
+
+        let indexify_state_json = {
+            let indexify_state = self.data.indexify_state.read().await;
+            serde_json::to_vec(&*indexify_state)
+                .map_err(|e| StorageIOError::read_state_machine(&e))?
+        };
+
+        let snapshot_id = if let Some(last) = last_applied_log {
+            format!("{}-{}-{}", last.leader_id, last.index, self.snapshot_idx)
+        } else {
+            format!("--{}", self.snapshot_idx)
+        };
+
+        let meta = SnapshotMeta {
+            last_log_id: last_applied_log,
+            last_membership,
+            snapshot_id,
+        };
+
+        let snapshot = StoredSnapshot {
+            meta: meta.clone(),
+            data: indexify_state_json.clone(),
+        };
+
+        self.set_current_snapshot_(snapshot)?;
+
+        Ok(Snapshot {
+            meta,
+            snapshot: Box::new(Cursor::new(indexify_state_json)),
+        })
     }
 }
 
@@ -290,21 +405,20 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         I: IntoIterator<Item = typ::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
     {
-        println!("ENTER: store::apply");
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
-        let mut sm = self.data.indexify_state.write().await;
         let mut change_events: Vec<StateChange> = Vec::new();
 
         for ent in entries {
-            println!("Entry: {:#?}", ent);
             self.data.last_applied_log_id = Some(ent.log_id);
             let resp_value = None;
             match ent.payload {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => {
                     change_events.extend(req.new_state_changes.clone());
-                    sm.apply(req.clone());
+                    if let Err(e) = self.update_state_machine_columns(req.clone()).await {
+                        tracing::error!("error applying state machine update: {}", e);
+                    };
                 }
                 EntryPayload::Membership(mem) => {
                     self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
@@ -338,7 +452,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
-        debug!("Called install_snapshot");
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
@@ -595,9 +708,6 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         self.db
             .delete_file_in_range_cf(self.logs(), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
-        // self.db
-        //     .delete_range_cf(self.logs(), &from, &to)
-        //     .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {
@@ -646,9 +756,14 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
-    use openraft::SnapshotPolicy;
+    use openraft::{
+        raft::InstallSnapshotRequest, testing::log_id, CommittedLeaderId, LogId, SnapshotMeta, Vote,
+    };
 
-    use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
+    use crate::{
+        state::{self, store::state_machine_objects::IndexifyState},
+        test_utils::RaftTestCluster,
+    };
 
     /// This is a dummy test which forces building a snapshot on the cluster by
     /// passing in some overrides Manually check that the snapshot file was
@@ -657,11 +772,28 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
-        let raft_overrides = RaftConfigOverrides {
-            snapshot_policy: Some(SnapshotPolicy::LogsSinceLast(1)),
-        };
-        let cluster = RaftTestCluster::new(3, Some(raft_overrides)).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
+        let indexify_state = IndexifyState::default();
+        let serialized_state =
+            serde_json::to_vec(&indexify_state).expect("Failed to serialize the data");
+        let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
+            InstallSnapshotRequest {
+                vote: Vote::new_committed(2, 1),
+                meta: SnapshotMeta {
+                    snapshot_id: "ss1".into(),
+                    last_log_id: Some(log_id(1, 0, 6)),
+                    last_membership: Default::default(),
+                },
+                offset: 0,
+                data: serialized_state,
+                done: true,
+            };
+        let node = cluster.get_node(2)?;
+        node.forwardable_raft
+            .raft
+            .install_snapshot(install_snapshot_req)
+            .await?;
         Ok(())
     }
 }

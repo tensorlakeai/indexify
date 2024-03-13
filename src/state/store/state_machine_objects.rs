@@ -1,6 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use bevy_reflect::Reflect;
 use indexify_internal_api as internal_api;
 use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
@@ -28,8 +30,6 @@ pub struct IndexifyState {
     pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
 
     pub namespaces: HashSet<NamespaceName>,
-
-    pub index_table: HashMap<String, internal_api::Index>,
 
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
@@ -63,7 +63,8 @@ impl IndexifyState {
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         println!("ENTER: IndexifyState::apply");
         for change in request.new_state_changes {
-            self.state_changes.insert(change.id.clone(), change.clone());
+            //  The below write is handled in store/mod.rs
+            // self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());
         }
         for change in request.state_changes_processed {
@@ -165,11 +166,13 @@ impl IndexifyState {
                 namespace,
                 id,
             } => {
+                println!("RequestPayload::CreateIndex handler");
                 self.namespace_index_table
                     .entry(namespace.clone())
                     .or_default()
                     .insert(index.clone());
-                self.index_table.insert(id.clone(), index.clone());
+                //  The below write is handled in store/mod.rs
+                // self.index_table.insert(id.clone(), index.clone());
             }
             RequestPayload::UpdateTask {
                 task,
@@ -226,10 +229,11 @@ impl IndexifyState {
     ) {
         self.unprocessed_state_changes
             .remove(&state_change.state_change_id);
-        self.state_changes
-            .entry(state_change.state_change_id.to_string())
-            .and_modify(|c| {
-                c.processed_at = Some(processed_at);
-            });
+        //  The below write is handled in store/mod.rs
+        // self.state_changes
+        //     .entry(state_change.state_change_id.to_string())
+        //     .and_modify(|c| {
+        //         c.processed_at = Some(processed_at);
+        //     });
     }
 }

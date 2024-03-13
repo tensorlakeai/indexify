@@ -35,7 +35,10 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use self::forwardable_raft::ForwardableRaft;
+use self::{
+    forwardable_raft::ForwardableRaft,
+    store::{StateMachineColumns, StateMachineStore},
+};
 use crate::{
     coordinator_filters::matches_mime_type,
     server_config::ServerConfig,
@@ -105,6 +108,7 @@ pub struct App {
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
     pub node_addr: String,
+    state_machine: StateMachineStore,
 }
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
@@ -160,7 +164,7 @@ impl App {
             config.clone(),
             network.clone(),
             log_store,
-            state_machine,
+            state_machine.clone(),
         )
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
@@ -207,6 +211,7 @@ impl App {
             state_change_rx,
             network,
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
+            state_machine,
         });
 
         let raft_clone = app.forwardable_raft.clone();
@@ -821,12 +826,12 @@ impl App {
     }
 
     pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
-        let store = self.indexify_state.read().await;
-        let index = store
-            .index_table
-            .get(id)
-            .ok_or(anyhow!("index not found"))?;
-        Ok(index.clone())
+        let retrieved_index = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::index_table, id)
+            .await?;
+        let index = serde_json::from_slice::<internal_api::Index>(&retrieved_index).unwrap();
+        Ok(index)
     }
 
     pub async fn create_index(
@@ -987,12 +992,18 @@ mod tests {
     async fn dummy_test() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        println!("Creating index");
         let node = cluster.get_node(0)?;
-        node.create_index("namespace".into(), Index::default(), "id".into())
+        let index_to_write = Index {
+            name: "name".into(),
+            namespace: "test".into(),
+            ..Default::default()
+        };
+        node.create_index("namespace".into(), index_to_write.clone(), "id".into())
             .await?;
         let result = node.get_index("id").await?;
-        println!("The result is: {:#?}", result);
+        assert_eq!(index_to_write, result);
+        let indexes = node.list_indexes("namespace").await?;
+        assert!(indexes.len() == 1);
         Ok(())
     }
 }
