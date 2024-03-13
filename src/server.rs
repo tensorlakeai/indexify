@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Instant};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_typed_websockets::{Message, WebSocket, WebSocketUpgrade};
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{ListStateChangesRequest, ListTasksRequest};
+use indexify_proto::indexify_coordinator::{self, ListStateChangesRequest, ListTasksRequest};
 use rust_embed::RustEmbed;
 use tokio::signal;
 use tokio_stream::StreamExt;
@@ -65,7 +65,6 @@ pub struct NamespaceEndpointState {
             index_search,
             list_extractors,
             create_extraction_policy,
-            metadata_lookup,
             list_executors,
             list_content,
             get_content_metadata,
@@ -171,6 +170,10 @@ impl Server {
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/content/:content_id/metadata",
+                get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()),
             )
@@ -193,10 +196,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace",
                 get(get_namespace).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/metadata",
-                get(metadata_lookup).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/executors",
@@ -573,11 +572,9 @@ async fn inner_ingest_extracted_content(
 ) {
     let _ = socket.send(Message::Ping(vec![])).await;
     let mut ingest_metadata: Option<BeginExtractedContentIngest> = None;
-    let now = Instant::now();
-    println!("Instat {}", Instant::now().elapsed().as_secs());
+    let mut content_metadata: Option<indexify_coordinator::ContentMetadata> = None;
     while let Some(msg) = socket.recv().await {
         if let Err(err) = &msg {
-            println!("Instat {}", now.elapsed().as_secs());
             tracing::error!("error receiving message: {:?}", err);
             return;
         }
@@ -595,6 +592,48 @@ async fn inner_ingest_extracted_content(
                     let _ = state
                         .data_manager
                         .write_extracted_content(ingest_metadata.clone().unwrap(), payload)
+                        .await;
+                }
+                IngestExtractedContent::ExtractedFeatures(payload) => {
+                    if ingest_metadata.is_none() {
+                        tracing::error!("received extracted features without header metadata");
+                        return;
+                    }
+                    if content_metadata.is_none() {
+                        content_metadata = Some(
+                            state
+                                .coordinator_client
+                                .get()
+                                .await
+                                .unwrap()
+                                .get_content_metadata(
+                                    indexify_coordinator::GetContentMetadataRequest {
+                                        content_list: vec![payload.content_id.clone()],
+                                    },
+                                )
+                                .await
+                                .unwrap()
+                                .into_inner()
+                                .content_list
+                                .first()
+                                .unwrap()
+                                .clone(),
+                        );
+                    }
+                    let content_meta = content_metadata.clone().unwrap();
+                    let _ = state
+                        .data_manager
+                        .write_extracted_features(
+                            &ingest_metadata.clone().unwrap().extractor,
+                            &ingest_metadata.clone().unwrap().extraction_policy,
+                            &content_meta,
+                            payload.features,
+                            ingest_metadata
+                                .clone()
+                                .unwrap()
+                                .output_to_index_table_mapping
+                                .clone(),
+                        )
                         .await;
                 }
                 IngestExtractedContent::FinishExtractedContentIngest(_payload) => {
@@ -834,7 +873,7 @@ async fn index_search(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespace/{namespace}/metadata",
+    path = "/namespace/{namespace}/content/{content_id}/metadata",
     tag = "indexify",
     params(MetadataRequest),
     responses(
@@ -842,23 +881,20 @@ async fn index_search(
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in namespace")
     ),
 )]
-#[axum::debug_handler]
-async fn metadata_lookup(
-    Path(namespace): Path<String>,
+#[tracing::instrument]
+async fn get_extracted_metadata(
+    Path((namespace, content_id)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-    Query(query): Query<MetadataRequest>,
 ) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
-    let attributes = state
+    let extracted_metadata = state
         .data_manager
-        .metadata_lookup(&namespace, &query.index, &query.content_id)
+        .metadata_lookup(&namespace, &content_id)
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     Ok(Json(MetadataResponse {
-        attributes: attributes.into_iter().map(|r| r.into()).collect(),
+        metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
     }))
 }
-
 #[axum::debug_handler]
 #[tracing::instrument(skip_all)]
 async fn ui_index_handler() -> impl IntoResponse {

@@ -430,7 +430,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        let server_configs = create_test_raft_configs(10)?;
+        let server_configs = create_test_raft_configs(3)?;
 
         let mut apps = Vec::new();
         for config in server_configs {
@@ -497,7 +497,7 @@ mod tests {
         }
 
         //  get the nodes
-        let seed_node = Arc::clone(apps.get(0).unwrap());
+        let seed_node = Arc::clone(apps.first().unwrap());
         let leader_node = apps.get(1).unwrap();
         let alternate_node = apps.get(2).unwrap();
 
