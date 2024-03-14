@@ -11,7 +11,9 @@ use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App, NodeId, RaftConfigOverrides,
+        App,
+        NodeId,
+        RaftConfigOverrides,
     },
 };
 
@@ -304,8 +306,11 @@ impl RaftTestCluster {
 
 impl Drop for RaftTestCluster {
     fn drop(&mut self) {
-        for (_, node) in self.nodes.iter() {
-            let _ = node.stop();
-        }
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            for (_, node) in self.nodes.iter() {
+                let _ = node.stop().await;
+            }
+        });
     }
 }

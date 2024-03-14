@@ -19,17 +19,22 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex, RwLock,
+        Mutex,
+        RwLock,
     },
     task::JoinHandle,
 };
@@ -971,7 +976,8 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId, TaskId,
+                ExecutorId,
+                TaskId,
             },
             App,
         },
@@ -1042,7 +1048,7 @@ mod tests {
             namespace: "test".into(),
             ..Default::default()
         };
-        node.create_index("namespace".into(), index_to_write.clone(), "id".into())
+        node.create_index("namespace", index_to_write.clone(), "id".into())
             .await?;
         let result = node.get_index("id").await?;
         assert_eq!(index_to_write, result);
@@ -1127,7 +1133,7 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 && tasks_vec.get(0).unwrap().id == "task_id" =>
+                    if tasks_vec.len() == 1 && tasks_vec.first().unwrap().id == "task_id" =>
                 {
                     Ok(true)
                 }
@@ -1183,9 +1189,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1
-                        && tasks_vec.get(0).unwrap().id == "task_id"
-                        && tasks_vec.get(0).unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1 &&
+                        tasks_vec.first().unwrap().id == "task_id" &&
+                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
@@ -1218,7 +1224,8 @@ mod tests {
     }
 
     /// Test to create, register and read back an executor
-    /// Executors are typically created along with extractors so both need to be asserted
+    /// Executors are typically created along with extractors so both need to be
+    /// asserted
     #[tokio::test]
     // #[tracing_test::traced_test]
     async fn test_create_and_read_executors() -> Result<(), anyhow::Error> {
@@ -1245,7 +1252,7 @@ mod tests {
 
         let executors = node.get_executors_for_extractor(&extractor.name).await?;
         assert_eq!(executors.len(), 1);
-        assert_eq!(executors.get(0).unwrap().id, executor_id);
+        assert_eq!(executors.first().unwrap().id, executor_id);
 
         //  Read the extractors
         let extractors = node.list_extractors().await?;

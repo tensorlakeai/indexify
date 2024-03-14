@@ -12,8 +12,14 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractionPolicyId, ExtractorName, NamespaceName, StateChangeId,
-    StateMachineColumns, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractionPolicyId,
+    ExtractorName,
+    NamespaceName,
+    StateChangeId,
+    StateMachineColumns,
+    TaskId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -46,7 +52,8 @@ pub struct IndexifyState {
 
     pub namespaces: HashSet<NamespaceName>,
 
-    //  Remove this once the coordinator::tests::test_create_extraction_events test isn't failing after removing this
+    //  Remove this once the coordinator::tests::test_create_extraction_events test isn't failing
+    // after removing this
     pub index_table: HashMap<String, internal_api::Index>,
 
     //  TODO: Check whether only id's can be stored in reverse indexes
@@ -100,7 +107,7 @@ impl IndexifyState {
 
         for change in &request.state_changes_processed {
             let result = txn
-                .get_cf(state_changes_cf, &change.state_change_id.to_string())
+                .get_cf(state_changes_cf, &change.state_change_id)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
             let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
@@ -108,7 +115,7 @@ impl IndexifyState {
             let serialized_change = serde_json::to_vec(&state_change)?;
             txn.put_cf(
                 state_changes_cf,
-                &change.state_change_id.to_string(),
+                &change.state_change_id,
                 &serialized_change,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -129,7 +136,7 @@ impl IndexifyState {
                         )
                     })?;
                 let serialized_index = serde_json::to_vec(&index)?;
-                txn.put_cf(index_table_cf, id, &serialized_index)
+                txn.put_cf(index_table_cf, id, serialized_index)
                     .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             }
             RequestPayload::CreateTasks { tasks } => {
@@ -187,7 +194,8 @@ impl IndexifyState {
                                 })?;
                         }
                         None => {
-                            //  Create a new hash set of task ids if executor id is not present as key
+                            //  Create a new hash set of task ids if executor id is not present as
+                            // key
                             let new_value: HashSet<TaskId> =
                                 vec![task_id.clone()].into_iter().collect();
                             let new_value = serde_json::to_vec(&new_value)?;
@@ -217,13 +225,14 @@ impl IndexifyState {
                         StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
                     })?;
                 let serialized_task = serde_json::to_vec(&task)?;
-                txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
+                txn.put_cf(tasks_cf, task.id.clone(), serialized_task)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("Error writing task: {}", e))
                     })?;
 
                 if *mark_finished {
-                    //  If the task is meant to be marked finished and has an executor id, remove it from the list of tasks assigned to an executor
+                    //  If the task is meant to be marked finished and has an executor id, remove it
+                    // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
                         // remove the task from the executor's task assignments
                         let task_assignment_cf = db
@@ -252,7 +261,7 @@ impl IndexifyState {
                                 existing_tasks.remove(&task.id);
                                 let existing_tasks_serialized =
                                     serde_json::to_vec(&existing_tasks)?;
-                                txn.put_cf(task_assignment_cf, &key, &existing_tasks_serialized)
+                                txn.put_cf(task_assignment_cf, &key, existing_tasks_serialized)
                                     .map_err(|e| {
                                         StateMachineError::DatabaseError(format!(
                                             "Error writing task assignments: {}",
@@ -265,7 +274,7 @@ impl IndexifyState {
 
                         decrement_running_task_count(
                             &mut self.executor_running_task_count,
-                            &executor_id,
+                            executor_id,
                         );
                     }
                 }
@@ -311,7 +320,7 @@ impl IndexifyState {
                     addr: addr.clone(),
                     extractor: extractor.clone(),
                 })?;
-                txn.put_cf(executors_cf, executor_id.clone(), &serialized_executor)
+                txn.put_cf(executors_cf, executor_id.clone(), serialized_executor)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("Error writing executor: {}", e))
                     })?;
@@ -325,7 +334,7 @@ impl IndexifyState {
                         )
                     })?;
                 let serialized_extractor = serde_json::to_vec(extractor)?;
-                txn.put_cf(extractors_cf, extractor.name.clone(), &serialized_extractor)
+                txn.put_cf(extractors_cf, extractor.name.clone(), serialized_extractor)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
                     })?;

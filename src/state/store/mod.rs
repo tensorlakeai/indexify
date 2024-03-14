@@ -13,12 +13,29 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
+    ColumnFamily,
+    ColumnFamilyDescriptor,
+    Direction,
+    OptimisticTransactionDB,
+    Options,
+    Transaction,
 };
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -255,7 +272,8 @@ impl StateMachineStore {
         Ok(())
     }
 
-    /// This method fetches a key from a specific column family within a transaction
+    /// This method fetches a key from a specific column family within a
+    /// transaction
     pub fn get_from_cf<T>(
         &self,
         column: StateMachineColumns,
@@ -726,7 +744,8 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     let db: OptimisticTransactionDB =
         OptimisticTransactionDB::open_cf_descriptors(&db_opts, db_path, all_column_families)
             .unwrap();
-    // let db = DB::open_cf_descriptors(&db_opts, db_path, all_column_families).unwrap();
+    // let db = DB::open_cf_descriptors(&db_opts, db_path,
+    // all_column_families).unwrap();
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };
