@@ -1,9 +1,15 @@
 import { useLoaderData, LoaderFunctionArgs, redirect } from "react-router-dom";
 import { Typography, Stack, Breadcrumbs, Box } from "@mui/material";
-import { IContentMetadata, IndexifyClient, ITask } from "getindexify";
+import {
+  IContentMetadata,
+  IExtractedMetadata,
+  IndexifyClient,
+  ITask,
+} from "getindexify";
 import React, { useEffect, useState } from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
+import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
@@ -15,18 +21,33 @@ export async function loader({ params }: LoaderFunctionArgs) {
     .getTasks()
     .then((tasks) => tasks.filter((t) => t.content_metadata.id === contentId));
   const contentMetadata = await client.getContentById(contentId);
-  return { client, namespace, tasks, contentId, contentMetadata };
+  const extractedMetadata = await client.getExtractedMetadata(contentId);
+  return {
+    client,
+    namespace,
+    tasks,
+    contentId,
+    contentMetadata,
+    extractedMetadata,
+  };
 }
 
 const ContentPage = () => {
-  const { client, namespace, tasks, contentId, contentMetadata } =
-    useLoaderData() as {
-      namespace: string;
-      tasks: ITask[];
-      contentId: string;
-      contentMetadata: IContentMetadata;
-      client: IndexifyClient;
-    };
+  const {
+    client,
+    namespace,
+    tasks,
+    contentId,
+    contentMetadata,
+    extractedMetadata,
+  } = useLoaderData() as {
+    namespace: string;
+    tasks: ITask[];
+    contentId: string;
+    contentMetadata: IContentMetadata;
+    extractedMetadata: IExtractedMetadata[];
+    client: IndexifyClient;
+  };
 
   const [textContent, setTextContent] = useState("");
   useEffect(() => {
@@ -34,7 +55,7 @@ const ContentPage = () => {
       setTextContent(data);
     });
   }, [client, contentId]);
-  
+
   const renderContent = () => {
     if (contentMetadata.mime_type.startsWith("image")) {
       return (
@@ -95,6 +116,10 @@ const ContentPage = () => {
       {/* display content */}
       {renderContent()}
       {/* tasks */}
+      <Typography variant="h4" pb={0}>
+        Metadata:
+      </Typography>
+      <ExtractedMetadataTable extractedMetadata={extractedMetadata}/>
       <TasksTable namespace={namespace} tasks={tasks} hideContentId />
     </Stack>
   );
