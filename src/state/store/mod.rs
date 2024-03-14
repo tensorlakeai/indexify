@@ -16,7 +16,9 @@ use openraft::{
     RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
     StoredMembership, Vote,
 };
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
+};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use thiserror::Error;
@@ -275,23 +277,47 @@ impl StateMachineStore {
         Ok(result)
     }
 
+    pub async fn get_tasks_for_executor(
+        &self,
+        executor_id: &str,
+        limit: Option<u64>,
+    ) -> anyhow::Result<Vec<indexify_internal_api::Task>> {
+        let sm = self.data.indexify_state.read().await;
+        sm.get_tasks_for_executor(executor_id, limit, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
+    }
+
+    pub async fn with_transaction<F, Fut>(&self, operation: F) -> Result<(), anyhow::Error>
+    where
+        F: FnOnce(&Transaction<OptimisticTransactionDB>) -> Fut,
+        Fut: std::future::Future<Output = Result<(), anyhow::Error>>,
+    {
+        let txn = self.db.transaction();
+        operation(&txn).await?;
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Test utility method to get all key-value pairs from a column family
-    pub fn get_all_rows_from_cf(&self, column: StateMachineColumns) -> Result<(), anyhow::Error> {
+    pub fn get_all_rows_from_cf(
+        &self,
+        column: StateMachineColumns,
+    ) -> Result<usize, anyhow::Error> {
         let cf_handle = self
             .db
-            .cf_handle(StateMachineColumns::index_table.to_string().as_str())
+            .cf_handle(column.to_string().as_str())
             .ok_or(anyhow::anyhow!(
                 "Failed to get column family {}",
                 column.to_string()
             ))?;
         let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
-        for item in iter {
-            match item {
-                Ok((key, value)) => println!("Key: {:?}, Value: {:?}", key, value),
-                Err(e) => return Err(anyhow::anyhow!("Failed to get key/value pair: {}", e)),
-            }
+        let items: Result<Vec<_>, _> = iter.collect();
+        let items = items?;
+        for (key, value) in &items {
+            println!("Key: {:?}, Value: {:?}", key, value);
         }
-        Ok(())
+        Ok(items.len())
     }
 }
 

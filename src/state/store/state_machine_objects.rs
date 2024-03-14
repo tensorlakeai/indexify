@@ -150,6 +150,60 @@ impl IndexifyState {
                 }
                 println!("CreateTasks in RocksDB done");
             }
+            RequestPayload::AssignTask { assignments } => {
+                println!("AssignTasks in RocksDB");
+                let task_assignment_cf = db
+                    .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'task_assignments' not found".into(),
+                        )
+                    })?;
+                for (task_id, executor_id) in assignments {
+                    let key = executor_id.clone();
+                    let value = txn.get(&key).map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error reading task assignments: {}",
+                            e
+                        ))
+                    })?;
+
+                    match value {
+                        //  Update the hash set of task ids if executor id is already present as key
+                        Some(existing_value) => {
+                            let mut existing_value: HashSet<TaskId> =
+                                serde_json::from_slice(&existing_value).map_err(|e| {
+                                    StateMachineError::DatabaseError(format!(
+                                        "Error deserializing task assignments: {}",
+                                        e
+                                    ))
+                                })?;
+                            existing_value.insert(task_id.clone());
+                            let new_value = serde_json::to_vec(&existing_value)?;
+                            txn.put_cf(task_assignment_cf, &key, &new_value)
+                                .map_err(|e| {
+                                    StateMachineError::DatabaseError(format!(
+                                        "Error writing task assignments: {}",
+                                        e
+                                    ))
+                                })?;
+                        }
+                        None => {
+                            //  Create a new hash set of task ids if executor id is not present as key
+                            let new_value: HashSet<TaskId> =
+                                vec![task_id.clone()].into_iter().collect();
+                            let new_value = serde_json::to_vec(&new_value)?;
+                            txn.put_cf(task_assignment_cf, &key, &new_value)
+                                .map_err(|e| {
+                                    StateMachineError::DatabaseError(format!(
+                                        "Error writing task assignments: {}",
+                                        e
+                                    ))
+                                })?;
+                        }
+                    }
+                }
+            }
             _ => (),
         };
 
@@ -221,7 +275,8 @@ impl IndexifyState {
             RequestPayload::CreateTasks { tasks } => {
                 println!("RequestPayload::CreateTasks handler");
                 for task in tasks {
-                    // self.tasks.insert(task.id.clone(), task.clone());
+                    //  The below write is handled in apply_state_machine_updates
+                    self.tasks.insert(task.id.clone(), task.clone());
                     self.unassigned_tasks.insert(task.id.clone());
                     self.unfinished_tasks_by_extractor
                         .entry(task.extractor.clone())
@@ -230,7 +285,9 @@ impl IndexifyState {
                 }
             }
             RequestPayload::AssignTask { assignments } => {
+                println!("RequestPayload::AssignTask handler");
                 for (task_id, executor_id) in assignments {
+                    //  The below write is handled in apply_state_machine_updates
                     self.task_assignments
                         .entry(executor_id.clone())
                         .or_default()
@@ -327,7 +384,7 @@ impl IndexifyState {
     pub fn mark_state_changes_processed(
         &mut self,
         state_change: &StateChangeProcessed,
-        processed_at: u64,
+        _processed_at: u64,
     ) {
         self.unprocessed_state_changes
             .remove(&state_change.state_change_id);
@@ -337,5 +394,56 @@ impl IndexifyState {
         //     .and_modify(|c| {
         //         c.processed_at = Some(processed_at);
         //     });
+    }
+
+    pub async fn get_tasks_for_executor(
+        &self,
+        executor_id: &str,
+        limit: Option<u64>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
+        let txn = db.transaction();
+        let task_assignments_cf = db
+            .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(
+                    "Failed to get column family 'task_assignments'".into(),
+                )
+            })?;
+
+        let task_ids_key = executor_id.as_bytes();
+        let task_ids_bytes = txn
+            .get_cf(task_assignments_cf, task_ids_key)
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(format!(
+                    "No tasks found for executor {}",
+                    executor_id
+                ))
+            })?;
+        let task_ids: Vec<String> = serde_json::from_slice(&task_ids_bytes)?;
+
+        let tasks_cf = db
+            .cf_handle(StateMachineColumns::tasks.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("Failed to get column family 'tasks'".into())
+            })?;
+
+        let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
+
+        let tasks: Result<Vec<indexify_internal_api::Task>, StateMachineError> = task_ids
+            .into_iter()
+            .take(limit)
+            .map(|task_id| {
+                let task_bytes = txn
+                    .get_cf(tasks_cf, task_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!("Task {} not found", task_id))
+                    })?;
+                serde_json::from_slice(&task_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        tasks
     }
 }

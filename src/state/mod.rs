@@ -108,7 +108,7 @@ pub struct App {
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
     pub node_addr: String,
-    state_machine: StateMachineStore,
+    pub state_machine: StateMachineStore,
 }
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
@@ -712,7 +712,7 @@ impl App {
                 processed_at: timestamp_secs(),
             }],
         };
-        let _resp = self.forwardable_raft.client_write(req).await?;
+        self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -790,29 +790,31 @@ impl App {
         executor_id: &str,
         limit: Option<u64>,
     ) -> Result<Vec<internal_api::Task>> {
-        let store = self.indexify_state.read().await;
-        let tasks = store
-            .task_assignments
-            .get(executor_id)
-            .map(|task_ids| {
-                let limit = limit.unwrap_or(task_ids.len() as u64);
-                task_ids.iter().take(limit as usize).cloned().collect_vec()
-            })
-            .map(|task_ids| {
-                task_ids
-                    .iter()
-                    .map(|task_id| store.tasks.get(task_id).unwrap().clone())
-                    .collect_vec()
-            })
-            .unwrap_or(vec![]);
+        // let store = self.indexify_state.read().await;
+        // let tasks = store
+        //     .task_assignments
+        //     .get(executor_id)
+        //     .map(|task_ids| {
+        //         let limit = limit.unwrap_or(task_ids.len() as u64);
+        //         task_ids.iter().take(limit as usize).cloned().collect_vec()
+        //     })
+        //     .map(|task_ids| {
+        //         task_ids
+        //             .iter()
+        //             .map(|task_id| store.tasks.get(task_id).unwrap().clone())
+        //             .collect_vec()
+        //     })
+        //     .unwrap_or(vec![]);
+        let tasks = self
+            .state_machine
+            .get_tasks_for_executor(executor_id, limit)
+            .await?;
         Ok(tasks)
     }
 
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
         // let store = self.indexify_state.read().await;
         // let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
-        self.state_machine
-            .get_all_rows_from_cf(StateMachineColumns::tasks)?;
         let retrieved_task = self
             .state_machine
             .get_from_cf(StateMachineColumns::tasks, task_id)?;
@@ -940,13 +942,16 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use indexify_internal_api::Index;
 
     use crate::{
         state::{
-            store::requests::{RequestPayload, StateMachineUpdateRequest},
+            store::{
+                requests::{RequestPayload, StateMachineUpdateRequest},
+                ExecutorId, TaskId,
+            },
             App,
         },
         test_utils::RaftTestCluster,
@@ -1051,6 +1056,64 @@ mod tests {
             }
         };
         cluster.read_own_write(request, read_back, true).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+
+        //  First create a task and ensure it's written
+        let task = indexify_internal_api::Task {
+            id: "task_id".into(),
+            ..Default::default()
+        };
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateTasks {
+                tasks: vec![task.clone()],
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+
+        let read_back = {
+            move |node: Arc<App>| async move {
+                match node.task_with_id("task_id").await {
+                    Ok(read_result) if read_result.id == "task_id" => Ok(true),
+                    Ok(_) => Ok(false),
+                    Err(_) => Ok(false),
+                }
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+        println!("Done writing task");
+
+        //  Second, assign the task to some executor
+        let assignments: HashMap<TaskId, ExecutorId> =
+            vec![("task_id".into(), "executor_id".into())]
+                .into_iter()
+                .collect();
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::AssignTask { assignments },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+
+        let read_back = |node: Arc<App>| async move {
+            match node.tasks_for_executor("executor_id", None).await {
+                Ok(tasks_vec)
+                    if tasks_vec.len() == 1 && tasks_vec.get(0).unwrap().id == "task_id" =>
+                {
+                    Ok(true)
+                }
+                Ok(_) => Ok(false),
+                Err(_) => Ok(false),
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+
         Ok(())
     }
 }
