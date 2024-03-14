@@ -462,15 +462,17 @@ impl App {
             .get(extractor)
             .cloned()
             .unwrap_or(HashSet::new());
-        let mut executors = Vec::new();
-        for executor_id in executor_ids {
-            let executor = store.executors.get(&executor_id).ok_or(anyhow!(
-                "internal error: executor id {} not found",
-                executor_id
-            ))?;
-            executors.push(executor.clone());
-        }
-        Ok(executors)
+        // let mut executors = Vec::new();
+        // for executor_id in executor_ids {
+        //     let executor = store.executors.get(&executor_id).ok_or(anyhow!(
+        //         "internal error: executor id {} not found",
+        //         executor_id
+        //     ))?;
+        //     executors.push(executor.clone());
+        // }
+        self.state_machine
+            .get_executors_from_ids(executor_ids)
+            .await
     }
 
     pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
@@ -702,12 +704,17 @@ impl App {
         &self,
         executor_id: ExecutorIdRef<'_>,
     ) -> Result<internal_api::ExecutorMetadata> {
-        let store = self.indexify_state.read().await;
-        let executor = store
-            .executors
-            .get(executor_id)
-            .ok_or(anyhow!("executor {} not found", executor_id))?;
-        Ok(executor.clone())
+        // let store = self.indexify_state.read().await;
+        // let executor = store
+        //     .executors
+        //     .get(executor_id)
+        //     .ok_or(anyhow!("executor {} not found", executor_id))?;
+        let serialized_executor = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::executors, executor_id)?;
+        let executor =
+            serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
+        Ok(executor)
     }
 
     pub async fn commit_task_assignments(
@@ -1214,13 +1221,25 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_node(0)?;
 
-        //  Create an executor and ensure that it can be read back
+        //  Create an executor and extractor and ensure they can be read back
         let executor_id = "executor_id";
         let extractor = indexify_internal_api::ExtractorDescription::default();
         let addr = "addr";
-        node.register_executor(addr, executor_id, extractor).await?;
+        node.register_executor(addr, executor_id, extractor.clone())
+            .await?;
+
+        //  Read the executors from multiple functions
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 1);
+        let executor = node.get_executor_by_id(executor_id).await?;
+        assert_eq!(executor.id, executor_id);
+        let executors = node.get_executors_for_extractor(&extractor.name).await?;
+        assert_eq!(executors.len(), 1);
+        assert_eq!(executors.get(0).unwrap().id, executor_id);
+
+        //  Read the extractors
+        let extractors = node.list_extractors().await?;
+        assert_eq!(extractors.len(), 1);
 
         Ok(())
     }

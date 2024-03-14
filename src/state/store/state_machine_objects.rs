@@ -573,4 +573,34 @@ impl IndexifyState {
             .collect();
         tasks
     }
+
+    pub async fn get_executors_from_ids(
+        &self,
+        executor_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<internal_api::ExecutorMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let executors_cf = db
+            .cf_handle(StateMachineColumns::executors.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("Failed to get column family 'executors'".into())
+            })?;
+        let executors: Result<Vec<internal_api::ExecutorMetadata>, StateMachineError> =
+            executor_ids
+                .into_iter()
+                .map(|executor_id| {
+                    let executor_bytes = txn
+                        .get_cf(executors_cf, executor_id.as_bytes())
+                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                        .ok_or_else(|| {
+                            StateMachineError::DatabaseError(format!(
+                                "Executor {} not found",
+                                executor_id
+                            ))
+                        })?;
+                    serde_json::from_slice(&executor_bytes).map_err(StateMachineError::from)
+                })
+                .collect();
+        executors
+    }
 }

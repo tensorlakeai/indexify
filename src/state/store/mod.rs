@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::Debug,
     fs::{self, File},
     io::{BufReader, Cursor, Read, Write},
@@ -9,7 +10,7 @@ use std::{
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
-use indexify_internal_api::StateChange;
+use indexify_internal_api::{ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
@@ -286,6 +287,16 @@ impl StateMachineStore {
         sm.get_tasks_for_executor(executor_id, limit, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
+    }
+
+    pub async fn get_executors_from_ids(
+        &self,
+        executor_ids: HashSet<String>,
+    ) -> anyhow::Result<Vec<ExecutorMetadata>> {
+        let sm = self.data.indexify_state.read().await;
+        sm.get_executors_from_ids(executor_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn with_transaction<F, Fut>(&self, operation: F) -> Result<(), anyhow::Error>
