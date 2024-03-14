@@ -33,7 +33,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use self::{
     forwardable_raft::ForwardableRaft,
@@ -307,11 +307,12 @@ impl App {
         let store = self.indexify_state.read().await;
         let mut state_changes = vec![];
         for event_id in store.unprocessed_state_changes.iter() {
-            let event = store.state_changes.get(event_id).ok_or(anyhow!(
-                "internal error: unprocessed event {} not found in events table",
-                event_id
-            ))?;
-            state_changes.push(event.clone());
+            let event = self
+                .state_machine
+                .get_from_cf(StateMachineColumns::state_changes, event_id)
+                .await?;
+            let parsed_event = serde_json::from_slice::<StateChange>(&event)?;
+            state_changes.push(parsed_event.clone());
         }
         Ok(state_changes)
     }

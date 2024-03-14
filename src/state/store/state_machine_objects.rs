@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
 use indexify_internal_api as internal_api;
 use internal_api::StateChange;
@@ -30,6 +27,9 @@ pub struct IndexifyState {
     pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
 
     pub namespaces: HashSet<NamespaceName>,
+
+    //  Remove this once the coordinator::tests::test_create_extraction_events test isn't failing after removing this
+    // pub index_table: HashMap<String, internal_api::Index>,
 
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes

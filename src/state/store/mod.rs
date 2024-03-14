@@ -16,9 +16,7 @@ use openraft::{
     RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
     StoredMembership, Vote,
 };
-use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, DB,
-};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use thiserror::Error;
@@ -756,9 +754,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
-    use openraft::{
-        raft::InstallSnapshotRequest, testing::log_id, CommittedLeaderId, LogId, SnapshotMeta, Vote,
-    };
+    use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
 
     use crate::{
         state::{self, store::state_machine_objects::IndexifyState},
