@@ -589,11 +589,16 @@ impl App {
         &self,
         extractor: &str,
     ) -> Result<internal_api::ExtractorDescription> {
-        let store = self.indexify_state.read().await;
-        let extractor = store
-            .extractors
-            .get(extractor)
-            .ok_or(anyhow!("extractor {:?} not found", extractor))?;
+        // let store = self.indexify_state.read().await;
+        // let extractor = store
+        //     .extractors
+        //     .get(extractor)
+        //     .ok_or(anyhow!("extractor {:?} not found", extractor))?;
+        let serialized_extractor = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::extractors, extractor)?;
+        let extractor =
+            serde_json::from_slice::<internal_api::ExtractorDescription>(&serialized_extractor)?;
         Ok(extractor.clone())
     }
 
@@ -1215,7 +1220,7 @@ mod tests {
     /// Test to create, register and read back an executor
     /// Executors are typically created along with extractors so both need to be asserted
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_create_and_read_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1223,7 +1228,10 @@ mod tests {
 
         //  Create an executor and extractor and ensure they can be read back
         let executor_id = "executor_id";
-        let extractor = indexify_internal_api::ExtractorDescription::default();
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: "extractor".into(),
+            ..Default::default()
+        };
         let addr = "addr";
         node.register_executor(addr, executor_id, extractor.clone())
             .await?;
@@ -1243,11 +1251,8 @@ mod tests {
         let extractors = node.list_extractors().await?;
         assert_eq!(extractors.len(), 1);
 
-        let extractor = node.extractor_with_name(&extractor.name).await?;
-        assert_eq!(
-            extractor,
-            indexify_internal_api::ExtractorDescription::default()
-        );
+        let retrieved_extractor = node.extractor_with_name(&extractor.name).await?;
+        assert_eq!(retrieved_extractor, extractor);
 
         Ok(())
     }

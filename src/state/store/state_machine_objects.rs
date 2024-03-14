@@ -297,7 +297,7 @@ impl IndexifyState {
             } => {
                 println!("RegisterExecutor in RocksDB");
 
-                //  Register the executor
+                //  Insert the executor
                 let executors_cf = db
                     .cf_handle(StateMachineColumns::executors.to_string().as_str())
                     .ok_or_else(|| {
@@ -316,7 +316,7 @@ impl IndexifyState {
                         StateMachineError::DatabaseError(format!("Error writing executor: {}", e))
                     })?;
 
-                //  Register the associated extractor
+                //  Insert the associated extractor
                 let extractors_cf = db
                     .cf_handle(StateMachineColumns::extractors.to_string().as_str())
                     .ok_or_else(|| {
