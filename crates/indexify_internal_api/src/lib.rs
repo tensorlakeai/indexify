@@ -215,10 +215,11 @@ impl Content {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::TaskOutcome)]
 pub enum TaskOutcome {
     Unknown,
+    #[default]
     Success,
     Failed,
 }
@@ -243,7 +244,7 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::Task)]
 pub struct Task {
     pub id: String,

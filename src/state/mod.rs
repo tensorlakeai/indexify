@@ -309,8 +309,7 @@ impl App {
         for event_id in store.unprocessed_state_changes.iter() {
             let event = self
                 .state_machine
-                .get_from_cf(StateMachineColumns::state_changes, event_id)
-                .await?;
+                .get_from_cf(StateMachineColumns::state_changes, event_id)?;
             let parsed_event = serde_json::from_slice::<StateChange>(&event)?;
             state_changes.push(parsed_event.clone());
         }
@@ -810,8 +809,19 @@ impl App {
     }
 
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
-        let store = self.indexify_state.read().await;
-        let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
+        // let store = self.indexify_state.read().await;
+        // let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
+        self.state_machine
+            .get_all_rows_from_cf(StateMachineColumns::tasks)?;
+        let retrieved_task = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::tasks, task_id)?;
+        let task = serde_json::from_slice::<internal_api::Task>(&retrieved_task).map_err(|e| {
+            anyhow!(
+                "unable to deserialize task from state machine store: {}",
+                e.to_string()
+            )
+        })?;
         Ok(task.clone())
     }
 
@@ -827,10 +837,16 @@ impl App {
     }
 
     pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
+        // let store = self.indexify_state.read().await;
+        // let index = store
+        //     .index_table
+        //     .get(id)
+        //     .ok_or(anyhow!("index not found"))?;
+        self.state_machine
+            .get_all_rows_from_cf(StateMachineColumns::index_table)?;
         let retrieved_index = self
             .state_machine
-            .get_from_cf(StateMachineColumns::index_table, id)
-            .await?;
+            .get_from_cf(StateMachineColumns::index_table, id)?;
         let index = serde_json::from_slice::<internal_api::Index>(&retrieved_index).unwrap();
         Ok(index)
     }
@@ -989,8 +1005,8 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
-    async fn dummy_test() -> Result<(), anyhow::Error> {
+    #[tracing_test::traced_test]
+    async fn test_write_read_index() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_node(0)?;
@@ -1005,6 +1021,36 @@ mod tests {
         assert_eq!(index_to_write, result);
         let indexes = node.list_indexes("namespace").await?;
         assert!(indexes.len() == 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_write_read_task() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let task = indexify_internal_api::Task {
+            id: "id".into(),
+            ..Default::default()
+        };
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateTasks {
+                tasks: vec![task.clone()],
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+
+        let read_back = {
+            move |node: Arc<App>| async move {
+                match node.task_with_id("id").await {
+                    Ok(read_result) if read_result.id == "id" => Ok(true),
+                    Ok(_) => Ok(false),
+                    Err(_) => Ok(false),
+                }
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
         Ok(())
     }
 }

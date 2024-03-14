@@ -307,7 +307,6 @@ mod tests {
         let events = shared_state.unprocessed_state_change_events().await?;
         assert_eq!(events.len(), 1);
 
-        return Ok(());
         // Run scheduler without any bindings to make sure that the event is processed
         // and we don't have any tasks
         coordinator.run_scheduler().await?;

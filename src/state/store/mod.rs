@@ -25,10 +25,7 @@ use tracing::debug;
 
 type Node = BasicNode;
 
-use self::{
-    requests::{RequestPayload, StateMachineUpdateRequest},
-    state_machine_objects::IndexifyState,
-};
+use self::state_machine_objects::IndexifyState;
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 
 pub type NamespaceName = String;
@@ -255,76 +252,8 @@ impl StateMachineStore {
         Ok(())
     }
 
-    /// This method handles the writing of updates to RocksDB for each state machine column
-    /// It then hands over the processing to IndexifyState::apply to handle writing the in-memory reverse indexes
-    async fn update_state_machine_columns(
-        &self,
-        request: StateMachineUpdateRequest,
-    ) -> Result<(), StateMachineError> {
-        let txn = self.db.transaction();
-
-        let state_changes_cf = self
-            .db
-            .cf_handle(StateMachineColumns::state_changes.to_string().as_str())
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError("ColumnFamily 'state_changes' not found".into())
-            })?;
-
-        for change in &request.new_state_changes {
-            let serialized_change = serde_json::to_vec(change)?;
-            txn.put_cf(state_changes_cf, &change.id, &serialized_change)
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        }
-
-        for change in &request.state_changes_processed {
-            let result = txn
-                .get_cf(state_changes_cf, &change.state_change_id.to_string())
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
-            let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
-            state_change.processed_at = Some(change.processed_at);
-            let serialized_change = serde_json::to_vec(&state_change)?;
-            txn.put_cf(
-                state_changes_cf,
-                &change.state_change_id.to_string(),
-                &serialized_change,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        }
-
-        match &request.payload {
-            RequestPayload::CreateIndex {
-                index,
-                namespace: _,
-                id,
-            } => {
-                let index_table_cf = self
-                    .db
-                    .cf_handle(StateMachineColumns::index_table.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'index_table' not found".into(),
-                        )
-                    })?;
-                let serialized_index = serde_json::to_vec(&index)?;
-                txn.put_cf(index_table_cf, id, &serialized_index)
-                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            }
-            _ => (),
-        };
-
-        txn.commit()
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-
-        // Apply in-memory state changes
-        let mut sm = self.data.indexify_state.write().await;
-        sm.apply(request);
-
-        Ok(())
-    }
-
     /// This method fetches a key from a specific column family within a transaction
-    pub async fn get_from_cf<T>(
+    pub fn get_from_cf<T>(
         &self,
         column: StateMachineColumns,
         key: T,
@@ -339,12 +268,30 @@ impl StateMachineStore {
                 "Failed to get column family {}",
                 column.to_string()
             ))?;
-        let txn = self.db.transaction();
-        let result = txn.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
+        let result = self.db.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
             "Failed to get value from column family {}",
             column.to_string()
         ))?;
         Ok(result)
+    }
+
+    /// Test utility method to get all key-value pairs from a column family
+    pub fn get_all_rows_from_cf(&self, column: StateMachineColumns) -> Result<(), anyhow::Error> {
+        let cf_handle = self
+            .db
+            .cf_handle(StateMachineColumns::index_table.to_string().as_str())
+            .ok_or(anyhow::anyhow!(
+                "Failed to get column family {}",
+                column.to_string()
+            ))?;
+        let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+        for item in iter {
+            match item {
+                Ok((key, value)) => println!("Key: {:?}, Value: {:?}", key, value),
+                Err(e) => return Err(anyhow::anyhow!("Failed to get key/value pair: {}", e)),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -403,9 +350,11 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         I: IntoIterator<Item = typ::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
     {
+        println!("ENTER: store::apply");
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
         let mut change_events: Vec<StateChange> = Vec::new();
+        let mut sm = self.data.indexify_state.write().await;
 
         for ent in entries {
             self.data.last_applied_log_id = Some(ent.log_id);
@@ -414,7 +363,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => {
                     change_events.extend(req.new_state_changes.clone());
-                    if let Err(e) = self.update_state_machine_columns(req.clone()).await {
+
+                    if let Err(e) = sm.apply_state_machine_updates(req.clone(), &self.db) {
                         tracing::error!("error applying state machine update: {}", e);
                     };
                 }
