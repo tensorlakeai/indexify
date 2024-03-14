@@ -26,8 +26,8 @@ markdown_extensions:
 nav:
   - Home: 'index.md'
   - Getting Started: 'getting_started.md'
-  - Concepts: 'concepts.md'
-  - UI: 'ui.md'
+  - Key Concepts: 'concepts.md'
+  - User Interface: 'ui.md'
   - Extractors:
     - Introduction: 'apis/extractors.md'
     - Available Extractors: 'apis/available_extractors.md'
