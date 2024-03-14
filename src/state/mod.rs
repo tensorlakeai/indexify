@@ -682,9 +682,20 @@ impl App {
     }
 
     pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        let store = self.indexify_state.read().await;
-        let executors = store.executors.values().cloned().collect_vec();
-        Ok(executors)
+        // let store = self.indexify_state.read().await;
+        // let executors = store.executors.values().cloned().collect_vec();
+        let rows = self
+            .state_machine
+            .get_all_rows_from_cf(StateMachineColumns::executors)?;
+
+        let executors: Result<Vec<_>, _> = rows
+            .into_iter()
+            .map(|(_, value)| {
+                let executor: internal_api::ExecutorMetadata = serde_json::from_slice(&value)?;
+                Ok(executor)
+            })
+            .collect();
+        executors
     }
 
     pub async fn get_executor_by_id(
@@ -844,8 +855,6 @@ impl App {
         //     .index_table
         //     .get(id)
         //     .ok_or(anyhow!("index not found"))?;
-        self.state_machine
-            .get_all_rows_from_cf(StateMachineColumns::index_table)?;
         let retrieved_index = self
             .state_machine
             .get_from_cf(StateMachineColumns::index_table, id)?;
@@ -1009,6 +1018,7 @@ mod tests {
         Ok(())
     }
 
+    /// Test to determine that an index that was created can be read back
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_write_read_index() -> Result<(), anyhow::Error> {
@@ -1029,6 +1039,7 @@ mod tests {
         Ok(())
     }
 
+    /// Test to determine that a task that was created can be read back
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_write_read_task() -> Result<(), anyhow::Error> {
@@ -1120,7 +1131,7 @@ mod tests {
     /// Test to determine that updating a task works correctly
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_update_task() -> Result<(), anyhow::Error> {
+    async fn test_update_task_and_read() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
 
@@ -1190,6 +1201,26 @@ mod tests {
         //  Read the task back and expect to find the outcome of the task set to Success
         let retrieved_task = node.task_with_id("task_id").await?;
         assert_eq!(retrieved_task.outcome, TaskOutcome::Success);
+
+        Ok(())
+    }
+
+    /// Test to create, register and read back an executor
+    /// Executors are typically created along with extractors so both need to be asserted
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_and_read_executors() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create an executor and ensure that it can be read back
+        let executor_id = "executor_id";
+        let extractor = indexify_internal_api::ExtractorDescription::default();
+        let addr = "addr";
+        node.register_executor(addr, executor_id, extractor).await?;
+        let executors = node.get_executors().await?;
+        assert_eq!(executors.len(), 1);
 
         Ok(())
     }

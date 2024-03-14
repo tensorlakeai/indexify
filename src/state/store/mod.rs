@@ -303,7 +303,7 @@ impl StateMachineStore {
     pub fn get_all_rows_from_cf(
         &self,
         column: StateMachineColumns,
-    ) -> Result<usize, anyhow::Error> {
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, anyhow::Error> {
         let cf_handle = self
             .db
             .cf_handle(column.to_string().as_str())
@@ -312,12 +312,13 @@ impl StateMachineStore {
                 column.to_string()
             ))?;
         let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
-        let items: Result<Vec<_>, _> = iter.collect();
-        let items = items?;
-        for (key, value) in &items {
-            println!("Key: {:?}, Value: {:?}", key, value);
-        }
-        Ok(items.len())
+        let items: Result<Vec<_>, _> = iter
+            .map(|result| match result {
+                Ok((key, value)) => Ok((key.to_vec(), value.to_vec())),
+                Err(e) => Err(anyhow::anyhow!(e)),
+            })
+            .collect();
+        items
     }
 }
 

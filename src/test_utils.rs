@@ -301,3 +301,11 @@ impl RaftTestCluster {
         })))
     }
 }
+
+impl Drop for RaftTestCluster {
+    fn drop(&mut self) {
+        for (_, node) in self.nodes.iter() {
+            let _ = node.stop();
+        }
+    }
+}

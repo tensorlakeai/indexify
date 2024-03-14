@@ -289,6 +289,47 @@ impl IndexifyState {
                         })?;
                 }
             }
+            RequestPayload::RegisterExecutor {
+                addr,
+                executor_id,
+                extractor,
+                ts_secs,
+            } => {
+                println!("RegisterExecutor in RocksDB");
+
+                //  Register the executor
+                let executors_cf = db
+                    .cf_handle(StateMachineColumns::executors.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'executors' not found".into(),
+                        )
+                    })?;
+                let serialized_executor = serde_json::to_vec(&internal_api::ExecutorMetadata {
+                    id: executor_id.clone(),
+                    last_seen: *ts_secs,
+                    addr: addr.clone(),
+                    extractor: extractor.clone(),
+                })?;
+                txn.put_cf(executors_cf, executor_id.clone(), &serialized_executor)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("Error writing executor: {}", e))
+                    })?;
+
+                //  Register the associated extractor
+                let extractors_cf = db
+                    .cf_handle(StateMachineColumns::extractors.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'extractors' not found".into(),
+                        )
+                    })?;
+                let serialized_extractor = serde_json::to_vec(extractor)?;
+                txn.put_cf(extractors_cf, extractor.name.clone(), &serialized_extractor)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
+                    })?;
+            }
             _ => (),
         };
 
