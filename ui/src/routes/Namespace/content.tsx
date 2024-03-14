@@ -10,8 +10,12 @@ import React, { useEffect, useState } from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
 import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
+import { isAxiosError } from "axios";
+import Errors from "../../components/Errors";
+import PdfDisplay from "../../components/PdfViewer";
 
 export async function loader({ params }: LoaderFunctionArgs) {
+  const errors: string[] = [];
   const namespace = params.namespace;
   const contentId = params.contentId;
   if (!namespace || !contentId) return redirect("/");
@@ -19,9 +23,26 @@ export async function loader({ params }: LoaderFunctionArgs) {
   // get content from contentId
   const tasks = await client
     .getTasks()
-    .then((tasks) => tasks.filter((t) => t.content_metadata.id === contentId));
+    .then((tasks) => tasks.filter((t) => t.content_metadata.id === contentId))
+    .catch((e) => {
+      if (isAxiosError(e)) {
+        errors.push(`getTasks: ${e.message}`);
+      }
+      return null;
+    });
   const contentMetadata = await client.getContentById(contentId);
-  const extractedMetadata = await client.getExtractedMetadata(contentId);
+  const extractedMetadata = await client
+    .getExtractedMetadata(contentId)
+    .catch((e) => {
+      if (isAxiosError(e)) {
+        errors.push(
+          `getExtractedMetadata: ${e.message} - ${
+            e.response?.data || "unknown"
+          }`
+        );
+      }
+      return [];
+    });
   return {
     client,
     namespace,
@@ -29,6 +50,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
     contentId,
     contentMetadata,
     extractedMetadata,
+    errors,
   };
 }
 
@@ -40,6 +62,7 @@ const ContentPage = () => {
     contentId,
     contentMetadata,
     extractedMetadata,
+    errors,
   } = useLoaderData() as {
     namespace: string;
     tasks: ITask[];
@@ -47,6 +70,7 @@ const ContentPage = () => {
     contentMetadata: IContentMetadata;
     extractedMetadata: IExtractedMetadata[];
     client: IndexifyClient;
+    errors: string[];
   };
 
   const [textContent, setTextContent] = useState("");
@@ -57,7 +81,9 @@ const ContentPage = () => {
   }, [client, contentId]);
 
   const renderContent = () => {
-    if (contentMetadata.mime_type.startsWith("image")) {
+    if (contentMetadata.mime_type.startsWith("application/pdf")) {
+      return <PdfDisplay url={contentMetadata.content_url} />;
+    } else if (contentMetadata.mime_type.startsWith("image")) {
       return (
         <img
           alt="content"
@@ -109,6 +135,7 @@ const ContentPage = () => {
         <Typography color="text.primary">Content</Typography>
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
+      <Errors errors={errors} />
       <Typography variant="h2">Content - {contentId}</Typography>
       <Typography variant="body1">
         MimeType: {contentMetadata.mime_type}
@@ -116,10 +143,7 @@ const ContentPage = () => {
       {/* display content */}
       {renderContent()}
       {/* tasks */}
-      <Typography variant="h4" pb={0}>
-        Metadata:
-      </Typography>
-      <ExtractedMetadataTable extractedMetadata={extractedMetadata}/>
+      <ExtractedMetadataTable extractedMetadata={extractedMetadata ?? []} />
       <TasksTable namespace={namespace} tasks={tasks} hideContentId />
     </Stack>
   );

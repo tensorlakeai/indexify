@@ -1,7 +1,7 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Box } from "@mui/system";
 import React from "react";
-import { Stack } from "@mui/material";
+import { Stack, Typography } from "@mui/material";
 import { IExtractedMetadata } from "getindexify";
 
 const getRowId = (row: object) => {
@@ -19,7 +19,8 @@ function createWidthMapFromObjects(
   dataArray.forEach((row) => {
     Object.entries(row).forEach(([key, value]) => {
       // get suggested width
-      const currentWidth = JSON.stringify(value).length * averageCharWidth + padding;
+      const currentWidth =
+        JSON.stringify(value).length * averageCharWidth + padding;
       // update width map to max
       if (!widthMap[key] || currentWidth > widthMap[key]) {
         widthMap[key] = currentWidth;
@@ -30,40 +31,50 @@ function createWidthMapFromObjects(
   return widthMap;
 }
 
+const ExtractedMetadataTable = ({
+  extractedMetadata,
+}: {
+  extractedMetadata: IExtractedMetadata[];
+}) => {
+  if (!extractedMetadata.length) return null;
+  const widthMap = createWidthMapFromObjects(
+    extractedMetadata.map((em) => em.metadata)
+  );
+  const columns: GridColDef[] = Object.keys(extractedMetadata[0].metadata).map(
+    (key) => {
+      return {
+        field: key,
+        headerName: key,
+        width: widthMap[key],
+        renderCell: (params) => {
+          return (
+            <Box sx={{ overflowX: "scroll" }}>
+              <Stack gap={1} direction="row">
+                {typeof params.value === "string"
+                  ? params.value
+                  : JSON.stringify(params.value)}
+              </Stack>
+            </Box>
+          );
+        },
+      };
+    }
+  );
 
-const ExtractedMetadataTable = ({ extractedMetadata }: { extractedMetadata: IExtractedMetadata[] }) => {
-  const widthMap = createWidthMapFromObjects(extractedMetadata.map(em => em.metadata));
-  const columns: GridColDef[] = Object.keys(extractedMetadata[0].metadata).map((key) => {
-    return {
-      field: key,
-      headerName: key,
-      width: widthMap[key],
-      renderCell: (params) => {
-        return (
-          <Box sx={{ overflowX: "scroll" }}>
-            <Stack gap={1} direction="row">
-              {typeof params.value === "string" ? params.value : JSON.stringify(params.value)}
-            </Stack>
-          </Box>
-        );
-      },
-    };
-  });
-
-  if (extractedMetadata.length === 0) {
-    return null;
-  }
   return (
     <Box
       sx={{
         width: "100%",
       }}
     >
+      <Typography variant="h4" pb={0}>
+        Metadata:
+      </Typography>
       <DataGrid
         sx={{ backgroundColor: "white" }}
         autoHeight
         getRowId={getRowId}
-        rows={extractedMetadata.map(em => em.metadata)}
+        rows={extractedMetadata.map((em) => em.metadata)}
         columns={columns}
         initialState={{
           pagination: {
