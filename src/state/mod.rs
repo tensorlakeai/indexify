@@ -1231,8 +1231,10 @@ mod tests {
         //  Read the executors from multiple functions
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 1);
+
         let executor = node.get_executor_by_id(executor_id).await?;
         assert_eq!(executor.id, executor_id);
+
         let executors = node.get_executors_for_extractor(&extractor.name).await?;
         assert_eq!(executors.len(), 1);
         assert_eq!(executors.get(0).unwrap().id, executor_id);
@@ -1240,6 +1242,12 @@ mod tests {
         //  Read the extractors
         let extractors = node.list_extractors().await?;
         assert_eq!(extractors.len(), 1);
+
+        let extractor = node.extractor_with_name(&extractor.name).await?;
+        assert_eq!(
+            extractor,
+            indexify_internal_api::ExtractorDescription::default()
+        );
 
         Ok(())
     }
