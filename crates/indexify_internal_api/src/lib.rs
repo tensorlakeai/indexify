@@ -218,8 +218,8 @@ impl Content {
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::TaskOutcome)]
 pub enum TaskOutcome {
-    Unknown,
     #[default]
+    Unknown,
     Success,
     Failed,
 }

@@ -46,10 +46,8 @@ pub struct IndexifyState {
 
     pub namespaces: HashSet<NamespaceName>,
 
-    // pub index_table: HashMap<String, internal_api::Index>,   //  done
-
     //  Remove this once the coordinator::tests::test_create_extraction_events test isn't failing after removing this
-    // pub index_table: HashMap<String, internal_api::Index>,
+    pub index_table: HashMap<String, internal_api::Index>,
 
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
@@ -161,7 +159,7 @@ impl IndexifyState {
                     })?;
                 for (task_id, executor_id) in assignments {
                     let key = executor_id.clone();
-                    let value = txn.get(&key).map_err(|e| {
+                    let value = txn.get_cf(task_assignment_cf, &key).map_err(|e| {
                         StateMachineError::DatabaseError(format!(
                             "Error reading task assignments: {}",
                             e
@@ -202,6 +200,93 @@ impl IndexifyState {
                                 })?;
                         }
                     }
+                }
+            }
+            RequestPayload::UpdateTask {
+                task,
+                mark_finished,
+                executor_id,
+                content_metadata,
+            } => {
+                println!("UpdateTask in RocksDB");
+
+                //  Update the task in the db
+                let tasks_cf = db
+                    .cf_handle(StateMachineColumns::tasks.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
+                    })?;
+                let serialized_task = serde_json::to_vec(&task)?;
+                txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("Error writing task: {}", e))
+                    })?;
+
+                if *mark_finished {
+                    //  If the task is meant to be marked finished and has an executor id, remove it from the list of tasks assigned to an executor
+                    if let Some(executor_id) = executor_id {
+                        // remove the task from the executor's task assignments
+                        let task_assignment_cf = db
+                            .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+                            .ok_or_else(|| {
+                                StateMachineError::DatabaseError(
+                                    "ColumnFamily 'task_assignments' not found".into(),
+                                )
+                            })?;
+                        let key = executor_id.clone();
+                        let value = txn.get_cf(task_assignment_cf, &key).map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "Error reading task assignments: {}",
+                                e
+                            ))
+                        })?;
+                        match value {
+                            Some(existing_tasks) => {
+                                let mut existing_tasks: HashSet<TaskId> =
+                                    serde_json::from_slice(&existing_tasks).map_err(|e| {
+                                        StateMachineError::DatabaseError(format!(
+                                            "Error deserializing task assignments: {}",
+                                            e
+                                        ))
+                                    })?;
+                                existing_tasks.remove(&task.id);
+                                let existing_tasks_serialized =
+                                    serde_json::to_vec(&existing_tasks)?;
+                                txn.put_cf(task_assignment_cf, &key, &existing_tasks_serialized)
+                                    .map_err(|e| {
+                                        StateMachineError::DatabaseError(format!(
+                                            "Error writing task assignments: {}",
+                                            e
+                                        ))
+                                    })?;
+                            }
+                            None => (),
+                        }
+
+                        decrement_running_task_count(
+                            &mut self.executor_running_task_count,
+                            &executor_id,
+                        );
+                    }
+                }
+
+                //  Insert the content metadata into the db
+                for content in content_metadata {
+                    let content_table_cf = db
+                        .cf_handle(StateMachineColumns::content_table.to_string().as_str())
+                        .ok_or_else(|| {
+                            StateMachineError::DatabaseError(
+                                "ColumnFamily 'content_table' not found".into(),
+                            )
+                        })?;
+                    let serialized_content = serde_json::to_vec(&content)?;
+                    txn.put_cf(content_table_cf, content.id.clone(), &serialized_content)
+                        .map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "Error writing content: {}",
+                                e
+                            ))
+                        })?;
                 }
             }
             _ => (),
@@ -324,14 +409,14 @@ impl IndexifyState {
             RequestPayload::CreateIndex {
                 index,
                 namespace,
-                id: _,
+                id,
             } => {
                 self.namespace_index_table
                     .entry(namespace.clone())
                     .or_default()
                     .insert(index.clone());
                 //  The below write is handled in apply_state_machine_updates
-                // self.index_table.insert(id.clone(), index.clone());
+                self.index_table.insert(id.clone(), index.clone());
             }
             RequestPayload::UpdateTask {
                 task,
@@ -339,6 +424,7 @@ impl IndexifyState {
                 executor_id,
                 content_metadata,
             } => {
+                println!("RequestPayload::UpdateTask handler");
                 self.tasks.insert(task.id.clone(), task.clone());
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);

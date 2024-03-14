@@ -944,7 +944,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::Index;
+    use indexify_internal_api::{Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1059,8 +1059,85 @@ mod tests {
         Ok(())
     }
 
+    /// Test to determine that updating a task works correctly
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
+    async fn test_update_task() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+
+        //  Create a task and ensure that it can be read back
+        let task = indexify_internal_api::Task {
+            id: "task_id".into(),
+            ..Default::default()
+        };
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateTasks {
+                tasks: vec![task.clone()],
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        let read_back = {
+            move |node: Arc<App>| async move {
+                match node.task_with_id("task_id").await {
+                    Ok(read_result) if read_result.id == "task_id" => Ok(true),
+                    Ok(_) => Ok(false),
+                    Err(_) => Ok(false),
+                }
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+
+        //  Assign the task to an executor
+        let assignments: HashMap<TaskId, ExecutorId> =
+            vec![("task_id".into(), "executor_id".into())]
+                .into_iter()
+                .collect();
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::AssignTask { assignments },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        let read_back = |node: Arc<App>| async move {
+            match node.tasks_for_executor("executor_id", None).await {
+                Ok(tasks_vec)
+                    if tasks_vec.len() == 1
+                        && tasks_vec.get(0).unwrap().id == "task_id"
+                        && tasks_vec.get(0).unwrap().outcome == TaskOutcome::Unknown =>
+                {
+                    Ok(true)
+                }
+                Ok(_) => Ok(false),
+                Err(_) => Ok(false),
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+
+        //  Update the task and mark it as complete by calling the update_task method
+        let task = indexify_internal_api::Task {
+            id: "task_id".into(),
+            outcome: indexify_internal_api::TaskOutcome::Success,
+            ..Default::default()
+        };
+        let executor_id = "executor_id";
+        let content_meta_list: Vec<indexify_internal_api::ContentMetadata> =
+            std::iter::repeat(indexify_internal_api::ContentMetadata::default())
+                .take(3)
+                .collect();
+        let node = cluster.get_node(0)?;
+        node.update_task(task, Some(executor_id.into()), content_meta_list)
+            .await?;
+
+        //  Read the task back and expect to find the outcome of the task set to Success
+        let retrieved_task = node.task_with_id("task_id").await?;
+        assert_eq!(retrieved_task.outcome, TaskOutcome::Success);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
