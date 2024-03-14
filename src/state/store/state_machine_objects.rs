@@ -12,14 +12,8 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    NamespaceName,
-    StateChangeId,
-    StateMachineColumns,
-    TaskId,
+    ContentId, ExecutorId, ExtractionPolicyId, ExtractorName, NamespaceName, StateChangeId,
+    StateMachineColumns, TaskId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -249,27 +243,23 @@ impl IndexifyState {
                                 e
                             ))
                         })?;
-                        match value {
-                            Some(existing_tasks) => {
-                                let mut existing_tasks: HashSet<TaskId> =
-                                    serde_json::from_slice(&existing_tasks).map_err(|e| {
-                                        StateMachineError::DatabaseError(format!(
-                                            "Error deserializing task assignments: {}",
-                                            e
-                                        ))
-                                    })?;
-                                existing_tasks.remove(&task.id);
-                                let existing_tasks_serialized =
-                                    serde_json::to_vec(&existing_tasks)?;
-                                txn.put_cf(task_assignment_cf, &key, existing_tasks_serialized)
-                                    .map_err(|e| {
-                                        StateMachineError::DatabaseError(format!(
-                                            "Error writing task assignments: {}",
-                                            e
-                                        ))
-                                    })?;
-                            }
-                            None => (),
+                        if let Some(existing_tasks) = value {
+                            let mut existing_tasks: HashSet<TaskId> =
+                                serde_json::from_slice(&existing_tasks).map_err(|e| {
+                                    StateMachineError::DatabaseError(format!(
+                                        "Error deserializing task assignments: {}",
+                                        e
+                                    ))
+                                })?;
+                            existing_tasks.remove(&task.id);
+                            let existing_tasks_serialized = serde_json::to_vec(&existing_tasks)?;
+                            txn.put_cf(task_assignment_cf, &key, existing_tasks_serialized)
+                                .map_err(|e| {
+                                    StateMachineError::DatabaseError(format!(
+                                        "Error writing task assignments: {}",
+                                        e
+                                    ))
+                                })?;
                         }
 
                         decrement_running_task_count(
