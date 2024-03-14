@@ -67,7 +67,7 @@ const ExtractedMetadataTable = ({
         width: "100%",
       }}
     >
-      <Typography variant="h4" pb={0}>
+      <Typography variant="h4" pb={2}>
         Metadata:
       </Typography>
       <DataGrid
