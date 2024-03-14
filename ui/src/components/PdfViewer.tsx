@@ -18,15 +18,6 @@ const PdfDisplay = ({ url }: { url: string }) => {
     setNumPages(numPages);
   }
 
-  const goToNextPage = () => {
-    setPageNumber(pageNumber + 1);
-  };
-
-  // Decrement page number
-  const goToPreviousPage = () => {
-    setPageNumber(pageNumber - 1);
-  };
-
   return (
     <div>
       <Box

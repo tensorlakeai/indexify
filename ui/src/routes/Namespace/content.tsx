@@ -143,7 +143,7 @@ const ContentPage = () => {
       {/* display content */}
       {renderContent()}
       {/* tasks */}
-      <ExtractedMetadataTable extractedMetadata={extractedMetadata ?? []} />
+      <ExtractedMetadataTable extractedMetadata={extractedMetadata} />
       <TasksTable namespace={namespace} tasks={tasks} hideContentId />
     </Stack>
   );
