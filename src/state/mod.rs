@@ -1088,7 +1088,6 @@ mod tests {
             }
         };
         cluster.read_own_write(request, read_back, true).await?;
-        println!("Done writing task");
 
         //  Second, assign the task to some executor
         let assignments: HashMap<TaskId, ExecutorId> =
