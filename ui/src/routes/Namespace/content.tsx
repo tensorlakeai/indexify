@@ -45,7 +45,7 @@ const ContentPage = () => {
     tasks: ITask[];
     contentId: string;
     contentMetadata: IContentMetadata;
-    extractedMetadata: IExtractedMetadata;
+    extractedMetadata: IExtractedMetadata[];
     client: IndexifyClient;
   };
 
@@ -119,7 +119,7 @@ const ContentPage = () => {
       <Typography variant="h4" pb={0}>
         Metadata:
       </Typography>
-      <ExtractedMetadataTable metadata={extractedMetadata.metadata as object[]}/>
+      <ExtractedMetadataTable extractedMetadata={extractedMetadata}/>
       <TasksTable namespace={namespace} tasks={tasks} hideContentId />
     </Stack>
   );
