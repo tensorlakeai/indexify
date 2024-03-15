@@ -594,6 +594,7 @@ mod tests {
         Ok(())
     }
 
+    //  TODO: Fix tests here so that state_machine_objects.rs doesn't panic
     /// Test setup can take a long time, so keep the number of tasks low.
     /// Previously it distributed 500,000 tasks in 2.7 seconds, but
     /// setup took almost 7 minutes.

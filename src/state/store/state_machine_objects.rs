@@ -115,6 +115,8 @@ impl IndexifyState {
                     &serialized_change,
                 )
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            } else {
+                //  TODO: Panic here and error out
             }
         }
 
@@ -331,6 +333,37 @@ impl IndexifyState {
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
                     })?;
+            }
+            RequestPayload::RemoveExecutor { executor_id } => {
+                //  Remove the executor
+                let executors_cf = db
+                    .cf_handle(StateMachineColumns::executors.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'executors' not found".into(),
+                        )
+                    })?;
+                txn.delete_cf(executors_cf, &executor_id).map_err(|e| {
+                    StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
+                })?;
+
+                // Remove all tasks assigned to this executor from 'task_assignments' column family
+                let task_assignments_cf = db
+                    .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'task_assignments' not found".into(),
+                        )
+                    })?;
+                txn.delete_cf(task_assignments_cf, &executor_id)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error deleting task assignments for executor: {}",
+                            e
+                        ))
+                    })?;
+
+                //  TODO: Handle updating the reverse indexes here
             }
             _ => (),
         };
