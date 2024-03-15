@@ -106,7 +106,7 @@ pub enum StateMachineError {
 pub enum StateMachineColumns {
     executors,
     tasks,
-    task_assignments,
+    task_assignments, //   Executor Id -> HashSet<TaskId>
     state_changes,
     content_table,
     extraction_policies,

@@ -97,9 +97,7 @@ impl Coordinator {
     }
 
     pub async fn list_state_changes(&self) -> Result<Vec<internal_api::StateChange>> {
-        let store = self.shared_state.indexify_state.read().await;
-        let state_changes = store.state_changes.values().cloned().collect();
-        Ok(state_changes)
+        self.shared_state.list_state_changes()
     }
 
     pub async fn list_tasks(

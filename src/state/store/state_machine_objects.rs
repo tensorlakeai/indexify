@@ -12,8 +12,8 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractionPolicyId, ExtractorName, NamespaceName, StateChangeId,
-    StateMachineColumns, TaskId,
+    ContentId, ExecutorId, ExtractorName, NamespaceName, StateChangeId, StateMachineColumns,
+    TaskId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -36,19 +36,17 @@ pub struct IndexifyState {
 
     pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
 
-    pub state_changes: HashMap<StateChangeId, StateChange>,
+    // pub state_changes: HashMap<StateChangeId, StateChange>,
 
-    pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
+    // pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
 
-    pub extraction_policies: HashMap<ExtractionPolicyId, internal_api::ExtractionPolicy>,
+    // pub extraction_policies: HashMap<ExtractionPolicyId, internal_api::ExtractionPolicy>,
 
-    pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
+    // pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
 
-    pub namespaces: HashSet<NamespaceName>,
+    // pub namespaces: HashSet<NamespaceName>,
 
-    //  Remove this once the coordinator::tests::test_create_extraction_events test isn't failing
-    // after removing this
-    pub index_table: HashMap<String, internal_api::Index>,
+    // pub index_table: HashMap<String, internal_api::Index>,
 
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
@@ -84,7 +82,6 @@ impl IndexifyState {
         request: StateMachineUpdateRequest,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<(), StateMachineError> {
-        println!("ENTER: IndexifyState::apply_state_machine_updates");
         let txn = db.transaction();
 
         let state_changes_cf = db
@@ -332,7 +329,10 @@ impl IndexifyState {
                     })?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
-                //  Remove the executor
+                //  NOTE: Special case of a handler that also remove its own reverse indexes here and returns from this function
+                //  Doing this because altering the reverse indexes requires references to the removed items
+
+                //  Get a handle on the executor before deleting it from the DB
                 let executors_cf = db
                     .cf_handle(StateMachineColumns::executors.to_string().as_str())
                     .ok_or_else(|| {
@@ -340,11 +340,24 @@ impl IndexifyState {
                             "ColumnFamily 'executors' not found".into(),
                         )
                     })?;
+                let serialized_executor = txn
+                    .get_cf(executors_cf, &executor_id)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
+                    })?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!(
+                            "Executor {} not found",
+                            executor_id
+                        ))
+                    })?;
+                let executor_meta =
+                    serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
                 txn.delete_cf(executors_cf, &executor_id).map_err(|e| {
                     StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
                 })?;
 
-                // Remove all tasks assigned to this executor from 'task_assignments' column family
+                // Remove all tasks assigned to this executor and get a handle on the task ids
                 let task_assignments_cf = db
                     .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
                     .ok_or_else(|| {
@@ -352,6 +365,17 @@ impl IndexifyState {
                             "ColumnFamily 'task_assignments' not found".into(),
                         )
                     })?;
+                let task_ids: Vec<TaskId> = txn
+                    .get_cf(task_assignments_cf, &executor_id)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error reading task assignments for executor: {}",
+                            e
+                        ))
+                    })?
+                    .map(|db_vec| serde_json::from_slice(&db_vec).unwrap_or_else(|_| vec![]))
+                    .unwrap_or_else(|| vec![]);
+
                 txn.delete_cf(task_assignments_cf, &executor_id)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!(
@@ -359,8 +383,22 @@ impl IndexifyState {
                             e
                         ))
                     })?;
+                txn.commit()
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
-                //  TODO: Handle updating the reverse indexes here
+                //  Remove the the extractor from the executor -> extractor mapping table
+                let executors = self
+                    .extractor_executors_table
+                    .entry(executor_meta.extractor.name.clone())
+                    .or_default();
+                executors.remove(&executor_meta.id);
+
+                //  Put the tasks of the deleted executor into the unassigned tasks list
+                for task_id in task_ids {
+                    self.unassigned_tasks.insert(task_id);
+                }
+
+                return Ok(());
             }
             RequestPayload::CreateContent { content_metadata } => {
                 let content_table_cf = db
@@ -420,6 +458,26 @@ impl IndexifyState {
                         StateMachineError::DatabaseError(format!("Error writing namespace: {}", e))
                     })?;
             }
+            RequestPayload::MarkStateChangesProcessed { state_changes } => {
+                for change in state_changes {
+                    let result = txn
+                        .get_cf(state_changes_cf, &change.state_change_id)
+                        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                    let result = result.ok_or_else(|| {
+                        StateMachineError::DatabaseError("State change not found".into())
+                    })?;
+
+                    let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
+                    state_change.processed_at = Some(change.processed_at);
+                    let serialized_change = serde_json::to_vec(&state_change)?;
+                    txn.put_cf(
+                        state_changes_cf,
+                        &change.state_change_id,
+                        &serialized_change,
+                    )
+                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                }
+            }
             _ => (),
         };
 
@@ -428,15 +486,12 @@ impl IndexifyState {
 
         self.apply(request);
 
-        println!("EXIT: IndexifyState::apply_state_machine_updates");
         Ok(())
     }
 
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         println!("ENTER: IndexifyState::apply");
         for change in request.new_state_changes {
-            //  The below write is handled in store/mod.rs
-            self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());
         }
         for change in request.state_changes_processed {
@@ -449,8 +504,6 @@ impl IndexifyState {
                 extractor,
                 ts_secs,
             } => {
-                self.extractors
-                    .insert(extractor.name.clone(), extractor.clone());
                 self.extractor_executors_table
                     .entry(extractor.name.clone())
                     .or_default()
@@ -519,8 +572,6 @@ impl IndexifyState {
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
                     //  The below write is handled in apply_state_machine_updates
-                    self.content_table
-                        .insert(content.id.clone(), content.clone());
                     self.content_namespace_table
                         .entry(content.namespace.clone())
                         .or_default()
@@ -532,23 +583,17 @@ impl IndexifyState {
                     .entry(extraction_policy.namespace.clone())
                     .or_default()
                     .insert(extraction_policy.clone());
-                self.extraction_policies
-                    .insert(extraction_policy.id.clone(), extraction_policy.clone());
             }
-            RequestPayload::CreateNamespace { name } => {
-                self.namespaces.insert(name.clone());
-            }
+            RequestPayload::CreateNamespace { name } => (), //  do nothing no reverse index change required
             RequestPayload::CreateIndex {
                 index,
                 namespace,
-                id,
+                id: _,
             } => {
                 self.namespace_index_table
                     .entry(namespace.clone())
                     .or_default()
                     .insert(index.clone());
-                //  The below write is handled in apply_state_machine_updates
-                self.index_table.insert(id.clone(), index.clone());
             }
             RequestPayload::UpdateTask {
                 task,
@@ -578,8 +623,6 @@ impl IndexifyState {
                     }
                 }
                 for content in content_metadata {
-                    self.content_table
-                        .insert(content.id.clone(), content.clone());
                     self.content_namespace_table
                         .entry(content.namespace.clone())
                         .or_default()
@@ -596,7 +639,6 @@ impl IndexifyState {
                 address: _,
             } => {} //  do nothing
         }
-        println!("EXIT: IndexifyState::apply");
     }
 
     pub fn mark_state_changes_processed(
@@ -606,12 +648,6 @@ impl IndexifyState {
     ) {
         self.unprocessed_state_changes
             .remove(&state_change.state_change_id);
-        //  The below write is handled in apply_state_machine_updates
-        self.state_changes
-            .entry(state_change.state_change_id.to_string())
-            .and_modify(|c| {
-                c.processed_at = Some(processed_at);
-            });
     }
 
     pub async fn get_tasks_for_executor(

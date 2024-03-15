@@ -688,14 +688,20 @@ impl App {
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
-        let store = self.indexify_state.read().await;
-        let extractors = store.extractors.values().cloned().collect_vec();
-        Ok(extractors)
+        let rows = self
+            .state_machine
+            .get_all_rows_from_cf(StateMachineColumns::extractors)?;
+        let extractors: Result<Vec<_>, _> = rows
+            .into_iter()
+            .map(|(_, value)| {
+                let extractor: internal_api::ExtractorDescription = serde_json::from_slice(&value)?;
+                Ok(extractor)
+            })
+            .collect();
+        extractors
     }
 
     pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        // let store = self.indexify_state.read().await;
-        // let executors = store.executors.values().cloned().collect_vec();
         let rows = self
             .state_machine
             .get_all_rows_from_cf(StateMachineColumns::executors)?;
@@ -714,11 +720,6 @@ impl App {
         &self,
         executor_id: ExecutorIdRef<'_>,
     ) -> Result<internal_api::ExecutorMetadata> {
-        // let store = self.indexify_state.read().await;
-        // let executor = store
-        //     .executors
-        //     .get(executor_id)
-        //     .ok_or(anyhow!("executor {} not found", executor_id))?;
         let serialized_executor = self
             .state_machine
             .get_from_cf(StateMachineColumns::executors, executor_id)?;
@@ -810,21 +811,6 @@ impl App {
         executor_id: &str,
         limit: Option<u64>,
     ) -> Result<Vec<internal_api::Task>> {
-        // let store = self.indexify_state.read().await;
-        // let tasks = store
-        //     .task_assignments
-        //     .get(executor_id)
-        //     .map(|task_ids| {
-        //         let limit = limit.unwrap_or(task_ids.len() as u64);
-        //         task_ids.iter().take(limit as usize).cloned().collect_vec()
-        //     })
-        //     .map(|task_ids| {
-        //         task_ids
-        //             .iter()
-        //             .map(|task_id| store.tasks.get(task_id).unwrap().clone())
-        //             .collect_vec()
-        //     })
-        //     .unwrap_or(vec![]);
         let tasks = self
             .state_machine
             .get_tasks_for_executor(executor_id, limit)
@@ -833,8 +819,6 @@ impl App {
     }
 
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
-        // let store = self.indexify_state.read().await;
-        // let task = store.tasks.get(task_id).ok_or(anyhow!("task not found"))?;
         let retrieved_task = self
             .state_machine
             .get_from_cf(StateMachineColumns::tasks, task_id)?;
@@ -859,11 +843,6 @@ impl App {
     }
 
     pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
-        // let store = self.indexify_state.read().await;
-        // let index = store
-        //     .index_table
-        //     .get(id)
-        //     .ok_or(anyhow!("index not found"))?;
         let retrieved_index = self
             .state_machine
             .get_from_cf(StateMachineColumns::index_table, id)?;
@@ -877,7 +856,6 @@ impl App {
         index: internal_api::Index,
         id: String,
     ) -> Result<()> {
-        println!("ENTER: state::create_index");
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateIndex {
                 namespace: namespace.to_string(),
@@ -888,8 +866,21 @@ impl App {
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
-        println!("EXIT: state::create_index");
         Ok(())
+    }
+
+    pub fn list_state_changes(&self) -> Result<Vec<StateChange>> {
+        let rows = self
+            .state_machine
+            .get_all_rows_from_cf(StateMachineColumns::state_changes)?;
+        let state_changes: Result<Vec<_>, _> = rows
+            .into_iter()
+            .map(|(_, value)| {
+                let state_change: StateChange = serde_json::from_slice(&value)?;
+                Ok(state_change)
+            })
+            .collect();
+        state_changes
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
