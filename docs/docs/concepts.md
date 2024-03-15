@@ -7,10 +7,11 @@ A typical workflow using Indexify involves uploading unstructured data(documents
 ## Data Model
 
 #### Content
-Unstructured data ingested into Indexify or produced within the service by transforming ingested content. Ex - PDF, Videos, Images, Text. Content produced by transforming a source content has their lineage tracked to the source. For example a PDF document could be transformed by the system into Text, Images and JSON documents.
+Unstructured data(documents, video, images) ingested into Indexify or produced within the service by transforming ingested content. Indexify tracks lineage of Content produced by transforming a source. For ex, a PDF document could be transformed by Indexify into Text, Images and structured data from tables.
 
 #### Extractor
 A python class that can -
+
 1. Transform unstructured data into intermediate forms. For example, a PDF document transformed into text, images, structured data if it contains tabular data.
 2. Extract features like embedding or metadata(JSON) that goes into various indexes that can be retreived by LLM applications.
 
