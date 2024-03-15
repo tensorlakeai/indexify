@@ -24,8 +24,8 @@ Extractor(Content) -> List[Content]
 
 ![Content Transformation](images/key_concepts_transform.png)
 
-###### Metadata Extraction
-An extractor can enrich  an ingested content by adding JSON metadata to the content. For example, adding bounding boxes of detected objects and their labels to an ingested image.
+###### Structured Data Extraction
+An extractor can enrich an ingested content by adding structured data to the content. For example, adding bounding boxes of detected objects and their labels to an ingested image. Structured Data returned as Metadata, and all the keys of the metadata become queriable using SQL queries.
 
 ```
 Extractor(Content) -> List[Feature(Type=Metadata)]
