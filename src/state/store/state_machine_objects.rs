@@ -4,7 +4,8 @@ use std::{
 };
 
 use indexify_internal_api as internal_api;
-use internal_api::StateChange;
+use indexify_proto::indexify_coordinator::ExtractionPolicy;
+use internal_api::{ExtractorDescription, StateChange};
 use rocksdb::OptimisticTransactionDB;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -111,6 +112,282 @@ impl IndexifyState {
         Ok(())
     }
 
+    fn set_index(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        index: &internal_api::Index,
+        id: &String,
+    ) -> Result<(), StateMachineError> {
+        let index_table_cf = db
+            .cf_handle(StateMachineColumns::index_table.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'index_table' not found".into())
+            })?;
+        let serialized_index = serde_json::to_vec(index)?;
+        txn.put_cf(index_table_cf, id, &serialized_index)
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        Ok(())
+    }
+
+    fn get_task(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        task_id: &TaskId,
+    ) -> Result<internal_api::Task, StateMachineError> {
+        let tasks_cf = db
+            .cf_handle(StateMachineColumns::tasks.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
+            })?;
+        let serialized_task = txn
+            .get_cf(tasks_cf, task_id)
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(format!("Task {} not found", task_id))
+            })?;
+        let task = serde_json::from_slice(&serialized_task)?;
+        Ok(task)
+    }
+
+    fn set_tasks(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        tasks: &Vec<internal_api::Task>,
+    ) -> Result<(), StateMachineError> {
+        let tasks_cf = db
+            .cf_handle(StateMachineColumns::tasks.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
+            })?;
+        for task in tasks {
+            let serialized_task = serde_json::to_vec(task)?;
+            txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn update_tasks(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        tasks: Vec<&internal_api::Task>,
+    ) -> Result<(), StateMachineError> {
+        let tasks_cf = db
+            .cf_handle(StateMachineColumns::tasks.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
+            })?;
+        for task in tasks {
+            let serialized_task = serde_json::to_vec(task)?;
+            txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn get_task_assignments_for_executor(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        executor_id: &str,
+    ) -> Result<HashSet<TaskId>, StateMachineError> {
+        let task_assignment_cf = db
+            .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'task_assignments' not found".into())
+            })?;
+        let key = executor_id;
+        let value = txn.get_cf(task_assignment_cf, key).map_err(|e| {
+            StateMachineError::DatabaseError(format!("Error reading task assignments: {}", e))
+        })?;
+        match value {
+            Some(existing_value) => {
+                let existing_value: HashSet<TaskId> = serde_json::from_slice(&existing_value)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error deserializing task assignments: {}",
+                            e
+                        ))
+                    })?;
+                Ok(existing_value)
+            }
+            None => Ok(HashSet::new()),
+        }
+    }
+
+    fn set_task_assignments(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        task_assignments: &HashMap<&String, HashSet<TaskId>>,
+    ) -> Result<(), StateMachineError> {
+        let task_assignment_cf = db
+            .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'task_assignments' not found".into())
+            })?;
+        for (executor_id, task_ids) in task_assignments {
+            let key = executor_id.clone();
+            let value = txn.get_cf(task_assignment_cf, &key).map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error reading task assignments: {}", e))
+            })?;
+
+            match value {
+                //  Update the hash set of task ids if executor id is already present as key
+                Some(existing_value) => {
+                    let mut existing_value: HashSet<TaskId> =
+                        serde_json::from_slice(&existing_value).map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "Error deserializing task assignments: {}",
+                                e
+                            ))
+                        })?;
+                    existing_value.extend(task_ids.clone());
+                    let new_value = serde_json::to_vec(&existing_value)?;
+                    txn.put_cf(task_assignment_cf, &key, &new_value)
+                        .map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "Error writing task assignments: {}",
+                                e
+                            ))
+                        })?;
+                }
+                None => {
+                    //  Create a new hash set of task ids if executor id is not present as
+                    // key
+                    let new_value = serde_json::to_vec(task_ids)?;
+                    txn.put_cf(task_assignment_cf, &key, &new_value)
+                        .map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "Error writing task assignments: {}",
+                                e
+                            ))
+                        })?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn set_content(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        contents_vec: &Vec<internal_api::ContentMetadata>,
+    ) -> Result<(), StateMachineError> {
+        let content_table_cf = db
+            .cf_handle(StateMachineColumns::content_table.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'content_table' not found".into())
+            })?;
+        for content in contents_vec {
+            let serialized_content = serde_json::to_vec(content)?;
+            txn.put_cf(content_table_cf, content.id.clone(), &serialized_content)
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!("Error writing content: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    fn set_executor(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        addr: String,
+        executor_id: &str,
+        extractor: &ExtractorDescription,
+        ts_secs: &u64,
+    ) -> Result<(), StateMachineError> {
+        let executors_cf = db
+            .cf_handle(StateMachineColumns::executors.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'executors' not found".into())
+            })?;
+        let serialized_executor = serde_json::to_vec(&internal_api::ExecutorMetadata {
+            id: executor_id.into(),
+            last_seen: *ts_secs,
+            addr: addr.clone(),
+            extractor: extractor.clone(),
+        })?;
+        txn.put_cf(executors_cf, executor_id, serialized_executor)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing executor: {}", e))
+            })?;
+        Ok(())
+    }
+
+    fn set_extractor(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        extractor: &ExtractorDescription,
+    ) -> Result<(), StateMachineError> {
+        let extractors_cf = db
+            .cf_handle(StateMachineColumns::extractors.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'extractors' not found".into())
+            })?;
+        let serialized_extractor = serde_json::to_vec(extractor)?;
+        txn.put_cf(extractors_cf, extractor.name.clone(), serialized_extractor)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
+            })?;
+        Ok(())
+    }
+
+    fn set_extraction_policy(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        extraction_policy: &internal_api::ExtractionPolicy,
+    ) -> Result<(), StateMachineError> {
+        let extraction_policies_cf = db
+            .cf_handle(
+                StateMachineColumns::extraction_policies
+                    .to_string()
+                    .as_str(),
+            )
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(
+                    "ColumnFamily 'extraction_policies' not found".into(),
+                )
+            })?;
+        let serialized_extraction_policy = serde_json::to_vec(extraction_policy)?;
+        txn.put_cf(
+            extraction_policies_cf,
+            extraction_policy.id.clone(),
+            serialized_extraction_policy,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!("Error writing extraction policy: {}", e))
+        })?;
+        Ok(())
+    }
+
+    fn set_namespace(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        namespace: &NamespaceName,
+    ) -> Result<(), StateMachineError> {
+        let namespaces_cf = db
+            .cf_handle(StateMachineColumns::namespaces.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'namespaces' not found".into())
+            })?;
+        let serialized_name = serde_json::to_vec(namespace)?;
+        txn.put_cf(namespaces_cf, serialized_name, [])
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing namespace: {}", e))
+            })?;
+        Ok(())
+    }
+
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &mut self,
@@ -128,84 +405,23 @@ impl IndexifyState {
                 namespace: _,
                 id,
             } => {
-                let index_table_cf = db
-                    .cf_handle(StateMachineColumns::index_table.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'index_table' not found".into(),
-                        )
-                    })?;
-                let serialized_index = serde_json::to_vec(&index)?;
-                txn.put_cf(index_table_cf, id, serialized_index)
-                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                self.set_index(db, &txn, index, id)?;
             }
             RequestPayload::CreateTasks { tasks } => {
-                let tasks_cf = db
-                    .cf_handle(StateMachineColumns::tasks.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
-                    })?;
-                for task in tasks {
-                    let serialized_task = serde_json::to_vec(&task)?;
-                    txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!("Error writing task: {}", e))
-                        })?;
-                }
+                self.set_tasks(db, &txn, tasks)?;
             }
             RequestPayload::AssignTask { assignments } => {
-                let task_assignment_cf = db
-                    .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'task_assignments' not found".into(),
-                        )
-                    })?;
-                for (task_id, executor_id) in assignments {
-                    let key = executor_id.clone();
-                    let value = txn.get_cf(task_assignment_cf, &key).map_err(|e| {
-                        StateMachineError::DatabaseError(format!(
-                            "Error reading task assignments: {}",
-                            e
-                        ))
-                    })?;
+                let assignments: HashMap<&String, HashSet<TaskId>> = assignments.into_iter().fold(
+                    HashMap::new(),
+                    |mut acc, (task_id, executor_id)| {
+                        acc.entry(executor_id)
+                            .or_insert_with(HashSet::new)
+                            .insert(task_id.clone());
+                        acc
+                    },
+                );
 
-                    match value {
-                        //  Update the hash set of task ids if executor id is already present as key
-                        Some(existing_value) => {
-                            let mut existing_value: HashSet<TaskId> =
-                                serde_json::from_slice(&existing_value).map_err(|e| {
-                                    StateMachineError::DatabaseError(format!(
-                                        "Error deserializing task assignments: {}",
-                                        e
-                                    ))
-                                })?;
-                            existing_value.insert(task_id.clone());
-                            let new_value = serde_json::to_vec(&existing_value)?;
-                            txn.put_cf(task_assignment_cf, &key, &new_value)
-                                .map_err(|e| {
-                                    StateMachineError::DatabaseError(format!(
-                                        "Error writing task assignments: {}",
-                                        e
-                                    ))
-                                })?;
-                        }
-                        None => {
-                            //  Create a new hash set of task ids if executor id is not present as
-                            // key
-                            let new_value: HashSet<TaskId> =
-                                vec![task_id.clone()].into_iter().collect();
-                            let new_value = serde_json::to_vec(&new_value)?;
-                            txn.put_cf(task_assignment_cf, &key, &new_value)
-                                .map_err(|e| {
-                                    StateMachineError::DatabaseError(format!(
-                                        "Error writing task assignments: {}",
-                                        e
-                                    ))
-                                })?;
-                        }
-                    }
-                }
+                self.set_task_assignments(db, &txn, &assignments)?;
             }
             RequestPayload::UpdateTask {
                 task,
@@ -213,56 +429,18 @@ impl IndexifyState {
                 executor_id,
                 content_metadata,
             } => {
-                //  Update the task in the db
-                let tasks_cf = db
-                    .cf_handle(StateMachineColumns::tasks.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError("ColumnFamily 'tasks' not found".into())
-                    })?;
-                let serialized_task = serde_json::to_vec(&task)?;
-                txn.put_cf(tasks_cf, task.id.clone(), serialized_task)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!("Error writing task: {}", e))
-                    })?;
+                self.update_tasks(db, &txn, vec![task])?;
 
                 if *mark_finished {
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
-                        // remove the task from the executor's task assignments
-                        let task_assignment_cf = db
-                            .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
-                            .ok_or_else(|| {
-                                StateMachineError::DatabaseError(
-                                    "ColumnFamily 'task_assignments' not found".into(),
-                                )
-                            })?;
-                        let key = executor_id.clone();
-                        let value = txn.get_cf(task_assignment_cf, &key).map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error reading task assignments: {}",
-                                e
-                            ))
-                        })?;
-                        if let Some(existing_tasks) = value {
-                            let mut existing_tasks: HashSet<TaskId> =
-                                serde_json::from_slice(&existing_tasks).map_err(|e| {
-                                    StateMachineError::DatabaseError(format!(
-                                        "Error deserializing task assignments: {}",
-                                        e
-                                    ))
-                                })?;
-                            existing_tasks.remove(&task.id);
-                            let existing_tasks_serialized = serde_json::to_vec(&existing_tasks)?;
-                            txn.put_cf(task_assignment_cf, &key, existing_tasks_serialized)
-                                .map_err(|e| {
-                                    StateMachineError::DatabaseError(format!(
-                                        "Error writing task assignments: {}",
-                                        e
-                                    ))
-                                })?;
-                        }
-
+                        let mut existing_tasks =
+                            self.get_task_assignments_for_executor(db, &txn, executor_id)?;
+                        existing_tasks.remove(&task.id);
+                        let mut new_task_assignment = HashMap::new();
+                        new_task_assignment.insert(executor_id, existing_tasks);
+                        self.set_task_assignments(db, &txn, &new_task_assignment)?;
                         decrement_running_task_count(
                             &mut self.executor_running_task_count,
                             executor_id,
@@ -271,23 +449,7 @@ impl IndexifyState {
                 }
 
                 //  Insert the content metadata into the db
-                for content in content_metadata {
-                    let content_table_cf = db
-                        .cf_handle(StateMachineColumns::content_table.to_string().as_str())
-                        .ok_or_else(|| {
-                            StateMachineError::DatabaseError(
-                                "ColumnFamily 'content_table' not found".into(),
-                            )
-                        })?;
-                    let serialized_content = serde_json::to_vec(&content)?;
-                    txn.put_cf(content_table_cf, content.id.clone(), &serialized_content)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error writing content: {}",
-                                e
-                            ))
-                        })?;
-                }
+                self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::RegisterExecutor {
                 addr,
@@ -296,37 +458,10 @@ impl IndexifyState {
                 ts_secs,
             } => {
                 //  Insert the executor
-                let executors_cf = db
-                    .cf_handle(StateMachineColumns::executors.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'executors' not found".into(),
-                        )
-                    })?;
-                let serialized_executor = serde_json::to_vec(&internal_api::ExecutorMetadata {
-                    id: executor_id.clone(),
-                    last_seen: *ts_secs,
-                    addr: addr.clone(),
-                    extractor: extractor.clone(),
-                })?;
-                txn.put_cf(executors_cf, executor_id.clone(), serialized_executor)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!("Error writing executor: {}", e))
-                    })?;
+                self.set_executor(db, &txn, addr.into(), executor_id, extractor, ts_secs)?;
 
                 //  Insert the associated extractor
-                let extractors_cf = db
-                    .cf_handle(StateMachineColumns::extractors.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'extractors' not found".into(),
-                        )
-                    })?;
-                let serialized_extractor = serde_json::to_vec(extractor)?;
-                txn.put_cf(extractors_cf, extractor.name.clone(), serialized_extractor)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
-                    })?;
+                self.set_extractor(db, &txn, extractor)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 //  NOTE: Special case of a handler that also remove its own reverse indexes
@@ -405,62 +540,13 @@ impl IndexifyState {
                 return Ok(());
             }
             RequestPayload::CreateContent { content_metadata } => {
-                let content_table_cf = db
-                    .cf_handle(StateMachineColumns::content_table.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'content_table' not found".into(),
-                        )
-                    })?;
-                for content in content_metadata {
-                    let serialized_content = serde_json::to_vec(&content)?;
-                    txn.put_cf(content_table_cf, content.id.clone(), &serialized_content)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error writing content: {}",
-                                e
-                            ))
-                        })?;
-                }
+                self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::CreateExtractionPolicy { extraction_policy } => {
-                let extraction_policies_cf = db
-                    .cf_handle(
-                        StateMachineColumns::extraction_policies
-                            .to_string()
-                            .as_str(),
-                    )
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'extraction_policies' not found".into(),
-                        )
-                    })?;
-                let serialized_extraction_policy = serde_json::to_vec(&extraction_policy)?;
-                txn.put_cf(
-                    extraction_policies_cf,
-                    extraction_policy.id.clone(),
-                    serialized_extraction_policy,
-                )
-                .map_err(|e| {
-                    StateMachineError::DatabaseError(format!(
-                        "Error writing extraction policy: {}",
-                        e
-                    ))
-                })?;
+                self.set_extraction_policy(db, &txn, extraction_policy)?;
             }
             RequestPayload::CreateNamespace { name } => {
-                let namespaces_cf = db
-                    .cf_handle(StateMachineColumns::namespaces.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'namespaces' not found".into(),
-                        )
-                    })?;
-                let serialized_name = serde_json::to_vec(&name)?;
-                txn.put_cf(namespaces_cf, serialized_name, [])
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!("Error writing namespace: {}", e))
-                    })?;
+                self.set_namespace(db, &txn, name)?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 self.set_processed_state_changes(db, &txn, state_changes)?;
