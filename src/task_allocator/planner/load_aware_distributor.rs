@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_allocate_task() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();

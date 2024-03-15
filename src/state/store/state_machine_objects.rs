@@ -102,17 +102,20 @@ impl IndexifyState {
         for change in &request.state_changes_processed {
             let result = txn
                 .get_cf(state_changes_cf, &change.state_change_id)
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
-            let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
-            state_change.processed_at = Some(change.processed_at);
-            let serialized_change = serde_json::to_vec(&state_change)?;
-            txn.put_cf(
-                state_changes_cf,
-                &change.state_change_id,
-                &serialized_change,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            //  TODO: Should we actually ignore the error if a state change key cannot be found for a processed state change
+            // .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
+            if let Some(result) = result {
+                let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
+                state_change.processed_at = Some(change.processed_at);
+                let serialized_change = serde_json::to_vec(&state_change)?;
+                txn.put_cf(
+                    state_changes_cf,
+                    &change.state_change_id,
+                    &serialized_change,
+                )
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            }
         }
 
         match &request.payload {
@@ -345,7 +348,7 @@ impl IndexifyState {
         println!("ENTER: IndexifyState::apply");
         for change in request.new_state_changes {
             //  The below write is handled in store/mod.rs
-            // self.state_changes.insert(change.id.clone(), change.clone());
+            self.state_changes.insert(change.id.clone(), change.clone());
             self.unprocessed_state_changes.insert(change.id.clone());
         }
         for change in request.state_changes_processed {
@@ -510,16 +513,16 @@ impl IndexifyState {
     pub fn mark_state_changes_processed(
         &mut self,
         state_change: &StateChangeProcessed,
-        _processed_at: u64,
+        processed_at: u64,
     ) {
         self.unprocessed_state_changes
             .remove(&state_change.state_change_id);
         //  The below write is handled in apply_state_machine_updates
-        // self.state_changes
-        //     .entry(state_change.state_change_id.to_string())
-        //     .and_modify(|c| {
-        //         c.processed_at = Some(processed_at);
-        //     });
+        self.state_changes
+            .entry(state_change.state_change_id.to_string())
+            .and_modify(|c| {
+                c.processed_at = Some(processed_at);
+            });
     }
 
     pub async fn get_tasks_for_executor(
