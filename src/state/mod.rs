@@ -333,6 +333,8 @@ impl App {
         Ok(())
     }
 
+    /// This method uses the content id to fetch the associated extraction policies based on certain filters
+    /// It's the mirror equivalent to content_matching_policy
     pub async fn filter_extraction_policy_for_content(
         &self,
         content_id: &str,
@@ -352,12 +354,12 @@ impl App {
                 continue;
             }
             for (name, value) in &extraction_policy.filters {
-                let is_mach = content_metadata
+                let is_match = content_metadata
                     .labels
                     .get(name)
                     .map(|v| v == value)
                     .unwrap_or(false);
-                if !is_mach {
+                if !is_match {
                     continue;
                 }
             }
@@ -378,12 +380,11 @@ impl App {
     }
 
     pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
-        let store = self.indexify_state.read().await;
-        let extraction_policy = store
-            .extraction_policies
-            .get(id)
-            .ok_or(anyhow!("policy {} not found", id))?;
-        Ok(extraction_policy.clone())
+        let extraction_policy = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::extraction_policies, id)?;
+        let extraction_policy = serde_json::from_slice::<ExtractionPolicy>(&extraction_policy)?;
+        Ok(extraction_policy)
     }
 
     /// Returns the extractor bindings that match the content metadata
@@ -408,10 +409,12 @@ impl App {
                 .unwrap_or_default();
             let mut content_meta_list = Vec::new();
             for content_id in content_list {
-                let content_metadata = store
-                    .content_table
-                    .get(&content_id)
-                    .ok_or(anyhow!("internal error: content {} not found", content_id))?;
+                let content_metadata_serialized = self
+                    .state_machine
+                    .get_from_cf(StateMachineColumns::content_table, &content_id)?;
+                let content_metadata = serde_json::from_slice::<internal_api::ContentMetadata>(
+                    &content_metadata_serialized,
+                )?;
                 // if the content metadata mimetype does not match the extractor, skip it
                 if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                     continue;
@@ -582,11 +585,6 @@ impl App {
         &self,
         extractor: &str,
     ) -> Result<internal_api::ExtractorDescription> {
-        // let store = self.indexify_state.read().await;
-        // let extractor = store
-        //     .extractors
-        //     .get(extractor)
-        //     .ok_or(anyhow!("extractor {:?} not found", extractor))?;
         let serialized_extractor = self
             .state_machine
             .get_from_cf(StateMachineColumns::extractors, extractor)?;
@@ -1289,6 +1287,83 @@ mod tests {
             .get_conent_metadata(&content_metadata_vec[0].id)
             .await?;
         assert_eq!(read_content, content_metadata_vec[0]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_read_and_match_extraction_policies() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create some content
+        let content_labels = vec![
+            ("label1".to_string(), "value1".to_string()),
+            ("label2".to_string(), "value2".to_string()),
+            ("label3".to_string(), "value3".to_string()),
+        ];
+        let content_metadata = indexify_internal_api::ContentMetadata {
+            namespace: "namespace".into(),
+            name: "name".into(),
+            labels: content_labels.into_iter().collect(),
+            content_type: "*/*".into(),
+            source: "source".into(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content_metadata.clone()])
+            .await?;
+
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id";
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: "extractor".into(),
+            input_mime_types: vec!["*/*".into()],
+            ..Default::default()
+        };
+        let addr = "addr";
+        node.register_executor(addr, executor_id, extractor.clone())
+            .await?;
+
+        //  Create the extraction policy under the namespace of the content
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            namespace: content_metadata.namespace.clone(),
+            content_source: "source".into(),
+            extractor: extractor.name,
+            filters: vec![
+                ("label1".to_string(), "value1".to_string()),
+                ("label2".to_string(), "value2".to_string()),
+                ("label3".to_string(), "value3".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        node.create_extraction_policy(extraction_policy.clone())
+            .await?;
+
+        //  Read the policy back using namespace
+        let read_policy = node
+            .list_extraction_policy(&extraction_policy.namespace)
+            .await?;
+        assert_eq!(read_policy.len(), 1);
+
+        //  Read the policy back using the id
+        let read_policy = node.get_extraction_policy(&extraction_policy.id).await?;
+        assert_eq!(read_policy, extraction_policy);
+
+        //  Fetch the content based on the policy id and check that the retrieved content is correct
+        let matched_content = node.content_matching_policy(&extraction_policy.id).await?;
+        assert_eq!(matched_content.len(), 1);
+        assert_eq!(matched_content.get(0).unwrap(), &content_metadata);
+
+        //  Fetch the policy based on the content id and check that the retrieved policy is correct
+        let matched_policies = node
+            .filter_extraction_policy_for_content(&content_metadata.id)
+            .await?;
+        assert_eq!(matched_policies.len(), 1);
+        assert_eq!(matched_policies.get(0).unwrap(), &extraction_policy);
 
         Ok(())
     }

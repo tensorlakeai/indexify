@@ -293,7 +293,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         })
     }
 }
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct ExtractionPolicy {
     pub id: String,
     pub name: String,

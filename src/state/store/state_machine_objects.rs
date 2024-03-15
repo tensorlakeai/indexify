@@ -384,6 +384,31 @@ impl IndexifyState {
                         })?;
                 }
             }
+            RequestPayload::CreateExtractionPolicy { extraction_policy } => {
+                let extraction_policies_cf = db
+                    .cf_handle(
+                        StateMachineColumns::extraction_policies
+                            .to_string()
+                            .as_str(),
+                    )
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'extraction_policies' not found".into(),
+                        )
+                    })?;
+                let serialized_extraction_policy = serde_json::to_vec(&extraction_policy)?;
+                txn.put_cf(
+                    extraction_policies_cf,
+                    extraction_policy.id.clone(),
+                    serialized_extraction_policy,
+                )
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!(
+                        "Error writing extraction policy: {}",
+                        e
+                    ))
+                })?;
+            }
             _ => (),
         };
 
