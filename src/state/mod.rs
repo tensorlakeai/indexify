@@ -19,17 +19,22 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex, RwLock,
+        Mutex,
+        RwLock,
     },
     task::JoinHandle,
 };
@@ -333,8 +338,9 @@ impl App {
         Ok(())
     }
 
-    /// This method uses the content id to fetch the associated extraction policies based on certain filters
-    /// It's the mirror equivalent to content_matching_policy
+    /// This method uses the content id to fetch the associated extraction
+    /// policies based on certain filters It's the mirror equivalent to
+    /// content_matching_policy
     pub async fn filter_extraction_policy_for_content(
         &self,
         content_id: &str,
@@ -446,10 +452,11 @@ impl App {
         let store = self.indexify_state.read().await;
         let mut tasks = vec![];
         for task_id in store.unassigned_tasks.iter() {
-            let task = store
-                .tasks
-                .get(task_id)
-                .ok_or(anyhow!("internal error: task {} not found", task_id))?;
+            let serialized_task = self
+                .state_machine
+                .get_from_cf(StateMachineColumns::tasks, task_id)
+                .map_err(|e| anyhow!("unable to get task from state machine store: {}", e))?;
+            let task = serde_json::from_slice::<internal_api::Task>(&serialized_task)?;
             tasks.push(task.clone());
         }
         Ok(tasks)
@@ -806,6 +813,31 @@ impl App {
         Ok(())
     }
 
+    pub fn list_tasks(
+        &self,
+        namespace: &str,
+        extraction_policy: Option<String>,
+    ) -> Result<Vec<internal_api::Task>> {
+        let tasks = self
+            .state_machine
+            .get_all_rows_from_cf(StateMachineColumns::tasks)?
+            .into_iter()
+            .map(|(_, value)| serde_json::from_slice::<internal_api::Task>(&value))
+            .collect::<Result<Vec<internal_api::Task>, _>>()?;
+        let filtered_tasks = tasks
+            .iter()
+            .filter(|task| task.namespace == namespace)
+            .filter(|task| {
+                extraction_policy
+                    .as_ref()
+                    .map(|eb| eb == &task.extraction_policy)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+        Ok(filtered_tasks)
+    }
+
     pub async fn tasks_for_executor(
         &self,
         executor_id: &str,
@@ -959,7 +991,8 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId, TaskId,
+                ExecutorId,
+                TaskId,
             },
             App,
         },
@@ -1171,9 +1204,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1
-                        && tasks_vec.first().unwrap().id == "task_id"
-                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1 &&
+                        tasks_vec.first().unwrap().id == "task_id" &&
+                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
@@ -1205,9 +1238,9 @@ mod tests {
         Ok(())
     }
 
-    /// Test to create, register, read back and remove an executor and associated extractors
-    /// Executors are typically created along with extractors so both need to be
-    /// asserted
+    /// Test to create, register, read back and remove an executor and
+    /// associated extractors Executors are typically created along with
+    /// extractors so both need to be asserted
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
@@ -1263,8 +1296,10 @@ mod tests {
         //  Create some content
         let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
         for i in 0..content_size {
-            let mut content_metadata = indexify_internal_api::ContentMetadata::default();
-            content_metadata.id = format!("id{}", i); // Replace this with your logic for generating ids
+            let content_metadata = indexify_internal_api::ContentMetadata {
+                id: format!("id{}", i),
+                ..Default::default()
+            };
             content_metadata_vec.push(content_metadata);
         }
         node.create_content_batch(content_metadata_vec.clone())
@@ -1272,7 +1307,7 @@ mod tests {
 
         //  Read the content back
         let read_content = node
-            .list_content(&content_metadata_vec.get(0).unwrap().namespace)
+            .list_content(&content_metadata_vec.first().unwrap().namespace)
             .await?;
         assert_eq!(read_content.len(), content_size);
 
@@ -1358,17 +1393,19 @@ mod tests {
         let read_policy = node.get_extraction_policy(&extraction_policy.id).await?;
         assert_eq!(read_policy, extraction_policy);
 
-        //  Fetch the content based on the policy id and check that the retrieved content is correct
+        //  Fetch the content based on the policy id and check that the retrieved
+        // content is correct
         let matched_content = node.content_matching_policy(&extraction_policy.id).await?;
         assert_eq!(matched_content.len(), 1);
-        assert_eq!(matched_content.get(0).unwrap(), &content_metadata);
+        assert_eq!(matched_content.first().unwrap(), &content_metadata);
 
-        //  Fetch the policy based on the content id and check that the retrieved policy is correct
+        //  Fetch the policy based on the content id and check that the retrieved policy
+        // is correct
         let matched_policies = node
             .filter_extraction_policy_for_content(&content_metadata.id)
             .await?;
         assert_eq!(matched_policies.len(), 1);
-        assert_eq!(matched_policies.get(0).unwrap(), &extraction_policy);
+        assert_eq!(matched_policies.first().unwrap(), &extraction_policy);
 
         Ok(())
     }
@@ -1384,7 +1421,8 @@ mod tests {
         let namespace = "namespace";
         node.create_namespace(namespace).await?;
 
-        //  Create 3 extraction policies using the same namespace but all other attributes as default
+        //  Create 3 extraction policies using the same namespace but all other
+        // attributes as default
         let extraction_policies = vec![
             indexify_internal_api::ExtractionPolicy {
                 id: "id1".into(),
@@ -1406,15 +1444,17 @@ mod tests {
             node.create_extraction_policy(policy.clone()).await?;
         }
 
-        //  Read the namespace back and expect to get the extraction policies as well which will be asserted
+        //  Read the namespace back and expect to get the extraction policies as well
+        // which will be asserted
         let retrieved_namespace = node.namespace(namespace).await?;
         assert_eq!(retrieved_namespace.name, namespace);
         assert_eq!(retrieved_namespace.extraction_policies.len(), 3);
 
-        // //  Read all namespaces back and assert that only the created namespace is present along with the extraction policies
+        // //  Read all namespaces back and assert that only the created namespace is
+        // present along with the extraction policies
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
-        assert_eq!(namespaces.get(0).unwrap().name, namespace);
+        assert_eq!(namespaces.first().unwrap().name, namespace);
 
         Ok(())
     }

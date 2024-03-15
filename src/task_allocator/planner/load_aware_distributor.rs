@@ -3,11 +3,12 @@ use std::{
     collections::{BinaryHeap, HashMap, HashSet},
 };
 
+use indexify_internal_api::ExecutorMetadata;
 use tracing::error;
 
 use super::{plan::TaskAllocationPlan, AllocationPlanner, AllocationPlannerResult};
 use crate::state::{
-    store::{ExecutorId, ExtractorName, TaskId},
+    store::{ExecutorId, ExtractorName, StateMachineColumns, TaskId},
     SharedState,
 };
 
@@ -146,26 +147,34 @@ impl LoadAwareDistributor {
 
         // Populate the executors' load heap for each extractor based on the current
         // running tasks.
-        let sm = self.shared_state.indexify_state.read().await;
         for executor_id in executor_running_task_count.keys() {
-            match sm.executors.get(executor_id) {
-                Some(executor_details) => {
-                    let extractor_name = executor_details.extractor.name.clone();
+            let executor = self
+                .shared_state
+                .state_machine
+                .get_from_cf(StateMachineColumns::executors, executor_id)
+                .ok();
+            match executor {
+                Some(serialized_executor) => {
+                    let executor =
+                        serde_json::from_slice::<ExecutorMetadata>(&serialized_executor).ok();
+                    if let Some(executor) = executor {
+                        let extractor_name = executor.extractor.name.clone();
 
-                    let running_task_count = executor_running_task_count
-                        .get(executor_id)
-                        .cloned()
-                        .unwrap_or_default();
+                        let running_task_count = executor_running_task_count
+                            .get(executor_id)
+                            .cloned()
+                            .unwrap_or_default();
 
-                    // Update or create the heap for the extractor and add the executor's load.
-                    executors_load_min_heap
-                        .entry(extractor_name)
-                        .or_default()
-                        // use `Reverse` here to make it a min-heap
-                        .push(Reverse(ExecutorLoad {
-                            executor_id: executor_id.clone(),
-                            running_task_count,
-                        }));
+                        // Update or create the heap for the extractor and add the executor's load.
+                        executors_load_min_heap
+                            .entry(extractor_name)
+                            .or_default()
+                            // use `Reverse` here to make it a min-heap
+                            .push(Reverse(ExecutorLoad {
+                                executor_id: executor_id.clone(),
+                                running_task_count,
+                            }));
+                    }
                 }
                 None => {
                     // Inconsistency: an executor is in the running task count but not in
@@ -353,28 +362,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_plan_allocations_empty() {
+    #[tracing_test::traced_test]
+    async fn test_plan_allocations_empty() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let _coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
-        let sm = shared_state.indexify_state.read().await;
 
         // get tasks from the state
-        let tasks: HashSet<TaskId> = sm.tasks.values().map(|t| t.id.clone()).collect();
+        let serialized_tasks = shared_state
+            .state_machine
+            .get_all_rows_from_cf(StateMachineColumns::tasks)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let tasks = serialized_tasks
+            .iter()
+            .map(|(_, v)| {
+                serde_json::from_slice::<internal_api::Task>(v).map_err(|e| anyhow::anyhow!(e))
+            })
+            .collect::<Result<Vec<internal_api::Task>, anyhow::Error>>()?;
+        let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id.clone()).collect();
 
         // it's a blank slate, so allocation should result in no tasks being allocated
         let distributor = LoadAwareDistributor::new(shared_state.clone());
 
-        let result = distributor.plan_allocations(tasks).await;
+        let result = distributor.plan_allocations(task_ids).await;
         assert!(result.is_ok());
         // should be empty
         assert_eq!(result.unwrap().0.len(), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_allocate_task() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
@@ -463,7 +483,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), state_change_ids.get(0).unwrap())
+            .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
@@ -554,7 +574,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), state_change_ids.get(0).unwrap())
+            .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
 
         // arbitrarily increase the load on the first text executor and json executor
@@ -685,7 +705,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), state_change_ids.get(0).unwrap())
+            .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());

@@ -12,7 +12,12 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractorName, NamespaceName, StateChangeId, StateMachineColumns,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    NamespaceName,
+    StateChangeId,
+    StateMachineColumns,
     TaskId,
 };
 
@@ -30,11 +35,11 @@ pub enum StateMachineError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IndexifyState {
-    pub executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
+    // pub executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
 
-    pub tasks: HashMap<TaskId, internal_api::Task>,
+    // pub tasks: HashMap<TaskId, internal_api::Task>,
 
-    pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
+    // pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
 
     // pub state_changes: HashMap<StateChangeId, StateChange>,
 
@@ -329,8 +334,9 @@ impl IndexifyState {
                     })?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
-                //  NOTE: Special case of a handler that also remove its own reverse indexes here and returns from this function
-                //  Doing this because altering the reverse indexes requires references to the removed items
+                //  NOTE: Special case of a handler that also remove its own reverse indexes
+                // here and returns from this function  Doing this because
+                // altering the reverse indexes requires references to the removed items
 
                 //  Get a handle on the executor before deleting it from the DB
                 let executors_cf = db
@@ -341,7 +347,7 @@ impl IndexifyState {
                         )
                     })?;
                 let serialized_executor = txn
-                    .get_cf(executors_cf, &executor_id)
+                    .get_cf(executors_cf, executor_id)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
                     })?
@@ -353,7 +359,7 @@ impl IndexifyState {
                     })?;
                 let executor_meta =
                     serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
-                txn.delete_cf(executors_cf, &executor_id).map_err(|e| {
+                txn.delete_cf(executors_cf, executor_id).map_err(|e| {
                     StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
                 })?;
 
@@ -366,7 +372,7 @@ impl IndexifyState {
                         )
                     })?;
                 let task_ids: Vec<TaskId> = txn
-                    .get_cf(task_assignments_cf, &executor_id)
+                    .get_cf(task_assignments_cf, executor_id)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!(
                             "Error reading task assignments for executor: {}",
@@ -374,9 +380,9 @@ impl IndexifyState {
                         ))
                     })?
                     .map(|db_vec| serde_json::from_slice(&db_vec).unwrap_or_else(|_| vec![]))
-                    .unwrap_or_else(|| vec![]);
+                    .unwrap_or_else(std::vec::Vec::new);
 
-                txn.delete_cf(task_assignments_cf, &executor_id)
+                txn.delete_cf(task_assignments_cf, executor_id)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!(
                             "Error deleting task assignments for executor: {}",
@@ -397,6 +403,9 @@ impl IndexifyState {
                 for task_id in task_ids {
                     self.unassigned_tasks.insert(task_id);
                 }
+
+                // Remove from the executor load table
+                self.executor_running_task_count.remove(executor_id);
 
                 return Ok(());
             }
@@ -453,7 +462,7 @@ impl IndexifyState {
                         )
                     })?;
                 let serialized_name = serde_json::to_vec(&name)?;
-                txn.put_cf(namespaces_cf, serialized_name, &[])
+                txn.put_cf(namespaces_cf, serialized_name, [])
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("Error writing namespace: {}", e))
                     })?;
@@ -508,44 +517,19 @@ impl IndexifyState {
                     .entry(extractor.name.clone())
                     .or_default()
                     .insert(executor_id.clone());
-                let executor_info = internal_api::ExecutorMetadata {
+                let _executor_info = internal_api::ExecutorMetadata {
                     id: executor_id.clone(),
                     last_seen: ts_secs,
                     addr: addr.clone(),
                     extractor: extractor.clone(),
                 };
-                self.executors.insert(executor_id.clone(), executor_info);
                 // initialize executor load at 0
                 self.executor_running_task_count
                     .insert(executor_id.clone(), 0);
             }
-            RequestPayload::RemoveExecutor { executor_id } => {
-                // Remove this from the executors table
-                let executor_meta = self.executors.remove(&executor_id);
-                // Remove this from the extractor -> executors table
-                if let Some(executor_meta) = executor_meta {
-                    let executors = self
-                        .extractor_executors_table
-                        .entry(executor_meta.extractor.name.clone())
-                        .or_default();
-                    executors.remove(&executor_meta.id);
-                }
-                // Remove from the executor load table
-                self.executor_running_task_count.remove(&executor_id);
-
-                // Remove all tasks assigned to this executor
-                let tasks = self.task_assignments.remove(&executor_id);
-                if let Some(tasks) = tasks {
-                    for task_id in tasks {
-                        self.unassigned_tasks.insert(task_id);
-                    }
-                }
-            }
+            RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
-                println!("RequestPayload::CreateTasks handler");
                 for task in tasks {
-                    //  The below write is handled in apply_state_machine_updates
-                    self.tasks.insert(task.id.clone(), task.clone());
                     self.unassigned_tasks.insert(task.id.clone());
                     self.unfinished_tasks_by_extractor
                         .entry(task.extractor.clone())
@@ -556,11 +540,6 @@ impl IndexifyState {
             RequestPayload::AssignTask { assignments } => {
                 println!("RequestPayload::AssignTask handler");
                 for (task_id, executor_id) in assignments {
-                    //  The below write is handled in apply_state_machine_updates
-                    self.task_assignments
-                        .entry(executor_id.clone())
-                        .or_default()
-                        .insert(task_id.clone());
                     self.unassigned_tasks.remove(&task_id);
 
                     increment_running_task_count(
@@ -584,7 +563,8 @@ impl IndexifyState {
                     .or_default()
                     .insert(extraction_policy.clone());
             }
-            RequestPayload::CreateNamespace { name } => (), //  do nothing no reverse index change required
+            RequestPayload::CreateNamespace { name: _ } => (), /* do nothing no reverse index */
+            // change required
             RequestPayload::CreateIndex {
                 index,
                 namespace,
@@ -601,8 +581,6 @@ impl IndexifyState {
                 executor_id,
                 content_metadata,
             } => {
-                println!("RequestPayload::UpdateTask handler");
-                self.tasks.insert(task.id.clone(), task.clone());
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
@@ -610,12 +588,6 @@ impl IndexifyState {
                         .or_default()
                         .remove(&task.id);
                     if let Some(executor_id) = executor_id {
-                        // remove the task from the executor's task assignments
-                        self.task_assignments
-                            .entry(executor_id.clone())
-                            .or_default()
-                            .remove(&task.id);
-
                         decrement_running_task_count(
                             &mut self.executor_running_task_count,
                             &executor_id,
@@ -644,7 +616,7 @@ impl IndexifyState {
     pub fn mark_state_changes_processed(
         &mut self,
         state_change: &StateChangeProcessed,
-        processed_at: u64,
+        _processed_at: u64,
     ) {
         self.unprocessed_state_changes
             .remove(&state_change.state_change_id);

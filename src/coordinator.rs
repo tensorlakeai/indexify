@@ -13,7 +13,10 @@ use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
-    coordinator_filters::*, scheduler::Scheduler, state::SharedState, task_allocator::TaskAllocator,
+    coordinator_filters::*,
+    scheduler::Scheduler,
+    state::SharedState,
+    task_allocator::TaskAllocator,
 };
 
 pub struct Coordinator {
@@ -105,19 +108,7 @@ impl Coordinator {
         namespace: &str,
         extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        let store = self.shared_state.indexify_state.read().await;
-        Ok(store
-            .tasks
-            .values()
-            .filter(|t| t.namespace == namespace)
-            .filter(|t| {
-                extraction_policy
-                    .as_ref()
-                    .map(|eb| eb == &t.extraction_policy)
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect())
+        self.shared_state.list_tasks(namespace, extraction_policy)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {

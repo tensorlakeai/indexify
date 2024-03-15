@@ -13,12 +13,29 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
+    ColumnFamily,
+    ColumnFamilyDescriptor,
+    Direction,
+    OptimisticTransactionDB,
+    Options,
+    Transaction,
 };
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -45,6 +62,9 @@ pub type ContentType = String;
 pub mod requests;
 pub mod state_machine_objects;
 mod store_utils;
+
+type KeyValuePair = (Vec<u8>, Vec<u8>);
+type KeyValuePairsResult = Result<Vec<KeyValuePair>, anyhow::Error>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
@@ -104,15 +124,15 @@ pub enum StateMachineError {
 #[derive(strum::Display, strum::EnumIter)]
 #[allow(non_camel_case_types)]
 pub enum StateMachineColumns {
-    executors,
-    tasks,
-    task_assignments, //   Executor Id -> HashSet<TaskId>
-    state_changes,
-    content_table,
-    extraction_policies,
-    extractors,
-    namespaces,
-    index_table,
+    executors,           //  ExecutorId -> Executor Metadata
+    tasks,               //  TaskId -> Task
+    task_assignments,    //   ExecutorId -> HashSet<TaskId>
+    state_changes,       //  StateChangeId -> StateChange
+    content_table,       //  ContentId -> ContentMetadata
+    extraction_policies, //  ExtractionPolicyId -> ExtractionPolicy
+    extractors,          //  ExtractorName -> ExtractorDescription
+    namespaces,          //  Namespaces
+    index_table,         //  String -> Index
 }
 
 impl StateMachineStore {
@@ -308,10 +328,7 @@ impl StateMachineStore {
     }
 
     /// Test utility method to get all key-value pairs from a column family
-    pub fn get_all_rows_from_cf(
-        &self,
-        column: StateMachineColumns,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, anyhow::Error> {
+    pub fn get_all_rows_from_cf(&self, column: StateMachineColumns) -> KeyValuePairsResult {
         let cf_handle = self
             .db
             .cf_handle(column.to_string().as_str())
@@ -400,7 +417,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                     change_events.extend(req.new_state_changes.clone());
 
                     if let Err(e) = sm.apply_state_machine_updates(req.clone(), &self.db) {
-                        //  TODO: Should we just log the error here? This seems incorrect as it includes not persisting the state changes to RocksDB
+                        //  TODO: Should we just log the error here? This seems incorrect as it
+                        // includes not persisting the state changes to RocksDB
                         panic!("error applying state machine update: {}", e);
                     };
                 }

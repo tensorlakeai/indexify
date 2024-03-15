@@ -11,7 +11,9 @@ use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App, NodeId, RaftConfigOverrides,
+        App,
+        NodeId,
+        RaftConfigOverrides,
     },
 };
 
@@ -299,13 +301,5 @@ impl RaftTestCluster {
         Ok(Arc::clone(self.nodes.get(&node_id).unwrap_or_else(|| {
             panic!("Could not find {} in node list", node_id)
         })))
-    }
-}
-
-impl Drop for RaftTestCluster {
-    fn drop(&mut self) {
-        for (_, node) in self.nodes.iter() {
-            let _ = node.stop();
-        }
     }
 }
