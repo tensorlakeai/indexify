@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "indexify"
-version = "0.0.12"
+version = "0.0.13"
 dependencies = [
  "anyerror",
  "anyhow",
@@ -3058,6 +3058,7 @@ dependencies = [
  "indexify_internal_api",
  "indexify_proto",
  "itertools 0.12.1",
+ "json-schema-tools",
  "jsonschema",
  "lance",
  "local-ip-address",
@@ -3118,6 +3119,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "indexify_proto",
+ "json-schema-tools",
  "mime",
  "nanoid",
  "serde",
@@ -3246,6 +3248,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "406cda4b368d531c842222cf9d2600a9a4acce8d29423695379c6868a143a9ee"
 dependencies = [
  "wasm-bindgen",
+]
+
+[[package]]
+name = "json-schema-tools"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "957bf2273f8a46574aa7482ea0df36d60687d3126129c6b02216e298298f2a9e"
+dependencies = [
+ "indexmap 2.2.3",
+ "lazy_static",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -5653,6 +5669,7 @@ version = "1.0.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5f09b1bd632ef549eaa9f60a1f8de742bdbc698e6cee2095fc84dde5f549ae0"
 dependencies = [
+ "indexmap 2.2.3",
  "itoa",
  "ryu",
  "serde",

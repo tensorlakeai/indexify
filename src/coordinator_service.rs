@@ -20,10 +20,14 @@ use indexify_proto::indexify_coordinator::{
     CreateIndexResponse,
     ExtractionPolicyRequest,
     ExtractionPolicyResponse,
+    GetAllSchemaRequest,
+    GetAllSchemaResponse,
     GetContentMetadataRequest,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
+    GetSchemaRequest,
+    GetSchemaResponse,
     HeartbeatRequest,
     HeartbeatResponse,
     ListContentRequest,
@@ -115,7 +119,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<ExtractionPolicyRequest>,
     ) -> Result<tonic::Response<ExtractionPolicyResponse>, tonic::Status> {
-        info!("CALLED CREATE_EXTRACTION_POLICY");
         let request = request.into_inner();
         let extraction_policy = request.policy.clone().unwrap();
         let mut s = DefaultHasher::new();
@@ -481,6 +484,46 @@ impl CoordinatorService for CoordinatorServiceServer {
         let tasks = tasks.into_iter().map(|t| t.into()).collect();
         Ok(Response::new(indexify_coordinator::ListTasksResponse {
             tasks,
+        }))
+    }
+
+    async fn get_schema(
+        &self,
+        req: Request<GetSchemaRequest>,
+    ) -> Result<Response<GetSchemaResponse>, Status> {
+        let req = req.into_inner();
+        let schema = self
+            .coordinator
+            .get_schema(&req.namespace, &req.content_source)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(Response::new(GetSchemaResponse {
+            schema: Some(indexify_coordinator::StructuredDataSchema {
+                schema: serde_json::to_string(&schema.schema).unwrap(),
+                content_source: schema.content_source,
+            }),
+        }))
+    }
+
+    async fn list_schemas(
+        &self,
+        req: Request<GetAllSchemaRequest>,
+    ) -> Result<Response<GetAllSchemaResponse>, Status> {
+        let req = req.into_inner();
+        let schemas = self
+            .coordinator
+            .list_schemas(&req.namespace)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        Ok(Response::new(GetAllSchemaResponse {
+            schemas: schemas
+                .into_iter()
+                .map(|s| indexify_coordinator::StructuredDataSchema {
+                    schema: serde_json::to_string(&s.schema).unwrap(),
+                    content_source: s.content_source,
+                })
+                .collect(),
         }))
     }
 }

@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::StateChange;
+use internal_api::{OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
 use tokio::sync::watch::Receiver;
 use tracing::info;
@@ -203,8 +203,23 @@ impl Coordinator {
                 ));
             }
         }
+        let structued_data_schema = self
+            .shared_state
+            .get_structured_data_schema(
+                &extraction_policy.namespace,
+                &extraction_policy.content_source,
+            )
+            .await?;
+        let mut updated_schema = None;
+        for (_, output_schema) in extractor.outputs {
+            if let OutputSchema::Attributes(schema) = output_schema {
+                let updated_structured_data_schema =
+                    structued_data_schema.merge(&format!("{}.", &extractor.name), schema)?;
+                updated_schema.replace(updated_structured_data_schema);
+            }
+        }
         self.shared_state
-            .create_extraction_policy(extraction_policy)
+            .create_extraction_policy(extraction_policy, updated_schema)
             .await?;
         Ok(())
     }
@@ -235,6 +250,20 @@ impl Coordinator {
             .create_content_batch(content_meta_list)
             .await?;
         Ok(())
+    }
+
+    pub async fn get_schema(
+        &self,
+        namespace: &str,
+        content_source: &str,
+    ) -> Result<StructuredDataSchema> {
+        self.shared_state
+            .get_structured_data_schema(namespace, content_source)
+            .await
+    }
+
+    pub async fn list_schemas(&self, namespace: &str) -> Result<Vec<StructuredDataSchema>> {
+        self.shared_state.get_schemas_for_namespace(namespace).await
     }
 
     pub fn get_leader_change_watcher(&self) -> Receiver<bool> {

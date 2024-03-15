@@ -18,3 +18,4 @@ serde_json = { workspace = true }
 smart-default = { workspace = true }
 strum = { workspace = true }
 utoipa = { workspace = true }
+json-schema-tools = {workspace = true} 

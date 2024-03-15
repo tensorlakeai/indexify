@@ -8,9 +8,11 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
-use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange};
+use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
+use itertools::Itertools;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -47,6 +49,7 @@ type Node = BasicNode;
 
 use self::state_machine_objects::IndexifyState;
 use super::{typ, NodeId, SnapshotData, TypeConfig};
+use crate::utils::OptionInspectNone;
 
 pub type NamespaceName = String;
 pub type TaskId = String;
@@ -58,6 +61,7 @@ pub type ExtractionEventId = String;
 pub type ExtractionPolicyId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
+pub type SchemaId = String;
 
 pub mod requests;
 pub mod state_machine_objects;
@@ -120,15 +124,26 @@ pub enum StateMachineError {
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
-    Executors,          //  ExecutorId -> Executor Metadata
-    Tasks,              //  TaskId -> Task
-    TaskAssignments,    //   ExecutorId -> HashSet<TaskId>
-    StateChanges,       //  StateChangeId -> StateChange
-    ContentTable,       //  ContentId -> ContentMetadata
-    ExtractionPolicies, //  ExtractionPolicyId -> ExtractionPolicy
-    Extractors,         //  ExtractorName -> ExtractorDescription
-    Namespaces,         //  Namespaces
-    IndexTable,         //  String -> Index
+    Executors,             //  ExecutorId -> Executor Metadata
+    Tasks,                 //  TaskId -> Task
+    TaskAssignments,       //   ExecutorId -> HashSet<TaskId>
+    StateChanges,          //  StateChangeId -> StateChange
+    ContentTable,          //  ContentId -> ContentMetadata
+    ExtractionPolicies,    //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,            //  ExtractorName -> ExtractorDescription
+    Namespaces,            //  Namespaces
+    IndexTable,            //  String -> Index
+    StructuredDataSchemas, //  SchemaId -> StructuredDataSchema
+}
+
+impl StateMachineColumns {
+    pub fn cf<'a>(&'a self, db: &'a Arc<OptimisticTransactionDB>) -> &'a ColumnFamily {
+        db.cf_handle(self.as_ref())
+            .inspect_none(|| {
+                tracing::error!("failed to get column family handle for {}", self.as_ref());
+            })
+            .unwrap()
+    }
 }
 
 impl StateMachineStore {
@@ -268,12 +283,13 @@ impl StateMachineStore {
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        let sm = self.data.indexify_state.read().await;
-        let cf = sm.get_cf_handle(&self.db, &column)?;
-        let result_bytes = self.db.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
-            "Failed to get value from column family {}",
-            column.to_string()
-        ))?;
+        let result_bytes = self
+            .db
+            .get_cf(column.cf(&self.db), key)?
+            .ok_or(anyhow::anyhow!(
+                "Failed to get value from column family {}",
+                column.to_string()
+            ))?;
         let result = serde_json::from_slice::<T>(&result_bytes)
             .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
@@ -284,7 +300,7 @@ impl StateMachineStore {
         &self,
         executor_id: &str,
         limit: Option<u64>,
-    ) -> anyhow::Result<Vec<indexify_internal_api::Task>> {
+    ) -> Result<Vec<indexify_internal_api::Task>> {
         let sm = self.data.indexify_state.read().await;
         sm.get_tasks_for_executor(executor_id, limit, &self.db)
             .await
@@ -294,7 +310,7 @@ impl StateMachineStore {
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
-    ) -> anyhow::Result<Vec<ExecutorMetadata>> {
+    ) -> Result<Vec<ExecutorMetadata>> {
         let sm = self.data.indexify_state.read().await;
         sm.get_executors_from_ids(executor_ids, &self.db)
             .await
@@ -304,11 +320,29 @@ impl StateMachineStore {
     pub async fn get_content_from_ids(
         &self,
         content_ids: HashSet<String>,
-    ) -> anyhow::Result<Vec<ContentMetadata>> {
+    ) -> Result<Vec<ContentMetadata>> {
         let sm = self.data.indexify_state.read().await;
         sm.get_content_from_ids(content_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
+        let txn = self.db.transaction();
+        let keys = ids
+            .iter()
+            .map(|id| (StateMachineColumns::StructuredDataSchemas.cf(&self.db), id))
+            .collect_vec();
+        let schema_bytes = txn.multi_get_cf(keys);
+        let mut schemas = vec![];
+        for schema in schema_bytes {
+            let schema = schema
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
+                .ok_or(StateMachineError::DatabaseError("Schema not found".into()))?;
+            let schema = serde_json::from_slice(&schema)?;
+            schemas.push(schema);
+        }
+        Ok(schemas)
     }
 
     pub async fn with_transaction<F, Fut>(&self, operation: F) -> Result<(), anyhow::Error>

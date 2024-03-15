@@ -35,6 +35,7 @@ pub enum RequestPayload {
     },
     CreateNamespace {
         name: String,
+        structured_data_schema: internal_api::StructuredDataSchema,
     },
     CreateTasks {
         tasks: Vec<internal_api::Task>,
@@ -47,6 +48,7 @@ pub enum RequestPayload {
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,
+        updated_structured_data_schema: Option<internal_api::StructuredDataSchema>,
     },
     CreateIndex {
         index: internal_api::Index,

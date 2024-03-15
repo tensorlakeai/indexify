@@ -68,7 +68,7 @@ impl DataManager {
     }
 
     #[tracing::instrument]
-    pub async fn create(&self, namespace: &api::DataNamespace) -> Result<()> {
+    pub async fn create_namespace(&self, namespace: &api::DataNamespace) -> Result<()> {
         info!("creating data namespace: {}", namespace.name);
         let policies = namespace
             .extraction_policies

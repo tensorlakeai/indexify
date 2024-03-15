@@ -550,3 +550,15 @@ pub struct ListStateChanges {
 pub struct ListStateChangesResponse {
     pub state_changes: Vec<internal_api::StateChange>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetStructuredDataSchemasResponse {
+    pub schemas: Vec<StructuredDataSchema>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StructuredDataSchema {
+    pub schema: serde_json::Value,
+    pub content_source: String,
+    pub namespace: String,
+}
