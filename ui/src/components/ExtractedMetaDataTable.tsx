@@ -68,7 +68,7 @@ const ExtractedMetadataTable = ({
       }}
     >
       <Typography variant="h4" pb={2}>
-        Metadata:
+        Metadata - {extractedMetadata[0].extractor_name}:
       </Typography>
       <DataGrid
         sx={{ backgroundColor: "white" }}
