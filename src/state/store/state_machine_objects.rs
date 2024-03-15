@@ -409,6 +409,20 @@ impl IndexifyState {
                     ))
                 })?;
             }
+            RequestPayload::CreateNamespace { name } => {
+                let namespaces_cf = db
+                    .cf_handle(StateMachineColumns::namespaces.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'namespaces' not found".into(),
+                        )
+                    })?;
+                let serialized_name = serde_json::to_vec(&name)?;
+                txn.put_cf(namespaces_cf, serialized_name, &[])
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("Error writing namespace: {}", e))
+                    })?;
+            }
             _ => (),
         };
 

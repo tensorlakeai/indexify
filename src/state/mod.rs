@@ -618,21 +618,34 @@ impl App {
     }
 
     pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
-        let store = self.indexify_state.read().await;
-        let mut namespaces = Vec::new();
-        for namespace in &store.namespaces {
+        //  Fetch the namespaces from the db
+        let namespaces_from_db = self
+            .state_machine
+            .get_all_rows_from_cf(StateMachineColumns::namespaces)?;
+        let namespaces: Result<Vec<String>, anyhow::Error> = namespaces_from_db
+            .into_iter()
+            .map(|(key, _)| serde_json::from_slice::<String>(&key).map_err(|e| e.into())) // Convert serde_json::Error into anyhow::Error
+            .collect();
+        let namespaces = namespaces?;
+
+        // Fetch extraction policies for each namespace
+        let mut result_namespaces = Vec::new();
+        for namespace_name in namespaces {
+            let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
             let extraction_policies = store
                 .extraction_policies_table
-                .get(namespace)
+                .get(&namespace_name)
                 .cloned()
                 .unwrap_or_default();
+
             let namespace = internal_api::Namespace {
-                name: namespace.clone(),
+                name: namespace_name,
                 extraction_policies: extraction_policies.into_iter().collect_vec(),
             };
-            namespaces.push(namespace);
+            result_namespaces.push(namespace);
         }
-        Ok(namespaces)
+
+        Ok(result_namespaces)
     }
 
     pub async fn namespace(&self, namespace: &str) -> Result<internal_api::Namespace> {
@@ -1364,6 +1377,52 @@ mod tests {
             .await?;
         assert_eq!(matched_policies.len(), 1);
         assert_eq!(matched_policies.get(0).unwrap(), &extraction_policy);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create a namespace
+        let namespace = "namespace";
+        node.create_namespace(namespace).await?;
+
+        //  Create 3 extraction policies using the same namespace but all other attributes as default
+        let extraction_policies = vec![
+            indexify_internal_api::ExtractionPolicy {
+                id: "id1".into(),
+                namespace: namespace.into(),
+                ..Default::default()
+            },
+            indexify_internal_api::ExtractionPolicy {
+                id: "id2".into(),
+                namespace: namespace.into(),
+                ..Default::default()
+            },
+            indexify_internal_api::ExtractionPolicy {
+                id: "id3".into(),
+                namespace: namespace.into(),
+                ..Default::default()
+            },
+        ];
+        for policy in &extraction_policies {
+            node.create_extraction_policy(policy.clone()).await?;
+        }
+
+        //  Read the namespace back and expect to get the extraction policies as well which will be asserted
+        let retrieved_namespace = node.namespace(namespace).await?;
+        assert_eq!(retrieved_namespace.name, namespace);
+        assert_eq!(retrieved_namespace.extraction_policies.len(), 3);
+
+        // //  Read all namespaces back and assert that only the created namespace is present along with the extraction policies
+        let namespaces = node.list_namespaces().await?;
+        assert_eq!(namespaces.len(), 1);
+        assert_eq!(namespaces.get(0).unwrap().name, namespace);
 
         Ok(())
     }
