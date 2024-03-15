@@ -103,21 +103,18 @@ impl IndexifyState {
             let result = txn
                 .get_cf(state_changes_cf, &change.state_change_id)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            //  TODO: Should we actually ignore the error if a state change key cannot be found for a processed state change
-            // .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
-            if let Some(result) = result {
-                let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
-                state_change.processed_at = Some(change.processed_at);
-                let serialized_change = serde_json::to_vec(&state_change)?;
-                txn.put_cf(
-                    state_changes_cf,
-                    &change.state_change_id,
-                    &serialized_change,
-                )
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            } else {
-                //  TODO: Panic here and error out
-            }
+            let result = result
+                .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
+
+            let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
+            state_change.processed_at = Some(change.processed_at);
+            let serialized_change = serde_json::to_vec(&state_change)?;
+            txn.put_cf(
+                state_changes_cf,
+                &change.state_change_id,
+                &serialized_change,
+            )
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         }
 
         match &request.payload {

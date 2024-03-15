@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_allocate_task() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
@@ -382,13 +382,13 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
-        shared_state
+        let state_change_id = shared_state
             .register_executor("localhost:8956", "test_executor_id", mock_extractor())
             .await?;
 
         let task = create_task("test-task", &mock_extractor().name, "test-binding");
         shared_state
-            .create_tasks(vec![task.clone()], "change_id")
+            .create_tasks(vec![task.clone()], &state_change_id)
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
@@ -426,21 +426,24 @@ mod tests {
 
         // register 5 text extractors and 5 json extractors. increment the port by 1 for
         // each
+        let mut state_change_ids: Vec<String> = Vec::new();
         for i in 1..=5 {
-            shared_state
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
                     text_extractor.clone(),
                 )
                 .await?;
-            shared_state
+            state_change_ids.push(state_change_id);
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
                     json_extractor.clone(),
                 )
                 .await?;
+            state_change_ids.push(state_change_id);
         }
 
         let mut tasks = Vec::new();
@@ -460,7 +463,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), "change_id")
+            .create_tasks(tasks.clone(), state_change_ids.get(0).unwrap())
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
@@ -514,21 +517,24 @@ mod tests {
 
         // register 5 text extractors and 5 json extractors. increment the port by 1 for
         // each
+        let mut state_change_ids: Vec<String> = Vec::new();
         for i in 1..=5 {
-            shared_state
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
                     text_extractor.clone(),
                 )
                 .await?;
-            shared_state
+            state_change_ids.push(state_change_id);
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
                     json_extractor.clone(),
                 )
                 .await?;
+            state_change_ids.push(state_change_id);
         }
 
         let mut tasks = Vec::new();
@@ -548,7 +554,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), "change_id")
+            .create_tasks(tasks.clone(), state_change_ids.get(0).unwrap())
             .await?;
 
         // arbitrarily increase the load on the first text executor and json executor
@@ -632,14 +638,18 @@ mod tests {
             }
             executors
         };
-        futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
-            shared_state.register_executor(
-                text_executors[i - 1].0.as_str(),
-                text_executors[i - 1].1.as_str(),
-                text_extractor.clone(),
-            )
-        }))
-        .await;
+        let state_change_ids: Vec<String> =
+            futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
+                shared_state.register_executor(
+                    text_executors[i - 1].0.as_str(),
+                    text_executors[i - 1].1.as_str(),
+                    text_extractor.clone(),
+                )
+            }))
+            .await
+            .into_iter()
+            .map(|res| res.unwrap())
+            .collect();
         let json_executors = {
             let mut executors = Vec::new();
             for i in 1..=(total_tasks / 25) {
@@ -675,7 +685,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), "change_id")
+            .create_tasks(tasks.clone(), state_change_ids.get(0).unwrap())
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());

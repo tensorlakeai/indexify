@@ -400,7 +400,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                     change_events.extend(req.new_state_changes.clone());
 
                     if let Err(e) = sm.apply_state_machine_updates(req.clone(), &self.db) {
-                        tracing::error!("error applying state machine update: {}", e);
+                        //  TODO: Should we just log the error here? This seems incorrect as it includes not persisting the state changes to RocksDB
+                        panic!("error applying state machine update: {}", e);
                     };
                 }
                 EntryPayload::Membership(mem) => {

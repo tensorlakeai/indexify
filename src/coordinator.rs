@@ -13,10 +13,7 @@ use tokio::sync::watch::Receiver;
 use tracing::info;
 
 use crate::{
-    coordinator_filters::*,
-    scheduler::Scheduler,
-    state::SharedState,
-    task_allocator::TaskAllocator,
+    coordinator_filters::*, scheduler::Scheduler, state::SharedState, task_allocator::TaskAllocator,
 };
 
 pub struct Coordinator {
@@ -166,9 +163,11 @@ impl Coordinator {
         executor_id: &str,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
-        self.shared_state
+        let _ = self
+            .shared_state
             .register_executor(addr, executor_id, extractor)
-            .await
+            .await;
+        Ok(())
     }
 
     pub async fn get_content_metadata(

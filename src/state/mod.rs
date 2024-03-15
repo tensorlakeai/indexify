@@ -667,7 +667,12 @@ impl App {
         addr: &str,
         executor_id: &str,
         extractor: internal_api::ExtractorDescription,
-    ) -> Result<()> {
+    ) -> Result<String> {
+        let state_change = StateChange::new(
+            executor_id.to_string(),
+            internal_api::ChangeType::ExecutorAdded,
+            timestamp_secs(),
+        );
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::RegisterExecutor {
                 addr: addr.to_string(),
@@ -675,15 +680,11 @@ impl App {
                 extractor,
                 ts_secs: timestamp_secs(),
             },
-            new_state_changes: vec![StateChange::new(
-                executor_id.to_string(),
-                internal_api::ChangeType::ExecutorAdded,
-                timestamp_secs(),
-            )],
+            new_state_changes: vec![state_change.clone()],
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
-        Ok(())
+        Ok(state_change.id)
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
