@@ -12,12 +12,7 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    NamespaceName,
-    StateChangeId,
-    StateMachineColumns,
+    ContentId, ExecutorId, ExtractorName, NamespaceName, StateChangeId, StateMachineColumns,
     TaskId,
 };
 
@@ -35,24 +30,6 @@ pub enum StateMachineError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IndexifyState {
-    // pub executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
-
-    // pub tasks: HashMap<TaskId, internal_api::Task>,
-
-    // pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
-
-    // pub state_changes: HashMap<StateChangeId, StateChange>,
-
-    // pub content_table: HashMap<ContentId, internal_api::ContentMetadata>,
-
-    // pub extraction_policies: HashMap<ExtractionPolicyId, internal_api::ExtractionPolicy>,
-
-    // pub extractors: HashMap<ExtractorName, internal_api::ExtractorDescription>,
-
-    // pub namespaces: HashSet<NamespaceName>,
-
-    // pub index_table: HashMap<String, internal_api::Index>,
-
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -82,27 +59,39 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
-    /// This method will make all state machine forward index writes to RocksDB
-    pub fn apply_state_machine_updates(
-        &mut self,
-        request: StateMachineUpdateRequest,
+    fn set_new_state_changes(
+        &self,
         db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        state_changes: &Vec<StateChange>,
     ) -> Result<(), StateMachineError> {
-        let txn = db.transaction();
-
         let state_changes_cf = db
             .cf_handle(StateMachineColumns::state_changes.to_string().as_str())
             .ok_or_else(|| {
                 StateMachineError::DatabaseError("ColumnFamily 'state_changes' not found".into())
             })?;
 
-        for change in &request.new_state_changes {
+        for change in state_changes {
             let serialized_change = serde_json::to_vec(change)?;
             txn.put_cf(state_changes_cf, &change.id, &serialized_change)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         }
+        Ok(())
+    }
 
-        for change in &request.state_changes_processed {
+    fn set_processed_state_changes(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        state_changes: &Vec<StateChangeProcessed>,
+    ) -> Result<(), StateMachineError> {
+        let state_changes_cf = db
+            .cf_handle(StateMachineColumns::state_changes.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'state_changes' not found".into())
+            })?;
+
+        for change in state_changes {
             let result = txn
                 .get_cf(state_changes_cf, &change.state_change_id)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -119,6 +108,19 @@ impl IndexifyState {
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         }
+        Ok(())
+    }
+
+    /// This method will make all state machine forward index writes to RocksDB
+    pub fn apply_state_machine_updates(
+        &mut self,
+        request: StateMachineUpdateRequest,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<(), StateMachineError> {
+        let txn = db.transaction();
+
+        self.set_new_state_changes(db, &txn, &request.new_state_changes)?;
+        self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
             RequestPayload::CreateIndex {
@@ -126,7 +128,6 @@ impl IndexifyState {
                 namespace: _,
                 id,
             } => {
-                println!("CreateIndex in RocksDB");
                 let index_table_cf = db
                     .cf_handle(StateMachineColumns::index_table.to_string().as_str())
                     .ok_or_else(|| {
@@ -139,7 +140,6 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             }
             RequestPayload::CreateTasks { tasks } => {
-                println!("CreateTasks in RocksDB");
                 let tasks_cf = db
                     .cf_handle(StateMachineColumns::tasks.to_string().as_str())
                     .ok_or_else(|| {
@@ -152,10 +152,8 @@ impl IndexifyState {
                             StateMachineError::DatabaseError(format!("Error writing task: {}", e))
                         })?;
                 }
-                println!("CreateTasks in RocksDB done");
             }
             RequestPayload::AssignTask { assignments } => {
-                println!("AssignTasks in RocksDB");
                 let task_assignment_cf = db
                     .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
                     .ok_or_else(|| {
@@ -215,8 +213,6 @@ impl IndexifyState {
                 executor_id,
                 content_metadata,
             } => {
-                println!("UpdateTask in RocksDB");
-
                 //  Update the task in the db
                 let tasks_cf = db
                     .cf_handle(StateMachineColumns::tasks.to_string().as_str())
@@ -299,8 +295,6 @@ impl IndexifyState {
                 extractor,
                 ts_secs,
             } => {
-                println!("RegisterExecutor in RocksDB");
-
                 //  Insert the executor
                 let executors_cf = db
                     .cf_handle(StateMachineColumns::executors.to_string().as_str())
@@ -469,24 +463,7 @@ impl IndexifyState {
                     })?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
-                for change in state_changes {
-                    let result = txn
-                        .get_cf(state_changes_cf, &change.state_change_id)
-                        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                    let result = result.ok_or_else(|| {
-                        StateMachineError::DatabaseError("State change not found".into())
-                    })?;
-
-                    let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
-                    state_change.processed_at = Some(change.processed_at);
-                    let serialized_change = serde_json::to_vec(&state_change)?;
-                    txn.put_cf(
-                        state_changes_cf,
-                        &change.state_change_id,
-                        &serialized_change,
-                    )
-                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                }
+                self.set_processed_state_changes(db, &txn, state_changes)?;
             }
             _ => (),
         };
@@ -541,7 +518,6 @@ impl IndexifyState {
                 }
             }
             RequestPayload::AssignTask { assignments } => {
-                println!("RequestPayload::AssignTask handler");
                 for (task_id, executor_id) in assignments {
                     self.unassigned_tasks.remove(&task_id);
 
@@ -631,6 +607,7 @@ impl IndexifyState {
         limit: Option<u64>,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
+        //  NOTE: Don't do deserialization within the transaction
         let txn = db.transaction();
         let task_assignments_cf = db
             .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
@@ -643,14 +620,18 @@ impl IndexifyState {
         let task_ids_key = executor_id.as_bytes();
         let task_ids_bytes = txn
             .get_cf(task_assignments_cf, task_ids_key)
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!(
-                    "No tasks found for executor {}",
-                    executor_id
-                ))
-            })?;
-        let task_ids: Vec<String> = serde_json::from_slice(&task_ids_bytes)?;
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+        let task_ids: Vec<String> = task_ids_bytes
+            .map(|task_id_bytes| {
+                serde_json::from_slice(&task_id_bytes)
+                    .map_err(StateMachineError::from)
+                    .unwrap_or_else(|e| {
+                        error!("Failed to deserialize task id: {}", e);
+                        Vec::new()
+                    })
+            })
+            .unwrap_or_else(Vec::new);
 
         let tasks_cf = db
             .cf_handle(StateMachineColumns::tasks.to_string().as_str())
