@@ -13,6 +13,7 @@ import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
 import { isAxiosError } from "axios";
 import Errors from "../../components/Errors";
 import PdfDisplay from "../../components/PdfViewer";
+import { groupMetadataByExtractor } from "../../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const errors: string[] = [];
@@ -31,7 +32,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
       return null;
     });
   const contentMetadata = await client.getContentById(contentId);
-  const extractedMetadata = await client
+  const extractedMetadataList = await client
     .getExtractedMetadata(contentId)
     .catch((e) => {
       if (isAxiosError(e)) {
@@ -49,7 +50,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
     tasks,
     contentId,
     contentMetadata,
-    extractedMetadata,
+    groupedExtractedMetadata:groupMetadataByExtractor(extractedMetadataList),
     errors,
   };
 }
@@ -61,14 +62,14 @@ const ContentPage = () => {
     tasks,
     contentId,
     contentMetadata,
-    extractedMetadata,
+    groupedExtractedMetadata,
     errors,
   } = useLoaderData() as {
     namespace: string;
     tasks: ITask[];
     contentId: string;
     contentMetadata: IContentMetadata;
-    extractedMetadata: IExtractedMetadata[];
+    groupedExtractedMetadata: Record<string,IExtractedMetadata[]>;
     client: IndexifyClient;
     errors: string[];
   };
@@ -143,7 +144,10 @@ const ContentPage = () => {
       {/* display content */}
       {renderContent()}
       {/* tasks */}
-      <ExtractedMetadataTable extractedMetadata={extractedMetadata} />
+      {Object.keys(groupedExtractedMetadata).map(key => {
+        const extractedMetadata = groupedExtractedMetadata[key]
+        return <ExtractedMetadataTable extractedMetadata={extractedMetadata} />
+      })}
       <TasksTable namespace={namespace} tasks={tasks} hideContentId />
     </Stack>
   );
