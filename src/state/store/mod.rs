@@ -10,32 +10,15 @@ use std::{
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
-use indexify_internal_api::{ExecutorMetadata, StateChange};
+use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
 };
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -258,20 +241,6 @@ impl StateMachineStore {
         Ok(())
     }
 
-    /// This method updates the state machine columns in RocksDB
-    async fn _update_state_machine_column<T: AsRef<[u8]>>(
-        &self,
-        column_family: &str,
-        key: T,
-        value: T,
-    ) -> Result<(), anyhow::Error> {
-        let txn = self.db.transaction();
-        txn.put_cf(self.db.cf_handle(column_family).unwrap(), key, value)
-            .expect("Something went wrong while inserting");
-        txn.commit().unwrap();
-        Ok(())
-    }
-
     /// This method fetches a key from a specific column family within a
     /// transaction
     pub fn get_from_cf<T>(
@@ -313,6 +282,16 @@ impl StateMachineStore {
     ) -> anyhow::Result<Vec<ExecutorMetadata>> {
         let sm = self.data.indexify_state.read().await;
         sm.get_executors_from_ids(executor_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub async fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
+    ) -> anyhow::Result<Vec<ContentMetadata>> {
+        let sm = self.data.indexify_state.read().await;
+        sm.get_content_from_ids(content_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }

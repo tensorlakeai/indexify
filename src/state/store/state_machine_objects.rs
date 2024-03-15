@@ -365,6 +365,25 @@ impl IndexifyState {
 
                 //  TODO: Handle updating the reverse indexes here
             }
+            RequestPayload::CreateContent { content_metadata } => {
+                let content_table_cf = db
+                    .cf_handle(StateMachineColumns::content_table.to_string().as_str())
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(
+                            "ColumnFamily 'content_table' not found".into(),
+                        )
+                    })?;
+                for content in content_metadata {
+                    let serialized_content = serde_json::to_vec(&content)?;
+                    txn.put_cf(content_table_cf, content.id.clone(), &serialized_content)
+                        .map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "Error writing content: {}",
+                                e
+                            ))
+                        })?;
+                }
+            }
             _ => (),
         };
 
@@ -463,6 +482,7 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
+                    //  The below write is handled in apply_state_machine_updates
                     self.content_table
                         .insert(content.id.clone(), content.clone());
                     self.content_namespace_table
@@ -637,5 +657,36 @@ impl IndexifyState {
                 })
                 .collect();
         executors
+    }
+
+    pub async fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let content_cf = db
+            .cf_handle(StateMachineColumns::content_table.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(
+                    "Failed to get column family 'content_table'".into(),
+                )
+            })?;
+        let content: Result<Vec<internal_api::ContentMetadata>, StateMachineError> = content_ids
+            .into_iter()
+            .map(|content_id| {
+                let content_bytes = txn
+                    .get_cf(content_cf, content_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!(
+                            "Content {} not found",
+                            content_id
+                        ))
+                    })?;
+                serde_json::from_slice(&content_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        content
     }
 }

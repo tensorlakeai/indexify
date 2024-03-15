@@ -506,15 +506,8 @@ impl App {
             .get(namespace)
             .cloned()
             .unwrap_or_default();
-        let mut content = Vec::new();
-        for content_id in content_ids {
-            let content_metadata = store
-                .content_table
-                .get(&content_id)
-                .ok_or(anyhow!("internal error: content {} not found", content_id))?;
-            content.push(content_metadata.clone());
-        }
-        Ok(content)
+        drop(store);
+        self.state_machine.get_content_from_ids(content_ids).await
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -768,27 +761,19 @@ impl App {
         &self,
         content_id: &str,
     ) -> Result<internal_api::ContentMetadata> {
-        let store = self.indexify_state.read().await;
-        let content_metadata = store
-            .content_table
-            .get(content_id)
-            .ok_or(anyhow!("content not found"))?;
-        Ok(content_metadata.clone())
+        let content = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::content_table, content_id)?;
+        let content_metadata = serde_json::from_slice::<internal_api::ContentMetadata>(&content)?;
+        Ok(content_metadata)
     }
 
     pub async fn get_content_metadata_batch(
         &self,
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let store = self.indexify_state.read().await;
-        let mut content_metadata_list = Vec::new();
-        for content_id in content_ids {
-            let content_metadata = store.content_table.get(&content_id);
-            if let Some(content_metadata) = content_metadata {
-                content_metadata_list.push(content_metadata.clone());
-            }
-        }
-        Ok(content_metadata_list)
+        let content_ids: HashSet<String> = content_ids.into_iter().collect();
+        self.state_machine.get_content_from_ids(content_ids).await
     }
 
     pub async fn create_tasks(
@@ -1217,12 +1202,12 @@ mod tests {
         Ok(())
     }
 
-    /// Test to create, register and read back an executor
+    /// Test to create, register, read back and remove an executor and associated extractors
     /// Executors are typically created along with extractors so both need to be
     /// asserted
     #[tokio::test]
-    // #[tracing_test::traced_test]
-    async fn test_create_and_read_executors() -> Result<(), anyhow::Error> {
+    #[tracing_test::traced_test]
+    async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_node(0)?;
@@ -1259,6 +1244,51 @@ mod tests {
         node.remove_executor(executor_id).await?;
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_and_read_content() -> Result<(), anyhow::Error> {
+        let content_size = 3;
+
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create some content
+        let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
+        for i in 0..content_size {
+            let mut content_metadata = indexify_internal_api::ContentMetadata::default();
+            content_metadata.id = format!("id{}", i); // Replace this with your logic for generating ids
+            content_metadata_vec.push(content_metadata);
+        }
+        node.create_content_batch(content_metadata_vec.clone())
+            .await?;
+
+        //  Read the content back
+        let read_content = node
+            .list_content(&content_metadata_vec.get(0).unwrap().namespace)
+            .await?;
+        assert_eq!(read_content.len(), content_size);
+
+        //  Read back all the pieces of content
+        let read_content = node
+            .get_content_metadata_batch(
+                content_metadata_vec
+                    .iter()
+                    .map(|content| content.id.clone())
+                    .collect(),
+            )
+            .await?;
+        assert_eq!(read_content.len(), content_size);
+
+        //  Read back a specific piece of content
+        let read_content = node
+            .get_conent_metadata(&content_metadata_vec[0].id)
+            .await?;
+        assert_eq!(read_content, content_metadata_vec[0]);
 
         Ok(())
     }
