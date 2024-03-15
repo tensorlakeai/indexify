@@ -82,6 +82,7 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
+    /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &mut self,
         request: StateMachineUpdateRequest,
@@ -498,8 +499,10 @@ impl IndexifyState {
         Ok(())
     }
 
+    /// This method handles all reverse index writes which are in memory
+    /// This will only run after the RocksDB transaction to commit the forward
+    /// index writes is done
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
-        println!("ENTER: IndexifyState::apply");
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
