@@ -12,7 +12,12 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractorName, NamespaceName, StateChangeId, StateMachineColumns,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    NamespaceName,
+    StateChangeId,
+    StateMachineColumns,
     TaskId,
 };
 
