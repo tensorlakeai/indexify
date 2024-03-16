@@ -87,7 +87,7 @@ pub enum OutputSchema {
     Attributes(serde_json::Value),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ExtractorDescription {
     pub name: String,
     pub description: String,
@@ -215,9 +215,10 @@ impl Content {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::TaskOutcome)]
 pub enum TaskOutcome {
+    #[default]
     Unknown,
     Success,
     Failed,
@@ -243,7 +244,7 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::Task)]
 pub struct Task {
     pub id: String,
@@ -292,7 +293,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         })
     }
 }
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct ExtractionPolicy {
     pub id: String,
     pub name: String,

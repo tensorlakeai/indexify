@@ -100,9 +100,7 @@ impl Coordinator {
     }
 
     pub async fn list_state_changes(&self) -> Result<Vec<internal_api::StateChange>> {
-        let store = self.shared_state.indexify_state.read().await;
-        let state_changes = store.state_changes.values().cloned().collect();
-        Ok(state_changes)
+        self.shared_state.list_state_changes()
     }
 
     pub async fn list_tasks(
@@ -110,19 +108,7 @@ impl Coordinator {
         namespace: &str,
         extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        let store = self.shared_state.indexify_state.read().await;
-        Ok(store
-            .tasks
-            .values()
-            .filter(|t| t.namespace == namespace)
-            .filter(|t| {
-                extraction_policy
-                    .as_ref()
-                    .map(|eb| eb == &t.extraction_policy)
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect())
+        self.shared_state.list_tasks(namespace, extraction_policy)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -166,9 +152,11 @@ impl Coordinator {
         executor_id: &str,
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
-        self.shared_state
+        let _ = self
+            .shared_state
             .register_executor(addr, executor_id, extractor)
-            .await
+            .await;
+        Ok(())
     }
 
     pub async fn get_content_metadata(
@@ -310,8 +298,8 @@ mod tests {
         let events = shared_state.unprocessed_state_change_events().await?;
         assert_eq!(events.len(), 1);
 
-        // Run scheduler without any bindings to make sure that the event is processed
-        // and we don't have any tasks
+        //  Run scheduler without any bindings to make
+        // sure that the event is processed and we don't have any tasks
         coordinator.run_scheduler().await?;
         let events = shared_state.unprocessed_state_change_events().await?;
         assert_eq!(events.len(), 0);

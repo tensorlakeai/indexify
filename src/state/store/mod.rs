@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::Debug,
     fs::{self, File},
     io::{BufReader, Cursor, Read, Write},
@@ -9,7 +10,7 @@ use std::{
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
-use indexify_internal_api::StateChange;
+use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -28,8 +29,17 @@ use openraft::{
     StoredMembership,
     Vote,
 };
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
-use serde::{Deserialize, Serialize};
+use rocksdb::{
+    ColumnFamily,
+    ColumnFamilyDescriptor,
+    Direction,
+    OptimisticTransactionDB,
+    Options,
+    Transaction,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use strum::{AsRefStr, IntoEnumIterator};
+use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::debug;
 
@@ -67,25 +77,6 @@ pub struct StoredSnapshot {
 }
 
 #[derive(Clone)]
-pub struct StateMachineStore {
-    pub data: StateMachineData,
-
-    /// snapshot index is not persisted in this example.
-    ///
-    /// It is only used as a suffix of snapshot id, and should be globally
-    /// unique. In practice, using a timestamp in micro-second would be good
-    /// enough.
-    snapshot_idx: u64,
-
-    /// State machine stores snapshot in db.
-    _db: Arc<DB>,
-
-    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
-
-    snapshot_file_path: PathBuf,
-}
-
-#[derive(Clone)]
 pub struct StateMachineData {
     pub last_applied_log_id: Option<LogId<NodeId>>,
 
@@ -97,47 +88,52 @@ pub struct StateMachineData {
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
 }
 
-impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
-    async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        debug!("Called build_snapshot");
-        let last_applied_log = self.data.last_applied_log_id;
-        let last_membership = self.data.last_membership.clone();
+#[derive(Clone)]
+pub struct StateMachineStore {
+    pub data: StateMachineData,
 
-        let indexify_state_json = {
-            let indexify_state = self.data.indexify_state.read().await;
-            serde_json::to_vec(&*indexify_state)
-                .map_err(|e| StorageIOError::read_state_machine(&e))?
-        };
+    /// snapshot index is not persisted in this example.
+    ///
+    /// It is only used as a suffix of snapshot id, and should be globally
+    /// unique. In practice, using a timestamp in micro-second would be good
+    /// enough.
+    snapshot_idx: u64,
 
-        let snapshot_id = if let Some(last) = last_applied_log {
-            format!("{}-{}-{}", last.leader_id, last.index, self.snapshot_idx)
-        } else {
-            format!("--{}", self.snapshot_idx)
-        };
+    db: Arc<OptimisticTransactionDB>,
 
-        let meta = SnapshotMeta {
-            last_log_id: last_applied_log,
-            last_membership,
-            snapshot_id,
-        };
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
 
-        let snapshot = StoredSnapshot {
-            meta: meta.clone(),
-            data: indexify_state_json.clone(),
-        };
+    snapshot_file_path: PathBuf,
+}
 
-        self.set_current_snapshot_(snapshot)?;
+#[derive(Error, Debug)]
+pub enum StateMachineError {
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 
-        Ok(Snapshot {
-            meta,
-            snapshot: Box::new(Cursor::new(indexify_state_json)),
-        })
-    }
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+
+    #[error("RocksDB transaction error: {0}")]
+    TransactionError(String),
+}
+
+#[derive(AsRefStr, strum::Display, strum::EnumIter)]
+pub enum StateMachineColumns {
+    Executors,          //  ExecutorId -> Executor Metadata
+    Tasks,              //  TaskId -> Task
+    TaskAssignments,    //   ExecutorId -> HashSet<TaskId>
+    StateChanges,       //  StateChangeId -> StateChange
+    ContentTable,       //  ContentId -> ContentMetadata
+    ExtractionPolicies, //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,         //  ExtractorName -> ExtractorDescription
+    Namespaces,         //  Namespaces
+    IndexTable,         //  String -> Index
 }
 
 impl StateMachineStore {
     async fn new(
-        db: Arc<DB>,
+        db: Arc<OptimisticTransactionDB>,
         snapshot_file_path: PathBuf,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
@@ -149,7 +145,7 @@ impl StateMachineStore {
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
             snapshot_idx: 0,
-            _db: db,
+            db,
             state_change_rx: rx,
             snapshot_file_path,
         };
@@ -260,6 +256,156 @@ impl StateMachineStore {
 
         Ok(())
     }
+
+    /// This method fetches a key from a specific column family within a
+    /// transaction
+    pub async fn get_from_cf<T, K>(
+        &self,
+        column: StateMachineColumns,
+        key: K,
+    ) -> Result<T, anyhow::Error>
+    where
+        T: DeserializeOwned,
+        K: AsRef<[u8]>,
+    {
+        let sm = self.data.indexify_state.read().await;
+        let cf = sm.get_cf_handle(&self.db, &column)?;
+        let result_bytes = self.db.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
+            "Failed to get value from column family {}",
+            column.to_string()
+        ))?;
+        let result = serde_json::from_slice::<T>(&result_bytes)
+            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
+
+        Ok(result)
+    }
+
+    pub async fn get_tasks_for_executor(
+        &self,
+        executor_id: &str,
+        limit: Option<u64>,
+    ) -> anyhow::Result<Vec<indexify_internal_api::Task>> {
+        let sm = self.data.indexify_state.read().await;
+        sm.get_tasks_for_executor(executor_id, limit, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
+    }
+
+    pub async fn get_executors_from_ids(
+        &self,
+        executor_ids: HashSet<String>,
+    ) -> anyhow::Result<Vec<ExecutorMetadata>> {
+        let sm = self.data.indexify_state.read().await;
+        sm.get_executors_from_ids(executor_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub async fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
+    ) -> anyhow::Result<Vec<ContentMetadata>> {
+        let sm = self.data.indexify_state.read().await;
+        sm.get_content_from_ids(content_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub async fn with_transaction<F, Fut>(&self, operation: F) -> Result<(), anyhow::Error>
+    where
+        F: FnOnce(&Transaction<OptimisticTransactionDB>) -> Fut,
+        Fut: std::future::Future<Output = Result<(), anyhow::Error>>,
+    {
+        let txn = self.db.transaction();
+        operation(&txn).await?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Test utility method to get all key-value pairs from a column family
+    pub fn get_all_rows_from_cf<V>(
+        &self,
+        column: StateMachineColumns,
+    ) -> Result<Vec<(String, V)>, anyhow::Error>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = self.db.cf_handle(column.as_ref()).ok_or(anyhow::anyhow!(
+            "Failed to get column family {}",
+            column.to_string()
+        ))?;
+        let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+
+        iter.map(|item| {
+            item.map_err(|e| anyhow::anyhow!(e))
+                .and_then(|(key, value)| {
+                    let key = String::from_utf8(key.to_vec())
+                        .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
+                    let value = serde_json::from_slice(&value)
+                        .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
+                    Ok((key, value))
+                })
+        })
+        .collect::<Result<Vec<(String, V)>, _>>()
+    }
+
+    pub fn deserialize_all_cf_data<K, V>(
+        &self,
+        pairs: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<Vec<(K, V)>, anyhow::Error>
+    where
+        K: DeserializeOwned,
+        V: DeserializeOwned,
+    {
+        pairs
+            .into_iter()
+            .map(|(key_bytes, value_bytes)| {
+                let key = serde_json::from_slice(&key_bytes)
+                    .map_err(|e| anyhow::anyhow!("Deserialization error for key: {}", e))?;
+                let value = serde_json::from_slice(&value_bytes)
+                    .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
+                Ok((key, value))
+            })
+            .collect()
+    }
+}
+
+impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
+    async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
+        debug!("Called build_snapshot");
+        let last_applied_log = self.data.last_applied_log_id;
+        let last_membership = self.data.last_membership.clone();
+
+        let indexify_state_json = {
+            let indexify_state = self.data.indexify_state.read().await;
+            serde_json::to_vec(&*indexify_state)
+                .map_err(|e| StorageIOError::read_state_machine(&e))?
+        };
+
+        let snapshot_id = if let Some(last) = last_applied_log {
+            format!("{}-{}-{}", last.leader_id, last.index, self.snapshot_idx)
+        } else {
+            format!("--{}", self.snapshot_idx)
+        };
+
+        let meta = SnapshotMeta {
+            last_log_id: last_applied_log,
+            last_membership,
+            snapshot_id,
+        };
+
+        let snapshot = StoredSnapshot {
+            meta: meta.clone(),
+            data: indexify_state_json.clone(),
+        };
+
+        self.set_current_snapshot_(snapshot)?;
+
+        Ok(Snapshot {
+            meta,
+            snapshot: Box::new(Cursor::new(indexify_state_json)),
+        })
+    }
 }
 
 impl RaftStateMachine<TypeConfig> for StateMachineStore {
@@ -281,8 +427,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     {
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
-        let mut sm = self.data.indexify_state.write().await;
         let mut change_events: Vec<StateChange> = Vec::new();
+        let mut sm = self.data.indexify_state.write().await;
 
         for ent in entries {
             self.data.last_applied_log_id = Some(ent.log_id);
@@ -291,7 +437,12 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => {
                     change_events.extend(req.new_state_changes.clone());
-                    sm.apply(req.clone());
+
+                    if let Err(e) = sm.apply_state_machine_updates(req.clone(), &self.db) {
+                        //  TODO: Should we just log the error here? This seems incorrect as it
+                        // includes any errors that are thrown from a RocksDB transaction
+                        panic!("error applying state machine update: {}", e);
+                    };
                 }
                 EntryPayload::Membership(mem) => {
                     self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
@@ -324,7 +475,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
-        debug!("Called install_snapshot");
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
@@ -351,7 +501,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
 
 #[derive(Debug, Clone)]
 pub struct LogStore {
-    db: Arc<DB>,
+    db: Arc<OptimisticTransactionDB>,
 }
 type StorageResult<T> = Result<T, StorageError<NodeId>>;
 
@@ -567,7 +717,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         let from = id_to_bin(log_id.index);
         let to = id_to_bin(0xff_ff_ff_ff_ff_ff_ff_ff);
         self.db
-            .delete_range_cf(self.logs(), &from, &to)
+            .delete_file_in_range_cf(self.logs(), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
@@ -579,7 +729,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         let from = id_to_bin(0);
         let to = id_to_bin(log_id.index + 1);
         self.db
-            .delete_range_cf(self.logs(), &from, &to)
+            .delete_file_in_range_cf(self.logs(), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
@@ -599,7 +749,22 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     let store = ColumnFamilyDescriptor::new("store", Options::default());
     let logs = ColumnFamilyDescriptor::new("logs", Options::default());
 
-    let db = DB::open_cf_descriptors(&db_opts, db_path, vec![store, logs]).unwrap();
+    //  Create the column families for the state machine columns
+    let sm_columns: Vec<String> = StateMachineColumns::iter()
+        .map(|cf| cf.to_string())
+        .collect();
+    let sm_column_families: Vec<ColumnFamilyDescriptor> = sm_columns
+        .iter()
+        .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+        .collect();
+    let mut all_column_families = vec![store, logs];
+    all_column_families.extend(sm_column_families);
+
+    let db: OptimisticTransactionDB =
+        OptimisticTransactionDB::open_cf_descriptors(&db_opts, db_path, all_column_families)
+            .unwrap();
+    // let db = DB::open_cf_descriptors(&db_opts, db_path,
+    // all_column_families).unwrap();
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };
@@ -615,9 +780,12 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
-    use openraft::SnapshotPolicy;
+    use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
 
-    use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
+    use crate::{
+        state::{self, store::state_machine_objects::IndexifyState},
+        test_utils::RaftTestCluster,
+    };
 
     /// This is a dummy test which forces building a snapshot on the cluster by
     /// passing in some overrides Manually check that the snapshot file was
@@ -626,11 +794,28 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
-        let raft_overrides = RaftConfigOverrides {
-            snapshot_policy: Some(SnapshotPolicy::LogsSinceLast(1)),
-        };
-        let cluster = RaftTestCluster::new(3, Some(raft_overrides)).await?;
+        let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
+        let indexify_state = IndexifyState::default();
+        let serialized_state =
+            serde_json::to_vec(&indexify_state).expect("Failed to serialize the data");
+        let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
+            InstallSnapshotRequest {
+                vote: Vote::new_committed(2, 1),
+                meta: SnapshotMeta {
+                    snapshot_id: "ss1".into(),
+                    last_log_id: Some(log_id(1, 0, 6)),
+                    last_membership: Default::default(),
+                },
+                offset: 0,
+                data: serialized_state,
+                done: true,
+            };
+        let node = cluster.get_node(2)?;
+        node.forwardable_raft
+            .raft
+            .install_snapshot(install_snapshot_req)
+            .await?;
         Ok(())
     }
 }

@@ -14,7 +14,7 @@ pub struct StateMachineUpdateRequest {
     pub state_changes_processed: Vec<StateChangeProcessed>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StateChangeProcessed {
     pub state_change_id: String,
     pub processed_at: u64,

@@ -3,11 +3,12 @@ use std::{
     collections::{BinaryHeap, HashMap, HashSet},
 };
 
+use indexify_internal_api::ExecutorMetadata;
 use tracing::error;
 
 use super::{plan::TaskAllocationPlan, AllocationPlanner, AllocationPlannerResult};
 use crate::state::{
-    store::{ExecutorId, ExtractorName, TaskId},
+    store::{ExecutorId, ExtractorName, StateMachineColumns, TaskId},
     SharedState,
 };
 
@@ -146,11 +147,16 @@ impl LoadAwareDistributor {
 
         // Populate the executors' load heap for each extractor based on the current
         // running tasks.
-        let sm = self.shared_state.indexify_state.read().await;
         for executor_id in executor_running_task_count.keys() {
-            match sm.executors.get(executor_id) {
-                Some(executor_details) => {
-                    let extractor_name = executor_details.extractor.name.clone();
+            let executor = self
+                .shared_state
+                .state_machine
+                .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::Executors, executor_id)
+                .await
+                .ok();
+            match executor {
+                Some(executor) => {
+                    let extractor_name = executor.extractor.name.clone();
 
                     let running_task_count = executor_running_task_count
                         .get(executor_id)
@@ -353,28 +359,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_plan_allocations_empty() {
+    #[tracing_test::traced_test]
+    async fn test_plan_allocations_empty() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let shared_state = App::new(config, None).await.unwrap();
         shared_state.initialize_raft().await.unwrap();
         let _coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
-        let sm = shared_state.indexify_state.read().await;
 
-        // get tasks from the state
-        let tasks: HashSet<TaskId> = sm.tasks.values().map(|t| t.id.clone()).collect();
+        let task_ids: HashSet<TaskId> = shared_state
+            .state_machine
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)?
+            .into_iter()
+            .map(|(_, task)| task.id.clone())
+            .collect();
 
         // it's a blank slate, so allocation should result in no tasks being allocated
         let distributor = LoadAwareDistributor::new(shared_state.clone());
 
-        let result = distributor.plan_allocations(tasks).await;
+        let result = distributor.plan_allocations(task_ids).await;
         assert!(result.is_ok());
         // should be empty
         assert_eq!(result.unwrap().0.len(), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_allocate_task() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
@@ -382,13 +393,13 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
-        shared_state
+        let state_change_id = shared_state
             .register_executor("localhost:8956", "test_executor_id", mock_extractor())
             .await?;
 
         let task = create_task("test-task", &mock_extractor().name, "test-binding");
         shared_state
-            .create_tasks(vec![task.clone()], "change_id")
+            .create_tasks(vec![task.clone()], &state_change_id)
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
@@ -426,21 +437,24 @@ mod tests {
 
         // register 5 text extractors and 5 json extractors. increment the port by 1 for
         // each
+        let mut state_change_ids: Vec<String> = Vec::new();
         for i in 1..=5 {
-            shared_state
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
                     text_extractor.clone(),
                 )
                 .await?;
-            shared_state
+            state_change_ids.push(state_change_id);
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
                     json_extractor.clone(),
                 )
                 .await?;
+            state_change_ids.push(state_change_id);
         }
 
         let mut tasks = Vec::new();
@@ -460,7 +474,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), "change_id")
+            .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
@@ -514,21 +528,24 @@ mod tests {
 
         // register 5 text extractors and 5 json extractors. increment the port by 1 for
         // each
+        let mut state_change_ids: Vec<String> = Vec::new();
         for i in 1..=5 {
-            shared_state
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
                     text_extractor.clone(),
                 )
                 .await?;
-            shared_state
+            state_change_ids.push(state_change_id);
+            let state_change_id = shared_state
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
                     json_extractor.clone(),
                 )
                 .await?;
+            state_change_ids.push(state_change_id);
         }
 
         let mut tasks = Vec::new();
@@ -548,7 +565,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), "change_id")
+            .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
 
         // arbitrarily increase the load on the first text executor and json executor
@@ -594,6 +611,7 @@ mod tests {
         Ok(())
     }
 
+    //  TODO: Fix tests here so that state_machine_objects.rs doesn't panic
     /// Test setup can take a long time, so keep the number of tasks low.
     /// Previously it distributed 500,000 tasks in 2.7 seconds, but
     /// setup took almost 7 minutes.
@@ -631,14 +649,18 @@ mod tests {
             }
             executors
         };
-        futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
-            shared_state.register_executor(
-                text_executors[i - 1].0.as_str(),
-                text_executors[i - 1].1.as_str(),
-                text_extractor.clone(),
-            )
-        }))
-        .await;
+        let state_change_ids: Vec<String> =
+            futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
+                shared_state.register_executor(
+                    text_executors[i - 1].0.as_str(),
+                    text_executors[i - 1].1.as_str(),
+                    text_extractor.clone(),
+                )
+            }))
+            .await
+            .into_iter()
+            .map(|res| res.unwrap())
+            .collect();
         let json_executors = {
             let mut executors = Vec::new();
             for i in 1..=(total_tasks / 25) {
@@ -674,7 +696,7 @@ mod tests {
             tasks.push(task2);
         }
         shared_state
-            .create_tasks(tasks.clone(), "change_id")
+            .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
