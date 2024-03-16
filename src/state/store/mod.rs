@@ -13,29 +13,12 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use strum::{AsRefStr, IntoEnumIterator};
@@ -119,17 +102,16 @@ pub enum StateMachineError {
 }
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
-#[allow(non_camel_case_types)]
 pub enum StateMachineColumns {
-    executors,           //  ExecutorId -> Executor Metadata
-    tasks,               //  TaskId -> Task
-    task_assignments,    //   ExecutorId -> HashSet<TaskId>
-    state_changes,       //  StateChangeId -> StateChange
-    content_table,       //  ContentId -> ContentMetadata
-    extraction_policies, //  ExtractionPolicyId -> ExtractionPolicy
-    extractors,          //  ExtractorName -> ExtractorDescription
-    namespaces,          //  Namespaces
-    index_table,         //  String -> Index
+    Executors,          //  ExecutorId -> Executor Metadata
+    Tasks,              //  TaskId -> Task
+    TaskAssignments,    //   ExecutorId -> HashSet<TaskId>
+    StateChanges,       //  StateChangeId -> StateChange
+    ContentTable,       //  ContentId -> ContentMetadata
+    ExtractionPolicies, //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,         //  ExtractorName -> ExtractorDescription
+    Namespaces,         //  Namespaces
+    IndexTable,         //  String -> Index
 }
 
 impl StateMachineStore {
@@ -336,22 +318,18 @@ impl StateMachineStore {
             column.to_string()
         ))?;
         let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
-        
 
-        iter
-            .map(|item| {
-                item.map_err(|e| anyhow::anyhow!(e))
-                    .and_then(|(key, value)| {
-                        let key = String::from_utf8(key.to_vec()).map_err(|e| {
-                            anyhow::anyhow!("UTF-8 conversion error for key: {}", e)
-                        })?;
-                        let value = serde_json::from_slice(&value).map_err(|e| {
-                            anyhow::anyhow!("Deserialization error for value: {}", e)
-                        })?;
-                        Ok((key, value))
-                    })
-            })
-            .collect::<Result<Vec<(String, V)>, _>>()
+        iter.map(|item| {
+            item.map_err(|e| anyhow::anyhow!(e))
+                .and_then(|(key, value)| {
+                    let key = String::from_utf8(key.to_vec())
+                        .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
+                    let value = serde_json::from_slice(&value)
+                        .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
+                    Ok((key, value))
+                })
+        })
+        .collect::<Result<Vec<(String, V)>, _>>()
     }
 
     pub fn deserialize_all_cf_data<K, V>(

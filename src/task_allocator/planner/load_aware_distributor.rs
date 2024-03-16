@@ -151,7 +151,7 @@ impl LoadAwareDistributor {
             let executor = self
                 .shared_state
                 .state_machine
-                .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::executors, executor_id)
+                .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::Executors, executor_id)
                 .await
                 .ok();
             match executor {
@@ -369,7 +369,7 @@ mod tests {
 
         let task_ids: HashSet<TaskId> = shared_state
             .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::tasks)?
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)?
             .into_iter()
             .map(|(_, task)| task.id.clone())
             .collect();
