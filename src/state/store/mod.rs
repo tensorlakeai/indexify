@@ -38,7 +38,7 @@ use rocksdb::{
     Transaction,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use strum::IntoEnumIterator;
+use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::debug;
@@ -121,7 +121,7 @@ pub enum StateMachineError {
     TransactionError(String),
 }
 
-#[derive(strum::Display, strum::EnumIter)]
+#[derive(AsRefStr, strum::Display, strum::EnumIter)]
 #[allow(non_camel_case_types)]
 pub enum StateMachineColumns {
     executors,           //  ExecutorId -> Executor Metadata
