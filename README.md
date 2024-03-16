@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 
-Indexify is a reactive structured extraction engine for un-structured data.
+Indexify is a reactive structured extraction and indexing engine for un-structured data.
 
 Applications leveraging LLMs for autonomous planning or queries necessitate timely index updates aligned with data changes or new extraction methods. Indexify enables both, by applying feature extractors on data in real-time and updating one or many indexes.
 
