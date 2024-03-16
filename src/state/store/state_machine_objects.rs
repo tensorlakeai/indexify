@@ -4,7 +4,6 @@ use std::{
 };
 
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::ExtractionPolicy;
 use internal_api::{ExtractorDescription, StateChange};
 use rocksdb::OptimisticTransactionDB;
 use serde::{Deserialize, Serialize};
@@ -13,7 +12,12 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractorName, NamespaceName, StateChangeId, StateMachineColumns,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    NamespaceName,
+    StateChangeId,
+    StateMachineColumns,
     TaskId,
 };
 
@@ -125,12 +129,12 @@ impl IndexifyState {
                 StateMachineError::DatabaseError("ColumnFamily 'index_table' not found".into())
             })?;
         let serialized_index = serde_json::to_vec(index)?;
-        txn.put_cf(index_table_cf, id, &serialized_index)
+        txn.put_cf(index_table_cf, id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
-    fn get_task(
+    fn _get_task(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
@@ -231,8 +235,8 @@ impl IndexifyState {
                 StateMachineError::DatabaseError("ColumnFamily 'task_assignments' not found".into())
             })?;
         for (executor_id, task_ids) in task_assignments {
-            let key = executor_id.clone();
-            let value = txn.get_cf(task_assignment_cf, &key).map_err(|e| {
+            let key = executor_id;
+            let value = txn.get_cf(task_assignment_cf, key).map_err(|e| {
                 StateMachineError::DatabaseError(format!("Error reading task assignments: {}", e))
             })?;
 
@@ -248,7 +252,7 @@ impl IndexifyState {
                         })?;
                     existing_value.extend(task_ids.clone());
                     let new_value = serde_json::to_vec(&existing_value)?;
-                    txn.put_cf(task_assignment_cf, &key, &new_value)
+                    txn.put_cf(task_assignment_cf, key, &new_value)
                         .map_err(|e| {
                             StateMachineError::DatabaseError(format!(
                                 "Error writing task assignments: {}",
@@ -260,7 +264,7 @@ impl IndexifyState {
                     //  Create a new hash set of task ids if executor id is not present as
                     // key
                     let new_value = serde_json::to_vec(task_ids)?;
-                    txn.put_cf(task_assignment_cf, &key, &new_value)
+                    txn.put_cf(task_assignment_cf, key, &new_value)
                         .map_err(|e| {
                             StateMachineError::DatabaseError(format!(
                                 "Error writing task assignments: {}",
@@ -271,6 +275,46 @@ impl IndexifyState {
             }
         }
         Ok(())
+    }
+
+    fn delete_task_assignments_for_executor(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        executor_id: &str,
+    ) -> Result<Vec<TaskId>, StateMachineError> {
+        let task_assignment_cf = db
+            .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'task_assignments' not found".into())
+            })?;
+        let task_ids: Vec<TaskId> = txn
+            .get_cf(task_assignment_cf, executor_id)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error reading task assignments for executor: {}",
+                    e
+                ))
+            })?
+            .map(|db_vec| {
+                serde_json::from_slice(&db_vec).map_err(|e| {
+                    StateMachineError::DatabaseError(format!(
+                        "Error deserializing task assignments for executor: {}",
+                        e
+                    ))
+                })
+            })
+            .unwrap_or_else(|| Ok(Vec::new()))?;
+
+        txn.delete_cf(task_assignment_cf, executor_id)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error deleting task assignments for executor: {}",
+                    e
+                ))
+            })?;
+
+        Ok(task_ids)
     }
 
     fn set_content(
@@ -319,6 +363,34 @@ impl IndexifyState {
                 StateMachineError::DatabaseError(format!("Error writing executor: {}", e))
             })?;
         Ok(())
+    }
+
+    fn delete_executor(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        executor_id: &str,
+    ) -> Result<internal_api::ExecutorMetadata, StateMachineError> {
+        //  Get a handle on the executor before deleting it from the DB
+        let executors_cf = db
+            .cf_handle(StateMachineColumns::executors.to_string().as_str())
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError("ColumnFamily 'executors' not found".into())
+            })?;
+        let serialized_executor = txn
+            .get_cf(executors_cf, executor_id)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
+            })?
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(format!("Executor {} not found", executor_id))
+            })?;
+        let executor_meta =
+            serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
+        txn.delete_cf(executors_cf, executor_id).map_err(|e| {
+            StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
+        })?;
+        Ok(executor_meta)
     }
 
     fn set_extractor(
@@ -411,11 +483,11 @@ impl IndexifyState {
                 self.set_tasks(db, &txn, tasks)?;
             }
             RequestPayload::AssignTask { assignments } => {
-                let assignments: HashMap<&String, HashSet<TaskId>> = assignments.into_iter().fold(
+                let assignments: HashMap<&String, HashSet<TaskId>> = assignments.iter().fold(
                     HashMap::new(),
                     |mut acc, (task_id, executor_id)| {
                         acc.entry(executor_id)
-                            .or_insert_with(HashSet::new)
+                            .or_default()
                             .insert(task_id.clone());
                         acc
                     },
@@ -469,56 +541,11 @@ impl IndexifyState {
                 // altering the reverse indexes requires references to the removed items
 
                 //  Get a handle on the executor before deleting it from the DB
-                let executors_cf = db
-                    .cf_handle(StateMachineColumns::executors.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'executors' not found".into(),
-                        )
-                    })?;
-                let serialized_executor = txn
-                    .get_cf(executors_cf, executor_id)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
-                    })?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!(
-                            "Executor {} not found",
-                            executor_id
-                        ))
-                    })?;
-                let executor_meta =
-                    serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
-                txn.delete_cf(executors_cf, executor_id).map_err(|e| {
-                    StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
-                })?;
+                let executor_meta = self.delete_executor(db, &txn, executor_id)?;
 
                 // Remove all tasks assigned to this executor and get a handle on the task ids
-                let task_assignments_cf = db
-                    .cf_handle(StateMachineColumns::task_assignments.to_string().as_str())
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(
-                            "ColumnFamily 'task_assignments' not found".into(),
-                        )
-                    })?;
-                let task_ids: Vec<TaskId> = txn
-                    .get_cf(task_assignments_cf, executor_id)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!(
-                            "Error reading task assignments for executor: {}",
-                            e
-                        ))
-                    })?
-                    .map(|db_vec| serde_json::from_slice(&db_vec).unwrap_or_else(|_| vec![]))
-                    .unwrap_or_else(std::vec::Vec::new);
+                let task_ids = self.delete_task_assignments_for_executor(db, &txn, executor_id)?;
 
-                txn.delete_cf(task_assignments_cf, executor_id)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!(
-                            "Error deleting task assignments for executor: {}",
-                            e
-                        ))
-                    })?;
                 txn.commit()
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 

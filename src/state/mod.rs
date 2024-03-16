@@ -1242,7 +1242,7 @@ mod tests {
     /// associated extractors Executors are typically created along with
     /// extractors so both need to be asserted
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1277,6 +1277,7 @@ mod tests {
         assert_eq!(retrieved_extractor, extractor);
 
         //  Remove the executor that was created and assert that it was removed
+        println!("Removing the executor");
         node.remove_executor(executor_id).await?;
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 0);
