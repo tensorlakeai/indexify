@@ -445,7 +445,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
 
                     if let Err(e) = sm.apply_state_machine_updates(req.clone(), &self.db) {
                         //  TODO: Should we just log the error here? This seems incorrect as it
-                        // includes not persisting the state changes to RocksDB
+                        // includes any errors that are thrown from a RocksDB transaction
                         panic!("error applying state machine update: {}", e);
                     };
                 }
