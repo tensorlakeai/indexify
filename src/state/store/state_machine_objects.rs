@@ -12,12 +12,7 @@ use tracing::error;
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    NamespaceName,
-    StateChangeId,
-    StateMachineColumns,
+    ContentId, ExecutorId, ExtractorName, NamespaceName, StateChangeId, StateMachineColumns,
     TaskId,
 };
 
@@ -483,15 +478,13 @@ impl IndexifyState {
                 self.set_tasks(db, &txn, tasks)?;
             }
             RequestPayload::AssignTask { assignments } => {
-                let assignments: HashMap<&String, HashSet<TaskId>> = assignments.iter().fold(
-                    HashMap::new(),
-                    |mut acc, (task_id, executor_id)| {
-                        acc.entry(executor_id)
-                            .or_default()
-                            .insert(task_id.clone());
-                        acc
-                    },
-                );
+                let assignments: HashMap<&String, HashSet<TaskId>> =
+                    assignments
+                        .iter()
+                        .fold(HashMap::new(), |mut acc, (task_id, executor_id)| {
+                            acc.entry(executor_id).or_default().insert(task_id.clone());
+                            acc
+                        });
 
                 self.set_task_assignments(db, &txn, &assignments)?;
             }

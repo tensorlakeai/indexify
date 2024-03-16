@@ -152,29 +152,30 @@ impl LoadAwareDistributor {
                 .shared_state
                 .state_machine
                 .get_from_cf(StateMachineColumns::executors, executor_id)
+                .and_then(|data| {
+                    self.shared_state
+                        .state_machine
+                        .deserialize_cf_data::<ExecutorMetadata>(data)
+                })
                 .ok();
             match executor {
-                Some(serialized_executor) => {
-                    let executor =
-                        serde_json::from_slice::<ExecutorMetadata>(&serialized_executor).ok();
-                    if let Some(executor) = executor {
-                        let extractor_name = executor.extractor.name.clone();
+                Some(executor) => {
+                    let extractor_name = executor.extractor.name.clone();
 
-                        let running_task_count = executor_running_task_count
-                            .get(executor_id)
-                            .cloned()
-                            .unwrap_or_default();
+                    let running_task_count = executor_running_task_count
+                        .get(executor_id)
+                        .cloned()
+                        .unwrap_or_default();
 
-                        // Update or create the heap for the extractor and add the executor's load.
-                        executors_load_min_heap
-                            .entry(extractor_name)
-                            .or_default()
-                            // use `Reverse` here to make it a min-heap
-                            .push(Reverse(ExecutorLoad {
-                                executor_id: executor_id.clone(),
-                                running_task_count,
-                            }));
-                    }
+                    // Update or create the heap for the extractor and add the executor's load.
+                    executors_load_min_heap
+                        .entry(extractor_name)
+                        .or_default()
+                        // use `Reverse` here to make it a min-heap
+                        .push(Reverse(ExecutorLoad {
+                            executor_id: executor_id.clone(),
+                            running_task_count,
+                        }));
                 }
                 None => {
                     // Inconsistency: an executor is in the running task count but not in
@@ -370,18 +371,15 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let _coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        // get tasks from the state
-        let serialized_tasks = shared_state
+        let tasks = shared_state
             .state_machine
             .get_all_rows_from_cf(StateMachineColumns::tasks)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let tasks = serialized_tasks
-            .iter()
-            .map(|(_, v)| {
-                serde_json::from_slice::<internal_api::Task>(v).map_err(|e| anyhow::anyhow!(e))
-            })
-            .collect::<Result<Vec<internal_api::Task>, anyhow::Error>>()?;
-        let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id.clone()).collect();
+            .and_then(|data| {
+                shared_state
+                    .state_machine
+                    .deserialize_all_cf_data::<TaskId, internal_api::Task>(data)
+            })?;
+        let task_ids: HashSet<TaskId> = tasks.iter().map(|(_, t)| t.id.clone()).collect();
 
         // it's a blank slate, so allocation should result in no tasks being allocated
         let distributor = LoadAwareDistributor::new(shared_state.clone());

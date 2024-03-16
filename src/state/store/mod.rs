@@ -13,31 +13,14 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -285,6 +268,14 @@ impl StateMachineStore {
         Ok(result)
     }
 
+    /// Deserializes data fetched from a column family into the specified type.
+    pub fn deserialize_cf_data<T>(&self, data: Vec<u8>) -> Result<T, anyhow::Error>
+    where
+        T: DeserializeOwned,
+    {
+        serde_json::from_slice(&data).map_err(|e| e.into())
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,
@@ -344,6 +335,26 @@ impl StateMachineStore {
             })
             .collect();
         items
+    }
+
+    pub fn deserialize_all_cf_data<K, V>(
+        &self,
+        pairs: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<Vec<(K, V)>, anyhow::Error>
+    where
+        K: DeserializeOwned,
+        V: DeserializeOwned,
+    {
+        pairs
+            .into_iter()
+            .map(|(key_bytes, value_bytes)| {
+                let key = serde_json::from_slice(&key_bytes)
+                    .map_err(|e| anyhow::anyhow!("Deserialization error for key: {}", e))?;
+                let value = serde_json::from_slice(&value_bytes)
+                    .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
+                Ok((key, value))
+            })
+            .collect()
     }
 }
 
