@@ -151,12 +151,8 @@ impl LoadAwareDistributor {
             let executor = self
                 .shared_state
                 .state_machine
-                .get_from_cf(StateMachineColumns::executors, executor_id)
-                .and_then(|data| {
-                    self.shared_state
-                        .state_machine
-                        .deserialize_cf_data::<ExecutorMetadata>(data)
-                })
+                .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::executors, executor_id)
+                .await
                 .ok();
             match executor {
                 Some(executor) => {
@@ -371,15 +367,12 @@ mod tests {
         shared_state.initialize_raft().await.unwrap();
         let _coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
 
-        let tasks = shared_state
+        let task_ids: HashSet<TaskId> = shared_state
             .state_machine
-            .get_all_rows_from_cf(StateMachineColumns::tasks)
-            .and_then(|data| {
-                shared_state
-                    .state_machine
-                    .deserialize_all_cf_data::<TaskId, internal_api::Task>(data)
-            })?;
-        let task_ids: HashSet<TaskId> = tasks.iter().map(|(_, t)| t.id.clone()).collect();
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::tasks)?
+            .into_iter()
+            .map(|(_, task)| task.id.clone())
+            .collect();
 
         // it's a blank slate, so allocation should result in no tasks being allocated
         let distributor = LoadAwareDistributor::new(shared_state.clone());

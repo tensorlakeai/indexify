@@ -67,7 +67,7 @@ impl IndexifyState {
     pub fn get_cf_handle<'a>(
         &'a self,
         db: &'a Arc<OptimisticTransactionDB>,
-        column: StateMachineColumns,
+        column: &StateMachineColumns,
     ) -> Result<&'a ColumnFamily, StateMachineError> {
         db.cf_handle(column.as_ref()).ok_or_else(|| {
             StateMachineError::DatabaseError(format!("ColumnFamily '{}' not found", column))
@@ -80,7 +80,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         state_changes: &Vec<StateChange>,
     ) -> Result<(), StateMachineError> {
-        let state_changes_cf = self.get_cf_handle(db, StateMachineColumns::state_changes)?;
+        let state_changes_cf = self.get_cf_handle(db, &StateMachineColumns::state_changes)?;
 
         for change in state_changes {
             let serialized_change = serde_json::to_vec(change)?;
@@ -96,7 +96,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         state_changes: &Vec<StateChangeProcessed>,
     ) -> Result<(), StateMachineError> {
-        let state_changes_cf = self.get_cf_handle(db, StateMachineColumns::state_changes)?;
+        let state_changes_cf = self.get_cf_handle(db, &StateMachineColumns::state_changes)?;
 
         for change in state_changes {
             let result = txn
@@ -125,7 +125,7 @@ impl IndexifyState {
         index: &internal_api::Index,
         id: &String,
     ) -> Result<(), StateMachineError> {
-        let index_table_cf = self.get_cf_handle(db, StateMachineColumns::index_table)?;
+        let index_table_cf = self.get_cf_handle(db, &StateMachineColumns::index_table)?;
         let serialized_index = serde_json::to_vec(index)?;
         txn.put_cf(index_table_cf, id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -138,7 +138,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         task_id: &TaskId,
     ) -> Result<internal_api::Task, StateMachineError> {
-        let tasks_cf = self.get_cf_handle(db, StateMachineColumns::tasks)?;
+        let tasks_cf = self.get_cf_handle(db, &StateMachineColumns::tasks)?;
         let serialized_task = txn
             .get_cf(tasks_cf, task_id)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
@@ -155,7 +155,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
-        let tasks_cf = self.get_cf_handle(db, StateMachineColumns::tasks)?;
+        let tasks_cf = self.get_cf_handle(db, &StateMachineColumns::tasks)?;
         for task in tasks {
             let serialized_task = serde_json::to_vec(task)?;
             txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
@@ -170,7 +170,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: Vec<&internal_api::Task>,
     ) -> Result<(), StateMachineError> {
-        let tasks_cf = self.get_cf_handle(db, StateMachineColumns::tasks)?;
+        let tasks_cf = self.get_cf_handle(db, &StateMachineColumns::tasks)?;
         for task in tasks {
             let serialized_task = serde_json::to_vec(task)?;
             txn.put_cf(tasks_cf, task.id.clone(), &serialized_task)
@@ -185,7 +185,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<HashSet<TaskId>, StateMachineError> {
-        let task_assignment_cf = self.get_cf_handle(db, StateMachineColumns::task_assignments)?;
+        let task_assignment_cf = self.get_cf_handle(db, &StateMachineColumns::task_assignments)?;
         let key = executor_id;
         let value = txn.get_cf(task_assignment_cf, key).map_err(|e| {
             StateMachineError::DatabaseError(format!("Error reading task assignments: {}", e))
@@ -211,7 +211,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         task_assignments: &HashMap<&String, HashSet<TaskId>>,
     ) -> Result<(), StateMachineError> {
-        let task_assignment_cf = self.get_cf_handle(db, StateMachineColumns::task_assignments)?;
+        let task_assignment_cf = self.get_cf_handle(db, &StateMachineColumns::task_assignments)?;
         for (executor_id, task_ids) in task_assignments {
             let key = executor_id;
             let value = txn.get_cf(task_assignment_cf, key).map_err(|e| {
@@ -261,7 +261,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<Vec<TaskId>, StateMachineError> {
-        let task_assignment_cf = self.get_cf_handle(db, StateMachineColumns::task_assignments)?;
+        let task_assignment_cf = self.get_cf_handle(db, &StateMachineColumns::task_assignments)?;
         let task_ids: Vec<TaskId> = txn
             .get_cf(task_assignment_cf, executor_id)
             .map_err(|e| {
@@ -297,7 +297,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        let content_table_cf = self.get_cf_handle(db, StateMachineColumns::content_table)?;
+        let content_table_cf = self.get_cf_handle(db, &StateMachineColumns::content_table)?;
         for content in contents_vec {
             let serialized_content = serde_json::to_vec(content)?;
             txn.put_cf(content_table_cf, content.id.clone(), &serialized_content)
@@ -317,7 +317,11 @@ impl IndexifyState {
         extractor: &ExtractorDescription,
         ts_secs: &u64,
     ) -> Result<(), StateMachineError> {
-        let executors_cf = self.get_cf_handle(db, StateMachineColumns::executors)?;
+        println!(
+            "Writing executor details: {:?} {:?} {:?}",
+            addr, executor_id, extractor
+        );
+        let executors_cf = self.get_cf_handle(db, &StateMachineColumns::executors)?;
         let serialized_executor = serde_json::to_vec(&internal_api::ExecutorMetadata {
             id: executor_id.into(),
             last_seen: *ts_secs,
@@ -338,7 +342,7 @@ impl IndexifyState {
         executor_id: &str,
     ) -> Result<internal_api::ExecutorMetadata, StateMachineError> {
         //  Get a handle on the executor before deleting it from the DB
-        let executors_cf = self.get_cf_handle(db, StateMachineColumns::executors)?;
+        let executors_cf = self.get_cf_handle(db, &StateMachineColumns::executors)?;
         let serialized_executor = txn
             .get_cf(executors_cf, executor_id)
             .map_err(|e| {
@@ -361,7 +365,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extractor: &ExtractorDescription,
     ) -> Result<(), StateMachineError> {
-        let extractors_cf = self.get_cf_handle(db, StateMachineColumns::extractors)?;
+        let extractors_cf = self.get_cf_handle(db, &StateMachineColumns::extractors)?;
         let serialized_extractor = serde_json::to_vec(extractor)?;
         txn.put_cf(extractors_cf, extractor.name.clone(), serialized_extractor)
             .map_err(|e| {
@@ -377,7 +381,7 @@ impl IndexifyState {
         extraction_policy: &internal_api::ExtractionPolicy,
     ) -> Result<(), StateMachineError> {
         let extraction_policies_cf =
-            self.get_cf_handle(db, StateMachineColumns::extraction_policies)?;
+            self.get_cf_handle(db, &StateMachineColumns::extraction_policies)?;
         let serialized_extraction_policy = serde_json::to_vec(extraction_policy)?;
         txn.put_cf(
             extraction_policies_cf,
@@ -396,9 +400,9 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         namespace: &NamespaceName,
     ) -> Result<(), StateMachineError> {
-        let namespaces_cf = self.get_cf_handle(db, StateMachineColumns::namespaces)?;
+        let namespaces_cf = self.get_cf_handle(db, &StateMachineColumns::namespaces)?;
         let serialized_name = serde_json::to_vec(namespace)?;
-        txn.put_cf(namespaces_cf, serialized_name, [])
+        txn.put_cf(namespaces_cf, namespace, serialized_name)
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!("Error writing namespace: {}", e))
             })?;
@@ -665,7 +669,7 @@ impl IndexifyState {
     ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
         //  NOTE: Don't do deserialization within the transaction
         let txn = db.transaction();
-        let task_assignments_cf = self.get_cf_handle(db, StateMachineColumns::task_assignments)?;
+        let task_assignments_cf = self.get_cf_handle(db, &StateMachineColumns::task_assignments)?;
 
         let task_ids_key = executor_id.as_bytes();
         let task_ids_bytes = txn
@@ -683,7 +687,7 @@ impl IndexifyState {
             })
             .unwrap_or_else(Vec::new);
 
-        let tasks_cf = self.get_cf_handle(db, StateMachineColumns::tasks)?;
+        let tasks_cf = self.get_cf_handle(db, &StateMachineColumns::tasks)?;
 
         let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
 
@@ -709,7 +713,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<internal_api::ExecutorMetadata>, StateMachineError> {
         let txn = db.transaction();
-        let executors_cf = self.get_cf_handle(db, StateMachineColumns::executors)?;
+        let executors_cf = self.get_cf_handle(db, &StateMachineColumns::executors)?;
         let executors: Result<Vec<internal_api::ExecutorMetadata>, StateMachineError> =
             executor_ids
                 .into_iter()
@@ -735,7 +739,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<internal_api::ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
-        let content_cf = self.get_cf_handle(db, StateMachineColumns::content_table)?;
+        let content_cf = self.get_cf_handle(db, &StateMachineColumns::content_table)?;
         let content: Result<Vec<internal_api::ContentMetadata>, StateMachineError> = content_ids
             .into_iter()
             .map(|content_id| {

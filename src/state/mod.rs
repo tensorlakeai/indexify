@@ -314,9 +314,9 @@ impl App {
         for event_id in store.unprocessed_state_changes.iter() {
             let event = self
                 .state_machine
-                .get_from_cf(StateMachineColumns::state_changes, event_id)?;
-            let parsed_event = serde_json::from_slice::<StateChange>(&event)?;
-            state_changes.push(parsed_event.clone());
+                .get_from_cf::<StateChange, _>(StateMachineColumns::state_changes, event_id)
+                .await?;
+            state_changes.push(event.clone());
         }
         Ok(state_changes)
     }
@@ -388,8 +388,8 @@ impl App {
     pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let extraction_policy = self
             .state_machine
-            .get_from_cf(StateMachineColumns::extraction_policies, id)?;
-        let extraction_policy = serde_json::from_slice::<ExtractionPolicy>(&extraction_policy)?;
+            .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::extraction_policies, id)
+            .await?;
         Ok(extraction_policy)
     }
 
@@ -415,12 +415,13 @@ impl App {
                 .unwrap_or_default();
             let mut content_meta_list = Vec::new();
             for content_id in content_list {
-                let content_metadata_serialized = self
+                let content_metadata = self
                     .state_machine
-                    .get_from_cf(StateMachineColumns::content_table, &content_id)?;
-                let content_metadata = serde_json::from_slice::<internal_api::ContentMetadata>(
-                    &content_metadata_serialized,
-                )?;
+                    .get_from_cf::<internal_api::ContentMetadata, _>(
+                        StateMachineColumns::content_table,
+                        &content_id,
+                    )
+                    .await?;
                 // if the content metadata mimetype does not match the extractor, skip it
                 if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                     continue;
@@ -452,11 +453,11 @@ impl App {
         let store = self.indexify_state.read().await;
         let mut tasks = vec![];
         for task_id in store.unassigned_tasks.iter() {
-            let serialized_task = self
+            let task = self
                 .state_machine
-                .get_from_cf(StateMachineColumns::tasks, task_id)
+                .get_from_cf::<internal_api::Task, _>(StateMachineColumns::tasks, task_id)
+                .await
                 .map_err(|e| anyhow!("unable to get task from state machine store: {}", e))?;
-            let task = serde_json::from_slice::<internal_api::Task>(&serialized_task)?;
             tasks.push(task.clone());
         }
         Ok(tasks)
@@ -584,11 +585,13 @@ impl App {
         &self,
         extractor: &str,
     ) -> Result<internal_api::ExtractorDescription> {
-        let serialized_extractor = self
+        let extractor = self
             .state_machine
-            .get_from_cf(StateMachineColumns::extractors, extractor)?;
-        let extractor =
-            serde_json::from_slice::<internal_api::ExtractorDescription>(&serialized_extractor)?;
+            .get_from_cf::<internal_api::ExtractorDescription, _>(
+                StateMachineColumns::extractors,
+                extractor,
+            )
+            .await?;
         Ok(extractor.clone())
     }
 
@@ -618,14 +621,12 @@ impl App {
 
     pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
         //  Fetch the namespaces from the db
-        let namespaces_from_db = self
+        let namespaces: Vec<String> = self
             .state_machine
-            .get_all_rows_from_cf(StateMachineColumns::namespaces)?;
-        let namespaces: Result<Vec<String>, anyhow::Error> = namespaces_from_db
+            .get_all_rows_from_cf::<String>(StateMachineColumns::namespaces)?
             .into_iter()
-            .map(|(key, _)| serde_json::from_slice::<String>(&key).map_err(|e| e.into())) // Convert serde_json::Error into anyhow::Error
+            .map(|(key, _)| key)
             .collect();
-        let namespaces = namespaces?;
 
         // Fetch extraction policies for each namespace
         let mut result_namespaces = Vec::new();
@@ -687,43 +688,38 @@ impl App {
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
-        let rows = self
+        let extractors: Vec<internal_api::ExtractorDescription> = self
             .state_machine
-            .get_all_rows_from_cf(StateMachineColumns::extractors)?;
-        let extractors: Result<Vec<_>, _> = rows
+            .get_all_rows_from_cf::<internal_api::ExtractorDescription>(
+                StateMachineColumns::extractors,
+            )?
             .into_iter()
-            .map(|(_, value)| {
-                let extractor: internal_api::ExtractorDescription = serde_json::from_slice(&value)?;
-                Ok(extractor)
-            })
+            .map(|(_, value)| value)
             .collect();
-        extractors
+        Ok(extractors)
     }
 
     pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        let rows = self
+        let executors: Vec<internal_api::ExecutorMetadata> = self
             .state_machine
-            .get_all_rows_from_cf(StateMachineColumns::executors)?;
-
-        let executors: Result<Vec<_>, _> = rows
+            .get_all_rows_from_cf::<internal_api::ExecutorMetadata>(StateMachineColumns::executors)?
             .into_iter()
-            .map(|(_, value)| {
-                let executor: internal_api::ExecutorMetadata = serde_json::from_slice(&value)?;
-                Ok(executor)
-            })
+            .map(|(_, value)| value)
             .collect();
-        executors
+        Ok(executors)
     }
 
     pub async fn get_executor_by_id(
         &self,
         executor_id: ExecutorIdRef<'_>,
     ) -> Result<internal_api::ExecutorMetadata> {
-        let serialized_executor = self
+        let executor = self
             .state_machine
-            .get_from_cf(StateMachineColumns::executors, executor_id)?;
-        let executor =
-            serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
+            .get_from_cf::<internal_api::ExecutorMetadata, _>(
+                StateMachineColumns::executors,
+                executor_id,
+            )
+            .await?;
         Ok(executor)
     }
 
@@ -773,10 +769,13 @@ impl App {
         &self,
         content_id: &str,
     ) -> Result<internal_api::ContentMetadata> {
-        let content = self
+        let content_metadata = self
             .state_machine
-            .get_from_cf(StateMachineColumns::content_table, content_id)?;
-        let content_metadata = serde_json::from_slice::<internal_api::ContentMetadata>(&content)?;
+            .get_from_cf::<internal_api::ContentMetadata, _>(
+                StateMachineColumns::content_table,
+                content_id,
+            )
+            .await?;
         Ok(content_metadata)
     }
 
@@ -810,12 +809,12 @@ impl App {
         namespace: &str,
         extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        let tasks = self
+        let tasks: Vec<internal_api::Task> = self
             .state_machine
-            .get_all_rows_from_cf(StateMachineColumns::tasks)?
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::tasks)?
             .into_iter()
-            .map(|(_, value)| serde_json::from_slice::<internal_api::Task>(&value))
-            .collect::<Result<Vec<internal_api::Task>, _>>()?;
+            .map(|(_, value)| value)
+            .collect();
         let filtered_tasks = tasks
             .iter()
             .filter(|task| task.namespace == namespace)
@@ -843,15 +842,10 @@ impl App {
     }
 
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
-        let retrieved_task = self
+        let task = self
             .state_machine
-            .get_from_cf(StateMachineColumns::tasks, task_id)?;
-        let task = serde_json::from_slice::<internal_api::Task>(&retrieved_task).map_err(|e| {
-            anyhow!(
-                "unable to deserialize task from state machine store: {}",
-                e.to_string()
-            )
-        })?;
+            .get_from_cf::<internal_api::Task, _>(StateMachineColumns::tasks, task_id)
+            .await?;
         Ok(task.clone())
     }
 
@@ -867,10 +861,10 @@ impl App {
     }
 
     pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
-        let retrieved_index = self
+        let index = self
             .state_machine
-            .get_from_cf(StateMachineColumns::index_table, id)?;
-        let index = serde_json::from_slice::<internal_api::Index>(&retrieved_index).unwrap();
+            .get_from_cf::<internal_api::Index, _>(StateMachineColumns::index_table, id)
+            .await?;
         Ok(index)
     }
 
@@ -894,17 +888,13 @@ impl App {
     }
 
     pub fn list_state_changes(&self) -> Result<Vec<StateChange>> {
-        let rows = self
+        let state_changes = self
             .state_machine
-            .get_all_rows_from_cf(StateMachineColumns::state_changes)?;
-        let state_changes: Result<Vec<_>, _> = rows
+            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::state_changes)?
             .into_iter()
-            .map(|(_, value)| {
-                let state_change: StateChange = serde_json::from_slice(&value)?;
-                Ok(state_change)
-            })
+            .map(|(_, value)| value)
             .collect();
-        state_changes
+        Ok(state_changes)
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
@@ -1251,12 +1241,15 @@ mod tests {
             .await?;
 
         //  Read the executors from multiple functions
+        println!("Getting executors");
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 1);
 
+        println!("Getting executor by id");
         let executor = node.get_executor_by_id(executor_id).await?;
         assert_eq!(executor.id, executor_id);
 
+        println!("Getting executors for extractor");
         let executors = node.get_executors_for_extractor(&extractor.name).await?;
         assert_eq!(executors.len(), 1);
         assert_eq!(executors.first().unwrap().id, executor_id);
@@ -1438,12 +1431,14 @@ mod tests {
 
         //  Read the namespace back and expect to get the extraction policies as well
         // which will be asserted
+        println!("Retrieving namespace");
         let retrieved_namespace = node.namespace(namespace).await?;
         assert_eq!(retrieved_namespace.name, namespace);
         assert_eq!(retrieved_namespace.extraction_policies.len(), 3);
 
         // //  Read all namespaces back and assert that only the created namespace is
         // present along with the extraction policies
+        println!("Retrieving all namespaces");
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces.first().unwrap().name, namespace);

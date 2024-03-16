@@ -63,9 +63,6 @@ pub mod requests;
 pub mod state_machine_objects;
 mod store_utils;
 
-type KeyValuePair = (Vec<u8>, Vec<u8>);
-type KeyValuePairsResult = Result<Vec<KeyValuePair>, anyhow::Error>;
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
     pub value: Option<String>,
@@ -263,34 +260,25 @@ impl StateMachineStore {
 
     /// This method fetches a key from a specific column family within a
     /// transaction
-    pub fn get_from_cf<T>(
+    pub async fn get_from_cf<T, K>(
         &self,
         column: StateMachineColumns,
-        key: T,
-    ) -> Result<Vec<u8>, anyhow::Error>
+        key: K,
+    ) -> Result<T, anyhow::Error>
     where
-        T: AsRef<[u8]>,
+        T: DeserializeOwned,
+        K: AsRef<[u8]>,
     {
-        let cf = self
-            .db
-            .cf_handle(column.to_string().as_str())
-            .ok_or(anyhow::anyhow!(
-                "Failed to get column family {}",
-                column.to_string()
-            ))?;
-        let result = self.db.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
+        let sm = self.data.indexify_state.read().await;
+        let cf = sm.get_cf_handle(&self.db, &column)?;
+        let result_bytes = self.db.get_cf(cf, key)?.ok_or(anyhow::anyhow!(
             "Failed to get value from column family {}",
             column.to_string()
         ))?;
-        Ok(result)
-    }
+        let result = serde_json::from_slice::<T>(&result_bytes)
+            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
-    /// Deserializes data fetched from a column family into the specified type.
-    pub fn deserialize_cf_data<T>(&self, data: Vec<u8>) -> Result<T, anyhow::Error>
-    where
-        T: DeserializeOwned,
-    {
-        serde_json::from_slice(&data).map_err(|e| e.into())
+        Ok(result)
     }
 
     pub async fn get_tasks_for_executor(
@@ -336,22 +324,34 @@ impl StateMachineStore {
     }
 
     /// Test utility method to get all key-value pairs from a column family
-    pub fn get_all_rows_from_cf(&self, column: StateMachineColumns) -> KeyValuePairsResult {
-        let cf_handle = self
-            .db
-            .cf_handle(column.to_string().as_str())
-            .ok_or(anyhow::anyhow!(
-                "Failed to get column family {}",
-                column.to_string()
-            ))?;
+    pub fn get_all_rows_from_cf<V>(
+        &self,
+        column: StateMachineColumns,
+    ) -> Result<Vec<(String, V)>, anyhow::Error>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = self.db.cf_handle(column.as_ref()).ok_or(anyhow::anyhow!(
+            "Failed to get column family {}",
+            column.to_string()
+        ))?;
         let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
-        let items: Result<Vec<_>, _> = iter
-            .map(|result| match result {
-                Ok((key, value)) => Ok((key.to_vec(), value.to_vec())),
-                Err(e) => Err(anyhow::anyhow!(e)),
+        
+
+        iter
+            .map(|item| {
+                item.map_err(|e| anyhow::anyhow!(e))
+                    .and_then(|(key, value)| {
+                        let key = String::from_utf8(key.to_vec()).map_err(|e| {
+                            anyhow::anyhow!("UTF-8 conversion error for key: {}", e)
+                        })?;
+                        let value = serde_json::from_slice(&value).map_err(|e| {
+                            anyhow::anyhow!("Deserialization error for value: {}", e)
+                        })?;
+                        Ok((key, value))
+                    })
             })
-            .collect();
-        items
+            .collect::<Result<Vec<(String, V)>, _>>()
     }
 
     pub fn deserialize_all_cf_data<K, V>(
