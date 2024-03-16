@@ -472,14 +472,6 @@ impl App {
             .get(extractor)
             .cloned()
             .unwrap_or(HashSet::new());
-        // let mut executors = Vec::new();
-        // for executor_id in executor_ids {
-        //     let executor = store.executors.get(&executor_id).ok_or(anyhow!(
-        //         "internal error: executor id {} not found",
-        //         executor_id
-        //     ))?;
-        //     executors.push(executor.clone());
-        // }
         self.state_machine
             .get_executors_from_ids(executor_ids)
             .await
