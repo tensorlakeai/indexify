@@ -186,6 +186,10 @@ impl Server {
                 post(index_search).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/schemas",
+                get(list_schemas).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces",
                 post(create_namespace).with_state(namespace_endpoint_state.clone()),
             )
@@ -237,6 +241,18 @@ impl Server {
             info!("received graceful shutdown signal. Telling tasks to shutdown");
         });
 
+        // Create the default namespace. It's idempotent so we can keep trying
+        while let Err(err) = data_manager
+            .create_namespace(&DataNamespace {
+                name: "default".to_string(),
+                extraction_policies: vec![],
+            })
+            .await
+        {
+            info!("failed to create default namespace: {}", err);
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+
         // TODO: Bring all this back once axum_server upgrades to rustls 0.22
         // since our TLS code is based on that
         //if let Some(tls_config) = self.config.tls.clone() {
@@ -286,7 +302,7 @@ async fn create_namespace(
     };
     state
         .data_manager
-        .create(&data_namespace)
+        .create_namespace(&data_namespace)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -868,6 +884,44 @@ async fn index_search(
     Ok(Json(IndexSearchResponse {
         results: document_fragments,
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/namespace/{namespace}/schemas",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of Schemas", body = GetStructuredDataSchemasResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "List Structured Data Schemas")
+    ),
+)]
+#[axum::debug_handler]
+async fn list_schemas(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<GetStructuredDataSchemasResponse>, IndexifyAPIError> {
+    let results = state
+        .coordinator_client
+        .get()
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .list_schemas(tonic::Request::new(
+            indexify_coordinator::GetAllSchemaRequest {
+                namespace: namespace.clone(),
+            },
+        ))
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let results = results.into_inner().schemas;
+    let mut schemas = Vec::new();
+    for schema in results {
+        schemas.push(StructuredDataSchema {
+            schema: serde_json::from_str(&schema.schema).unwrap(),
+            namespace: namespace.to_string(),
+            content_source: schema.content_source,
+        })
+    }
+    Ok(Json(GetStructuredDataSchemasResponse { schemas }))
 }
 
 #[tracing::instrument]

@@ -7,8 +7,10 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_proto::indexify_coordinator;
+use json_schema_tools::compose::compose;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
@@ -567,4 +569,67 @@ impl From<StateChange> for indexify_coordinator::StateChange {
 pub struct ExtractedEmbeddings {
     pub content_id: String,
     pub embedding: Vec<f32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct StructuredDataSchema {
+    pub schema: serde_json::Value,
+    pub content_source: String,
+    pub namespace: String,
+    pub id: String,
+}
+
+impl StructuredDataSchema {
+    pub fn new(content_source: &str, namespace: &str) -> Self {
+        let id = Self::schema_id(namespace, content_source);
+        Self {
+            schema: json!({"$schema": "http://json-schema.org/schema#", "$id": "", "$defs": {}}),
+            content_source: content_source.to_string(),
+            namespace: namespace.to_string(),
+            id,
+        }
+    }
+
+    pub fn merge(&self, extractor: &str, other: serde_json::Value) -> Result<Self> {
+        let result = compose(&self.schema, vec![(Some(extractor), other)].as_slice())
+            .map_err(|e| anyhow!(e))?;
+        Ok(Self {
+            schema: result,
+            content_source: self.content_source.clone(),
+            namespace: self.namespace.clone(),
+            id: self.id.clone(),
+        })
+    }
+
+    pub fn schema_id(namespace: &str, content_source: &str) -> String {
+        let mut s = DefaultHasher::new();
+        namespace.hash(&mut s);
+        content_source.hash(&mut s);
+        format!("{:x}", s.finish())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_structured_data_schema() {
+        let schema = StructuredDataSchema::new("test", "test-namespace");
+        let other = json!(
+            {"$schema": "http://json-schema.org/schema#","$id": "/extractor1", "type": "object", "properties": {"bounding_box": {"type": "array", "items": {"type": "number"}}, "name": {"type": "string"}}, "required": ["bounding_box", "name"]});
+        let result = schema.merge("test_extractor", other).unwrap();
+        println!(
+            "Result: {:?}",
+            serde_json::to_string(&result.schema).unwrap()
+        );
+        let other1 = json!(
+            {"$schema": "http://json-schema.org/schema#","$id": "/extractor2", "type": "object", "properties": {"age": {"type": "int"}}, "required": ["age"]});
+        let result1 = result.merge("test_extractor1", other1).unwrap();
+        println!(
+            "Result1: {:?}",
+            serde_json::to_string(&result1.schema).unwrap()
+        );
+        assert_eq!(result.content_source, "test");
+    }
 }

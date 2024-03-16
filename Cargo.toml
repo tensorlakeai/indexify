@@ -116,6 +116,7 @@ tar = "0.4"
 walkdir = { version = "2" }
 vectordb = {version = "0.4.10" }
 lance = {version = "^0"}
+json-schema-tools = "0.1.0"
 
 [dependencies]
 anyerror = { workspace = true }
@@ -194,6 +195,7 @@ walkdir = { workspace = true }
 vectordb = { workspace = true }
 lance = { workspace = true }
 async-stream = "0.3.5"
+json-schema-tools = {workspace=true}
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }

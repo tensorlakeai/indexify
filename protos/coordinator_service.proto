@@ -39,6 +39,10 @@ service CoordinatorService {
     rpc ListStateChanges(ListStateChangesRequest) returns (ListStateChangesResponse) {}
 
     rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {}
+
+    rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse) {}
+
+    rpc ListSchemas(GetAllSchemaRequest) returns (GetAllSchemaResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -287,4 +291,26 @@ message CreateContentResponse {
 message Namespace {
     string name = 1;
     repeated ExtractionPolicy policies = 2;
+}
+
+message GetSchemaRequest {
+    string namespace = 1;
+    string content_source = 2;
+}
+
+message GetSchemaResponse {
+    StructuredDataSchema schema = 1;
+}
+
+message StructuredDataSchema {
+    string schema = 1;
+    string content_source = 2;
+}
+
+message GetAllSchemaRequest {
+    string namespace = 1;
+}
+
+message GetAllSchemaResponse {
+    repeated StructuredDataSchema schemas = 1;
 }

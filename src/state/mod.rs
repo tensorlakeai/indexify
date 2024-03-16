@@ -13,7 +13,7 @@ use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
-use internal_api::{ExtractionPolicy, StateChange};
+use internal_api::{ExtractionPolicy, StateChange, StructuredDataSchema};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
@@ -536,10 +536,12 @@ impl App {
     pub async fn create_extraction_policy(
         &self,
         extraction_policy: ExtractionPolicy,
+        updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
+                updated_structured_data_schema,
             },
             new_state_changes: vec![StateChange::new(
                 extraction_policy.id.clone(),
@@ -611,6 +613,7 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateNamespace {
                 name: namespace.to_string(),
+                structured_data_schema: StructuredDataSchema::new("ingestion", namespace),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],
@@ -895,6 +898,33 @@ impl App {
             .map(|(_, value)| value)
             .collect();
         Ok(state_changes)
+    }
+
+    pub async fn get_structured_data_schema(
+        &self,
+        namespace: &str,
+        content_source: &str,
+    ) -> Result<StructuredDataSchema> {
+        let id = StructuredDataSchema::schema_id(namespace, content_source);
+        let schema = self
+            .state_machine
+            .get_from_cf::<StructuredDataSchema, _>(StateMachineColumns::StructuredDataSchemas, id)
+            .await?;
+        Ok(schema)
+    }
+
+    pub async fn get_schemas_for_namespace(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<StructuredDataSchema>> {
+        let store = self.indexify_state.read().await;
+        let schemas_for_ns = store
+            .schemas_by_namespace
+            .get(namespace)
+            .cloned()
+            .unwrap_or(HashSet::new());
+        let schemas = self.state_machine.get_schemas(schemas_for_ns)?;
+        Ok(schemas)
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
@@ -1365,7 +1395,7 @@ mod tests {
             .collect(),
             ..Default::default()
         };
-        node.create_extraction_policy(extraction_policy.clone())
+        node.create_extraction_policy(extraction_policy.clone(), None)
             .await?;
 
         //  Read the policy back using namespace
@@ -1426,7 +1456,7 @@ mod tests {
             },
         ];
         for policy in &extraction_policies {
-            node.create_extraction_policy(policy.clone()).await?;
+            node.create_extraction_policy(policy.clone(), None).await?;
         }
 
         //  Read the namespace back and expect to get the extraction policies as well
