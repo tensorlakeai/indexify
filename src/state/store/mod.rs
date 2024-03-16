@@ -430,7 +430,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         I: IntoIterator<Item = typ::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
     {
-        println!("ENTER: store::apply");
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
         let mut change_events: Vec<StateChange> = Vec::new();
@@ -462,7 +461,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 tracing::error!("error sending state change event: {}", err);
             }
         }
-        println!("EXIT: store::apply");
         Ok(replies)
     }
 

@@ -1277,7 +1277,6 @@ mod tests {
         assert_eq!(retrieved_extractor, extractor);
 
         //  Remove the executor that was created and assert that it was removed
-        println!("Removing the executor");
         node.remove_executor(executor_id).await?;
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 0);
