@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use super::{serializer::Serialize, Serializer};
 use anyhow::Result;
 use indexify_internal_api as internal_api;
 use internal_api::{ExtractorDescription, StateChange};
@@ -13,9 +12,18 @@ use tracing::error;
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    serializer::Serialize,
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractorName, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    NamespaceName,
+    SchemaId,
+    Serializer,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
