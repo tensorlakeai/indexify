@@ -8,10 +8,16 @@ Applications leveraging LLMs for autonomous planning or queries necessitate time
 
 ## Why use Indexify
 
-* **Knowledge Base for LLMs:** Real-time structured extraction and embedding generation from any un-structured data to feed relevant context to AI Applications.
-* **Distributed Extraction Engine For Scale:** Distributed extraction to scale indexing large amounts of data without sacrificing retrieval performance.
-* **Custom Extractors:** You can extend Indexify by writing a custom extractor for your use cases to extract specific information from data.
-* **Pluggable Storage:** Use one of the many storage backends to persist indexes.
+* Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
+* **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
+* Create **Extraction Graph** to describe **data transformation** and extraction of **embedding** and **structured extraction**.
+* **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
+* **Extractor SDK** allows adding new extraction capabilities, and many readily avaialble extractors for **PDF**, **Image** and **Video** indexing and extraction.
+* Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
+* Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
+* Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
+* We have even **Open Sourced Automation** to deploy to Kubernetes in production.
+
 
 ## Getting Started
 
