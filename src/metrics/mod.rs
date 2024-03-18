@@ -96,7 +96,7 @@ pub mod raft_metrics {
     pub mod network {
         use std::{
             collections::HashMap,
-            sync::Mutex,
+            sync::RwLock,
             time::{Duration, Instant},
         };
 
@@ -140,11 +140,12 @@ pub mod raft_metrics {
             }
         }
 
-        static RAFT_METRICS: Lazy<Mutex<RaftMetrics>> =
-            Lazy::new(|| Mutex::new(RaftMetrics::new()));
+        //  TODO: Make the locks more granular and atomic
+        static RAFT_METRICS: Lazy<RwLock<RaftMetrics>> =
+            Lazy::new(|| RwLock::new(RaftMetrics::new()));
 
         pub fn incr_fail_connect_to_peer(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .fail_connect_to_peer
                 .entry(node_addr.into())
@@ -153,25 +154,25 @@ pub mod raft_metrics {
         }
 
         pub fn incr_sent_bytes(node_addr: &str, bytes: u64) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics.sent_bytes.entry(node_addr.into()).or_insert(0);
             *count += bytes;
         }
 
         pub fn incr_recv_bytes(node_addr: &str, bytes: u64) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics.recv_bytes.entry(node_addr.into()).or_insert(0);
             *count += bytes;
         }
 
         pub fn incr_sent_failures(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics.sent_failures.entry(node_addr.into()).or_insert(0);
             *count += 1;
         }
 
         pub fn incr_snapshot_send_success(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .snapshot_send_success
                 .entry(node_addr.into())
@@ -180,7 +181,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_send_failure(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .snapshot_send_failure
                 .entry(node_addr.into())
@@ -189,7 +190,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_recv_success(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .snapshot_recv_success
                 .entry(node_addr.into())
@@ -198,7 +199,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_recv_failure(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .snapshot_recv_failure
                 .entry(node_addr.into())
@@ -207,7 +208,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_send_inflight(node_addr: &str, increment_cnt: i64) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .snapshot_send_inflights
                 .entry(node_addr.into())
@@ -220,7 +221,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_recv_inflight(node_addr: &str, increment_cnt: i64) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let count = metrics
                 .snapshot_recv_inflights
                 .entry(node_addr.into())
@@ -233,7 +234,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_sent_seconds(node_addr: &str, duration: Duration) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let durations = metrics
                 .snapshot_sent_seconds
                 .entry(node_addr.into())
@@ -242,7 +243,7 @@ pub mod raft_metrics {
         }
 
         pub fn incr_snapshot_recv_seconds(node_addr: &str, duration: Duration) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             let durations = metrics
                 .snapshot_recv_seconds
                 .entry(node_addr.into())
@@ -251,12 +252,12 @@ pub mod raft_metrics {
         }
 
         pub fn add_snapshot_size(size: u64) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             metrics.snapshot_size.push(size);
         }
 
         pub fn set_last_snapshot_creation_time(time: Instant) {
-            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             metrics.last_snapshot_creation_time = Some(time);
         }
     }
