@@ -175,7 +175,9 @@ impl RaftApi for RaftGrpcServer {
         self.incr_recv_bytes(&request);
 
         let remote_addr = self.get_request_addr(&request);
-        let is_req = GrpcHelper::parse_req(request)?;
+        let is_req: openraft::raft::InstallSnapshotRequest<super::TypeConfig> =
+            GrpcHelper::parse_req(request)?;
+        let snapshot_size = is_req.data.len() as u64;
         let resp = self.raft.install_snapshot(is_req).await.map_err(|e| {
             raft_metrics::network::incr_snapshot_recv_failure(remote_addr.clone());
             GrpcHelper::internal_err(e.to_string())
@@ -183,6 +185,8 @@ impl RaftApi for RaftGrpcServer {
 
         if resp.is_ok() {
             raft_metrics::network::incr_snapshot_recv_success(remote_addr.clone());
+            raft_metrics::network::add_snapshot_size(snapshot_size);
+            raft_metrics::network::set_last_snapshot_creation_time(std::time::Instant::now());
         } else {
             raft_metrics::network::incr_snapshot_recv_failure(remote_addr);
         }

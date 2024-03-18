@@ -94,7 +94,11 @@ where
 
 pub mod raft_metrics {
     pub mod network {
-        use std::{collections::HashMap, sync::Mutex, time::Duration};
+        use std::{
+            collections::HashMap,
+            sync::Mutex,
+            time::{Duration, Instant},
+        };
 
         use once_cell::sync::Lazy;
 
@@ -111,6 +115,8 @@ pub mod raft_metrics {
             snapshot_recv_inflights: HashMap<String, u64>,
             snapshot_sent_seconds: HashMap<String, Vec<Duration>>,
             snapshot_recv_seconds: HashMap<String, Vec<Duration>>,
+            snapshot_size: Vec<u64>,
+            last_snapshot_creation_time: Option<Instant>,
         }
 
         impl RaftMetrics {
@@ -128,6 +134,8 @@ pub mod raft_metrics {
                     snapshot_recv_inflights: HashMap::new(),
                     snapshot_sent_seconds: HashMap::new(),
                     snapshot_recv_seconds: HashMap::new(),
+                    snapshot_size: Vec::new(),
+                    last_snapshot_creation_time: None,
                 }
             }
         }
@@ -219,6 +227,16 @@ pub mod raft_metrics {
             let mut metrics = RAFT_METRICS.lock().unwrap();
             let durations = metrics.snapshot_recv_seconds.entry(node_addr).or_default();
             durations.push(duration);
+        }
+
+        pub fn add_snapshot_size(size: u64) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            metrics.snapshot_size.push(size);
+        }
+
+        pub fn set_last_snapshot_creation_time(time: Instant) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            metrics.last_snapshot_creation_time = Some(time);
         }
     }
 }
