@@ -6,7 +6,7 @@ Indexify is a reactive structured extraction engine for un-structured data such 
 
 ## Why use Indexify
 
-* Makes Unstructured Data **Queriable** with **SQL** and Semantic Search
+* Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
 * **Real Time** Extraction Engine to keep indexes updated as new data is ingested.
 * **Extractor SDK** allows adding new extraction capabilities, and many readily avaialble extractors for **PDF**, **Image** and **Video** indexing and extraction.
 * Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
