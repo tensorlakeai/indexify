@@ -12,6 +12,7 @@ Indexify is a reactive structured extraction engine for un-structured data such 
 * Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
 * Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
 * Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
+* We have even **Open Sourced Automation** to deploy to Kubernetes in production.
 
 ## Start Using Indexify
 
