@@ -11,7 +11,7 @@ use tonic::{Request, Status};
 use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
-use crate::metrics::raft_metrics;
+use crate::metrics::{raft_metrics, CounterGuard};
 use crate::{
     grpc_helper::GrpcHelper,
     state::{store::requests, Raft},
@@ -167,6 +167,11 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
+        let _guard_inflight =
+            CounterGuard::new(self.get_request_addr(&request), move |addr, cnt| {
+                raft_metrics::network::incr_snapshot_recv_inflight(addr, cnt);
+            });
+
         self.incr_recv_bytes(&request);
 
         let remote_addr = self.get_request_addr(&request);

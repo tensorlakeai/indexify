@@ -15,7 +15,7 @@ use tonic::IntoRequest;
 use super::store::requests::StateMachineUpdateResponse;
 use crate::{
     grpc_helper::GrpcHelper,
-    metrics::raft_metrics,
+    metrics::{raft_metrics, CounterGuard},
     state::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
@@ -197,6 +197,10 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
+        let _guard_inflight = CounterGuard::new(self.target_node.addr.clone(), move |addr, cnt| {
+            raft_metrics::network::incr_snapshot_send_inflight(addr, cnt);
+        });
+
         let mut client = self
             .raft_client
             .get(&self.target_node.addr)

@@ -1,3 +1,30 @@
+pub struct CounterGuard<F>
+where
+    F: Fn(String, i64),
+{
+    node_addr: String,
+    func: F,
+}
+
+impl<F> CounterGuard<F>
+where
+    F: Fn(String, i64),
+{
+    pub fn new(node_addr: String, func: F) -> Self {
+        func(node_addr.clone(), 1);
+        Self { node_addr, func }
+    }
+}
+
+impl<F> Drop for CounterGuard<F>
+where
+    F: Fn(String, i64),
+{
+    fn drop(&mut self) {
+        (self.func)(self.node_addr.clone(), -1);
+    }
+}
+
 pub mod raft_metrics {
     pub mod network {
         use once_cell::sync::Lazy;
@@ -13,6 +40,8 @@ pub mod raft_metrics {
             snapshot_send_failure: HashMap<String, u64>,
             snapshot_recv_success: HashMap<String, u64>,
             snapshot_recv_failure: HashMap<String, u64>,
+            snapshot_send_inflights: HashMap<String, u64>,
+            snapshot_recv_inflights: HashMap<String, u64>,
         }
 
         impl RaftMetrics {
@@ -26,6 +55,8 @@ pub mod raft_metrics {
                     snapshot_send_failure: HashMap::new(),
                     snapshot_recv_success: HashMap::new(),
                     snapshot_recv_failure: HashMap::new(),
+                    snapshot_send_inflights: HashMap::new(),
+                    snapshot_recv_inflights: HashMap::new(),
                 }
             }
         }
@@ -79,6 +110,32 @@ pub mod raft_metrics {
             let mut metrics = RAFT_METRICS.lock().unwrap();
             let count = metrics.snapshot_recv_failure.entry(node_addr).or_insert(0);
             *count += 1;
+        }
+
+        pub fn incr_snapshot_send_inflight(node_addr: String, increment_cnt: i64) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let count = metrics
+                .snapshot_send_inflights
+                .entry(node_addr)
+                .or_insert(0);
+            if increment_cnt < 0 {
+                *count = count.saturating_sub((-increment_cnt) as u64);
+            } else {
+                *count = count.saturating_add(increment_cnt as u64);
+            }
+        }
+
+        pub fn incr_snapshot_recv_inflight(node_addr: String, increment_cnt: i64) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let count = metrics
+                .snapshot_recv_inflights
+                .entry(node_addr)
+                .or_insert(0);
+            if increment_cnt < 0 {
+                *count = count.saturating_sub((-increment_cnt) as u64);
+            } else {
+                *count = count.saturating_add(increment_cnt as u64);
+            }
         }
     }
 }
