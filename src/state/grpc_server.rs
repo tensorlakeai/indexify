@@ -40,6 +40,12 @@ impl RaftGrpcServer {
         }
     }
 
+    fn incr_recv_bytes(&self, request: &Request<RaftRequest>) {
+        let addr = self.get_request_addr(&request);
+        let bytes_recv = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+    }
+
     /// Get nodes from the cluster
     fn get_nodes_in_cluster(&self) -> BTreeMap<u64, BasicNode> {
         self.raft
@@ -124,9 +130,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let addr = self.get_request_addr(&request);
-        let bytes_recv = request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+        self.incr_recv_bytes(&request);
 
         if (self.ensure_leader().await?).is_some() {
             return Err(GrpcHelper::internal_err(
@@ -147,9 +151,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let addr = self.get_request_addr(&request);
-        let bytes_recv = request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+        self.incr_recv_bytes(&request);
 
         let ae_req = GrpcHelper::parse_req(request)?;
         let resp = self
@@ -165,9 +167,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let addr = self.get_request_addr(&request);
-        let bytes_recv = request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+        self.incr_recv_bytes(&request);
 
         let is_req = GrpcHelper::parse_req(request)?;
         let resp = self
@@ -186,9 +186,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let addr = self.get_request_addr(&request);
-        let bytes_recv = request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+        self.incr_recv_bytes(&request);
 
         let v_req = GrpcHelper::parse_req(request)?;
 
@@ -205,9 +203,7 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        let addr = self.get_request_addr(&request);
-        let bytes_recv = request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+        self.incr_recv_bytes(&request);
 
         let req = GrpcHelper::parse_req::<StateMachineUpdateRequest>(request)?;
 

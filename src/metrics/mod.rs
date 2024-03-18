@@ -9,6 +9,10 @@ pub mod raft_metrics {
             sent_bytes: HashMap<String, u64>,
             recv_bytes: HashMap<String, u64>,
             sent_failures: HashMap<String, u64>,
+            snapshot_send_success: HashMap<String, u64>,
+            snapshot_send_failure: HashMap<String, u64>,
+            snapshot_recv_success: HashMap<String, u64>,
+            snapshot_recv_failure: HashMap<String, u64>,
         }
 
         impl RaftMetrics {
@@ -18,6 +22,10 @@ pub mod raft_metrics {
                     sent_bytes: HashMap::new(),
                     recv_bytes: HashMap::new(),
                     sent_failures: HashMap::new(),
+                    snapshot_send_success: HashMap::new(),
+                    snapshot_send_failure: HashMap::new(),
+                    snapshot_recv_success: HashMap::new(),
+                    snapshot_recv_failure: HashMap::new(),
                 }
             }
         }
@@ -46,6 +54,30 @@ pub mod raft_metrics {
         pub fn incr_sent_failures(node_addr: String) {
             let mut metrics = RAFT_METRICS.lock().unwrap();
             let count = metrics.sent_failures.entry(node_addr).or_insert(0);
+            *count += 1;
+        }
+
+        pub fn incr_snapshot_send_success(node_addr: String) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let count = metrics.snapshot_send_success.entry(node_addr).or_insert(0);
+            *count += 1;
+        }
+
+        pub fn incr_snapshot_send_failure(node_addr: String) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let count = metrics.snapshot_send_failure.entry(node_addr).or_insert(0);
+            *count += 1;
+        }
+
+        pub fn incr_snapshot_recv_success(node_addr: String) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let count = metrics.snapshot_recv_success.entry(node_addr).or_insert(0);
+            *count += 1;
+        }
+
+        pub fn incr_snapshot_recv_failure(node_addr: String) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let count = metrics.snapshot_recv_failure.entry(node_addr).or_insert(0);
             *count += 1;
         }
     }
