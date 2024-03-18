@@ -169,12 +169,18 @@ impl RaftApi for RaftGrpcServer {
     ) -> Result<tonic::Response<RaftReply>, Status> {
         self.incr_recv_bytes(&request);
 
+        let remote_addr = self.get_request_addr(&request);
         let is_req = GrpcHelper::parse_req(request)?;
-        let resp = self
-            .raft
-            .install_snapshot(is_req)
-            .await
-            .map_err(|e| GrpcHelper::internal_err(e.to_string()));
+        let resp = self.raft.install_snapshot(is_req).await.map_err(|e| {
+            raft_metrics::network::incr_snapshot_recv_failure(remote_addr.clone());
+            GrpcHelper::internal_err(e.to_string())
+        });
+
+        if resp.is_ok() {
+            raft_metrics::network::incr_snapshot_recv_success(remote_addr.clone());
+        } else {
+            raft_metrics::network::incr_snapshot_recv_failure(remote_addr);
+        }
 
         match resp {
             Ok(resp) => GrpcHelper::ok_response(resp),

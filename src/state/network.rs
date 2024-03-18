@@ -213,11 +213,19 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
 
         let resp = grpc_res.map_err(|e| {
             raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());
-            return self.status_to_unreachable(e);
+            self.status_to_unreachable(e)
         })?;
 
-        let raft_res = GrpcHelper::parse_raft_reply(resp)
-            .map_err(|serde_err| new_net_err(&serde_err, || "parse install_snapshot reply"))?;
+        let raft_res = GrpcHelper::parse_raft_reply(resp).map_err(|serde_err| {
+            raft_metrics::network::incr_snapshot_send_failure(self.target_node.addr.clone());
+            new_net_err(&serde_err, || "parse install_snapshot reply")
+        })?;
+
+        if raft_res.is_ok() {
+            raft_metrics::network::incr_snapshot_send_success(self.target_node.addr.clone());
+        } else {
+            raft_metrics::network::incr_snapshot_send_failure(self.target_node.addr.clone());
+        }
 
         raft_res.map_err(|e| self.to_rpc_err(e))
     }
