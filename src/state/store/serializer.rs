@@ -2,19 +2,19 @@ use serde::de::DeserializeOwned;
 
 use super::StateMachineError;
 
-pub struct Serializer;
+pub struct JsonEncoder;
 
-pub trait Serialize {
-    fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, StateMachineError>;
-    fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, StateMachineError>;
+pub trait JsonEncode {
+    fn encode<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, StateMachineError>;
+    fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, StateMachineError>;
 }
 
-impl Serialize for Serializer {
-    fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, StateMachineError> {
+impl JsonEncode for JsonEncoder {
+    fn encode<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, StateMachineError> {
         serde_json::to_vec(value).map_err(StateMachineError::SerializationError)
     }
 
-    fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, StateMachineError> {
+    fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, StateMachineError> {
         serde_json::from_slice(bytes).map_err(StateMachineError::SerializationError)
     }
 }
