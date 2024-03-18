@@ -5,8 +5,12 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-        InstallSnapshotResponse, VoteRequest, VoteResponse,
+        AppendEntriesRequest,
+        AppendEntriesResponse,
+        InstallSnapshotRequest,
+        InstallSnapshotResponse,
+        VoteRequest,
+        VoteResponse,
     },
     BasicNode,
 };
@@ -24,7 +28,8 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId, TypeConfig,
+        NodeId,
+        TypeConfig,
     },
 };
 
@@ -68,7 +73,7 @@ impl Network {
         let tonic_request = GrpcHelper::encode_raft_request(&request)?.into_request();
 
         let bytes_sent = tonic_request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_sent_bytes(target_addr.into(), bytes_sent);
+        raft_metrics::network::incr_sent_bytes(target_addr, bytes_sent);
 
         let response = client
             .forward(tonic_request)
@@ -78,7 +83,7 @@ impl Network {
         let result: Result<StateMachineUpdateResponse, _> =
             serde_json::from_str(&response.into_inner().data);
         let reply = result.map_err(|e| {
-            raft_metrics::network::incr_sent_failures(target_addr.into());
+            raft_metrics::network::incr_sent_failures(target_addr);
             anyhow::anyhow!(format!(
                 "Failed to parse the response received from forwarding a state machine request: {}",
                 e.to_string()
@@ -113,7 +118,7 @@ impl Network {
         .into_request();
 
         let bytes_sent = request.get_ref().data.len() as u64;
-        raft_metrics::network::incr_sent_bytes(target_addr.into(), bytes_sent);
+        raft_metrics::network::incr_sent_bytes(target_addr, bytes_sent);
 
         let response = client
             .join_cluster(request)
@@ -122,7 +127,7 @@ impl Network {
 
         let reply = serde_json::from_str::<StateMachineUpdateResponse>(&response.into_inner().data)
             .map_err(|e| {
-                raft_metrics::network::incr_sent_failures(target_addr.into());
+                raft_metrics::network::incr_sent_failures(target_addr);
                 anyhow::anyhow!(
                     "Failed to parse the response received from sending a join_cluster request: {}",
                     e.to_string()
