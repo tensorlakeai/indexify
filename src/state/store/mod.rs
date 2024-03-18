@@ -39,7 +39,7 @@ use rocksdb::{
     Options,
     Transaction,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -47,7 +47,10 @@ use tracing::debug;
 
 type Node = BasicNode;
 
-use self::state_machine_objects::IndexifyState;
+use self::{
+    serializer::{JsonEncode, JsonEncoder},
+    state_machine_objects::IndexifyState,
+};
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::utils::OptionInspectNone;
 
@@ -64,15 +67,16 @@ pub type ContentType = String;
 pub type SchemaId = String;
 
 pub mod requests;
+pub mod serializer;
 pub mod state_machine_objects;
 mod store_utils;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
     pub value: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, Deserialize, Debug, Clone)]
 pub struct StoredSnapshot {
     pub meta: SnapshotMeta<NodeId, Node>,
 
@@ -126,7 +130,7 @@ pub enum StateMachineError {
 pub enum StateMachineColumns {
     Executors,             //  ExecutorId -> Executor Metadata
     Tasks,                 //  TaskId -> Task
-    TaskAssignments,       //   ExecutorId -> HashSet<TaskId>
+    TaskAssignments,       //  ExecutorId -> HashSet<TaskId>
     StateChanges,          //  StateChangeId -> StateChange
     ContentTable,          //  ContentId -> ContentMetadata
     ExtractionPolicies,    //  ExtractionPolicyId -> ExtractionPolicy
@@ -179,7 +183,7 @@ impl StateMachineStore {
         &mut self,
         snapshot: StoredSnapshot,
     ) -> Result<(), StorageError<NodeId>> {
-        let indexify_state: IndexifyState = serde_json::from_slice(&snapshot.data)
+        let indexify_state = JsonEncoder::decode(&snapshot.data)
             .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
 
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
@@ -213,7 +217,7 @@ impl StateMachineStore {
 
         //  deserialize the data and return it
         let snapshot: StoredSnapshot =
-            serde_json::from_slice(&decompressed_data).map_err(|e| StorageError::IO {
+            JsonEncoder::decode(&decompressed_data).map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?;
         Ok(Some(snapshot))
@@ -225,7 +229,7 @@ impl StateMachineStore {
         debug!("Called set_current_snapshot_");
 
         //  Serialize the data into JSON bytes
-        let serialized_data = serde_json::to_vec(&snap).map_err(|e| StorageError::IO {
+        let serialized_data = JsonEncoder::encode(&snap).map_err(|e| StorageError::IO {
             source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
         })?;
         let uncompressed_size = serialized_data.len();
@@ -290,7 +294,7 @@ impl StateMachineStore {
                 "Failed to get value from column family {}",
                 column.to_string()
             ))?;
-        let result = serde_json::from_slice::<T>(&result_bytes)
+        let result = JsonEncoder::decode::<T>(&result_bytes)
             .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
         Ok(result)
@@ -339,7 +343,7 @@ impl StateMachineStore {
             let schema = schema
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
                 .ok_or(StateMachineError::DatabaseError("Schema not found".into()))?;
-            let schema = serde_json::from_slice(&schema)?;
+            let schema = JsonEncoder::decode(&schema)?;
             schemas.push(schema);
         }
         Ok(schemas)
@@ -375,7 +379,7 @@ impl StateMachineStore {
                 .and_then(|(key, value)| {
                     let key = String::from_utf8(key.to_vec())
                         .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
-                    let value = serde_json::from_slice(&value)
+                    let value = JsonEncoder::decode(&value)
                         .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
                     Ok((key, value))
                 })
@@ -394,9 +398,9 @@ impl StateMachineStore {
         pairs
             .into_iter()
             .map(|(key_bytes, value_bytes)| {
-                let key = serde_json::from_slice(&key_bytes)
+                let key = JsonEncoder::decode(&key_bytes)
                     .map_err(|e| anyhow::anyhow!("Deserialization error for key: {}", e))?;
-                let value = serde_json::from_slice(&value_bytes)
+                let value = JsonEncoder::decode(&value_bytes)
                     .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
                 Ok((key, value))
             })
@@ -412,7 +416,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
 
         let indexify_state_json = {
             let indexify_state = self.data.indexify_state.read().await;
-            serde_json::to_vec(&*indexify_state)
+            JsonEncoder::encode(&*indexify_state)
                 .map_err(|e| StorageIOError::read_state_machine(&e))?
         };
 
@@ -576,7 +580,7 @@ impl LogStore {
             .db
             .get_cf(self.store(), b"last_purged_log_id")
             .map_err(|e| StorageIOError::read(&e))?
-            .and_then(|v| serde_json::from_slice(&v).ok()))
+            .and_then(|v| JsonEncoder::decode(&v).ok()))
     }
 
     fn set_last_purged_(&self, log_id: LogId<u64>) -> StorageResult<()> {
@@ -584,7 +588,7 @@ impl LogStore {
             .put_cf(
                 self.store(),
                 b"last_purged_log_id",
-                serde_json::to_vec(&log_id).unwrap().as_slice(),
+                JsonEncoder::encode(&log_id).unwrap().as_slice(),
             )
             .map_err(|e| StorageIOError::write(&e))?;
 
@@ -596,7 +600,7 @@ impl LogStore {
         &self,
         committed: &Option<LogId<NodeId>>,
     ) -> Result<(), StorageIOError<NodeId>> {
-        let json = serde_json::to_vec(committed).unwrap();
+        let json = JsonEncoder::encode(committed).unwrap();
 
         self.db
             .put_cf(self.store(), b"committed", json)
@@ -613,12 +617,12 @@ impl LogStore {
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?
-            .and_then(|v| serde_json::from_slice(&v).ok()))
+            .and_then(|v| JsonEncoder::decode(&v).ok()))
     }
 
     fn set_vote_(&self, vote: &Vote<NodeId>) -> StorageResult<()> {
         self.db
-            .put_cf(self.store(), b"vote", serde_json::to_vec(vote).unwrap())
+            .put_cf(self.store(), b"vote", JsonEncoder::encode(vote).unwrap())
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_vote(&e),
             })?;
@@ -634,7 +638,7 @@ impl LogStore {
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_vote(&e),
             })?
-            .and_then(|v| serde_json::from_slice(&v).ok()))
+            .and_then(|v| JsonEncoder::decode(&v).ok()))
     }
 }
 
@@ -656,7 +660,7 @@ impl RaftLogReader<TypeConfig> for LogStore {
             .map(|res| {
                 let (id, val) = res.unwrap();
                 let entry: StorageResult<Entry<_>> =
-                    serde_json::from_slice(&val).map_err(|e| StorageError::IO {
+                    JsonEncoder::decode(&val).map_err(|e| StorageError::IO {
                         source: StorageIOError::read_logs(&e),
                     });
                 let id = bin_to_id(&id);
@@ -680,11 +684,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
             .next()
             .and_then(|res| {
                 let (_, ent) = res.unwrap();
-                Some(
-                    serde_json::from_slice::<Entry<TypeConfig>>(&ent)
-                        .ok()?
-                        .log_id,
-                )
+                Some(JsonEncoder::decode::<Entry<TypeConfig>>(&ent).ok()?.log_id)
             });
 
         let last_purged_log_id = self.get_last_purged_()?;
@@ -734,7 +734,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
                 .put_cf(
                     self.logs(),
                     id,
-                    serde_json::to_vec(&entry).map_err(|e| StorageIOError::write_logs(&e))?,
+                    JsonEncoder::encode(&entry).map_err(|e| StorageIOError::write_logs(&e))?,
                 )
                 .map_err(|e| StorageIOError::write_logs(&e))?;
         }
@@ -817,7 +817,13 @@ mod tests {
     use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
 
     use crate::{
-        state::{self, store::state_machine_objects::IndexifyState},
+        state::{
+            self,
+            store::{
+                serializer::{JsonEncode, JsonEncoder},
+                state_machine_objects::IndexifyState,
+            },
+        },
         test_utils::RaftTestCluster,
     };
 
@@ -832,7 +838,7 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let indexify_state = IndexifyState::default();
         let serialized_state =
-            serde_json::to_vec(&indexify_state).expect("Failed to serialize the data");
+            JsonEncoder::encode(&indexify_state).expect("Failed to serialize the data");
         let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
             InstallSnapshotRequest {
                 vote: Vote::new_committed(2, 1),

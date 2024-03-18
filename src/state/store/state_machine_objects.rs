@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -7,35 +8,25 @@ use anyhow::Result;
 use indexify_internal_api as internal_api;
 use internal_api::{ExtractorDescription, StateChange};
 use rocksdb::OptimisticTransactionDB;
-use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    serializer::JsonEncode,
     store_utils::{decrement_running_task_count, increment_running_task_count},
     ContentId,
     ExecutorId,
     ExtractorName,
+    JsonEncoder,
     NamespaceName,
     SchemaId,
     StateChangeId,
     StateMachineColumns,
+    StateMachineError,
     TaskId,
 };
 
-#[derive(thiserror::Error, Debug)]
-pub enum StateMachineError {
-    #[error("Database error: {0}")]
-    DatabaseError(String),
-
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
-
-    #[error("RocksDB transaction error: {0}")]
-    TransactionError(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
@@ -68,6 +59,24 @@ pub struct IndexifyState {
     pub schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
 }
 
+impl fmt::Display for IndexifyState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}",
+            self.unassigned_tasks,
+            self.unprocessed_state_changes,
+            self.content_namespace_table,
+            self.extraction_policies_table,
+            self.extractor_executors_table,
+            self.namespace_index_table,
+            self.unfinished_tasks_by_extractor,
+            self.executor_running_task_count,
+            self.schemas_by_namespace
+        )
+    }
+}
+
 impl IndexifyState {
     fn set_new_state_changes(
         &self,
@@ -76,7 +85,7 @@ impl IndexifyState {
         state_changes: &Vec<StateChange>,
     ) -> Result<(), StateMachineError> {
         for change in state_changes {
-            let serialized_change = serde_json::to_vec(change)?;
+            let serialized_change = JsonEncoder::encode(change)?;
             txn.put_cf(
                 StateMachineColumns::StateChanges.cf(db),
                 &change.id,
@@ -102,9 +111,9 @@ impl IndexifyState {
             let result = result
                 .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
 
-            let mut state_change = serde_json::from_slice::<StateChange>(&result)?;
+            let mut state_change = JsonEncoder::decode::<StateChange>(&result)?;
             state_change.processed_at = Some(change.processed_at);
-            let serialized_change = serde_json::to_vec(&state_change)?;
+            let serialized_change = JsonEncoder::encode(&state_change)?;
             txn.put_cf(
                 state_changes_cf,
                 &change.state_change_id,
@@ -122,7 +131,7 @@ impl IndexifyState {
         index: &internal_api::Index,
         id: &String,
     ) -> Result<(), StateMachineError> {
-        let serialized_index = serde_json::to_vec(index)?;
+        let serialized_index = JsonEncoder::encode(index)?;
         txn.put_cf(StateMachineColumns::IndexTable.cf(db), id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         Ok(())
@@ -140,7 +149,7 @@ impl IndexifyState {
             .ok_or_else(|| {
                 StateMachineError::DatabaseError(format!("Task {} not found", task_id))
             })?;
-        let task = serde_json::from_slice(&serialized_task)?;
+        let task = JsonEncoder::decode(&serialized_task)?;
         Ok(task)
     }
 
@@ -151,7 +160,7 @@ impl IndexifyState {
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
-            let serialized_task = serde_json::to_vec(task)?;
+            let serialized_task = JsonEncoder::encode(task)?;
             txn.put_cf(
                 StateMachineColumns::Tasks.cf(db),
                 task.id.clone(),
@@ -169,7 +178,7 @@ impl IndexifyState {
         tasks: Vec<&internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
-            let serialized_task = serde_json::to_vec(task)?;
+            let serialized_task = JsonEncoder::encode(task)?;
             txn.put_cf(
                 StateMachineColumns::Tasks.cf(db),
                 task.id.clone(),
@@ -193,7 +202,7 @@ impl IndexifyState {
             })?;
         match value {
             Some(existing_value) => {
-                let existing_value: HashSet<TaskId> = serde_json::from_slice(&existing_value)
+                let existing_value: HashSet<TaskId> = JsonEncoder::decode(&existing_value)
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!(
                             "Error deserializing task assignments: {}",
@@ -222,15 +231,15 @@ impl IndexifyState {
             match value {
                 //  Update the hash set of task ids if executor id is already present as key
                 Some(existing_value) => {
-                    let mut existing_value: HashSet<TaskId> =
-                        serde_json::from_slice(&existing_value).map_err(|e| {
+                    let mut existing_value: HashSet<TaskId> = JsonEncoder::decode(&existing_value)
+                        .map_err(|e| {
                             StateMachineError::DatabaseError(format!(
                                 "Error deserializing task assignments: {}",
                                 e
                             ))
                         })?;
                     existing_value.extend(task_ids.clone());
-                    let new_value = serde_json::to_vec(&existing_value)?;
+                    let new_value = JsonEncoder::encode(&existing_value)?;
                     txn.put_cf(task_assignment_cf, key, &new_value)
                         .map_err(|e| {
                             StateMachineError::DatabaseError(format!(
@@ -242,7 +251,7 @@ impl IndexifyState {
                 None => {
                     //  Create a new hash set of task ids if executor id is not present as
                     // key
-                    let new_value = serde_json::to_vec(task_ids)?;
+                    let new_value = JsonEncoder::encode(task_ids)?;
                     txn.put_cf(task_assignment_cf, key, &new_value)
                         .map_err(|e| {
                             StateMachineError::DatabaseError(format!(
@@ -273,7 +282,7 @@ impl IndexifyState {
                 ))
             })?
             .map(|db_vec| {
-                serde_json::from_slice(&db_vec).map_err(|e| {
+                JsonEncoder::decode(&db_vec).map_err(|e| {
                     StateMachineError::DatabaseError(format!(
                         "Error deserializing task assignments for executor: {}",
                         e
@@ -300,7 +309,7 @@ impl IndexifyState {
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
-            let serialized_content = serde_json::to_vec(content)?;
+            let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 content.id.clone(),
@@ -322,7 +331,7 @@ impl IndexifyState {
         extractor: &ExtractorDescription,
         ts_secs: &u64,
     ) -> Result<(), StateMachineError> {
-        let serialized_executor = serde_json::to_vec(&internal_api::ExecutorMetadata {
+        let serialized_executor = JsonEncoder::encode(&internal_api::ExecutorMetadata {
             id: executor_id.into(),
             last_seen: *ts_secs,
             addr: addr.clone(),
@@ -354,7 +363,7 @@ impl IndexifyState {
                 StateMachineError::DatabaseError(format!("Executor {} not found", executor_id))
             })?;
         let executor_meta =
-            serde_json::from_slice::<internal_api::ExecutorMetadata>(&serialized_executor)?;
+            JsonEncoder::decode::<internal_api::ExecutorMetadata>(&serialized_executor)?;
         txn.delete_cf(executors_cf, executor_id).map_err(|e| {
             StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
         })?;
@@ -367,7 +376,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extractor: &ExtractorDescription,
     ) -> Result<(), StateMachineError> {
-        let serialized_extractor = serde_json::to_vec(extractor)?;
+        let serialized_extractor = JsonEncoder::encode(extractor)?;
         txn.put_cf(
             StateMachineColumns::Extractors.cf(db),
             &extractor.name,
@@ -384,7 +393,7 @@ impl IndexifyState {
         extraction_policy: &internal_api::ExtractionPolicy,
         updated_structured_data_schema: &Option<internal_api::StructuredDataSchema>,
     ) -> Result<(), StateMachineError> {
-        let serialized_extraction_policy = serde_json::to_vec(extraction_policy)?;
+        let serialized_extraction_policy = JsonEncoder::encode(extraction_policy)?;
         txn.put_cf(
             &StateMachineColumns::ExtractionPolicies.cf(db),
             extraction_policy.id.clone(),
@@ -406,7 +415,7 @@ impl IndexifyState {
         namespace: &NamespaceName,
         structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
-        let serialized_name = serde_json::to_vec(namespace)?;
+        let serialized_name = JsonEncoder::encode(namespace)?;
         txn.put_cf(
             &StateMachineColumns::Namespaces.cf(db),
             namespace,
@@ -423,7 +432,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
-        let serialized_schema = serde_json::to_vec(schema)?;
+        let serialized_schema = JsonEncoder::encode(schema)?;
         txn.put_cf(
             &StateMachineColumns::StructuredDataSchemas.cf(db),
             schema.id.clone(),
@@ -722,7 +731,7 @@ impl IndexifyState {
 
         let task_ids: Vec<String> = task_ids_bytes
             .map(|task_id_bytes| {
-                serde_json::from_slice(&task_id_bytes)
+                JsonEncoder::decode(&task_id_bytes)
                     .map_err(StateMachineError::from)
                     .unwrap_or_else(|e| {
                         error!("Failed to deserialize task id: {}", e);
@@ -743,7 +752,7 @@ impl IndexifyState {
                     .ok_or_else(|| {
                         StateMachineError::DatabaseError(format!("Task {} not found", task_id))
                     })?;
-                serde_json::from_slice(&task_bytes).map_err(StateMachineError::from)
+                JsonEncoder::decode(&task_bytes).map_err(StateMachineError::from)
             })
             .collect();
         tasks
@@ -771,7 +780,7 @@ impl IndexifyState {
                                 executor_id
                             ))
                         })?;
-                    serde_json::from_slice(&executor_bytes).map_err(StateMachineError::from)
+                    JsonEncoder::decode(&executor_bytes).map_err(StateMachineError::from)
                 })
                 .collect();
         executors
