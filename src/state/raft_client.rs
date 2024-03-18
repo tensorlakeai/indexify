@@ -36,7 +36,7 @@ impl RaftClient {
         let client = RaftApiClient::connect(format!("http://{}", addr))
             .await
             .map_err(|e| {
-                raft_metrics::network::incr_fail_connect_to_peer(format!("http:://{}", addr));
+                raft_metrics::network::incr_fail_connect_to_peer(&format!("http:://{}", addr));
                 anyhow!("unable to connect to raft: {} at addr {}", e, addr)
             })?;
         clients.insert(addr.to_string(), client.clone());

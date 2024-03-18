@@ -5,12 +5,8 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest,
-        AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
-        VoteRequest,
-        VoteResponse,
+        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
+        InstallSnapshotResponse, VoteRequest, VoteResponse,
     },
     BasicNode,
 };
@@ -28,8 +24,7 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId,
-        TypeConfig,
+        NodeId, TypeConfig,
     },
 };
 
@@ -187,12 +182,12 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let req = GrpcHelper::into_req(raft_req);
 
         let bytes_sent = req.get_ref().data.len() as u64;
-        raft_metrics::network::incr_sent_bytes(self.target_node.addr.clone(), bytes_sent);
+        raft_metrics::network::incr_sent_bytes(&self.target_node.addr, bytes_sent);
 
         let grpc_res = client.append_entries(req).await;
 
         let resp = grpc_res.map_err(|e| {
-            raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());
+            raft_metrics::network::incr_sent_failures(&self.target_node.addr);
             self.status_to_unreachable(e)
         })?;
 
@@ -206,7 +201,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
-        let _guard_inflight = CounterGuard::new(self.target_node.addr.clone(), move |addr, cnt| {
+        let _guard_inflight = CounterGuard::new(&self.target_node.addr, move |addr, cnt| {
             raft_metrics::network::incr_snapshot_send_inflight(addr, cnt);
         });
 
@@ -220,29 +215,29 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let req = GrpcHelper::into_req(raft_req);
 
         let bytes_sent = req.get_ref().data.len() as u64;
-        raft_metrics::network::incr_sent_bytes(self.target_node.addr.clone(), bytes_sent);
+        raft_metrics::network::incr_sent_bytes(&self.target_node.addr, bytes_sent);
 
         let addr = self.target_node.addr.clone();
         let timed_future = create_timed_future(client.install_snapshot(req), move |duration| {
-            incr_snapshot_recv_seconds(addr, duration);
+            incr_snapshot_recv_seconds(&addr, duration);
         });
 
         let grpc_res = timed_future.await;
 
         let resp = grpc_res.map_err(|e| {
-            raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());
+            raft_metrics::network::incr_sent_failures(&self.target_node.addr);
             self.status_to_unreachable(e)
         })?;
 
         let raft_res = GrpcHelper::parse_raft_reply(resp).map_err(|serde_err| {
-            raft_metrics::network::incr_snapshot_send_failure(self.target_node.addr.clone());
+            raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
             new_net_err(&serde_err, || "parse install_snapshot reply")
         })?;
 
         if raft_res.is_ok() {
-            raft_metrics::network::incr_snapshot_send_success(self.target_node.addr.clone());
+            raft_metrics::network::incr_snapshot_send_success(&self.target_node.addr);
         } else {
-            raft_metrics::network::incr_snapshot_send_failure(self.target_node.addr.clone());
+            raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
         }
 
         raft_res.map_err(|e| self.to_rpc_err(e))
@@ -263,12 +258,12 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let req = GrpcHelper::into_req(raft_req);
 
         let bytes_sent = req.get_ref().data.len() as u64;
-        raft_metrics::network::incr_sent_bytes(self.target_node.addr.clone(), bytes_sent);
+        raft_metrics::network::incr_sent_bytes(&self.target_node.addr, bytes_sent);
 
         let grpc_res = client.vote(req).await;
 
         let resp = grpc_res.map_err(|e| {
-            raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());
+            raft_metrics::network::incr_sent_failures(&self.target_node.addr);
             self.status_to_unreachable(e)
         })?;
 
