@@ -5,8 +5,12 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-        InstallSnapshotResponse, VoteRequest, VoteResponse,
+        AppendEntriesRequest,
+        AppendEntriesResponse,
+        InstallSnapshotRequest,
+        InstallSnapshotResponse,
+        VoteRequest,
+        VoteResponse,
     },
     BasicNode,
 };
@@ -24,7 +28,8 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId, TypeConfig,
+        NodeId,
+        TypeConfig,
     },
 };
 
@@ -79,10 +84,10 @@ impl Network {
             serde_json::from_str(&response.into_inner().data);
         let reply = result.map_err(|e| {
             raft_metrics::network::incr_sent_failures(target_addr.into());
-            return anyhow::anyhow!(format!(
+            anyhow::anyhow!(format!(
                 "Failed to parse the response received from forwarding a state machine request: {}",
                 e.to_string()
-            ));
+            ))
         })?;
 
         Ok(reply)
@@ -123,10 +128,10 @@ impl Network {
         let reply = serde_json::from_str::<StateMachineUpdateResponse>(&response.into_inner().data)
             .map_err(|e| {
                 raft_metrics::network::incr_sent_failures(target_addr.into());
-                return anyhow::anyhow!(
+                anyhow::anyhow!(
                     "Failed to parse the response received from sending a join_cluster request: {}",
                     e.to_string()
-                );
+                )
             })?;
 
         Ok(reply)
@@ -188,7 +193,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
 
         let resp = grpc_res.map_err(|e| {
             raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());
-            return self.status_to_unreachable(e);
+            self.status_to_unreachable(e)
         })?;
 
         let raft_res = GrpcHelper::parse_raft_reply(resp)
@@ -264,7 +269,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
 
         let resp = grpc_res.map_err(|e| {
             raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());
-            return self.status_to_unreachable(e);
+            self.status_to_unreachable(e)
         })?;
 
         let raft_res = GrpcHelper::parse_raft_reply(resp)

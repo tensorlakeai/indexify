@@ -1,10 +1,11 @@
-use pin_project_lite::pin_project;
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
+
+use pin_project_lite::pin_project;
 
 pin_project! {
     #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -93,10 +94,9 @@ where
 
 pub mod raft_metrics {
     pub mod network {
+        use std::{collections::HashMap, sync::Mutex, time::Duration};
+
         use once_cell::sync::Lazy;
-        use std::collections::HashMap;
-        use std::sync::Mutex;
-        use std::time::Duration;
 
         struct RaftMetrics {
             fail_connect_to_peer: HashMap<String, u64>,
@@ -214,7 +214,7 @@ pub mod raft_metrics {
             let durations = metrics
                 .snapshot_sent_seconds
                 .entry(node_addr)
-                .or_insert(Vec::new());
+                .or_default();
             durations.push(duration);
         }
 
@@ -223,7 +223,7 @@ pub mod raft_metrics {
             let durations = metrics
                 .snapshot_recv_seconds
                 .entry(node_addr)
-                .or_insert(Vec::new());
+                .or_default();
             durations.push(duration);
         }
     }

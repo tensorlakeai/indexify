@@ -11,9 +11,9 @@ use tonic::{Request, Status};
 use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
-use crate::metrics::{raft_metrics, CounterGuard};
 use crate::{
     grpc_helper::GrpcHelper,
+    metrics::{raft_metrics, CounterGuard},
     state::{store::requests, Raft},
 };
 
@@ -41,7 +41,7 @@ impl RaftGrpcServer {
     }
 
     fn incr_recv_bytes(&self, request: &Request<RaftRequest>) {
-        let addr = self.get_request_addr(&request);
+        let addr = self.get_request_addr(request);
         let bytes_recv = request.get_ref().data.len() as u64;
         raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
     }
@@ -241,7 +241,7 @@ impl RaftApi for RaftGrpcServer {
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
             let bytes_sent = forwarding_req.data.len() as u64;
-            raft_metrics::network::incr_sent_bytes(leader_address.into(), bytes_sent);
+            raft_metrics::network::incr_sent_bytes(leader_address, bytes_sent);
 
             return client.forward(forwarding_req).await;
         };
