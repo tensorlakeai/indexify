@@ -1,13 +1,12 @@
 use clap::Parser;
 use tracing_core::{Level, LevelFilter};
 use tracing_subscriber::{
-    prelude::__tracing_subscriber_SubscriberExt,
-    util::SubscriberInitExt,
-    Layer,
+    prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
 };
 
 pub mod coordinator_filters;
 pub mod coordinator_service;
+pub mod metrics;
 pub mod server;
 pub mod server_config;
 pub mod state;

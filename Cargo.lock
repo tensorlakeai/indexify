@@ -3067,6 +3067,7 @@ dependencies = [
  "moka 0.12.5",
  "nanoid",
  "object_store",
+ "once_cell",
  "openraft",
  "opensearch",
  "opentelemetry 0.20.0",
