@@ -15,7 +15,11 @@ use tonic::IntoRequest;
 use super::store::requests::StateMachineUpdateResponse;
 use crate::{
     grpc_helper::GrpcHelper,
-    metrics::{raft_metrics, CounterGuard},
+    metrics::{
+        create_timed_future,
+        raft_metrics::{self, network::incr_snapshot_recv_seconds},
+        CounterGuard,
+    },
     state::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
@@ -213,7 +217,12 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let bytes_sent = req.get_ref().data.len() as u64;
         raft_metrics::network::incr_sent_bytes(self.target_node.addr.clone(), bytes_sent);
 
-        let grpc_res = client.install_snapshot(req).await;
+        let addr = self.target_node.addr.clone();
+        let timed_future = create_timed_future(client.install_snapshot(req), move |duration| {
+            incr_snapshot_recv_seconds(addr, duration);
+        });
+
+        let grpc_res = timed_future.await;
 
         let resp = grpc_res.map_err(|e| {
             raft_metrics::network::incr_sent_failures(self.target_node.addr.clone());

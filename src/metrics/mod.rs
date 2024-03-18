@@ -1,3 +1,69 @@
+use pin_project_lite::pin_project;
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
+
+pin_project! {
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
+    pub struct TimedFuture<F, C>
+    where
+        F: Future,
+        C: FnOnce(Duration),
+    {
+        #[pin]
+        inner: F,
+        start: Instant,
+        callback: Option<C>, // This is an Option because the future might be polled even after completion
+    }
+}
+
+impl<F, C> TimedFuture<F, C>
+where
+    F: Future,
+    C: FnOnce(Duration),
+{
+    pub fn new(inner: F, callback: C) -> Self {
+        Self {
+            inner,
+            callback: Some(callback),
+            start: Instant::now(),
+        }
+    }
+}
+
+impl<F, C> Future for TimedFuture<F, C>
+where
+    F: Future,
+    C: FnOnce(Duration),
+{
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let poll_result = this.inner.poll(cx);
+
+        if poll_result.is_ready() {
+            let elapsed = this.start.elapsed();
+            if let Some(callback) = this.callback.take() {
+                callback(elapsed);
+            }
+        }
+
+        poll_result
+    }
+}
+
+pub fn create_timed_future<F, C>(future: F, callback: C) -> TimedFuture<F, C>
+where
+    F: Future,
+    C: FnOnce(Duration),
+{
+    TimedFuture::new(future, callback)
+}
+
 pub struct CounterGuard<F>
 where
     F: Fn(String, i64),
@@ -30,6 +96,7 @@ pub mod raft_metrics {
         use once_cell::sync::Lazy;
         use std::collections::HashMap;
         use std::sync::Mutex;
+        use std::time::Duration;
 
         struct RaftMetrics {
             fail_connect_to_peer: HashMap<String, u64>,
@@ -42,6 +109,8 @@ pub mod raft_metrics {
             snapshot_recv_failure: HashMap<String, u64>,
             snapshot_send_inflights: HashMap<String, u64>,
             snapshot_recv_inflights: HashMap<String, u64>,
+            snapshot_sent_seconds: HashMap<String, Vec<Duration>>,
+            snapshot_recv_seconds: HashMap<String, Vec<Duration>>,
         }
 
         impl RaftMetrics {
@@ -57,6 +126,8 @@ pub mod raft_metrics {
                     snapshot_recv_failure: HashMap::new(),
                     snapshot_send_inflights: HashMap::new(),
                     snapshot_recv_inflights: HashMap::new(),
+                    snapshot_sent_seconds: HashMap::new(),
+                    snapshot_recv_seconds: HashMap::new(),
                 }
             }
         }
@@ -136,6 +207,24 @@ pub mod raft_metrics {
             } else {
                 *count = count.saturating_add(increment_cnt as u64);
             }
+        }
+
+        pub fn incr_snapshot_sent_seconds(node_addr: String, duration: Duration) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let durations = metrics
+                .snapshot_sent_seconds
+                .entry(node_addr)
+                .or_insert(Vec::new());
+            durations.push(duration);
+        }
+
+        pub fn incr_snapshot_recv_seconds(node_addr: String, duration: Duration) {
+            let mut metrics = RAFT_METRICS.lock().unwrap();
+            let durations = metrics
+                .snapshot_recv_seconds
+                .entry(node_addr)
+                .or_insert(Vec::new());
+            durations.push(duration);
         }
     }
 }
