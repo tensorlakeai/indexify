@@ -11,6 +11,7 @@ use tonic::{Request, Status};
 use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
+use crate::metrics::raft_metrics;
 use crate::{
     grpc_helper::GrpcHelper,
     state::{store::requests, Raft},
@@ -28,6 +29,14 @@ impl RaftGrpcServer {
             id,
             raft,
             raft_client,
+        }
+    }
+
+    fn get_request_addr(&self, request: &Request<RaftRequest>) -> String {
+        if let Some(addr) = request.remote_addr() {
+            addr.to_string()
+        } else {
+            "unknown address".to_string()
         }
     }
 
@@ -115,6 +124,10 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
+        let addr = self.get_request_addr(&request);
+        let bytes_recv = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+
         if (self.ensure_leader().await?).is_some() {
             return Err(GrpcHelper::internal_err(
                 "The node we thought was the leader is not the leader",
@@ -134,23 +147,28 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        async {
-            let ae_req = GrpcHelper::parse_req(request)?;
-            let resp = self
-                .raft
-                .append_entries(ae_req)
-                .await
-                .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+        let addr = self.get_request_addr(&request);
+        let bytes_recv = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
 
-            GrpcHelper::ok_response(resp)
-        }
-        .await
+        let ae_req = GrpcHelper::parse_req(request)?;
+        let resp = self
+            .raft
+            .append_entries(ae_req)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        GrpcHelper::ok_response(resp)
     }
 
     async fn install_snapshot(
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
+        let addr = self.get_request_addr(&request);
+        let bytes_recv = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+
         let is_req = GrpcHelper::parse_req(request)?;
         let resp = self
             .raft
@@ -168,24 +186,29 @@ impl RaftApi for RaftGrpcServer {
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        async {
-            let v_req = GrpcHelper::parse_req(request)?;
+        let addr = self.get_request_addr(&request);
+        let bytes_recv = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
 
-            let resp = self
-                .raft
-                .vote(v_req)
-                .await
-                .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+        let v_req = GrpcHelper::parse_req(request)?;
 
-            GrpcHelper::ok_response(resp)
-        }
-        .await
+        let resp = self
+            .raft
+            .vote(v_req)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        GrpcHelper::ok_response(resp)
     }
 
     async fn join_cluster(
         &self,
         request: Request<RaftRequest>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
+        let addr = self.get_request_addr(&request);
+        let bytes_recv = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_recv_bytes(addr, bytes_recv);
+
         let req = GrpcHelper::parse_req::<StateMachineUpdateRequest>(request)?;
 
         let RequestPayload::JoinCluster { node_id, address } = req.payload else {
@@ -209,6 +232,10 @@ impl RaftApi for RaftGrpcServer {
                 state_changes_processed: vec![],
             })
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+            let bytes_sent = forwarding_req.data.len() as u64;
+            raft_metrics::network::incr_sent_bytes(leader_address.into(), bytes_sent);
+
             return client.forward(forwarding_req).await;
         };
 
