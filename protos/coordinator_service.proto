@@ -199,8 +199,9 @@ message Extractor {
     string name = 1;
     string description = 2;
     string input_params = 3;
-    map<string, string> outputs = 4;
-    repeated string input_mime_types = 5;
+    map<string, string> embedding_schemas = 4;
+    map<string, string> metadata_schemas = 5;
+    repeated string input_mime_types = 6;
 }
 
 message GetNamespaceRequest {
@@ -305,7 +306,7 @@ message GetSchemaResponse {
 }
 
 message StructuredDataSchema {
-    string schema = 1;
+    string columns = 1;
     string content_source = 2;
 }
 

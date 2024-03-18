@@ -231,11 +231,16 @@ pub struct Extractor {
     #[prost(string, tag = "3")]
     pub input_params: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "4")]
-    pub outputs: ::std::collections::HashMap<
+    pub embedding_schemas: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(string, repeated, tag = "5")]
+    #[prost(map = "string, string", tag = "5")]
+    pub metadata_schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(string, repeated, tag = "6")]
     pub input_mime_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -420,7 +425,7 @@ pub struct GetSchemaResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StructuredDataSchema {
     #[prost(string, tag = "1")]
-    pub schema: ::prost::alloc::string::String,
+    pub columns: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub content_source: ::prost::alloc::string::String,
 }
