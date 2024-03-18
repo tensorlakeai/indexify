@@ -211,19 +211,13 @@ pub mod raft_metrics {
 
         pub fn incr_snapshot_sent_seconds(node_addr: String, duration: Duration) {
             let mut metrics = RAFT_METRICS.lock().unwrap();
-            let durations = metrics
-                .snapshot_sent_seconds
-                .entry(node_addr)
-                .or_default();
+            let durations = metrics.snapshot_sent_seconds.entry(node_addr).or_default();
             durations.push(duration);
         }
 
         pub fn incr_snapshot_recv_seconds(node_addr: String, duration: Duration) {
             let mut metrics = RAFT_METRICS.lock().unwrap();
-            let durations = metrics
-                .snapshot_recv_seconds
-                .entry(node_addr)
-                .or_default();
+            let durations = metrics.snapshot_recv_seconds.entry(node_addr).or_default();
             durations.push(duration);
         }
     }
