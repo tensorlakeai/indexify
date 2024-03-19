@@ -224,7 +224,7 @@ impl Server {
                 post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "metrics",
+                "/metrics/raft",
                 get(get_raft_metrics_snapshot).with_state(namespace_endpoint_state.clone()),
             )
             .route("/ui", get(ui_index_handler))
@@ -955,7 +955,6 @@ async fn get_extracted_metadata(
 #[axum::debug_handler]
 #[tracing::instrument]
 async fn get_raft_metrics_snapshot(
-    Path(url): Path<String>,
     State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
     state.coordinator_client.get_raft_metrics_snapshot().await
