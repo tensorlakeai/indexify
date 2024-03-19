@@ -1,10 +1,10 @@
-use axum::http::StatusCode;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Ok, Result};
-use axum::Json;
+use axum::{http::StatusCode, Json};
 use indexify_proto::indexify_coordinator::{
-    self, coordinator_service_client::CoordinatorServiceClient,
+    self,
+    coordinator_service_client::CoordinatorServiceClient,
 };
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
