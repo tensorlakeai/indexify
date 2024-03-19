@@ -340,7 +340,7 @@ message RaftMetricsSnapshotResponse {
     map<string, Uint64List> snapshot_recv_seconds = 12;
     repeated uint64 snapshot_size = 13;
     uint64 last_snapshot_creation_time_millis = 14;
-    //  the open raft metrics
+    //  open raft metrics
     bool running_state_ok = 15;
     uint64 id = 16;
     uint64 current_term = 17;

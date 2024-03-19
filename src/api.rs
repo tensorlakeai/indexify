@@ -562,3 +562,27 @@ pub struct StructuredDataSchema {
     pub content_source: String,
     pub namespace: String,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct RaftMetricsSnapshotResponse {
+    pub fail_connect_to_peer: HashMap<String, u64>,
+    pub sent_bytes: HashMap<String, u64>,
+    pub recv_bytes: HashMap<String, u64>,
+    pub sent_failures: HashMap<String, u64>,
+    pub snapshot_send_success: HashMap<String, u64>,
+    pub snapshot_send_failure: HashMap<String, u64>,
+    pub snapshot_recv_success: HashMap<String, u64>,
+    pub snapshot_recv_failure: HashMap<String, u64>,
+    pub snapshot_send_inflights: HashMap<String, u64>,
+    pub snapshot_recv_inflights: HashMap<String, u64>,
+    pub snapshot_sent_seconds: HashMap<String, Vec<u64>>,
+    pub snapshot_recv_seconds: HashMap<String, Vec<u64>>,
+    pub snapshot_size: Vec<u64>,
+    pub last_snapshot_creation_time_millis: u64,
+    pub running_state_ok: bool,
+    pub id: u64,
+    pub current_term: u64,
+    pub vote: u64,
+    pub last_log_index: u64,
+    pub current_leader: u64,
+}

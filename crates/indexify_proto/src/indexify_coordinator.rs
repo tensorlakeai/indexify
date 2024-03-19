@@ -505,7 +505,7 @@ pub struct RaftMetricsSnapshotResponse {
     pub snapshot_size: ::prost::alloc::vec::Vec<u64>,
     #[prost(uint64, tag = "14")]
     pub last_snapshot_creation_time_millis: u64,
-    ///   the open raft metrics
+    ///   open raft metrics
     #[prost(bool, tag = "15")]
     pub running_state_ok: bool,
     #[prost(uint64, tag = "16")]

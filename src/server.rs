@@ -225,6 +225,10 @@ impl Server {
                 "/extractors/extract",
                 post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
+            .route(
+                "/metrics/raft",
+                get(get_raft_metrics_snapshot).with_state(namespace_endpoint_state.clone()),
+            )
             .route("/ui", get(ui_index_handler))
             .route("/ui/*rest", get(ui_handler))
             .layer(OtelAxumLayer::default())
@@ -949,6 +953,15 @@ async fn get_extracted_metadata(
         metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
     }))
 }
+
+#[axum::debug_handler]
+#[tracing::instrument]
+async fn get_raft_metrics_snapshot(
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
+    state.coordinator_client.get_raft_metrics_snapshot().await
+}
+
 #[axum::debug_handler]
 #[tracing::instrument(skip_all)]
 async fn ui_index_handler() -> impl IntoResponse {
