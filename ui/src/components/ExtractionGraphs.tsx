@@ -20,11 +20,7 @@ const ExtractionGraphs = ({
     extractor: { displayName: "Extractor", width: 250 },
     inputParams: { displayName: "Input Params", width: 200 },
     indexName: { displayName: "Index", width: 250 },
-    schema: { displayName: "Schema", width: 200 },
-  };
-
-  const getIndexFromPolicyName = (name: string): IIndex | undefined => {
-    return indexes.find((v) => v.name === `${name}.embedding`);
+    schema: { displayName: "Schema", width: 220 },
   };
 
   const renderHeader = () => {
@@ -33,12 +29,16 @@ const ExtractionGraphs = ({
         {Object.values(cols).map((col: IExtractionGraphCol) => {
           return (
             <Box key={col.displayName} minWidth={`${col.width}px`}>
-              <Typography variant="h6">{col.displayName}</Typography>
+              <Typography variant="label">{col.displayName}</Typography>
             </Box>
           );
         })}
       </Stack>
     );
+  };
+  
+  const getIndexFromPolicyName = (name: string): IIndex | undefined => {
+    return indexes.find((v) => v.name === `${name}.embedding`);
   };
 
   const renderGraphItems = (

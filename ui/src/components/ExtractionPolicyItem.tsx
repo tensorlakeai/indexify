@@ -52,10 +52,9 @@ const ExtractionPolicyItem = ({
     }
   };
 
-  const LShapedLine = ({ depth }: { depth: number }) => {
-    // Calculate the length of the line based on the depth, for example
-    const verticalLength = 36; // Adjust based on your needs
-    const horizontalLength = 20; // The horizontal length increases with depth
+  const LShapedLine = () => {
+    const verticalLength = 36; 
+    const horizontalLength = 20;
 
     return (
       <svg
@@ -92,22 +91,26 @@ const ExtractionPolicyItem = ({
       <Stack direction={"row"} sx={{ display: "flex", alignItems: "center" }}>
         <Typography
           sx={{ minWidth: cols.name.width, pl: depth * 4 }}
-          variant="label"
+          variant="body1"
         >
-          {depth > 0 && <LShapedLine depth={depth}></LShapedLine>}
+          {depth > 0 && <LShapedLine />}
           {extractionPolicy.name}
         </Typography>
         <Typography variant="body1" sx={{ minWidth: cols.extractor.width }}>
           {extractionPolicy.extractor}
         </Typography>
-        <Box sx={{ minWidth: cols.inputParams.width }}>{renderInputParams()}</Box>
+        <Box sx={{ minWidth: cols.inputParams.width }}>
+          {renderInputParams()}
+        </Box>
         {index && (
           <Box sx={{ minWidth: cols.indexName.width }}>
             <Link to={`/${namespace}/indexes/${index.name}`}>{index.name}</Link>
           </Box>
         )}
         {index && (
-          <Box sx={{ minWidth: cols.schema.width }}>{renderIndexSchema()}</Box>
+          <Box sx={{ minWidth: cols.schema.width, pr: 2 }}>
+            {renderIndexSchema()}
+          </Box>
         )}
       </Stack>
     </Box>
