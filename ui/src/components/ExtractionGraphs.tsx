@@ -1,21 +1,30 @@
-import { IExtractionPolicy } from "getindexify";
-import { Alert, Chip, Paper, Typography } from "@mui/material";
+import { IExtractionPolicy, IIndex } from "getindexify";
+import { Alert, Paper, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React, { ReactElement } from "react";
 import GavelIcon from "@mui/icons-material/Gavel";
 import ExtractionPolicyItem from "./ExtractionPolicyItem";
 import { IExtractionGraphCol, IExtractionGraphColumns } from "../types";
 
-
-const ExtractionPoliciesTable = ({
+const ExtractionGraphs = ({
   extractionPolicies,
+  namespace,
+  indexes,
 }: {
   extractionPolicies: IExtractionPolicy[];
+  namespace: string;
+  indexes: IIndex[];
 }) => {
   const cols: IExtractionGraphColumns = {
     name: { displayName: "Name", width: 300 },
-    extractor: { displayName: "Extractor", width: 300 },
-    inputParams: { displayName: "Input Params", width: 250 },
+    extractor: { displayName: "Extractor", width: 250 },
+    inputParams: { displayName: "Input Params", width: 200 },
+    indexName: { displayName: "Index", width: 250 },
+    schema: { displayName: "Schema", width: 200 },
+  };
+
+  const getIndexFromPolicyName = (name: string): IIndex | undefined => {
+    return indexes.find((v) => v.name === `${name}.embedding`);
   };
 
   const renderHeader = () => {
@@ -23,7 +32,7 @@ const ExtractionPoliciesTable = ({
       <Stack direction={"row"} pb={2}>
         {Object.values(cols).map((col: IExtractionGraphCol) => {
           return (
-            <Box key={col.displayName} width={`${col.width}px`}>
+            <Box key={col.displayName} minWidth={`${col.width}px`}>
               <Typography variant="h6">{col.displayName}</Typography>
             </Box>
           );
@@ -44,9 +53,12 @@ const ExtractionPoliciesTable = ({
       .forEach((policy) => {
         items.push(
           <ExtractionPolicyItem
+            key={policy.name}
             extractionPolicy={policy}
+            namespace={namespace}
             cols={cols}
             depth={depth}
+            index={getIndexFromPolicyName(policy.name)}
           />
         );
         const children = renderGraphItems(policies, policy.name, depth + 1);
@@ -72,7 +84,13 @@ const ExtractionPoliciesTable = ({
           width: "100%",
         }}
       >
-        <Paper sx={{ p: 2 }}>
+        <Paper
+          sx={{
+            maxWidth: "100%",
+            overflow: "auto",
+            p: 2,
+          }}
+        >
           {renderHeader()}
           {renderGraphItems(extractionPolicies, "ingestion")}
         </Paper>
@@ -96,4 +114,4 @@ const ExtractionPoliciesTable = ({
   );
 };
 
-export default ExtractionPoliciesTable;
+export default ExtractionGraphs;

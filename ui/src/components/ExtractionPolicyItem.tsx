@@ -1,15 +1,20 @@
 import { Box, Chip, Stack, Typography } from "@mui/material";
-import { IExtractionPolicy } from "getindexify";
+import { IExtractionPolicy, IIndex } from "getindexify";
 import { IExtractionGraphColumns } from "../types";
+import { Link } from "react-router-dom";
 
 const ExtractionPolicyItem = ({
   extractionPolicy,
+  namespace,
   cols,
   depth,
+  index,
 }: {
   extractionPolicy: IExtractionPolicy;
+  namespace: string;
   cols: IExtractionGraphColumns;
   depth: number;
+  index?: IIndex;
 }) => {
   const renderInputParams = () => {
     if (
@@ -30,6 +35,23 @@ const ExtractionPolicyItem = ({
     );
   };
 
+  const renderIndexSchema = () => {
+    {
+      if (!index?.schema) {
+        return <Typography variant="body1">None</Typography>;
+      }
+      return (
+        <Box sx={{ overflowX: "scroll" }}>
+          <Stack gap={1} direction="row">
+            {Object.keys(index.schema).map((val: string) => {
+              return <Chip key={val} label={`${val}:${index.schema[val]}`} />;
+            })}
+          </Stack>
+        </Box>
+      );
+    }
+  };
+
   const LShapedLine = ({ depth }: { depth: number }) => {
     // Calculate the length of the line based on the depth, for example
     const verticalLength = 36; // Adjust based on your needs
@@ -39,7 +61,11 @@ const ExtractionPolicyItem = ({
       <svg
         height={verticalLength + 10}
         width={horizontalLength + 5}
-        style={{ marginLeft:'-35px', marginTop: "-25px", position:"absolute" }}
+        style={{
+          marginLeft: "-35px",
+          marginTop: "-25px",
+          position: "absolute",
+        }}
       >
         {/* Vertical line */}
         <line
@@ -65,21 +91,24 @@ const ExtractionPolicyItem = ({
     <Box sx={{ py: 1, position: "relative" }}>
       <Stack direction={"row"} sx={{ display: "flex", alignItems: "center" }}>
         <Typography
-          sx={{ width: cols.name?.width ?? "250px", pl: depth * 4 }}
+          sx={{ minWidth: cols.name.width, pl: depth * 4 }}
           variant="label"
         >
           {depth > 0 && <LShapedLine depth={depth}></LShapedLine>}
           {extractionPolicy.name}
         </Typography>
-        <Typography
-          variant="body1"
-          sx={{ width: cols.extractor?.width ?? "250px" }}
-        >
+        <Typography variant="body1" sx={{ minWidth: cols.extractor.width }}>
           {extractionPolicy.extractor}
         </Typography>
-        <Box sx={{ width: cols.inputParams?.width ?? "250px" }}>
-          {renderInputParams()}
-        </Box>
+        <Box sx={{ minWidth: cols.inputParams.width }}>{renderInputParams()}</Box>
+        {index && (
+          <Box sx={{ minWidth: cols.indexName.width }}>
+            <Link to={`/${namespace}/indexes/${index.name}`}>{index.name}</Link>
+          </Box>
+        )}
+        {index && (
+          <Box sx={{ minWidth: cols.schema.width }}>{renderIndexSchema()}</Box>
+        )}
       </Stack>
     </Box>
   );
