@@ -49,6 +49,14 @@ This extractor converts extracts transcriptions from audio. The entire text and
 chunks with timestamps are represented as metadata of the content.
 
 
+## Image
+#### [Yolo](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/yolo)
+Extract bounding boxes and class names from Ultralytics YOLOv9 model
+
+#### [GroundingDino](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/groundingdino)
+This extractor uses Grounding DINO model and accepts an (image, text prompt) pair as inputs and is based on [IDEA-Research GroundingDINO](https://github.com/IDEA-Research/GroundingDINO)
+
+
 ## Video
 #### [Frames](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/frames)
 Dissect a video into its individual frames and generate JPEG image content for each extracted frame. Comes with frame frequency and scene detection configuration that can be changed with input parameters.
