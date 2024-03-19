@@ -436,6 +436,89 @@ pub struct GetAllSchemaResponse {
     #[prost(message, repeated, tag = "1")]
     pub schemas: ::prost::alloc::vec::Vec<StructuredDataSchema>,
 }
+///   Raft Metrics Snapshot
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetRaftMetricsSnapshotRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Uint64List {
+    #[prost(uint64, repeated, tag = "1")]
+    pub values: ::prost::alloc::vec::Vec<u64>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RaftMetricsSnapshotResponse {
+    ///   indexify metrics
+    #[prost(map = "string, uint64", tag = "1")]
+    pub fail_connect_to_peer: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, uint64", tag = "2")]
+    pub sent_bytes: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    #[prost(map = "string, uint64", tag = "3")]
+    pub recv_bytes: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    #[prost(map = "string, uint64", tag = "4")]
+    pub sent_failures: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    #[prost(map = "string, uint64", tag = "5")]
+    pub snapshot_send_success: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, uint64", tag = "6")]
+    pub snapshot_send_failure: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, uint64", tag = "7")]
+    pub snapshot_recv_success: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, uint64", tag = "8")]
+    pub snapshot_recv_failure: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, uint64", tag = "9")]
+    pub snapshot_send_inflights: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, uint64", tag = "10")]
+    pub snapshot_recv_inflights: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
+    #[prost(map = "string, message", tag = "11")]
+    pub snapshot_sent_seconds: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        Uint64List,
+    >,
+    #[prost(map = "string, message", tag = "12")]
+    pub snapshot_recv_seconds: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        Uint64List,
+    >,
+    #[prost(uint64, repeated, tag = "13")]
+    pub snapshot_size: ::prost::alloc::vec::Vec<u64>,
+    #[prost(uint64, tag = "14")]
+    pub last_snapshot_creation_time_millis: u64,
+    ///   the open raft metrics
+    #[prost(bool, tag = "15")]
+    pub running_state_ok: bool,
+    #[prost(uint64, tag = "16")]
+    pub id: u64,
+    #[prost(uint64, tag = "17")]
+    pub current_term: u64,
+    #[prost(uint64, tag = "18")]
+    pub vote: u64,
+    #[prost(uint64, tag = "19")]
+    pub last_log_index: u64,
+    #[prost(uint64, tag = "20")]
+    pub current_leader: u64,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TaskOutcome {
@@ -1144,6 +1227,36 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_raft_metrics_snapshot(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetRaftMetricsSnapshotRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RaftMetricsSnapshotResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_coordinator.CoordinatorService/GetRaftMetricsSnapshot",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetRaftMetricsSnapshot",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -1294,6 +1407,13 @@ pub mod coordinator_service_server {
             request: tonic::Request<super::GetAllSchemaRequest>,
         ) -> std::result::Result<
             tonic::Response<super::GetAllSchemaResponse>,
+            tonic::Status,
+        >;
+        async fn get_raft_metrics_snapshot(
+            &self,
+            request: tonic::Request<super::GetRaftMetricsSnapshotRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RaftMetricsSnapshotResponse>,
             tonic::Status,
         >;
     }
@@ -2317,6 +2437,56 @@ pub mod coordinator_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ListSchemasSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_coordinator.CoordinatorService/GetRaftMetricsSnapshot" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetRaftMetricsSnapshotSvc<T: CoordinatorService>(pub Arc<T>);
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetRaftMetricsSnapshotRequest>
+                    for GetRaftMetricsSnapshotSvc<T> {
+                        type Response = super::RaftMetricsSnapshotResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetRaftMetricsSnapshotRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as CoordinatorService>::get_raft_metrics_snapshot(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetRaftMetricsSnapshotSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -43,6 +43,8 @@ service CoordinatorService {
     rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse) {}
 
     rpc ListSchemas(GetAllSchemaRequest) returns (GetAllSchemaResponse) {}
+
+    rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -314,3 +316,36 @@ message GetAllSchemaRequest {
 message GetAllSchemaResponse {
     repeated StructuredDataSchema schemas = 1;
 }
+
+//  Raft Metrics Snapshot
+message GetRaftMetricsSnapshotRequest {}
+
+message Uint64List {
+  repeated uint64 values = 1;
+}
+
+message RaftMetricsSnapshotResponse {
+    //  indexify metrics
+    map<string, uint64> fail_connect_to_peer = 1;
+    map<string, uint64> sent_bytes = 2;
+    map<string, uint64> recv_bytes = 3;
+    map<string, uint64> sent_failures = 4;
+    map<string, uint64> snapshot_send_success = 5;
+    map<string, uint64> snapshot_send_failure = 6;
+    map<string, uint64> snapshot_recv_success = 7;
+    map<string, uint64> snapshot_recv_failure = 8;
+    map<string, uint64> snapshot_send_inflights = 9;
+    map<string, uint64> snapshot_recv_inflights = 10;
+    map<string, Uint64List> snapshot_sent_seconds = 11;
+    map<string, Uint64List> snapshot_recv_seconds = 12;
+    repeated uint64 snapshot_size = 13;
+    uint64 last_snapshot_creation_time_millis = 14;
+    //  the open raft metrics
+    bool running_state_ok = 15;
+    uint64 id = 16;
+    uint64 current_term = 17;
+    uint64 vote = 18;
+    uint64 last_log_index = 19;
+    uint64 current_leader = 20;
+}
+//  End Raft Metrics Snapshot

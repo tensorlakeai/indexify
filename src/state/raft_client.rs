@@ -6,6 +6,8 @@ use tokio::sync::Mutex;
 use tonic::transport::Channel;
 use tracing::info;
 
+use crate::metrics::raft_metrics;
+
 pub struct RaftClient {
     clients: Arc<Mutex<HashMap<String, RaftApiClient<Channel>>>>,
 }
@@ -33,7 +35,10 @@ impl RaftClient {
 
         let client = RaftApiClient::connect(format!("http://{}", addr))
             .await
-            .map_err(|e| anyhow!("unable to connect to raft: {} at addr {}", e, addr))?;
+            .map_err(|e| {
+                raft_metrics::network::incr_fail_connect_to_peer(addr);
+                anyhow!("unable to connect to raft: {} at addr {}", e, addr)
+            })?;
         clients.insert(addr.to_string(), client.clone());
         Ok(client)
     }

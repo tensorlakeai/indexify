@@ -15,7 +15,7 @@ use tracing::info;
 use crate::{
     coordinator_filters::*,
     scheduler::Scheduler,
-    state::SharedState,
+    state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
 };
 
@@ -268,6 +268,10 @@ impl Coordinator {
 
     pub fn get_leader_change_watcher(&self) -> Receiver<bool> {
         self.shared_state.leader_change_rx.clone()
+    }
+
+    pub fn get_raft_metrics(&self) -> RaftMetrics {
+        self.shared_state.get_raft_metrics()
     }
 }
 

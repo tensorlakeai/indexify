@@ -8,6 +8,7 @@ use tracing_subscriber::{
 
 pub mod coordinator_filters;
 pub mod coordinator_service;
+pub mod metrics;
 pub mod server;
 pub mod server_config;
 pub mod state;
