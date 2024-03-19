@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -224,6 +222,10 @@ impl Server {
             .route(
                 "/extractors/extract",
                 post(extract_content).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "metrics",
+                get(get_raft_metrics_snapshot).with_state(namespace_endpoint_state.clone()),
             )
             .route("/ui", get(ui_index_handler))
             .route("/ui/*rest", get(ui_handler))
@@ -949,6 +951,16 @@ async fn get_extracted_metadata(
         metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
     }))
 }
+
+#[axum::debug_handler]
+#[tracing::instrument]
+async fn get_raft_metrics_snapshot(
+    Path(url): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
+    state.coordinator_client.get_raft_metrics_snapshot().await
+}
+
 #[axum::debug_handler]
 #[tracing::instrument(skip_all)]
 async fn ui_index_handler() -> impl IntoResponse {
