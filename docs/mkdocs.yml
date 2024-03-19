@@ -30,8 +30,15 @@ nav:
   - User Interface: 'ui.md'
   - Extractors:
     - Introduction: 'apis/extractors.md'
-    - Available Extractors: 'apis/available_extractors.md'
     - Develop Extractors: 'apis/develop_extractors.md'
+  - Available Extractors: 
+    - PDF: 'apis/extractors/pdf.md'
+    - Image: 'apis/extractors/image.md'
+    - Audio: 'apis/extractors/audio.md'
+    - Video: 'apis/extractors/video.md'
+    - Embedding: 'apis/extractors/embedding.md'
+    - Web: 'apis/extractors/web.md'
+
   - APIs:
     - Content Ingestion: 'apis/content_ingestion.md'
     - Extraction Policies: 'apis/extraction_policies.md'
