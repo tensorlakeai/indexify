@@ -9,7 +9,7 @@ import { Stack } from "@mui/material";
 import IndexTable from "../../components/IndexTable";
 import ContentTable from "../../components/ContentTable";
 import React from "react";
-import ExtractionPoliciesTable from "../../components/ExtractionPoliciesTable";
+import ExtractionGraphs from "../../components/ExtractionGraphs";
 import ExtractorsTable from "../../components/ExtractorsTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -33,8 +33,7 @@ const NamespacePage = () => {
 
   return (
     <Stack direction="column" spacing={3}>
-      <ExtractionPoliciesTable
-        namespace={client.namespace}
+      <ExtractionGraphs
         extractionPolicies={client.extractionPolicies}
       />
       <IndexTable namespace={client.namespace} indexes={indexes} />
