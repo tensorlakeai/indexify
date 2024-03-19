@@ -8,6 +8,12 @@ We will build a simple RAG application in this demo where Indexify extracts cont
 curl https://www.tensorlake.ai | sh
 ```
 
+### Alternatively, deploy to [Render](https://render.com) directly using the button below:
+
+<a href="https://render.com/deploy?repo=https://github.com/tensorlakeai/indexify">
+    <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" />
+</a>
+
 ### Start the Service
 ```shell
 ./indexify server -d
