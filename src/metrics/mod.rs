@@ -101,6 +101,25 @@ pub mod raft_metrics {
         };
 
         use once_cell::sync::Lazy;
+        use serde::Serialize;
+
+        #[derive(Serialize)]
+        pub struct MetricsSnapshot {
+            pub fail_connect_to_peer: HashMap<String, u64>,
+            pub sent_bytes: HashMap<String, u64>,
+            pub recv_bytes: HashMap<String, u64>,
+            pub sent_failures: HashMap<String, u64>,
+            pub snapshot_send_success: HashMap<String, u64>,
+            pub snapshot_send_failure: HashMap<String, u64>,
+            pub snapshot_recv_success: HashMap<String, u64>,
+            pub snapshot_recv_failure: HashMap<String, u64>,
+            pub snapshot_send_inflights: HashMap<String, u64>,
+            pub snapshot_recv_inflights: HashMap<String, u64>,
+            pub snapshot_sent_seconds: HashMap<String, Vec<Duration>>,
+            pub snapshot_recv_seconds: HashMap<String, Vec<Duration>>,
+            pub snapshot_size: Vec<u64>,
+            pub last_snapshot_creation_time: Duration,
+        }
 
         struct RaftMetrics {
             fail_connect_to_peer: HashMap<String, u64>,
@@ -259,6 +278,29 @@ pub mod raft_metrics {
         pub fn set_last_snapshot_creation_time(time: Instant) {
             let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
             metrics.last_snapshot_creation_time = Some(time);
+        }
+
+        pub fn get_metrics_snapshot() -> MetricsSnapshot {
+            let metrics = RAFT_METRICS.read().unwrap_or_else(|e| e.into_inner());
+            MetricsSnapshot {
+                fail_connect_to_peer: metrics.fail_connect_to_peer.clone(),
+                sent_bytes: metrics.sent_bytes.clone(),
+                recv_bytes: metrics.recv_bytes.clone(),
+                sent_failures: metrics.sent_failures.clone(),
+                snapshot_send_success: metrics.snapshot_send_success.clone(),
+                snapshot_send_failure: metrics.snapshot_send_failure.clone(),
+                snapshot_recv_success: metrics.snapshot_recv_success.clone(),
+                snapshot_recv_failure: metrics.snapshot_recv_failure.clone(),
+                snapshot_send_inflights: metrics.snapshot_send_inflights.clone(),
+                snapshot_recv_inflights: metrics.snapshot_recv_inflights.clone(),
+                snapshot_sent_seconds: metrics.snapshot_sent_seconds.clone(),
+                snapshot_recv_seconds: metrics.snapshot_recv_seconds.clone(),
+                snapshot_size: metrics.snapshot_size.clone(),
+                last_snapshot_creation_time: metrics
+                    .last_snapshot_creation_time
+                    .map(|t| t.elapsed())
+                    .unwrap_or_default(),
+            }
         }
     }
 }

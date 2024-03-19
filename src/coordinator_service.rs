@@ -26,6 +26,7 @@ use indexify_proto::indexify_coordinator::{
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
+    GetRaftMetricsSnapshotRequest,
     GetSchemaRequest,
     GetSchemaResponse,
     HeartbeatRequest,
@@ -41,8 +42,10 @@ use indexify_proto::indexify_coordinator::{
     ListStateChangesRequest,
     ListTasksRequest,
     ListTasksResponse,
+    RaftMetricsSnapshotResponse,
     RegisterExecutorRequest,
     RegisterExecutorResponse,
+    Uint64List,
     UpdateTaskRequest,
     UpdateTaskResponse,
 };
@@ -63,7 +66,7 @@ use tracing::{error, info};
 use crate::{
     coordinator::Coordinator,
     server_config::ServerConfig,
-    state,
+    state::{self},
     tonic_streamer::DropReceiver,
     utils::timestamp_secs,
 };
@@ -525,6 +528,65 @@ impl CoordinatorService for CoordinatorServiceServer {
                 })
                 .collect(),
         }))
+    }
+
+    async fn get_raft_metrics_snapshot(
+        &self,
+        _req: Request<GetRaftMetricsSnapshotRequest>,
+    ) -> Result<Response<RaftMetricsSnapshotResponse>, Status> {
+        let metrics = self.coordinator.get_raft_metrics();
+        let metrics_snapshot = metrics.raft_metrics;
+        let openraft_metrics = metrics.openraft_metrics;
+
+        // Conversion from MetricsSnapshot to RaftMetricsSnapshotResponse
+        let response = RaftMetricsSnapshotResponse {
+            fail_connect_to_peer: metrics_snapshot.fail_connect_to_peer,
+            sent_bytes: metrics_snapshot.sent_bytes,
+            recv_bytes: metrics_snapshot.recv_bytes,
+            sent_failures: metrics_snapshot.sent_failures,
+            snapshot_send_success: metrics_snapshot.snapshot_send_success,
+            snapshot_send_failure: metrics_snapshot.snapshot_send_failure,
+            snapshot_recv_success: metrics_snapshot.snapshot_recv_success,
+            snapshot_recv_failure: metrics_snapshot.snapshot_recv_failure,
+            snapshot_send_inflights: metrics_snapshot.snapshot_send_inflights,
+            snapshot_recv_inflights: metrics_snapshot.snapshot_recv_inflights,
+            snapshot_sent_seconds: metrics_snapshot
+                .snapshot_sent_seconds
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        Uint64List {
+                            values: v.into_iter().map(|d| d.as_millis() as u64).collect(),
+                        },
+                    )
+                })
+                .collect(),
+            snapshot_recv_seconds: metrics_snapshot
+                .snapshot_recv_seconds
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        Uint64List {
+                            values: v.into_iter().map(|d| d.as_millis() as u64).collect(),
+                        },
+                    )
+                })
+                .collect(),
+            snapshot_size: metrics_snapshot.snapshot_size,
+            last_snapshot_creation_time_millis: metrics_snapshot
+                .last_snapshot_creation_time
+                .as_millis() as u64,
+            running_state_ok: openraft_metrics.running_state.is_ok(),
+            id: openraft_metrics.id,
+            current_term: openraft_metrics.current_term,
+            vote: openraft_metrics.vote.leader_id.node_id,
+            last_log_index: openraft_metrics.last_log_index.unwrap_or(0),
+            current_leader: openraft_metrics.current_leader.unwrap_or(0),
+        };
+
+        Ok(Response::new(response))
     }
 }
 

@@ -22,6 +22,7 @@ use openraft::{
     BasicNode,
     TokioRuntime,
 };
+use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
@@ -46,6 +47,7 @@ use self::{
 };
 use crate::{
     coordinator_filters::matches_mime_type,
+    metrics::raft_metrics::{self, network::MetricsSnapshot},
     server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
@@ -97,6 +99,12 @@ pub mod typ {
 }
 
 const MEMBERSHIP_CHECK_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+
+#[derive(Serialize)]
+pub struct RaftMetrics {
+    pub openraft_metrics: openraft::RaftMetrics<NodeId, BasicNode>,
+    pub raft_metrics: MetricsSnapshot,
+}
 
 pub struct App {
     pub id: NodeId,
@@ -956,6 +964,17 @@ impl App {
         self.network
             .join_cluster(self.id, &self.node_addr, &self.seed_node)
             .await
+    }
+
+    pub fn get_raft_metrics(&self) -> RaftMetrics {
+        let raft_metrics = raft_metrics::network::get_metrics_snapshot();
+        let rx = self.forwardable_raft.raft.metrics();
+        let openraft_metrics = rx.borrow().clone();
+
+        RaftMetrics {
+            openraft_metrics,
+            raft_metrics,
+        }
     }
 }
 
