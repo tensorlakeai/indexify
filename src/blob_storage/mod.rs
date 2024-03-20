@@ -32,9 +32,19 @@ pub struct BlobStorageConfig {
     pub disk: Option<DiskStorageConfig>,
 }
 
+pub struct PutResult {
+    pub url: String,
+    pub size_bytes: u64,
+}
+
 #[async_trait]
 pub trait BlobStorageWriter {
-    async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error>;
+    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult, anyhow::Error>;
+    async fn put_stream(
+        &self,
+        key: &str,
+        data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
+    ) -> Result<PutResult, anyhow::Error>;
     async fn delete(&self, key: &str) -> Result<()>;
 }
 
@@ -65,7 +75,7 @@ impl BlobStorage {
 
 #[async_trait]
 impl BlobStorageWriter for BlobStorage {
-    async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error> {
+    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult, anyhow::Error> {
         if key.starts_with("s3://") {
             let (bucket, key) = parse_s3_url(key)
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
@@ -99,6 +109,47 @@ impl BlobStorageWriter for BlobStorage {
                 }),
         )?
         .put(key, data)
+        .await
+    }
+
+    async fn put_stream(
+        &self,
+        key: &str,
+        data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
+    ) -> Result<PutResult, anyhow::Error> {
+        if key.starts_with("s3://") {
+            let (bucket, key) = parse_s3_url(key)
+                .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
+            return s3::S3Storage::new(
+                key,
+                AmazonS3Builder::from_env()
+                    .with_region(
+                        self.config
+                            .s3
+                            .as_ref()
+                            .map(|config| config.region.as_str())
+                            .unwrap_or("us-east-1"),
+                    )
+                    .with_bucket_name(bucket)
+                    .build()
+                    .context("unable to build S3 builder")?,
+            )
+            .put_stream(key, data)
+            .await;
+        }
+
+        // If it's not S3, assume it's a file
+
+        // We need a default implementation for `DiskStorageConfig`
+        disk::DiskStorage::new(
+            self.config
+                .disk
+                .clone()
+                .unwrap_or_else(|| DiskStorageConfig {
+                    path: "blobs".to_string(),
+                }),
+        )?
+        .put_stream(key, data)
         .await
     }
 

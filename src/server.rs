@@ -563,15 +563,11 @@ async fn upload_file(
 ) -> Result<(), IndexifyAPIError> {
     while let Some(file) = files.next_field().await.unwrap() {
         let name = file.file_name().unwrap().to_string();
-        let data = file.bytes().await.unwrap();
-        info!(
-            "writing to blob store, file name = {:?}, data = {:?}",
-            name,
-            data.len()
-        );
+        info!("writing to blob store, file name = {:?}", name);
+        let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         state
             .data_manager
-            .upload_file(&namespace, data, &name)
+            .upload_file(&namespace, stream, &name)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
