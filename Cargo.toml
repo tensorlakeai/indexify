@@ -90,7 +90,6 @@ sqlx = { version = "0.7.3", features = [
     "json",
 ] }
 strum = { version = "0.26.1", features = ["derive"] }
-tempfile = "3.2.0"
 thiserror = "1"
 tonic = { version = "0.11.0", features = ["prost"] }
 tokio = { version = "1", features = ["full"] }
@@ -171,7 +170,6 @@ serde_json = { workspace = true }
 smart-default = { workspace = true }
 sqlx = { workspace = true }
 strum = { workspace = true }
-tempfile = { workspace = true }
 thiserror = { workspace = true }
 tonic = { workspace = true }
 tokio = { workspace = true }
@@ -201,6 +199,7 @@ json-schema-tools = {workspace=true}
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
+tempfile = "3.2.0"
 
 [build-dependencies]
 # All features enabled
