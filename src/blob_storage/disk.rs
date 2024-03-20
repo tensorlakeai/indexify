@@ -5,6 +5,7 @@ use futures::{stream::BoxStream, StreamExt};
 use object_store::{local::LocalFileSystem, ObjectStore};
 use tokio::{fs::File, io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use crate::blob_storage::PutResult;
 
 use super::{BlobStorageReader, BlobStorageWriter, DiskStorageConfig};
 
@@ -24,31 +25,33 @@ impl DiskStorage {
 #[async_trait]
 impl BlobStorageWriter for DiskStorage {
     #[tracing::instrument(skip(self))]
-    async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error> {
+    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult, anyhow::Error> {
         let path = format!("{}/{}", self.config.path, key);
         let mut file = File::create(&path).await?;
         file.write_all(&data).await?;
         file.shutdown().await?;
         let path = format!("file://{}", path);
-        Ok(path)
+        Ok(PutResult{ url: path, size_bytes: data.len() as u64 })
     }
 
     async fn put_stream(
         &self,
         key: &str,
         data: BoxStream<'static, Result<Bytes>>,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<PutResult, anyhow::Error> {
         let path = format!("{}/{}", self.config.path, key);
         let mut file = File::create(&path).await?;
         let mut stream = data;
         // TODO: need to handle partially successful writes
+        let mut size_bytes: u64 = 0;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             file.write_all(&chunk).await?;
+            size_bytes += chunk.len() as u64;
         }
         file.shutdown().await?;
         let path = format!("file://{}", path);
-        Ok(path)
+        Ok(PutResult{ url: path, size_bytes })
     }
 
     #[tracing::instrument(skip(self))]
@@ -103,11 +106,12 @@ mod tests {
         let key = "testfile";
         let data = Bytes::from_static(b"testdata");
 
-        let path = storage.put(key, data.clone()).await?;
+        let res = storage.put(key, data.clone()).await?;
         assert_eq!(
-            path,
+            res.url,
             format!("file://{}/{}", dir.path().to_str().unwrap(), key)
         );
+        assert_eq!(res.size_bytes, 8);
 
         let mut file = File::open(format!("{}/{}", dir.path().to_str().unwrap(), key))?;
         let mut contents = String::new();
@@ -134,11 +138,12 @@ mod tests {
             Ok(Bytes::from_static(b"testdata2")),
         ]);
 
-        let path = storage.put_stream(key, Box::pin(data)).await?;
+        let res = storage.put_stream(key, Box::pin(data)).await?;
         assert_eq!(
-            path,
+            res.url,
             format!("file://{}/{}", dir.path().to_str().unwrap(), key)
         );
+        assert_eq!(res.size_bytes, 26);
 
         let mut file = File::open(format!("{}/{}", dir.path().to_str().unwrap(), key))?;
         let mut contents = String::new();

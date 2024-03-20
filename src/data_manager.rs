@@ -14,6 +14,7 @@ use indexify_proto::indexify_coordinator;
 use itertools::Itertools;
 use nanoid::nanoid;
 use tracing::{error, info};
+use crate::blob_storage::PutResult;
 
 use crate::{
     api::{self, BeginExtractedContentIngest},
@@ -320,7 +321,7 @@ impl DataManager {
             parent_id.hash(&mut s);
         }
         let id = format!("{:x}", s.finish());
-        let storage_url = self
+        let res = self
             .write_to_blob_store(namespace, &file_name, Bytes::from(content.bytes.clone()))
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
@@ -333,14 +334,14 @@ impl DataManager {
         Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
-            storage_url,
+            storage_url: res.url,
             parent_id: parent_id.unwrap_or_default(),
             created_at: current_ts_secs as i64,
             mime: content.content_type,
             namespace: namespace.to_string(),
             labels,
             source: source.to_string(),
-            size_bytes: content.bytes.len() as u64,
+            size_bytes: res.size_bytes,
         })
     }
 
@@ -550,7 +551,7 @@ impl DataManager {
         namespace: &str,
         name: &str,
         file: Bytes,
-    ) -> Result<String> {
+    ) -> Result<PutResult> {
         self.blob_storage.put(name, file).await
     }
 }

@@ -10,6 +10,7 @@ use object_store::{
 };
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use crate::blob_storage::PutResult;
 
 use super::{BlobStorageReader, BlobStorageWriter};
 
@@ -29,22 +30,27 @@ impl S3Storage {
 
 #[async_trait]
 impl BlobStorageWriter for S3Storage {
-    async fn put(&self, key: &str, data: Bytes) -> Result<String> {
+    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult> {
+        let size_bytes = data.len() as u64;
         self.client.put(&key.into(), data).await?;
-        Ok(format!("s3://{}/{}", self.bucket, key))
+        Ok(PutResult{ url: format!("s3://{}/{}", self.bucket, key), 
+            size_bytes })
     }
 
     async fn put_stream(
         &self,
         key: &str,
         mut data: BoxStream<'static, Result<Bytes>>,
-    ) -> Result<String> {
+    ) -> Result<PutResult> {
         let (_, mut writer) = self.client.put_multipart(&key.into()).await?;
+        let mut size_bytes: u64 = 0;
         while let Some(chunk) = data.next().await {
-            writer.write_all(&chunk?).await?;
+            let chunk = chunk?;
+            size_bytes += chunk.len() as u64;
+            writer.write_all(&chunk).await?;
         }
         writer.shutdown().await?;
-        Ok(format!("s3://{}/{}", self.bucket, key))
+        Ok(PutResult{ url: format!("s3://{}/{}", self.bucket, key), size_bytes })
     }
 
     async fn delete(&self, key: &str) -> Result<()> {
