@@ -28,6 +28,24 @@ impl BlobStorageWriter for DiskStorage {
         let path = format!("{}/{}", self.config.path, key);
         let mut file = File::create(&path).await?;
         file.write_all(&data).await?;
+        file.shutdown().await?;
+        let path = format!("file://{}", path);
+        Ok(path)
+    }
+
+    async fn put_stream(
+        &self,
+        key: &str,
+        data: BoxStream<'static, Result<Bytes>>,
+    ) -> Result<String, anyhow::Error> {
+        let path = format!("{}/{}", self.config.path, key);
+        let mut file = File::create(&path).await?;
+        let mut stream = data;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            file.write_all(&chunk).await?;
+        }
+        file.shutdown().await?;
         let path = format!("file://{}", path);
         Ok(path)
     }
@@ -61,5 +79,73 @@ impl BlobStorageReader for DiskFileReader {
             }
         });
         Box::pin(UnboundedReceiverStream::new(rx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::File, io::Read};
+
+    use futures::stream;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_put() -> Result<(), anyhow::Error> {
+        let dir = tempdir()?;
+        let config = DiskStorageConfig {
+            path: dir.path().to_str().unwrap().to_string(),
+        };
+        let storage = DiskStorage::new(config)?;
+
+        let key = "testfile";
+        let data = Bytes::from_static(b"testdata");
+
+        let path = storage.put(key, data.clone()).await?;
+        assert_eq!(
+            path,
+            format!("file://{}/{}", dir.path().to_str().unwrap(), key)
+        );
+
+        let mut file = File::open(format!("{}/{}", dir.path().to_str().unwrap(), key))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        assert_eq!(contents, "testdata");
+
+        dir.close()?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_put_stream() -> Result<(), anyhow::Error> {
+        let dir = tempdir()?;
+        let config = DiskStorageConfig {
+            path: dir.path().to_str().unwrap().to_string(),
+        };
+        let storage = DiskStorage::new(config)?;
+
+        let key = "testfile";
+        let data = stream::iter(vec![
+            Ok(Bytes::from_static(b"testdata")),
+            Ok(Bytes::from_static(b"testdata1")),
+            Ok(Bytes::from_static(b"testdata2")),
+        ]);
+
+        let path = storage.put_stream(key, Box::pin(data)).await?;
+        assert_eq!(
+            path,
+            format!("file://{}/{}", dir.path().to_str().unwrap(), key)
+        );
+
+        let mut file = File::open(format!("{}/{}", dir.path().to_str().unwrap(), key))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        assert_eq!(contents, "testdatatestdata1testdata2");
+
+        dir.close()?;
+
+        Ok(())
     }
 }

@@ -8,7 +8,7 @@ use object_store::{
     aws::{AmazonS3, AmazonS3Builder},
     ObjectStore,
 };
-use tokio::sync::mpsc;
+use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::{BlobStorageReader, BlobStorageWriter};
@@ -31,6 +31,19 @@ impl S3Storage {
 impl BlobStorageWriter for S3Storage {
     async fn put(&self, key: &str, data: Bytes) -> Result<String> {
         self.client.put(&key.into(), data).await?;
+        Ok(format!("s3://{}/{}", self.bucket, key))
+    }
+
+    async fn put_stream(
+        &self,
+        key: &str,
+        mut data: BoxStream<'static, Result<Bytes>>,
+    ) -> Result<String> {
+        let (_, mut writer) = self.client.put_multipart(&key.into()).await?;
+        while let Some(chunk) = data.next().await {
+            writer.write_all(&chunk?).await?;
+        }
+        writer.shutdown().await?;
         Ok(format!("s3://{}/{}", self.bucket, key))
     }
 
