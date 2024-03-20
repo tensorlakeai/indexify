@@ -32,14 +32,19 @@ pub struct BlobStorageConfig {
     pub disk: Option<DiskStorageConfig>,
 }
 
+pub struct PutResult {
+    pub url: String,
+    pub size_bytes: u64,
+}
+
 #[async_trait]
 pub trait BlobStorageWriter {
-    async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error>;
+    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult, anyhow::Error>;
     async fn put_stream(
         &self,
         key: &str,
         data: BoxStream<'static, Result<Bytes>>,
-    ) -> Result<String, anyhow::Error>;
+    ) -> Result<PutResult, anyhow::Error>;
     async fn delete(&self, key: &str) -> Result<()>;
 }
 
@@ -70,7 +75,7 @@ impl BlobStorage {
 
 #[async_trait]
 impl BlobStorageWriter for BlobStorage {
-    async fn put(&self, key: &str, data: Bytes) -> Result<String, anyhow::Error> {
+    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult, anyhow::Error> {
         if key.starts_with("s3://") {
             let (bucket, key) = parse_s3_url(key)
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
@@ -111,7 +116,7 @@ impl BlobStorageWriter for BlobStorage {
         &self,
         key: &str,
         data: BoxStream<'static, Result<Bytes>>,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<PutResult, anyhow::Error> {
         if key.starts_with("s3://") {
             let (bucket, key) = parse_s3_url(key)
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
