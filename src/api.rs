@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -223,7 +223,7 @@ pub struct TextAdditionResponse {}
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Index {
     pub name: String,
-    pub schema: ExtractorOutputSchema,
+    pub embedding_schema: EmbeddingSchema,
 }
 
 impl TryFrom<indexify_coordinator::Index> for Index {
@@ -232,7 +232,13 @@ impl TryFrom<indexify_coordinator::Index> for Index {
     fn try_from(value: indexify_coordinator::Index) -> Result<Self> {
         Ok(Self {
             name: value.name,
-            schema: serde_json::from_str(&value.schema).unwrap(),
+            embedding_schema: serde_json::from_str(&value.schema).map_err(|e| {
+                anyhow!(
+                    "unable to create embedding schema from: {}, error: {}",
+                    value.schema,
+                    e.to_string()
+                )
+            })?,
         })
     }
 }

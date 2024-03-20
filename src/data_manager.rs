@@ -486,12 +486,11 @@ impl DataManager {
         let namespace = namespace.to_string();
         let query = query.to_string();
         let handle = self.rt.handle().clone();
-        
 
         tokio::task::spawn_blocking(move || {
             let namespace = namespace.to_string();
             let query = query.to_string();
-            
+
             handle.block_on(async move {
                 let namespace = namespace.to_string();
                 let query = query.to_string();
@@ -514,18 +513,8 @@ impl DataManager {
             .await?;
         let mut api_indexes = Vec::new();
         for index in resp.into_inner().indexes {
-            let schema: api::ExtractorOutputSchema =
-                serde_json::from_str(&index.schema).map_err(|e| {
-                    anyhow!(
-                        "unable to parse schema for index {} {}",
-                        index.name,
-                        e.to_string()
-                    )
-                })?;
-            api_indexes.push(api::Index {
-                name: index.name,
-                schema,
-            });
+            let api_index = index.try_into()?;
+            api_indexes.push(api_index);
         }
         Ok(api_indexes)
     }
