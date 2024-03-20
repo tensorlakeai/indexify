@@ -151,26 +151,25 @@ impl DataManager {
             extraction_policy.extractor
         ))?;
         for (name, output_schema) in &extractor.embedding_schemas {
-            let output_schema: internal_api::OutputSchema = serde_json::from_str(output_schema)?;
-            if let internal_api::OutputSchema::Embedding(embedding_schema) = output_schema {
-                let index_name = response.output_index_name_mapping.get(name).unwrap();
-                let table_name = response.index_name_table_mapping.get(index_name).unwrap();
-                index_names.push(index_name.clone());
-                let schema_json = serde_json::to_value(&embedding_schema)?;
-                let _ = self
-                    .vector_index_manager
-                    .create_index(table_name, embedding_schema.clone())
-                    .await?;
-                self.create_index_metadata(
-                    namespace,
-                    index_name,
-                    table_name,
-                    schema_json,
-                    &extraction_policy.name,
-                    &extractor.name,
-                )
+            let embedding_schema: internal_api::EmbeddingSchema =
+                serde_json::from_str(output_schema)?;
+            let index_name = response.output_index_name_mapping.get(name).unwrap();
+            let table_name = response.index_name_table_mapping.get(index_name).unwrap();
+            index_names.push(index_name.clone());
+            let schema_json = serde_json::to_value(&embedding_schema)?;
+            let _ = self
+                .vector_index_manager
+                .create_index(table_name, embedding_schema.clone())
                 .await?;
-            }
+            self.create_index_metadata(
+                namespace,
+                index_name,
+                table_name,
+                schema_json,
+                &extraction_policy.name,
+                &extractor.name,
+            )
+            .await?;
         }
 
         Ok(index_names)
@@ -487,19 +486,19 @@ impl DataManager {
         let namespace = namespace.to_string();
         let query = query.to_string();
         let handle = self.rt.handle().clone();
-        let result = tokio::task::spawn_blocking(move || {
+        
+
+        tokio::task::spawn_blocking(move || {
             let namespace = namespace.to_string();
             let query = query.to_string();
-            let result = handle.block_on(async move {
+            
+            handle.block_on(async move {
                 let namespace = namespace.to_string();
                 let query = query.to_string();
                 run_query(query, metadata_reader, schemas, namespace).await
-            });
-            result
+            })
         })
-        .await?;
-
-        result
+        .await?
     }
 
     #[tracing::instrument]

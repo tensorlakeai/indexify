@@ -392,6 +392,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extraction_policy: &internal_api::ExtractionPolicy,
         updated_structured_data_schema: &Option<internal_api::StructuredDataSchema>,
+        new_structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_extraction_policy = JsonEncoder::encode(extraction_policy)?;
         txn.put_cf(
@@ -405,6 +406,7 @@ impl IndexifyState {
         if let Some(schema) = updated_structured_data_schema {
             self.set_schema(db, txn, schema)?
         }
+        self.set_schema(db, txn, new_structured_data_schema)?;
         Ok(())
     }
 
@@ -552,12 +554,14 @@ impl IndexifyState {
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
                 updated_structured_data_schema,
+                new_structured_data_schema,
             } => {
                 self.set_extraction_policy(
                     db,
                     &txn,
                     extraction_policy,
                     updated_structured_data_schema,
+                    new_structured_data_schema,
                 )?;
             }
             RequestPayload::CreateNamespace {
@@ -643,14 +647,16 @@ impl IndexifyState {
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
                 updated_structured_data_schema,
+                new_structured_data_schema,
             } => {
                 self.extraction_policies_table
                     .entry(extraction_policy.namespace.clone())
                     .or_default()
                     .insert(extraction_policy.clone());
                 if let Some(schema) = updated_structured_data_schema {
-                    self.update_schema_reverse_idx(schema.clone());
+                    self.update_schema_reverse_idx(schema);
                 }
+                self.update_schema_reverse_idx(new_structured_data_schema);
             }
             RequestPayload::CreateNamespace {
                 name: _,
