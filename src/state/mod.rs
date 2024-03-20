@@ -546,10 +546,15 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
+        //  TODO: Add a new structured schema into the payload
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
                 updated_structured_data_schema,
+                new_structured_data_schema: StructuredDataSchema::new(
+                    &extraction_policy.name,
+                    &extraction_policy.namespace,
+                ),
             },
             new_state_changes: vec![StateChange::new(
                 extraction_policy.id.clone(),

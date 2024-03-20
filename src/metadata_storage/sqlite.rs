@@ -146,7 +146,7 @@ impl MetadataReader for SqliteIndexManager {
         let mut stmt = conn.prepare(&query).map_err(|e| {
             GlueStorageError(format!(
                 "unable to execute query on sqlite: {}",
-                e.to_string()
+                e
             ))
         })?;
         let metadata = stmt

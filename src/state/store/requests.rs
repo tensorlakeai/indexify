@@ -49,6 +49,7 @@ pub enum RequestPayload {
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,
         updated_structured_data_schema: Option<internal_api::StructuredDataSchema>,
+        new_structured_data_schema: internal_api::StructuredDataSchema,
     },
     CreateIndex {
         index: internal_api::Index,
