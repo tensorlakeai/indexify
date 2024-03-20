@@ -121,183 +121,185 @@ pub mod raft_metrics {
             pub last_snapshot_creation_time: Duration,
         }
 
+        struct Metric<T: Default + Clone> {
+            data: RwLock<T>,
+        }
+
+        impl<T: Default + Clone> Metric<T> {
+            fn new() -> Self {
+                Metric {
+                    data: RwLock::new(T::default()),
+                }
+            }
+
+            fn read(&self) -> T {
+                self.data.read().unwrap().clone()
+            }
+
+            fn write<F>(&self, f: F)
+            where
+                F: FnOnce(&mut T),
+            {
+                let mut data = self.data.write().unwrap();
+                f(&mut *data);
+            }
+        }
+
         struct RaftMetrics {
-            fail_connect_to_peer: HashMap<String, u64>,
-            sent_bytes: HashMap<String, u64>,
-            recv_bytes: HashMap<String, u64>,
-            sent_failures: HashMap<String, u64>,
-            snapshot_send_success: HashMap<String, u64>,
-            snapshot_send_failure: HashMap<String, u64>,
-            snapshot_recv_success: HashMap<String, u64>,
-            snapshot_recv_failure: HashMap<String, u64>,
-            snapshot_send_inflights: HashMap<String, u64>,
-            snapshot_recv_inflights: HashMap<String, u64>,
-            snapshot_sent_seconds: HashMap<String, Vec<Duration>>,
-            snapshot_recv_seconds: HashMap<String, Vec<Duration>>,
-            snapshot_size: Vec<u64>,
-            last_snapshot_creation_time: Option<Instant>,
+            fail_connect_to_peer: Metric<HashMap<String, u64>>,
+            sent_bytes: Metric<HashMap<String, u64>>,
+            recv_bytes: Metric<HashMap<String, u64>>,
+            sent_failures: Metric<HashMap<String, u64>>,
+            snapshot_send_success: Metric<HashMap<String, u64>>,
+            snapshot_send_failure: Metric<HashMap<String, u64>>,
+            snapshot_recv_success: Metric<HashMap<String, u64>>,
+            snapshot_recv_failure: Metric<HashMap<String, u64>>,
+            snapshot_send_inflights: Metric<HashMap<String, u64>>,
+            snapshot_recv_inflights: Metric<HashMap<String, u64>>,
+            snapshot_sent_seconds: Metric<HashMap<String, Vec<Duration>>>,
+            snapshot_recv_seconds: Metric<HashMap<String, Vec<Duration>>>,
+            snapshot_size: Metric<Vec<u64>>,
+            last_snapshot_creation_time: Metric<Option<Instant>>,
         }
 
         impl RaftMetrics {
             fn new() -> Self {
-                RaftMetrics {
-                    fail_connect_to_peer: HashMap::new(),
-                    sent_bytes: HashMap::new(),
-                    recv_bytes: HashMap::new(),
-                    sent_failures: HashMap::new(),
-                    snapshot_send_success: HashMap::new(),
-                    snapshot_send_failure: HashMap::new(),
-                    snapshot_recv_success: HashMap::new(),
-                    snapshot_recv_failure: HashMap::new(),
-                    snapshot_send_inflights: HashMap::new(),
-                    snapshot_recv_inflights: HashMap::new(),
-                    snapshot_sent_seconds: HashMap::new(),
-                    snapshot_recv_seconds: HashMap::new(),
-                    snapshot_size: Vec::new(),
-                    last_snapshot_creation_time: None,
+                Self {
+                    fail_connect_to_peer: Metric::new(),
+                    sent_bytes: Metric::new(),
+                    recv_bytes: Metric::new(),
+                    sent_failures: Metric::new(),
+                    snapshot_send_success: Metric::new(),
+                    snapshot_send_failure: Metric::new(),
+                    snapshot_recv_success: Metric::new(),
+                    snapshot_recv_failure: Metric::new(),
+                    snapshot_send_inflights: Metric::new(),
+                    snapshot_recv_inflights: Metric::new(),
+                    snapshot_sent_seconds: Metric::new(),
+                    snapshot_recv_seconds: Metric::new(),
+                    snapshot_size: Metric::new(),
+                    last_snapshot_creation_time: Metric::new(),
                 }
             }
         }
 
         //  TODO: Make the locks more granular and atomic
-        static RAFT_METRICS: Lazy<RwLock<RaftMetrics>> =
-            Lazy::new(|| RwLock::new(RaftMetrics::new()));
+        static RAFT_METRICS: Lazy<RaftMetrics> = Lazy::new(RaftMetrics::new);
 
         pub fn incr_fail_connect_to_peer(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .fail_connect_to_peer
-                .entry(node_addr.into())
-                .or_insert(0);
-            *count += 1;
+            RAFT_METRICS.fail_connect_to_peer.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += 1;
+            });
         }
 
         pub fn incr_sent_bytes(node_addr: &str, bytes: u64) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics.sent_bytes.entry(node_addr.into()).or_insert(0);
-            *count += bytes;
+            RAFT_METRICS.sent_bytes.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += bytes;
+            });
         }
 
         pub fn incr_recv_bytes(node_addr: &str, bytes: u64) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics.recv_bytes.entry(node_addr.into()).or_insert(0);
-            *count += bytes;
+            RAFT_METRICS.recv_bytes.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += bytes;
+            });
         }
 
         pub fn incr_sent_failures(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics.sent_failures.entry(node_addr.into()).or_insert(0);
-            *count += 1;
+            RAFT_METRICS.sent_failures.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += 1;
+            });
         }
 
         pub fn incr_snapshot_send_success(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .snapshot_send_success
-                .entry(node_addr.into())
-                .or_insert(0);
-            *count += 1;
+            RAFT_METRICS.snapshot_send_success.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += 1;
+            });
         }
 
         pub fn incr_snapshot_send_failure(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .snapshot_send_failure
-                .entry(node_addr.into())
-                .or_insert(0);
-            *count += 1;
+            RAFT_METRICS.snapshot_send_failure.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += 1;
+            });
         }
 
         pub fn incr_snapshot_recv_success(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .snapshot_recv_success
-                .entry(node_addr.into())
-                .or_insert(0);
-            *count += 1;
+            RAFT_METRICS.snapshot_recv_success.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += 1;
+            });
         }
 
         pub fn incr_snapshot_recv_failure(node_addr: &str) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .snapshot_recv_failure
-                .entry(node_addr.into())
-                .or_insert(0);
-            *count += 1;
+            RAFT_METRICS.snapshot_recv_failure.write(|metric| {
+                *metric.entry(node_addr.into()).or_insert(0) += 1;
+            });
         }
 
         pub fn incr_snapshot_send_inflight(node_addr: &str, increment_cnt: i64) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .snapshot_send_inflights
-                .entry(node_addr.into())
-                .or_insert(0);
-            if increment_cnt < 0 {
-                *count = count.saturating_sub((-increment_cnt) as u64);
-            } else {
-                *count = count.saturating_add(increment_cnt as u64);
-            }
+            RAFT_METRICS.snapshot_send_inflights.write(|metric| {
+                let count = metric.entry(node_addr.into()).or_insert(0);
+                if increment_cnt < 0 {
+                    *count = count.saturating_sub((-increment_cnt) as u64);
+                } else {
+                    *count = count.saturating_add(increment_cnt as u64);
+                }
+            });
         }
 
         pub fn incr_snapshot_recv_inflight(node_addr: &str, increment_cnt: i64) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let count = metrics
-                .snapshot_recv_inflights
-                .entry(node_addr.into())
-                .or_insert(0);
-            if increment_cnt < 0 {
-                *count = count.saturating_sub((-increment_cnt) as u64);
-            } else {
-                *count = count.saturating_add(increment_cnt as u64);
-            }
+            RAFT_METRICS.snapshot_recv_inflights.write(|metric| {
+                let count = metric.entry(node_addr.into()).or_insert(0);
+                if increment_cnt < 0 {
+                    *count = count.saturating_sub((-increment_cnt) as u64);
+                } else {
+                    *count = count.saturating_add(increment_cnt as u64);
+                }
+            });
         }
 
         pub fn incr_snapshot_sent_seconds(node_addr: &str, duration: Duration) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let durations = metrics
-                .snapshot_sent_seconds
-                .entry(node_addr.into())
-                .or_default();
-            durations.push(duration);
+            RAFT_METRICS.snapshot_sent_seconds.write(|metric| {
+                let durations = metric.entry(node_addr.into()).or_default();
+                durations.push(duration);
+            });
         }
 
         pub fn incr_snapshot_recv_seconds(node_addr: &str, duration: Duration) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            let durations = metrics
-                .snapshot_recv_seconds
-                .entry(node_addr.into())
-                .or_default();
-            durations.push(duration);
+            RAFT_METRICS.snapshot_recv_seconds.write(|metric| {
+                let durations = metric.entry(node_addr.into()).or_default();
+                durations.push(duration);
+            });
         }
 
         pub fn add_snapshot_size(size: u64) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            metrics.snapshot_size.push(size);
+            RAFT_METRICS.snapshot_size.write(|metric| {
+                metric.push(size);
+            });
         }
 
         pub fn set_last_snapshot_creation_time(time: Instant) {
-            let mut metrics = RAFT_METRICS.write().unwrap_or_else(|e| e.into_inner());
-            metrics.last_snapshot_creation_time = Some(time);
+            RAFT_METRICS.last_snapshot_creation_time.write(|metric| {
+                *metric = Some(time);
+            });
         }
 
         pub fn get_metrics_snapshot() -> MetricsSnapshot {
-            let metrics = RAFT_METRICS.read().unwrap_or_else(|e| e.into_inner());
             MetricsSnapshot {
-                fail_connect_to_peer: metrics.fail_connect_to_peer.clone(),
-                sent_bytes: metrics.sent_bytes.clone(),
-                recv_bytes: metrics.recv_bytes.clone(),
-                sent_failures: metrics.sent_failures.clone(),
-                snapshot_send_success: metrics.snapshot_send_success.clone(),
-                snapshot_send_failure: metrics.snapshot_send_failure.clone(),
-                snapshot_recv_success: metrics.snapshot_recv_success.clone(),
-                snapshot_recv_failure: metrics.snapshot_recv_failure.clone(),
-                snapshot_send_inflights: metrics.snapshot_send_inflights.clone(),
-                snapshot_recv_inflights: metrics.snapshot_recv_inflights.clone(),
-                snapshot_sent_seconds: metrics.snapshot_sent_seconds.clone(),
-                snapshot_recv_seconds: metrics.snapshot_recv_seconds.clone(),
-                snapshot_size: metrics.snapshot_size.clone(),
-                last_snapshot_creation_time: metrics
+                fail_connect_to_peer: RAFT_METRICS.fail_connect_to_peer.read(),
+                sent_bytes: RAFT_METRICS.sent_bytes.read(),
+                recv_bytes: RAFT_METRICS.recv_bytes.read(),
+                sent_failures: RAFT_METRICS.sent_failures.read(),
+                snapshot_send_success: RAFT_METRICS.snapshot_send_success.read(),
+                snapshot_send_failure: RAFT_METRICS.snapshot_send_failure.read(),
+                snapshot_recv_success: RAFT_METRICS.snapshot_recv_success.read(),
+                snapshot_recv_failure: RAFT_METRICS.snapshot_recv_failure.read(),
+                snapshot_send_inflights: RAFT_METRICS.snapshot_send_inflights.read(),
+                snapshot_recv_inflights: RAFT_METRICS.snapshot_recv_inflights.read(),
+                snapshot_sent_seconds: RAFT_METRICS.snapshot_sent_seconds.read(),
+                snapshot_recv_seconds: RAFT_METRICS.snapshot_recv_seconds.read(),
+                snapshot_size: RAFT_METRICS.snapshot_size.read(),
+                last_snapshot_creation_time: RAFT_METRICS
                     .last_snapshot_creation_time
+                    .read()
                     .map(|t| t.elapsed())
                     .unwrap_or_default(),
             }

@@ -153,7 +153,13 @@ impl LoadAwareDistributor {
                 .state_machine
                 .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::Executors, executor_id)
                 .await
-                .ok();
+                .map(|opt| {
+                    if opt.is_none() {
+                        error!("Executor with id {} not found", executor_id);
+                    }
+                    opt
+                })
+                .unwrap_or(None);
             match executor {
                 Some(executor) => {
                     let extractor_name = executor.extractor.name.clone();

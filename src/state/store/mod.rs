@@ -50,6 +50,7 @@ type Node = BasicNode;
 use self::{
     serializer::{JsonEncode, JsonEncoder},
     state_machine_objects::IndexifyState,
+    state_machine_reader::StateMachineReader,
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::utils::OptionInspectNone;
@@ -69,50 +70,8 @@ pub type SchemaId = String;
 pub mod requests;
 pub mod serializer;
 pub mod state_machine_objects;
+mod state_machine_reader;
 mod store_utils;
-
-#[derive(serde::Serialize, Deserialize, Debug, Clone)]
-pub struct Response {
-    pub value: Option<String>,
-}
-
-#[derive(serde::Serialize, Deserialize, Debug, Clone)]
-pub struct StoredSnapshot {
-    pub meta: SnapshotMeta<NodeId, Node>,
-
-    /// The data of the state machine at the time of this snapshot.
-    pub data: Vec<u8>,
-}
-
-#[derive(Clone)]
-pub struct StateMachineData {
-    pub last_applied_log_id: Option<LogId<NodeId>>,
-
-    pub last_membership: StoredMembership<NodeId, Node>,
-
-    /// State built from applying the raft log
-    pub indexify_state: Arc<RwLock<IndexifyState>>,
-
-    state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
-}
-
-#[derive(Clone)]
-pub struct StateMachineStore {
-    pub data: StateMachineData,
-
-    /// snapshot index is not persisted in this example.
-    ///
-    /// It is only used as a suffix of snapshot id, and should be globally
-    /// unique. In practice, using a timestamp in micro-second would be good
-    /// enough.
-    snapshot_idx: u64,
-
-    db: Arc<OptimisticTransactionDB>,
-
-    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
-
-    snapshot_file_path: PathBuf,
-}
 
 #[derive(Error, Debug)]
 pub enum StateMachineError {
@@ -150,6 +109,50 @@ impl StateMachineColumns {
     }
 }
 
+#[derive(serde::Serialize, Deserialize, Debug, Clone)]
+pub struct Response {
+    pub value: Option<String>,
+}
+
+#[derive(serde::Serialize, Deserialize, Debug, Clone)]
+pub struct StoredSnapshot {
+    pub meta: SnapshotMeta<NodeId, Node>,
+
+    /// The data of the state machine at the time of this snapshot.
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone)]
+pub struct StateMachineData {
+    pub last_applied_log_id: Option<LogId<NodeId>>,
+
+    pub last_membership: StoredMembership<NodeId, Node>,
+
+    /// State built from applying the raft log
+    pub indexify_state: Arc<RwLock<IndexifyState>>,
+
+    state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
+}
+
+#[derive(Clone)]
+pub struct StateMachineStore {
+    pub data: StateMachineData,
+    pub state_machine_reader: StateMachineReader,
+
+    /// snapshot index is not persisted in this example.
+    ///
+    /// It is only used as a suffix of snapshot id, and should be globally
+    /// unique. In practice, using a timestamp in micro-second would be good
+    /// enough.
+    snapshot_idx: u64,
+
+    db: Arc<OptimisticTransactionDB>,
+
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+
+    snapshot_file_path: PathBuf,
+}
+
 impl StateMachineStore {
     async fn new(
         db: Arc<OptimisticTransactionDB>,
@@ -163,6 +166,7 @@ impl StateMachineStore {
                 state_change_tx: Arc::new(tx),
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
+            state_machine_reader: StateMachineReader {},
             snapshot_idx: 0,
             db,
             state_change_rx: rx,
@@ -282,22 +286,19 @@ impl StateMachineStore {
         &self,
         column: StateMachineColumns,
         key: K,
-    ) -> Result<T, anyhow::Error>
+    ) -> Result<Option<T>, anyhow::Error>
     where
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        let result_bytes = self
-            .db
-            .get_cf(column.cf(&self.db), key)?
-            .ok_or(anyhow::anyhow!(
-                "Failed to get value from column family {}",
-                column.to_string()
-            ))?;
+        let result_bytes = match self.db.get_cf(column.cf(&self.db), key)? {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
         let result = JsonEncoder::decode::<T>(&result_bytes)
             .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
-        Ok(result)
+        Ok(Some(result))
     }
 
     pub async fn get_tasks_for_executor(
@@ -305,18 +306,38 @@ impl StateMachineStore {
         executor_id: &str,
         limit: Option<u64>,
     ) -> Result<Vec<indexify_internal_api::Task>> {
-        let sm = self.data.indexify_state.read().await;
-        sm.get_tasks_for_executor(executor_id, limit, &self.db)
+        self.state_machine_reader
+            .get_tasks_for_executor(executor_id, limit, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
+    }
+
+    pub async fn get_indexes_from_ids(
+        &self,
+        task_ids: HashSet<String>,
+    ) -> Result<Vec<indexify_internal_api::Index>> {
+        self.state_machine_reader
+            .get_indexes_from_ids(task_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub async fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>> {
+        self.state_machine_reader
+            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
     ) -> Result<Vec<ExecutorMetadata>> {
-        let sm = self.data.indexify_state.read().await;
-        sm.get_executors_from_ids(executor_ids, &self.db)
+        self.state_machine_reader
+            .get_executors_from_ids(executor_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }
@@ -325,8 +346,8 @@ impl StateMachineStore {
         &self,
         content_ids: HashSet<String>,
     ) -> Result<Vec<ContentMetadata>> {
-        let sm = self.data.indexify_state.read().await;
-        sm.get_content_from_ids(content_ids, &self.db)
+        self.state_machine_reader
+            .get_content_from_ids(content_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }
@@ -335,19 +356,25 @@ impl StateMachineStore {
         &self,
         namespace: &str,
     ) -> Result<Option<indexify_internal_api::Namespace>> {
-        let ns_name: NamespaceName = self
+        let ns_name = match self
             .get_from_cf(StateMachineColumns::Namespaces, namespace)
+            .await?
+        {
+            Some(name) => name,
+            None => return Ok(None),
+        };
+        let extraction_policy_ids = {
+            let indexify_state = self.data.indexify_state.read().await;
+            indexify_state
+                .extraction_policies_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let extraction_policies = self
+            .state_machine_reader
+            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
             .await?;
-        let indexify_state = self.data.indexify_state.read().await;
-        let policies = indexify_state.extraction_policies_table.get(namespace);
-        // TODO We shouldn't iter a hashset and create vecs, just make the type hashsets
-        // everywehre
-        let extraction_policies = policies
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .cloned()
-            .collect_vec();
         Ok(Some(indexify_internal_api::Namespace {
             name: ns_name,
             extraction_policies,
@@ -408,26 +435,6 @@ impl StateMachineStore {
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
-    }
-
-    pub fn deserialize_all_cf_data<K, V>(
-        &self,
-        pairs: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> Result<Vec<(K, V)>, anyhow::Error>
-    where
-        K: DeserializeOwned,
-        V: DeserializeOwned,
-    {
-        pairs
-            .into_iter()
-            .map(|(key_bytes, value_bytes)| {
-                let key = JsonEncoder::decode(&key_bytes)
-                    .map_err(|e| anyhow::anyhow!("Deserialization error for key: {}", e))?;
-                let value = JsonEncoder::decode(&value_bytes)
-                    .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
-                Ok((key, value))
-            })
-            .collect()
     }
 }
 

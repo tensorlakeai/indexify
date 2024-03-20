@@ -323,7 +323,8 @@ impl App {
             let event = self
                 .state_machine
                 .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)
-                .await?;
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Event with id {} not found", event_id))?;
             state_changes.push(event.clone());
         }
         Ok(state_changes)
@@ -354,7 +355,7 @@ impl App {
         content_id: &str,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
-        let extraction_policies = {
+        let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
                 .extraction_policies_table
@@ -362,6 +363,10 @@ impl App {
                 .cloned()
                 .unwrap_or_default()
         };
+        let extraction_policies = self
+            .state_machine
+            .get_extraction_policies_from_ids(extraction_policy_ids)
+            .await?;
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
             if extraction_policy.content_source != content_metadata.source {
@@ -397,7 +402,8 @@ impl App {
         let extraction_policy = self
             .state_machine
             .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Extraction policy with id {} not found", id))?;
         Ok(extraction_policy)
     }
 
@@ -431,13 +437,19 @@ impl App {
                     )
                     .await?;
                 // if the content metadata mimetype does not match the extractor, skip it
-                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
-                    continue;
+                if let Some(content_metadata) = content_metadata {
+                    if !matches_mime_type(
+                        &extractor.input_mime_types,
+                        &content_metadata.content_type,
+                    ) {
+                        continue;
+                    }
+                    content_meta_list.push(content_metadata);
                 }
-                content_meta_list.push(content_metadata.clone());
             }
             content_meta_list
         };
+
         let mut matched_content_list = Vec::new();
         for content in content_list {
             if content.source != extraction_policy.content_source {
@@ -464,8 +476,13 @@ impl App {
             let task = self
                 .state_machine
                 .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
-                .await
-                .map_err(|e| anyhow!("unable to get task from state machine store: {}", e))?;
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Unable to get task with id {} from state machine store",
+                        task_id
+                    )
+                })?;
             tasks.push(task.clone());
         }
         Ok(tasks)
@@ -606,19 +623,26 @@ impl App {
                 StateMachineColumns::Extractors,
                 extractor,
             )
-            .await?;
-        Ok(extractor.clone())
+            .await?
+            .ok_or_else(|| anyhow!("Extractor with name {} not found", extractor))?;
+        Ok(extractor)
     }
 
     pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
-        let store = self.indexify_state.read().await;
-        let extraction_policies = store
-            .extraction_policies_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect_vec();
+        let extraction_policy_ids = {
+            let store = self.indexify_state.read().await;
+            store
+                .extraction_policies_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect_vec()
+        };
+        let extraction_policies = self
+            .state_machine
+            .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())
+            .await?;
         Ok(extraction_policies)
     }
 
@@ -647,12 +671,18 @@ impl App {
         // Fetch extraction policies for each namespace
         let mut result_namespaces = Vec::new();
         for namespace_name in namespaces {
-            let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
-            let extraction_policies = store
-                .extraction_policies_table
-                .get(&namespace_name)
-                .cloned()
-                .unwrap_or_default();
+            let extraction_policy_ids = {
+                let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
+                store
+                    .extraction_policies_table
+                    .get(&namespace_name)
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            let extraction_policies = self
+                .state_machine
+                .get_extraction_policies_from_ids(extraction_policy_ids)
+                .await?;
 
             let namespace = internal_api::Namespace {
                 name: namespace_name,
@@ -725,7 +755,8 @@ impl App {
                 StateMachineColumns::Executors,
                 executor_id,
             )
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow!("Executor with id {} not found", executor_id))?;
         Ok(executor)
     }
 
@@ -781,7 +812,8 @@ impl App {
                 StateMachineColumns::ContentTable,
                 content_id,
             )
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
         Ok(content_metadata)
     }
 
@@ -851,18 +883,21 @@ impl App {
         let task = self
             .state_machine
             .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
-            .await?;
-        Ok(task.clone())
+            .await?
+            .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
+        Ok(task)
     }
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
-        let store = self.indexify_state.read().await;
-        let indexes = store
-            .namespace_index_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default();
-        let indexes = indexes.into_iter().collect_vec();
+        let index_ids = {
+            let store = self.indexify_state.read().await;
+            store
+                .namespace_index_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let indexes = self.state_machine.get_indexes_from_ids(index_ids).await?;
         Ok(indexes)
     }
 
@@ -870,7 +905,8 @@ impl App {
         let index = self
             .state_machine
             .get_from_cf::<internal_api::Index, _>(StateMachineColumns::IndexTable, id)
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow!("Index with id {} not found", id))?;
         Ok(index)
     }
 
@@ -911,8 +947,9 @@ impl App {
         let id = StructuredDataSchema::schema_id(namespace, content_source);
         let schema = self
             .state_machine
-            .get_from_cf::<StructuredDataSchema, _>(StateMachineColumns::StructuredDataSchemas, id)
-            .await?;
+            .get_from_cf::<StructuredDataSchema, _>(StateMachineColumns::StructuredDataSchemas, &id)
+            .await?
+            .ok_or_else(|| anyhow!("Schema with id {} not found", id))?;
         Ok(schema)
     }
 
