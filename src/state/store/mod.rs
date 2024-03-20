@@ -15,29 +15,12 @@ use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, Stru
 use itertools::Itertools;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
