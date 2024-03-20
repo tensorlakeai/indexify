@@ -1,15 +1,13 @@
 use std::{collections::HashSet, sync::Arc};
 
-use indexify_internal_api;
 use rocksdb::OptimisticTransactionDB;
 use tracing::error;
 
 use super::{
     serializer::{JsonEncode, JsonEncoder},
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    StateMachineColumns, StateMachineError,
 };
+use indexify_internal_api;
 
 #[derive(Clone)]
 pub struct StateMachineReader {}
@@ -55,27 +53,6 @@ impl StateMachineReader {
             })
             .collect();
         tasks
-    }
-
-    pub async fn get_indexes_from_ids(
-        &self,
-        task_ids: HashSet<TaskId>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::Index>, StateMachineError> {
-        let txn = db.transaction();
-        let indexes: Result<Vec<indexify_internal_api::Index>, StateMachineError> = task_ids
-            .into_iter()
-            .map(|task_id| {
-                let index_bytes = txn
-                    .get_cf(StateMachineColumns::IndexTable.cf(db), task_id.as_bytes())
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!("Index {} not found", task_id))
-                    })?;
-                JsonEncoder::decode(&index_bytes).map_err(StateMachineError::from)
-            })
-            .collect();
-        indexes
     }
 
     pub async fn get_executors_from_ids(
@@ -132,35 +109,5 @@ impl StateMachineReader {
                 })
                 .collect();
         content
-    }
-
-    pub async fn get_extraction_policies_from_ids(
-        &self,
-        extraction_policy_ids: HashSet<String>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>, StateMachineError> {
-        let txn = db.transaction();
-        let extraction_policies: Result<
-            Vec<indexify_internal_api::ExtractionPolicy>,
-            StateMachineError,
-        > = extraction_policy_ids
-            .into_iter()
-            .map(|extraction_policy_id| {
-                let extraction_policy_bytes = txn
-                    .get_cf(
-                        StateMachineColumns::ExtractionPolicies.cf(db),
-                        extraction_policy_id.as_bytes(),
-                    )
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!(
-                            "Extraction Policy {} not found",
-                            extraction_policy_id
-                        ))
-                    })?;
-                serde_json::from_slice(&extraction_policy_bytes).map_err(StateMachineError::from)
-            })
-            .collect();
-        extraction_policies
     }
 }
