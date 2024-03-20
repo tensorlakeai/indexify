@@ -334,8 +334,9 @@ impl DataManager {
             parent_id.hash(&mut s);
         }
         let id = format!("{:x}", s.finish());
+        let content_size = content.bytes.len() as u64;
         let storage_url = self
-            .write_to_blob_store(namespace, &file_name, Bytes::from(content.bytes.clone()))
+            .write_to_blob_store(namespace, &file_name, Bytes::from(content.bytes))
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
         let labels = content
@@ -354,7 +355,7 @@ impl DataManager {
             namespace: namespace.to_string(),
             labels,
             source: source.to_string(),
-            size_bytes: content.bytes.len() as u64,
+            size_bytes: content_size,
         })
     }
 
