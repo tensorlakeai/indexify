@@ -36,24 +36,22 @@ const ExtractionPolicyItem = ({
   };
 
   const renderIndexSchema = () => {
-    {
-      if (!index?.schema) {
-        return <Typography variant="body1">None</Typography>;
-      }
-      return (
-        <Box sx={{ overflowX: "scroll" }}>
-          <Stack gap={1} direction="row">
-            {Object.keys(index.schema).map((val: string) => {
-              return <Chip key={val} label={`${val}:${index.schema[val]}`} />;
-            })}
-          </Stack>
-        </Box>
-      );
+    if (!index?.schema) {
+      return <Typography variant="body1">None</Typography>;
     }
+    return (
+      <Box sx={{ overflowX: "scroll" }}>
+        <Stack gap={1} direction="row">
+          {Object.keys(index.schema).map((val: string) => {
+            return <Chip key={val} label={`${val}:${index.schema[val]}`} />;
+          })}
+        </Stack>
+      </Box>
+    );
   };
 
   const LShapedLine = () => {
-    const verticalLength = 36; 
+    const verticalLength = 36;
     const horizontalLength = 20;
 
     return (
