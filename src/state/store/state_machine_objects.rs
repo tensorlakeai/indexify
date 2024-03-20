@@ -30,13 +30,13 @@ pub struct IndexifyState {
     /// Namespace -> Content ID
     pub content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
 
-    /// Namespace -> Extractor bindings
-    pub extraction_policies_table: HashMap<NamespaceName, HashSet<internal_api::ExtractionPolicy>>, /* TODO: Change this to store extraction policy id in the second col because we have data elsewhere */
+    /// Namespace -> Extraction policy id
+    pub extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
 
     /// Extractor -> Executors table
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
-    /// Namespace -> Index index
+    /// Namespace -> Index id
     pub namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
@@ -643,7 +643,7 @@ impl IndexifyState {
                 self.extraction_policies_table
                     .entry(extraction_policy.namespace.clone())
                     .or_default()
-                    .insert(extraction_policy.clone());
+                    .insert(extraction_policy.id);
                 if let Some(schema) = updated_structured_data_schema {
                     self.update_schema_reverse_idx(schema);
                 }

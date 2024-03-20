@@ -350,7 +350,7 @@ impl App {
         content_id: &str,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
-        let extraction_policies = {
+        let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
                 .extraction_policies_table
@@ -358,6 +358,10 @@ impl App {
                 .cloned()
                 .unwrap_or_default()
         };
+        let extraction_policies = self
+            .state_machine
+            .get_extraction_policies_from_ids(extraction_policy_ids)
+            .await?;
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
             if extraction_policy.content_source != content_metadata.source {
@@ -620,14 +624,20 @@ impl App {
     }
 
     pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
-        let store = self.indexify_state.read().await;
-        let extraction_policies = store
-            .extraction_policies_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect_vec();
+        let extraction_policy_ids = {
+            let store = self.indexify_state.read().await;
+            store
+                .extraction_policies_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect_vec()
+        };
+        let extraction_policies = self
+            .state_machine
+            .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())
+            .await?;
         Ok(extraction_policies)
     }
 
@@ -656,12 +666,18 @@ impl App {
         // Fetch extraction policies for each namespace
         let mut result_namespaces = Vec::new();
         for namespace_name in namespaces {
-            let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
-            let extraction_policies = store
-                .extraction_policies_table
-                .get(&namespace_name)
-                .cloned()
-                .unwrap_or_default();
+            let extraction_policy_ids = {
+                let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
+                store
+                    .extraction_policies_table
+                    .get(&namespace_name)
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            let extraction_policies = self
+                .state_machine
+                .get_extraction_policies_from_ids(extraction_policy_ids)
+                .await?;
 
             let namespace = internal_api::Namespace {
                 name: namespace_name,
@@ -868,12 +884,14 @@ impl App {
     }
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
-        let store = self.indexify_state.read().await;
-        let index_ids = store
-            .namespace_index_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default();
+        let index_ids = {
+            let store = self.indexify_state.read().await;
+            store
+                .namespace_index_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+        };
         let indexes = self.state_machine.get_indexes_from_ids(index_ids).await?;
         Ok(indexes)
     }

@@ -305,6 +305,16 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
+    pub async fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>> {
+        self.state_machine_reader
+            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
@@ -336,16 +346,18 @@ impl StateMachineStore {
             Some(name) => name,
             None => return Ok(None),
         };
-        let indexify_state = self.data.indexify_state.read().await;
-        let policies = indexify_state.extraction_policies_table.get(namespace);
-        // TODO We shouldn't iter a hashset and create vecs, just make the type hashsets
-        // everywehre
-        let extraction_policies = policies
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .cloned()
-            .collect_vec();
+        let extraction_policy_ids = {
+            let indexify_state = self.data.indexify_state.read().await;
+            indexify_state
+                .extraction_policies_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let extraction_policies = self
+            .state_machine_reader
+            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+            .await?;
         Ok(Some(indexify_internal_api::Namespace {
             name: ns_name,
             extraction_policies,
