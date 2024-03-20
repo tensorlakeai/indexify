@@ -33,6 +33,7 @@ type Node = BasicNode;
 use self::{
     serializer::{JsonEncode, JsonEncoder},
     state_machine_objects::IndexifyState,
+    state_machine_reader::StateMachineReader,
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::utils::OptionInspectNone;
@@ -52,50 +53,8 @@ pub type SchemaId = String;
 pub mod requests;
 pub mod serializer;
 pub mod state_machine_objects;
+mod state_machine_reader;
 mod store_utils;
-
-#[derive(serde::Serialize, Deserialize, Debug, Clone)]
-pub struct Response {
-    pub value: Option<String>,
-}
-
-#[derive(serde::Serialize, Deserialize, Debug, Clone)]
-pub struct StoredSnapshot {
-    pub meta: SnapshotMeta<NodeId, Node>,
-
-    /// The data of the state machine at the time of this snapshot.
-    pub data: Vec<u8>,
-}
-
-#[derive(Clone)]
-pub struct StateMachineData {
-    pub last_applied_log_id: Option<LogId<NodeId>>,
-
-    pub last_membership: StoredMembership<NodeId, Node>,
-
-    /// State built from applying the raft log
-    pub indexify_state: Arc<RwLock<IndexifyState>>,
-
-    state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
-}
-
-#[derive(Clone)]
-pub struct StateMachineStore {
-    pub data: StateMachineData,
-
-    /// snapshot index is not persisted in this example.
-    ///
-    /// It is only used as a suffix of snapshot id, and should be globally
-    /// unique. In practice, using a timestamp in micro-second would be good
-    /// enough.
-    snapshot_idx: u64,
-
-    db: Arc<OptimisticTransactionDB>,
-
-    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
-
-    snapshot_file_path: PathBuf,
-}
 
 #[derive(Error, Debug)]
 pub enum StateMachineError {
@@ -133,6 +92,50 @@ impl StateMachineColumns {
     }
 }
 
+#[derive(serde::Serialize, Deserialize, Debug, Clone)]
+pub struct Response {
+    pub value: Option<String>,
+}
+
+#[derive(serde::Serialize, Deserialize, Debug, Clone)]
+pub struct StoredSnapshot {
+    pub meta: SnapshotMeta<NodeId, Node>,
+
+    /// The data of the state machine at the time of this snapshot.
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone)]
+pub struct StateMachineData {
+    pub last_applied_log_id: Option<LogId<NodeId>>,
+
+    pub last_membership: StoredMembership<NodeId, Node>,
+
+    /// State built from applying the raft log
+    pub indexify_state: Arc<RwLock<IndexifyState>>,
+
+    state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
+}
+
+#[derive(Clone)]
+pub struct StateMachineStore {
+    pub data: StateMachineData,
+    pub state_machine_reader: StateMachineReader,
+
+    /// snapshot index is not persisted in this example.
+    ///
+    /// It is only used as a suffix of snapshot id, and should be globally
+    /// unique. In practice, using a timestamp in micro-second would be good
+    /// enough.
+    snapshot_idx: u64,
+
+    db: Arc<OptimisticTransactionDB>,
+
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+
+    snapshot_file_path: PathBuf,
+}
+
 impl StateMachineStore {
     async fn new(
         db: Arc<OptimisticTransactionDB>,
@@ -146,6 +149,7 @@ impl StateMachineStore {
                 state_change_tx: Arc::new(tx),
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
+            state_machine_reader: StateMachineReader {},
             snapshot_idx: 0,
             db,
             state_change_rx: rx,
@@ -285,8 +289,8 @@ impl StateMachineStore {
         executor_id: &str,
         limit: Option<u64>,
     ) -> Result<Vec<indexify_internal_api::Task>> {
-        let sm = self.data.indexify_state.read().await;
-        sm.get_tasks_for_executor(executor_id, limit, &self.db)
+        self.state_machine_reader
+            .get_tasks_for_executor(executor_id, limit, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
     }
@@ -295,8 +299,8 @@ impl StateMachineStore {
         &self,
         executor_ids: HashSet<String>,
     ) -> Result<Vec<ExecutorMetadata>> {
-        let sm = self.data.indexify_state.read().await;
-        sm.get_executors_from_ids(executor_ids, &self.db)
+        self.state_machine_reader
+            .get_executors_from_ids(executor_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }
@@ -305,8 +309,8 @@ impl StateMachineStore {
         &self,
         content_ids: HashSet<String>,
     ) -> Result<Vec<ContentMetadata>> {
-        let sm = self.data.indexify_state.read().await;
-        sm.get_content_from_ids(content_ids, &self.db)
+        self.state_machine_reader
+            .get_content_from_ids(content_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }
