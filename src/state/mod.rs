@@ -19,23 +19,18 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -323,7 +318,8 @@ impl App {
             let event = self
                 .state_machine
                 .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)
-                .await?;
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Event with id {} not found", event_id))?;
             state_changes.push(event.clone());
         }
         Ok(state_changes)
@@ -397,7 +393,8 @@ impl App {
         let extraction_policy = self
             .state_machine
             .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Extraction policy with id {} not found", id))?;
         Ok(extraction_policy)
     }
 
@@ -431,13 +428,19 @@ impl App {
                     )
                     .await?;
                 // if the content metadata mimetype does not match the extractor, skip it
-                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
-                    continue;
+                if let Some(content_metadata) = content_metadata {
+                    if !matches_mime_type(
+                        &extractor.input_mime_types,
+                        &content_metadata.content_type,
+                    ) {
+                        continue;
+                    }
+                    content_meta_list.push(content_metadata);
                 }
-                content_meta_list.push(content_metadata.clone());
             }
             content_meta_list
         };
+
         let mut matched_content_list = Vec::new();
         for content in content_list {
             if content.source != extraction_policy.content_source {
@@ -464,8 +467,13 @@ impl App {
             let task = self
                 .state_machine
                 .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
-                .await
-                .map_err(|e| anyhow!("unable to get task from state machine store: {}", e))?;
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Unable to get task with id {} from state machine store",
+                        task_id
+                    )
+                })?;
             tasks.push(task.clone());
         }
         Ok(tasks)
@@ -606,8 +614,9 @@ impl App {
                 StateMachineColumns::Extractors,
                 extractor,
             )
-            .await?;
-        Ok(extractor.clone())
+            .await?
+            .ok_or_else(|| anyhow!("Extractor with name {} not found", extractor))?;
+        Ok(extractor)
     }
 
     pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
@@ -725,7 +734,8 @@ impl App {
                 StateMachineColumns::Executors,
                 executor_id,
             )
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow!("Executor with id {} not found", executor_id))?;
         Ok(executor)
     }
 
@@ -781,7 +791,8 @@ impl App {
                 StateMachineColumns::ContentTable,
                 content_id,
             )
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
         Ok(content_metadata)
     }
 
@@ -851,8 +862,9 @@ impl App {
         let task = self
             .state_machine
             .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
-            .await?;
-        Ok(task.clone())
+            .await?
+            .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
+        Ok(task)
     }
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
@@ -870,7 +882,8 @@ impl App {
         let index = self
             .state_machine
             .get_from_cf::<internal_api::Index, _>(StateMachineColumns::IndexTable, id)
-            .await?;
+            .await?
+            .ok_or_else(|| anyhow!("Index with id {} not found", id))?;
         Ok(index)
     }
 
@@ -911,8 +924,9 @@ impl App {
         let id = StructuredDataSchema::schema_id(namespace, content_source);
         let schema = self
             .state_machine
-            .get_from_cf::<StructuredDataSchema, _>(StateMachineColumns::StructuredDataSchemas, id)
-            .await?;
+            .get_from_cf::<StructuredDataSchema, _>(StateMachineColumns::StructuredDataSchemas, &id)
+            .await?
+            .ok_or_else(|| anyhow!("Schema with id {} not found", id))?;
         Ok(schema)
     }
 
@@ -1017,8 +1031,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1230,9 +1243,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

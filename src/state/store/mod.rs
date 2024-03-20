@@ -15,29 +15,12 @@ use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, Stru
 use itertools::Itertools;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
@@ -282,22 +265,19 @@ impl StateMachineStore {
         &self,
         column: StateMachineColumns,
         key: K,
-    ) -> Result<T, anyhow::Error>
+    ) -> Result<Option<T>, anyhow::Error>
     where
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        let result_bytes = self
-            .db
-            .get_cf(column.cf(&self.db), key)?
-            .ok_or(anyhow::anyhow!(
-                "Failed to get value from column family {}",
-                column.to_string()
-            ))?;
+        let result_bytes = match self.db.get_cf(column.cf(&self.db), key)? {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
         let result = JsonEncoder::decode::<T>(&result_bytes)
             .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
-        Ok(result)
+        Ok(Some(result))
     }
 
     pub async fn get_tasks_for_executor(
@@ -335,9 +315,13 @@ impl StateMachineStore {
         &self,
         namespace: &str,
     ) -> Result<Option<indexify_internal_api::Namespace>> {
-        let ns_name: NamespaceName = self
+        let ns_name = match self
             .get_from_cf(StateMachineColumns::Namespaces, namespace)
-            .await?;
+            .await?
+        {
+            Some(name) => name,
+            None => return Ok(None),
+        };
         let indexify_state = self.data.indexify_state.read().await;
         let policies = indexify_state.extraction_policies_table.get(namespace);
         // TODO We shouldn't iter a hashset and create vecs, just make the type hashsets
@@ -408,26 +392,6 @@ impl StateMachineStore {
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
-    }
-
-    pub fn deserialize_all_cf_data<K, V>(
-        &self,
-        pairs: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> Result<Vec<(K, V)>, anyhow::Error>
-    where
-        K: DeserializeOwned,
-        V: DeserializeOwned,
-    {
-        pairs
-            .into_iter()
-            .map(|(key_bytes, value_bytes)| {
-                let key = JsonEncoder::decode(&key_bytes)
-                    .map_err(|e| anyhow::anyhow!("Deserialization error for key: {}", e))?;
-                let value = JsonEncoder::decode(&value_bytes)
-                    .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
-                Ok((key, value))
-            })
-            .collect()
     }
 }
 
