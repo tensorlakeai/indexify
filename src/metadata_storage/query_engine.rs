@@ -126,7 +126,6 @@ impl Store for QueryEngine {
     }
 
     async fn fetch_data(&self, _table_name: &str, key: &Key) -> Result<Option<DataRow>> {
-        println!("fetch_data {:?}", key);
         if let Key::Str(key) = key {
             let metadata = self
                 .storage
