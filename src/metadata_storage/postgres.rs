@@ -43,7 +43,7 @@ impl MetadataStorage for PostgresIndexManager {
             namespace TEXT,
             extractor TEXT,
             extractor_policy TEXT,
-            content_source TEXT
+            content_source TEXT,
             index_name TEXT,
             data JSONB,
             content_id TEXT,
