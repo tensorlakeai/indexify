@@ -41,11 +41,13 @@ pub async fn run_query(
         .map_err(|e| anyhow!(e.to_string()))?;
     let mut out_rows = vec![];
     for payload in payloads {
-        if let gluesql::core::executor::Payload::Select { labels, rows } = payload {
-            for row in rows {
+        let result = payload.select();
+        if let Some(payload_iter) = result {
+            for row in payload_iter {
                 let mut out_row = HashMap::new();
-                for (label, value) in labels.iter().zip(row) {
-                    out_row.insert(label.clone(), serde_json::to_value(value)?);
+                for (col, val) in row {
+                    let val: serde_json::Value = val.clone().try_into()?;
+                    out_row.insert(col.to_string(), val);
                 }
                 out_rows.push(StructuredDataRow { data: out_row });
             }
@@ -54,7 +56,7 @@ pub async fn run_query(
     Ok(out_rows)
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StructuredDataRow {
     pub data: HashMap<String, serde_json::Value>,
 }
@@ -252,6 +254,14 @@ mod tests {
             "test_extractor",
             "test_extractor_policy",
         );
+        let meta3 = ExtractedMetadata::new(
+            "test_content_id",
+            "test_parent_content_id",
+            "test_content_source",
+            json!({"name": "zaid", "role": "engineer"}),
+            "test_extractor",
+            "test_extractor_policy",
+        );
         (sqlite_index_manager.clone() as MetadataStorageTS)
             .add_metadata(ns, meta1)
             .await
@@ -260,37 +270,29 @@ mod tests {
             .add_metadata(ns, meta2)
             .await
             .unwrap();
+        (sqlite_index_manager.clone() as MetadataStorageTS)
+            .add_metadata(ns, meta3)
+            .await
+            .unwrap();
         let cols1 = vec![
             ("name", SchemaColumnType::Text),
             ("role", SchemaColumnType::Text),
         ];
         let schema = create_schema(ns, cols1, "test_content_source");
-        let query_engine = QueryEngine::new(sqlite_index_manager, vec![schema], ns);
-        let mut glue_query = Glue::new(query_engine);
-        let payloads = glue_query
-            .execute("SELECT * FROM test_content_source;")
-            .await
-            .unwrap();
-        assert_eq!(payloads.len(), 1);
-        if let gluesql::core::executor::Payload::Select { labels: _, rows } =
-            payloads.into_iter().next().unwrap()
-        {
-            assert_eq!(rows.len(), 2);
-        } else {
-            panic!("expected select payload");
-        }
-
-        let payloads = glue_query
-            .execute("SELECT * FROM test_content_source where role='founder';")
-            .await
-            .unwrap();
-        assert_eq!(payloads.len(), 1);
-        if let gluesql::core::executor::Payload::Select { labels: _, rows } =
-            payloads.into_iter().next().unwrap()
-        {
-            assert_eq!(rows.len(), 1);
-        } else {
-            panic!("expected select payload");
+        let result = run_query(
+            "SELECT * FROM test_content_source;".to_string(),
+            sqlite_index_manager,
+            vec![schema],
+            ns.to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.len(), 3);
+        for res in result {
+            assert_eq!(res.data.get("content_id").unwrap(), "test_content_id");
+            assert!(
+                ["founder", "engineer"].contains(&res.data.get("role").unwrap().as_str().unwrap())
+            );
         }
     }
 }

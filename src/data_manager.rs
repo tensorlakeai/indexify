@@ -487,19 +487,19 @@ impl DataManager {
         let namespace = namespace.to_string();
         let query = query.to_string();
         let handle = self.rt.handle().clone();
-        let result = tokio::task::spawn_blocking(move || {
+        
+
+        tokio::task::spawn_blocking(move || {
             let namespace = namespace.to_string();
             let query = query.to_string();
-            let result = handle.block_on(async move {
+            
+            handle.block_on(async move {
                 let namespace = namespace.to_string();
                 let query = query.to_string();
                 run_query(query, metadata_reader, schemas, namespace).await
-            });
-            result
+            })
         })
-        .await?;
-
-        result
+        .await?
     }
 
     #[tracing::instrument]

@@ -1,20 +1,22 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     sync::{atomic::AtomicBool, Arc},
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::{
     stream::{self},
     StreamExt,
 };
 use gluesql::core::{
-    data::{HashMapJsonExt, ValueError},
+    data::{Value, ValueError},
     error::Error::StorageMsg as GlueStorageError,
     store::DataRow,
 };
+use itertools::Itertools;
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use super::{table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage};
@@ -26,7 +28,7 @@ pub struct SqliteIndexManager {
 }
 
 impl SqliteIndexManager {
-    pub fn new(conn_url: &str) -> Result<Arc<Self>> {
+    pub fn new(conn_url: &str) -> anyhow::Result<Arc<Self>> {
         let conn = if conn_url.starts_with("memory") {
             Connection::open_in_memory()
         } else {
@@ -43,7 +45,7 @@ impl SqliteIndexManager {
 
 #[async_trait]
 impl MetadataStorage for SqliteIndexManager {
-    async fn create_metadata_table(&self, namespace: &str) -> Result<()> {
+    async fn create_metadata_table(&self, namespace: &str) -> anyhow::Result<()> {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!(
             "CREATE TABLE IF NOT EXISTS {table_name} (
@@ -64,7 +66,11 @@ impl MetadataStorage for SqliteIndexManager {
         Ok(())
     }
 
-    async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
+    async fn add_metadata(
+        &self,
+        namespace: &str,
+        metadata: ExtractedMetadata,
+    ) -> anyhow::Result<()> {
         let index_name = PostgresIndexName::new(&table_name(namespace));
         if !self
             .default_table_created
@@ -98,7 +104,7 @@ impl MetadataStorage for SqliteIndexManager {
         &self,
         namespace: &str,
         content_id: &str,
-    ) -> Result<Vec<ExtractedMetadata>> {
+    ) -> anyhow::Result<Vec<ExtractedMetadata>> {
         let index_table_name = PostgresIndexName::new(&table_name(namespace));
         let conn = self.conn.lock().await;
         let query =
@@ -123,7 +129,7 @@ impl MetadataReader for SqliteIndexManager {
         &self,
         namespace: &str,
         id: &str,
-    ) -> Result<Option<ExtractedMetadata>> {
+    ) -> anyhow::Result<Option<ExtractedMetadata>> {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!("SELECT * FROM {table_name} WHERE namespace = $1 and id = $2");
         let conn = self.conn.lock().await;
@@ -141,17 +147,17 @@ impl MetadataReader for SqliteIndexManager {
     async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query =
-            format!("SELECT * FROM {table_name} WHERE namespace = $1 and content_source = $2");
+            format!("SELECT content_id, data FROM {table_name} WHERE namespace = $1 and content_source = $2");
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare(&query).map_err(|e| {
             GlueStorageError(format!(
                 "unable to execute query on sqlite: {}",
-                e.to_string()
+                e
             ))
         })?;
         let metadata = stmt
             .query_map(params![namespace, content_source], |row| {
-                row_to_extracted_metadata(row)
+                row_to_structured_data(row)
             })
             .map_err(|e| {
                 GlueStorageError(format!("unable to query metadata from sqlite: {}", e))
@@ -159,22 +165,22 @@ impl MetadataReader for SqliteIndexManager {
         let mut metadata_list = vec![];
         for m in metadata {
             let m = m.map_err(|e| GlueStorageError(e.to_string()))?;
-            let mut out_rows: HashMap<String, gluesql::core::data::Value> = HashMap::new();
-            out_rows.insert(
-                "content_id".to_string(),
-                gluesql::core::data::Value::Str(m.content_id.clone()),
-            );
+            let mut out_rows: Vec<gluesql::core::data::Value> = Vec::new();
+            out_rows.push(gluesql::core::data::Value::Str(m.content_id.clone()));
             let meta = match m.metadata.clone() {
-                serde_json::Value::Object(json_map) => HashMap::try_from_json_map(json_map),
+                serde_json::Value::Object(json_map) => json_map
+                    .into_iter()
+                    .map(|(key, value)| value.try_into().map(|value| (key, value)))
+                    .collect::<gluesql::core::error::Result<BTreeMap<String, Value>>>(),
                 _ => Err(ValueError::JsonObjectTypeRequired.into()),
             };
             let meta = meta
                 .map_err(|e| gluesql::core::error::Error::StorageMsg(e.to_string()))
                 .unwrap();
-            out_rows.extend(meta);
+            out_rows.extend(meta.values().cloned().collect_vec());
 
-            let key = gluesql::core::data::Key::Str(m.id.clone());
-            metadata_list.push(std::result::Result::Ok((key, DataRow::Map(out_rows))));
+            let key = gluesql::core::data::Key::Str(m.content_id.clone());
+            metadata_list.push(std::result::Result::Ok((key, DataRow::Vec(out_rows))));
         }
         let metadata_stream = stream::iter(metadata_list).boxed();
         std::result::Result::Ok(metadata_stream)
@@ -199,6 +205,23 @@ fn row_to_extracted_metadata(
         metadata: data,
         content_id,
         parent_content_id,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MetadataJson {
+    content_id: String,
+    metadata: serde_json::Value,
+}
+
+fn row_to_structured_data(
+    row: &rusqlite::Row,
+) -> std::result::Result<MetadataJson, rusqlite::Error> {
+    let content_id: String = row.get(0)?;
+    let data: serde_json::Value = row.get(1)?;
+    std::result::Result::Ok(MetadataJson {
+        content_id,
+        metadata: data,
     })
 }
 
