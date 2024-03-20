@@ -9,13 +9,10 @@ use futures::{
     stream::{self},
     StreamExt,
 };
-use gluesql::{
-    core::{
-        data::{HashMapJsonExt, Key, ValueError},
-        error::Error::StorageMsg as GlueStorageError,
-        store::DataRow,
-    },
-    json_storage::error::ResultExt,
+use gluesql::core::{
+    data::{HashMapJsonExt, ValueError},
+    error::Error::StorageMsg as GlueStorageError,
+    store::DataRow,
 };
 use rusqlite::{params, Connection};
 use tokio::sync::Mutex;

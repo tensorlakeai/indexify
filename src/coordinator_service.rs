@@ -240,7 +240,7 @@ impl CoordinatorService for CoordinatorServiceServer {
 
         Ok(tonic::Response::new(
             indexify_coordinator::GetNamespaceResponse {
-                namespace: Some(namespace.into()),
+                namespace: namespace.map(|n| n.into()),
             },
         ))
     }
