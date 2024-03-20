@@ -126,6 +126,7 @@ impl Store for QueryEngine {
     }
 
     async fn fetch_data(&self, _table_name: &str, key: &Key) -> Result<Option<DataRow>> {
+        println!("fetch_data {:?}", key);
         if let Key::Str(key) = key {
             let metadata = self
                 .storage
@@ -281,8 +282,8 @@ mod tests {
         let schema = create_schema(ns, cols1, "test_content_source");
         let result = run_query(
             "SELECT * FROM test_content_source;".to_string(),
-            sqlite_index_manager,
-            vec![schema],
+            sqlite_index_manager.clone(),
+            vec![schema.clone()],
             ns.to_string(),
         )
         .await
@@ -294,5 +295,15 @@ mod tests {
                 ["founder", "engineer"].contains(&res.data.get("role").unwrap().as_str().unwrap())
             );
         }
+
+        let result = run_query(
+            r#"SELECT * FROM test_content_source where role='founder';"#.to_string(),
+            sqlite_index_manager,
+            vec![schema],
+            ns.to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.len(), 1);
     }
 }
