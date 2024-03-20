@@ -149,12 +149,9 @@ impl MetadataReader for SqliteIndexManager {
         let query =
             format!("SELECT content_id, data FROM {table_name} WHERE namespace = $1 and content_source = $2");
         let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare(&query).map_err(|e| {
-            GlueStorageError(format!(
-                "unable to execute query on sqlite: {}",
-                e
-            ))
-        })?;
+        let mut stmt = conn
+            .prepare(&query)
+            .map_err(|e| GlueStorageError(format!("unable to execute query on sqlite: {}", e)))?;
         let metadata = stmt
             .query_map(params![namespace, content_source], |row| {
                 row_to_structured_data(row)
