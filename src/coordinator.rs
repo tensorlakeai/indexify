@@ -75,6 +75,13 @@ impl Coordinator {
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
+        match self.shared_state.namespace(namespace).await {
+            Result::Ok(Some(_)) => {
+                return Ok(());
+            }
+            Result::Ok(None) => {}
+            Result::Err(_) => {}
+        }
         self.shared_state.create_namespace(namespace).await?;
         Ok(())
     }
@@ -83,7 +90,7 @@ impl Coordinator {
         self.shared_state.list_namespaces().await
     }
 
-    pub async fn get_namespace(&self, namespace: &str) -> Result<internal_api::Namespace> {
+    pub async fn get_namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
         self.shared_state.namespace(namespace).await
     }
 

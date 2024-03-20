@@ -659,18 +659,8 @@ impl App {
         Ok(result_namespaces)
     }
 
-    pub async fn namespace(&self, namespace: &str) -> Result<internal_api::Namespace> {
-        let store = self.indexify_state.read().await;
-        let extraction_policies = store
-            .extraction_policies_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default();
-        let namespace = internal_api::Namespace {
-            name: namespace.to_string(),
-            extraction_policies: extraction_policies.into_iter().collect_vec(),
-        };
-        Ok(namespace)
+    pub async fn namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
+        self.state_machine.get_namespace(namespace).await
     }
 
     pub async fn register_executor(
@@ -1482,8 +1472,15 @@ mod tests {
         // which will be asserted
         println!("Retrieving namespace");
         let retrieved_namespace = node.namespace(namespace).await?;
-        assert_eq!(retrieved_namespace.name, namespace);
-        assert_eq!(retrieved_namespace.extraction_policies.len(), 3);
+        assert_eq!(retrieved_namespace.clone().unwrap().name, namespace);
+        assert_eq!(
+            retrieved_namespace
+                .clone()
+                .unwrap()
+                .extraction_policies
+                .len(),
+            3
+        );
 
         // //  Read all namespaces back and assert that only the created namespace is
         // present along with the extraction policies

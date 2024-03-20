@@ -331,6 +331,29 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
+    pub async fn get_namespace(
+        &self,
+        namespace: &str,
+    ) -> Result<Option<indexify_internal_api::Namespace>> {
+        let ns_name: NamespaceName = self
+            .get_from_cf(StateMachineColumns::Namespaces, namespace)
+            .await?;
+        let indexify_state = self.data.indexify_state.read().await;
+        let policies = indexify_state.extraction_policies_table.get(namespace);
+        // TODO We shouldn't iter a hashset and create vecs, just make the type hashsets
+        // everywehre
+        let extraction_policies = policies
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .cloned()
+            .collect_vec();
+        Ok(Some(indexify_internal_api::Namespace {
+            name: ns_name,
+            extraction_policies,
+        }))
+    }
+
     pub fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
         let txn = self.db.transaction();
         let keys = ids

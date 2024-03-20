@@ -260,6 +260,7 @@ impl Server {
             })
             .await
         {
+            // FIXME: Listen to the shutdown handler and return if ctrl-c was pressed
             info!("failed to create default namespace: {}", err);
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
