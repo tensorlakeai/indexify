@@ -41,6 +41,7 @@ impl BlobStorageWriter for DiskStorage {
         let path = format!("{}/{}", self.config.path, key);
         let mut file = File::create(&path).await?;
         let mut stream = data;
+        // TODO: need to handle partially successful writes
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             file.write_all(&chunk).await?;
