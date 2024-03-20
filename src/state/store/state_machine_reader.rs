@@ -131,4 +131,34 @@ impl StateMachineReader {
                 .collect();
         content
     }
+
+    pub async fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>, StateMachineError> {
+        let txn = db.transaction();
+        let extraction_policies: Result<
+            Vec<indexify_internal_api::ExtractionPolicy>,
+            StateMachineError,
+        > = extraction_policy_ids
+            .into_iter()
+            .map(|extraction_policy_id| {
+                let extraction_policy_bytes = txn
+                    .get_cf(
+                        StateMachineColumns::ExtractionPolicies.cf(db),
+                        extraction_policy_id.as_bytes(),
+                    )
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!(
+                            "Extraction Policy {} not found",
+                            extraction_policy_id
+                        ))
+                    })?;
+                serde_json::from_slice(&extraction_policy_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        extraction_policies
+    }
 }
