@@ -502,7 +502,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(GetSchemaResponse {
             schema: Some(indexify_coordinator::StructuredDataSchema {
-                schema: serde_json::to_string(&schema.schema).unwrap(),
+                columns: serde_json::to_string(&schema.columns).unwrap(),
                 content_source: schema.content_source,
             }),
         }))
@@ -523,7 +523,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             schemas: schemas
                 .into_iter()
                 .map(|s| indexify_coordinator::StructuredDataSchema {
-                    schema: serde_json::to_string(&s.schema).unwrap(),
+                    columns: serde_json::to_string(&s.columns).unwrap(),
                     content_source: s.content_source,
                 })
                 .collect(),

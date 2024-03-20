@@ -2,10 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Ok, Result};
 use axum::{http::StatusCode, Json};
+use indexify_internal_api::StructuredDataSchema;
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_client::CoordinatorServiceClient,
 };
+use itertools::Itertools;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
@@ -90,5 +92,27 @@ impl CoordinatorClient {
         };
         Ok(Json(snapshot_response))
             .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    }
+
+    pub async fn get_structured_schemas(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<StructuredDataSchema>> {
+        let request =
+            tonic::Request::new(indexify_proto::indexify_coordinator::GetAllSchemaRequest {
+                namespace: namespace.to_string(),
+            });
+        let response = self.get().await?.list_schemas(request).await?.into_inner();
+        let schemas = response
+            .schemas
+            .into_iter()
+            .map(|schema| StructuredDataSchema {
+                namespace: namespace.to_string(),
+                columns: serde_json::from_str(&schema.columns).unwrap(),
+                content_source: schema.content_source,
+                id: "".to_string(),
+            })
+            .collect_vec();
+        Ok(schemas)
     }
 }

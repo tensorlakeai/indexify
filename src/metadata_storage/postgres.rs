@@ -7,7 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
-use super::{table_name, ExtractedMetadata, MetadataStorage};
+use super::{table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage};
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
 pub struct PostgresIndexManager {
@@ -43,6 +43,7 @@ impl MetadataStorage for PostgresIndexManager {
             namespace TEXT,
             extractor TEXT,
             extractor_policy TEXT,
+            content_source TEXT
             index_name TEXT,
             data JSONB,
             content_id TEXT,
@@ -64,23 +65,24 @@ impl MetadataStorage for PostgresIndexManager {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let table_name = PostgresIndexName::new(&table_name(namespace));
-        let query = format!("INSERT INTO \"{table_name}\" (id, namespace, extractor, extractor_policy, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $9, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+        let query = format!("INSERT INTO \"{table_name}\" (id, namespace, extractor, extractor_policy, content_source, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
             .bind(namespace)
             .bind(metadata.extractor_name)
+            .bind(metadata.extraction_policy)
+            .bind(metadata.content_source)
             .bind(table_name.to_string())
             .bind(metadata.metadata)
             .bind(metadata.content_id)
             .bind(metadata.parent_content_id)
             .bind(timestamp_secs() as i64)
-            .bind(metadata.extraction_policy)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
-    async fn get_metadata(
+    async fn get_metadata_for_content(
         &self,
         namespace: &str,
         content_id: &str,
@@ -100,13 +102,15 @@ impl MetadataStorage for PostgresIndexManager {
             let id: String = row.get(0);
             let extractor: String = row.get(2);
             let extraction_policy: String = row.get(3);
-            let data: serde_json::Value = row.get(5);
-            let content_id: String = row.get(6);
-            let parent_content_id: String = row.get(7);
+            let content_source: String = row.get(4);
+            let data: serde_json::Value = row.get(6);
+            let content_id: String = row.get(7);
+            let parent_content_id: String = row.get(8);
             let attributes = ExtractedMetadata {
                 id,
                 content_id,
                 parent_content_id,
+                content_source,
                 metadata: data,
                 extractor_name: extractor,
                 extraction_policy,
@@ -114,6 +118,21 @@ impl MetadataStorage for PostgresIndexManager {
             extracted_attributes.push(attributes);
         }
         Ok(extracted_attributes)
+    }
+}
+
+#[async_trait(?Send)]
+impl MetadataReader for PostgresIndexManager {
+    async fn get_metadata_for_id(
+        &self,
+        _namespace: &str,
+        _id: &str,
+    ) -> Result<Option<ExtractedMetadata>> {
+        unimplemented!()
+    }
+
+    async fn scan_metadata(&self, _namespace: &str, _content_source: &str) -> MetadataScanStream {
+        unimplemented!()
     }
 }
 
@@ -135,6 +154,7 @@ mod tests {
             id: "test_id".into(),
             content_id: "test_content_id".into(),
             parent_content_id: "test_parent_content_id".into(),
+            content_source: "test_content_source".into(),
             metadata: serde_json::json!({"test": "test"}),
             extractor_name: "test_extractor".into(),
             extraction_policy: "test_extractor_policy".into(),
@@ -146,7 +166,7 @@ mod tests {
 
         // Retreive the metadata from the database
         let metadata_out = index_manager
-            .get_metadata(namespace, "test_content_id")
+            .get_metadata_for_content(namespace, "test_content_id")
             .await
             .unwrap();
 

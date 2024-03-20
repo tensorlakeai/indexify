@@ -160,7 +160,6 @@ pub struct EmbeddingSchema {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Display, ToSchema)]
-#[serde(untagged)]
 pub enum ExtractorOutputSchema {
     #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
@@ -177,62 +176,20 @@ pub struct ExtractorDescription {
     pub outputs: HashMap<String, ExtractorOutputSchema>,
 }
 
-impl From<ExtractorDescription> for indexify_coordinator::Extractor {
-    fn from(value: ExtractorDescription) -> Self {
-        let outputs = value
-            .outputs
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string()))
-            .collect();
-        Self {
-            name: value.name,
-            description: value.description,
-            input_params: value.input_params.to_string(),
-            outputs,
-            input_mime_types: value.input_mime_types,
-        }
-    }
-}
-
-impl From<ExtractorDescription> for internal_api::ExtractorDescription {
-    fn from(extractor: ExtractorDescription) -> internal_api::ExtractorDescription {
-        let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in extractor.outputs {
-            match embedding_schema {
-                ExtractorOutputSchema::Embedding(embedding_schema) => {
-                    let distance = embedding_schema.distance.to_string();
-                    output_schema.insert(
-                        output_name,
-                        internal_api::OutputSchema::Embedding(internal_api::EmbeddingSchema {
-                            dim: embedding_schema.dim,
-                            distance,
-                        }),
-                    );
-                }
-                ExtractorOutputSchema::Metadata(schema) => {
-                    output_schema
-                        .insert(output_name, internal_api::OutputSchema::Attributes(schema));
-                }
-            }
-        }
-        Self {
-            name: extractor.name,
-            description: extractor.description,
-            input_params: extractor.input_params,
-            outputs: output_schema,
-            input_mime_types: extractor.input_mime_types,
-        }
-    }
-}
-
 impl TryFrom<indexify_coordinator::Extractor> for ExtractorDescription {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Extractor) -> Result<Self> {
         let mut outputs = HashMap::new();
-        for (k, v) in value.outputs.iter() {
-            let v: ExtractorOutputSchema = serde_json::from_str(v)?;
-            outputs.insert(k.clone(), v);
+        for (k, v) in value.embedding_schemas.iter() {
+            let schema: EmbeddingSchema = serde_json::from_str(v)?;
+            outputs.insert(k.clone(), ExtractorOutputSchema::Embedding(schema));
+        }
+        for (k, v) in value.metadata_schemas.iter() {
+            outputs.insert(
+                k.clone(),
+                ExtractorOutputSchema::Metadata(serde_json::from_str(v)?),
+            );
         }
         Ok(Self {
             name: value.name,
@@ -558,7 +515,7 @@ pub struct GetStructuredDataSchemasResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StructuredDataSchema {
-    pub schema: serde_json::Value,
+    pub columns: serde_json::Value,
     pub content_source: String,
     pub namespace: String,
 }
@@ -585,4 +542,14 @@ pub struct RaftMetricsSnapshotResponse {
     pub vote: u64,
     pub last_log_index: u64,
     pub current_leader: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SQLQuery {
+    pub query: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SqlQueryResponse {
+    pub rows: Vec<serde_json::Value>,
 }

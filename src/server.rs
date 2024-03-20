@@ -35,7 +35,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
     extractor_router::ExtractorRouter,
-    metadata_storage::{self, MetadataStorageTS},
+    metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
     server_config::ServerConfig,
     vector_index::VectorIndexManager,
     vectordbs,
@@ -119,6 +119,8 @@ impl Server {
         );
         let metadata_index_manager: MetadataStorageTS =
             metadata_storage::from_config(&self.config.metadata_storage)?;
+        let metadata_reader: MetadataReaderTS =
+            metadata_storage::from_config_reader(&self.config.metadata_storage)?;
         let blob_storage = Arc::new(BlobStorage::new_with_config(
             self.config.blob_storage.clone(),
         ));
@@ -126,6 +128,7 @@ impl Server {
             DataManager::new(
                 vector_index_manager,
                 metadata_index_manager,
+                metadata_reader,
                 blob_storage.clone(),
                 coordinator_client.clone(),
             )
@@ -184,6 +187,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/search",
                 post(index_search).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/sql_query",
+                post(run_sql_query).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/schemas",
@@ -890,6 +897,25 @@ async fn index_search(
     }))
 }
 
+#[axum::debug_handler]
+async fn run_sql_query(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+    Json(query): Json<SQLQuery>,
+) -> Result<Json<SqlQueryResponse>, IndexifyAPIError> {
+    let results = state
+        .data_manager
+        .query_content_source(&namespace, &query.query)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut json_result = Vec::new();
+    for result in results {
+        json_result.push(serde_json::to_value(&result).unwrap());
+    }
+    Ok(Json(SqlQueryResponse { rows: json_result }))
+}
+
 #[utoipa::path(
     post,
     path = "/namespace/{namespace}/schemas",
@@ -920,7 +946,7 @@ async fn list_schemas(
     let mut schemas = Vec::new();
     for schema in results {
         schemas.push(StructuredDataSchema {
-            schema: serde_json::from_str(&schema.schema).unwrap(),
+            columns: serde_json::from_str(&schema.columns).unwrap(),
             namespace: namespace.to_string(),
             content_source: schema.content_source,
         })

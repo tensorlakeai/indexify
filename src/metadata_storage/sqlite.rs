@@ -1,11 +1,26 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Ok, Result};
 use async_trait::async_trait;
+use futures::{
+    stream::{self},
+    StreamExt,
+};
+use gluesql::{
+    core::{
+        data::{HashMapJsonExt, Key, ValueError},
+        error::Error::StorageMsg as GlueStorageError,
+        store::DataRow,
+    },
+    json_storage::error::ResultExt,
+};
 use rusqlite::{params, Connection};
 use tokio::sync::Mutex;
 
-use super::{table_name, ExtractedMetadata, MetadataStorage};
+use super::{table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage};
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
 pub struct SqliteIndexManager {
@@ -15,8 +30,12 @@ pub struct SqliteIndexManager {
 
 impl SqliteIndexManager {
     pub fn new(conn_url: &str) -> Result<Arc<Self>> {
-        let conn = Connection::open(conn_url)
-            .map_err(|e| anyhow!("unable to open sqlite connection: {}", e))?;
+        let conn = if conn_url.starts_with("memory") {
+            Connection::open_in_memory()
+        } else {
+            Connection::open(conn_url)
+        };
+        let conn = conn.map_err(|e| anyhow!("unable to open sqlite connection: {}", e))?;
         let conn = Arc::new(Mutex::new(conn));
         Ok(Arc::new(Self {
             conn,
@@ -35,6 +54,7 @@ impl MetadataStorage for SqliteIndexManager {
             namespace TEXT,
             extractor TEXT,
             extractor_policy_name TEXT,
+            content_source TEXT,
             index_name TEXT,
             data JSONB,
             content_id TEXT,
@@ -57,7 +77,7 @@ impl MetadataStorage for SqliteIndexManager {
             self.default_table_created
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        let query = format!("INSERT INTO {index_name} (id, namespace, extractor, extractor_policy_name, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+        let query = format!("INSERT INTO {index_name} (id, namespace, extractor, extractor_policy_name, content_source, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let conn = self.conn.lock().await;
         let _ = conn.execute(
             &query,
@@ -66,6 +86,7 @@ impl MetadataStorage for SqliteIndexManager {
                 namespace,
                 metadata.extractor_name,
                 metadata.extraction_policy,
+                metadata.content_source,
                 index_name.to_string(),
                 metadata.metadata,
                 metadata.content_id,
@@ -76,7 +97,7 @@ impl MetadataStorage for SqliteIndexManager {
         Ok(())
     }
 
-    async fn get_metadata(
+    async fn get_metadata_for_content(
         &self,
         namespace: &str,
         content_id: &str,
@@ -99,19 +120,85 @@ impl MetadataStorage for SqliteIndexManager {
     }
 }
 
+#[async_trait(?Send)]
+impl MetadataReader for SqliteIndexManager {
+    async fn get_metadata_for_id(
+        &self,
+        namespace: &str,
+        id: &str,
+    ) -> Result<Option<ExtractedMetadata>> {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("SELECT * FROM {table_name} WHERE namespace = $1 and id = $2");
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(&query)?;
+        let metadata = stmt
+            .query_map(params![namespace, id], row_to_extracted_metadata)
+            .map_err(|e| anyhow!("unable to query metadata from sqlite: {}", e))?;
+        for metadata in metadata {
+            let metadata = metadata.map_err(|e| anyhow!(e.to_string()))?;
+            return Ok(Some(metadata));
+        }
+        Ok(None)
+    }
+
+    async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query =
+            format!("SELECT * FROM {table_name} WHERE namespace = $1 and content_source = $2");
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(&query).map_err(|e| {
+            GlueStorageError(format!(
+                "unable to execute query on sqlite: {}",
+                e.to_string()
+            ))
+        })?;
+        let metadata = stmt
+            .query_map(params![namespace, content_source], |row| {
+                row_to_extracted_metadata(row)
+            })
+            .map_err(|e| {
+                GlueStorageError(format!("unable to query metadata from sqlite: {}", e))
+            })?;
+        let mut metadata_list = vec![];
+        for m in metadata {
+            let m = m.map_err(|e| GlueStorageError(e.to_string()))?;
+            let mut out_rows: HashMap<String, gluesql::core::data::Value> = HashMap::new();
+            out_rows.insert(
+                "content_id".to_string(),
+                gluesql::core::data::Value::Str(m.content_id.clone()),
+            );
+            let meta = match m.metadata.clone() {
+                serde_json::Value::Object(json_map) => HashMap::try_from_json_map(json_map),
+                _ => Err(ValueError::JsonObjectTypeRequired.into()),
+            };
+            let meta = meta
+                .map_err(|e| gluesql::core::error::Error::StorageMsg(e.to_string()))
+                .unwrap();
+            out_rows.extend(meta);
+
+            let key = gluesql::core::data::Key::Str(m.id.clone());
+            metadata_list.push(std::result::Result::Ok((key, DataRow::Map(out_rows))));
+        }
+        let metadata_stream = stream::iter(metadata_list).boxed();
+        std::result::Result::Ok(metadata_stream)
+    }
+}
+
 fn row_to_extracted_metadata(
     row: &rusqlite::Row,
 ) -> std::result::Result<ExtractedMetadata, rusqlite::Error> {
     let id: String = row.get(0)?;
-    let extractor: String = row.get(2)?;
-    let extractor_policy_name: String = row.get(3)?;
-    let data: serde_json::Value = row.get(5)?;
-    let content_id: String = row.get(6)?;
-    let parent_content_id: String = row.get(7)?;
-    Ok(ExtractedMetadata {
+    let extractor_name: String = row.get(2)?;
+    let extraction_policy: String = row.get(3)?;
+    let content_source: String = row.get(5)?;
+    let data: serde_json::Value = row.get(6)?;
+    let content_id: String = row.get(7)?;
+    let parent_content_id: String = row.get(8)?;
+    std::result::Result::Ok(ExtractedMetadata {
         id,
-        extractor_name: extractor,
-        extraction_policy: extractor_policy_name,
+        extractor_name,
+        extraction_policy,
+        content_source,
         metadata: data,
         content_id,
         parent_content_id,
@@ -164,6 +251,7 @@ mod tests {
             id: "test_id".into(),
             content_id: "test_content_id".into(),
             parent_content_id: "test_parent_content_id".into(),
+            content_source: "test_content_source".into(),
             metadata: serde_json::json!({"test": "test"}),
             extractor_name: "test_extractor".into(),
             extraction_policy: "test_extractor_policy".into(),
@@ -175,7 +263,7 @@ mod tests {
 
         // Retrieve the metadata from the database
         let metadata_out = index_manager
-            .get_metadata(namespace, "test_content_id")
+            .get_metadata_for_content(namespace, "test_content_id")
             .await
             .unwrap();
 

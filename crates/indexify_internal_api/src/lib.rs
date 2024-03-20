@@ -7,10 +7,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_proto::indexify_coordinator;
-use json_schema_tools::compose::compose;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
@@ -86,7 +84,7 @@ pub enum OutputSchema {
     #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
     #[serde(rename = "attributes")]
-    Attributes(serde_json::Value),
+    Attributes(HashMap<String, SchemaColumnType>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -100,29 +98,64 @@ pub struct ExtractorDescription {
 
 impl From<ExtractorDescription> for indexify_coordinator::Extractor {
     fn from(value: ExtractorDescription) -> Self {
-        let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in value.outputs {
-            output_schema.insert(
-                output_name,
-                serde_json::to_string(&embedding_schema).unwrap(),
-            );
+        let mut embedding_schemas = HashMap::new();
+        let mut metadata_schemas = HashMap::new();
+        for (output_name, schema) in value.outputs {
+            match schema {
+                OutputSchema::Embedding(embedding_schema) => {
+                    embedding_schemas.insert(
+                        output_name,
+                        serde_json::to_string(&embedding_schema).unwrap(),
+                    );
+                }
+                OutputSchema::Attributes(attributes) => {
+                    metadata_schemas
+                        .insert(output_name, serde_json::to_string(&attributes).unwrap());
+                }
+            }
         }
         Self {
             name: value.name,
             description: value.description,
             input_params: value.input_params.to_string(),
-            outputs: output_schema,
+            embedding_schemas,
             input_mime_types: value.input_mime_types,
+            metadata_schemas,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct OutputType {
+    #[serde(rename = "type")]
+    pub output_type: String,
 }
 
 impl From<indexify_coordinator::Extractor> for ExtractorDescription {
     fn from(value: indexify_coordinator::Extractor) -> Self {
         let mut output_schema = HashMap::new();
-        for (output_name, embedding_schema) in value.outputs {
-            let embedding_schema: OutputSchema = serde_json::from_str(&embedding_schema).unwrap();
-            output_schema.insert(output_name, embedding_schema);
+        for (output_name, embedding_schema) in value.embedding_schemas {
+            let embedding_schema: EmbeddingSchema =
+                serde_json::from_str(&embedding_schema).unwrap();
+            output_schema.insert(output_name, OutputSchema::Embedding(embedding_schema));
+        }
+        for (output_name, metadata_schema) in value.metadata_schemas {
+            let metadata_schema: HashMap<String, OutputType> =
+                serde_json::from_str(&metadata_schema).unwrap();
+            let mut cols = HashMap::new();
+            for (k, v) in metadata_schema {
+                let col_type = match v.output_type.as_str() {
+                    "integer" => SchemaColumnType::Int,
+                    "string" => SchemaColumnType::Text,
+                    "array" => SchemaColumnType::Array,
+                    "object" => SchemaColumnType::Object,
+                    "number" => SchemaColumnType::Float,
+                    "boolean" => SchemaColumnType::Bool,
+                    _ => SchemaColumnType::Object,
+                };
+                cols.insert(k, col_type);
+            }
+            output_schema.insert(output_name, OutputSchema::Attributes(cols));
         }
         Self {
             name: value.name,
@@ -572,8 +605,21 @@ pub struct ExtractedEmbeddings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SchemaColumnType {
+    Null,
+    Array,
+    Int,
+    BigInt,
+    Text,
+    Float,
+    Bool,
+    Object,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct StructuredDataSchema {
-    pub schema: serde_json::Value,
+    pub columns: HashMap<String, SchemaColumnType>,
     pub content_source: String,
     pub namespace: String,
     pub id: String,
@@ -583,19 +629,21 @@ impl StructuredDataSchema {
     pub fn new(content_source: &str, namespace: &str) -> Self {
         let id = Self::schema_id(namespace, content_source);
         Self {
-            schema: json!({"$schema": "http://json-schema.org/schema#", "$id": "", "$defs": {}}),
+            columns: HashMap::new(),
             content_source: content_source.to_string(),
             namespace: namespace.to_string(),
             id,
         }
     }
 
-    pub fn merge(&self, extractor: &str, other: serde_json::Value) -> Result<Self> {
-        let result = compose(&self.schema, vec![(Some(extractor), other)].as_slice())
-            .map_err(|e| anyhow!(e))?;
+    pub fn merge(&self, other: HashMap<String, SchemaColumnType>) -> Result<Self> {
+        let mut columns = self.columns.clone();
+        for (column, dtype) in other {
+            columns.insert(column, dtype);
+        }
         Ok(Self {
-            schema: result,
             content_source: self.content_source.clone(),
+            columns,
             namespace: self.namespace.clone(),
             id: self.id.clone(),
         })
@@ -616,20 +664,18 @@ mod test {
     #[test]
     fn test_structured_data_schema() {
         let schema = StructuredDataSchema::new("test", "test-namespace");
-        let other = json!(
-            {"$schema": "http://json-schema.org/schema#","$id": "/extractor1", "type": "object", "properties": {"bounding_box": {"type": "array", "items": {"type": "number"}}, "name": {"type": "string"}}, "required": ["bounding_box", "name"]});
-        let result = schema.merge("test_extractor", other).unwrap();
-        println!(
-            "Result: {:?}",
-            serde_json::to_string(&result.schema).unwrap()
-        );
-        let other1 = json!(
-            {"$schema": "http://json-schema.org/schema#","$id": "/extractor2", "type": "object", "properties": {"age": {"type": "int"}}, "required": ["age"]});
-        let result1 = result.merge("test_extractor1", other1).unwrap();
-        println!(
-            "Result1: {:?}",
-            serde_json::to_string(&result1.schema).unwrap()
-        );
-        assert_eq!(result.content_source, "test");
+        let other = HashMap::from([
+            ("bounding_box".to_string(), SchemaColumnType::Object),
+            ("object_class".to_string(), SchemaColumnType::Text),
+        ]);
+        let result = schema.merge(other).unwrap();
+        let other1 = HashMap::from([
+            ("a".to_string(), SchemaColumnType::Int),
+            ("b".to_string(), SchemaColumnType::Text),
+        ]);
+        let result1 = result.merge(other1).unwrap();
+        assert_eq!(result1.content_source, "test");
+        assert_eq!(result1.namespace, "test-namespace");
+        assert_eq!(result1.columns.len(), 4);
     }
 }

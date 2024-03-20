@@ -212,9 +212,8 @@ impl Coordinator {
             .await?;
         let mut updated_schema = None;
         for (_, output_schema) in extractor.outputs {
-            if let OutputSchema::Attributes(schema) = output_schema {
-                let updated_structured_data_schema =
-                    structued_data_schema.merge(&format!("{}.", &extractor.name), schema)?;
+            if let OutputSchema::Attributes(columns) = output_schema {
+                let updated_structured_data_schema = structued_data_schema.merge(columns)?;
                 updated_schema.replace(updated_structured_data_schema);
             }
         }

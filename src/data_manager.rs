@@ -20,15 +20,22 @@ use crate::{
     blob_storage::{BlobStorage, BlobStorageWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
-    metadata_storage::{ExtractedMetadata, MetadataStorageTS},
+    metadata_storage::{
+        query_engine::{run_query, StructuredDataRow},
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
+    },
     vector_index::{ScoredText, VectorIndexManager},
 };
 
 pub struct DataManager {
     vector_index_manager: Arc<VectorIndexManager>,
     metadata_index_manager: MetadataStorageTS,
+    metadata_reader: MetadataReaderTS,
     blob_storage: Arc<BlobStorage>,
     coordinator_client: Arc<CoordinatorClient>,
+    rt: tokio::runtime::Runtime,
 }
 
 impl fmt::Debug for DataManager {
@@ -41,14 +48,21 @@ impl DataManager {
     pub async fn new(
         vector_index_manager: Arc<VectorIndexManager>,
         metadata_index_manager: MetadataStorageTS,
+        metadata_reader: MetadataReaderTS,
         blob_storage: Arc<BlobStorage>,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Result<Self> {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()?;
         Ok(Self {
             vector_index_manager,
             metadata_index_manager,
+            metadata_reader,
             blob_storage,
             coordinator_client,
+            rt,
         })
     }
 
@@ -136,7 +150,7 @@ impl DataManager {
             "extractor {:?} not found",
             extraction_policy.extractor
         ))?;
-        for (name, output_schema) in &extractor.outputs {
+        for (name, output_schema) in &extractor.embedding_schemas {
             let output_schema: internal_api::OutputSchema = serde_json::from_str(output_schema)?;
             if let internal_api::OutputSchema::Embedding(embedding_schema) = output_schema {
                 let index_name = response.output_index_name_mapping.get(name).unwrap();
@@ -404,10 +418,10 @@ impl DataManager {
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_meta.id,
                         &content_meta.parent_id,
+                        &content_meta.source,
                         feature.data.clone(),
                         extractor_name,
                         extraction_policy,
-                        &content_meta.namespace,
                     );
                     info!("adding metadata to index {}", feature.data.to_string());
                     self.metadata_index_manager
@@ -469,6 +483,34 @@ impl DataManager {
             .await?;
         }
         Ok(())
+    }
+
+    pub async fn query_content_source(
+        &self,
+        namespace: &str,
+        query: &str,
+    ) -> Result<Vec<StructuredDataRow>> {
+        let schemas = self
+            .coordinator_client
+            .get_structured_schemas(namespace)
+            .await?;
+        let metadata_reader = self.metadata_reader.clone();
+        let namespace = namespace.to_string();
+        let query = query.to_string();
+        let handle = self.rt.handle().clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let namespace = namespace.to_string();
+            let query = query.to_string();
+            let result = handle.block_on(async move {
+                let namespace = namespace.to_string();
+                let query = query.to_string();
+                run_query(query, metadata_reader, schemas, namespace).await
+            });
+            result
+        })
+        .await?;
+
+        result
     }
 
     #[tracing::instrument]
@@ -533,7 +575,7 @@ impl DataManager {
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
         self.metadata_index_manager
-            .get_metadata(namespace, content_id)
+            .get_metadata_for_content(namespace, content_id)
             .await
     }
 
