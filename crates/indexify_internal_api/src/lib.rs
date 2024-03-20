@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, BTreeMap, HashMap},
     fmt,
     hash::{Hash, Hasher},
     str::FromStr,
@@ -619,7 +619,7 @@ pub enum SchemaColumnType {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct StructuredDataSchema {
-    pub columns: HashMap<String, SchemaColumnType>,
+    pub columns: BTreeMap<String, SchemaColumnType>,
     pub content_source: String,
     pub namespace: String,
     pub id: String,
@@ -629,7 +629,7 @@ impl StructuredDataSchema {
     pub fn new(content_source: &str, namespace: &str) -> Self {
         let id = Self::schema_id(namespace, content_source);
         Self {
-            columns: HashMap::new(),
+            columns: BTreeMap::new(),
             content_source: content_source.to_string(),
             namespace: namespace.to_string(),
             id,
