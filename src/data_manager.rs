@@ -486,12 +486,11 @@ impl DataManager {
         let namespace = namespace.to_string();
         let query = query.to_string();
         let handle = self.rt.handle().clone();
-        
 
         tokio::task::spawn_blocking(move || {
             let namespace = namespace.to_string();
             let query = query.to_string();
-            
+
             handle.block_on(async move {
                 let namespace = namespace.to_string();
                 let query = query.to_string();

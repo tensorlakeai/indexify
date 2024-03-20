@@ -1,13 +1,15 @@
 use std::{collections::HashSet, sync::Arc};
 
+use indexify_internal_api;
 use rocksdb::OptimisticTransactionDB;
 use tracing::error;
 
 use super::{
     serializer::{JsonEncode, JsonEncoder},
-    StateMachineColumns, StateMachineError, TaskId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
-use indexify_internal_api;
 
 #[derive(Clone)]
 pub struct StateMachineReader {}
