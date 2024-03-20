@@ -295,6 +295,16 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
     }
 
+    pub async fn get_indexes_from_ids(
+        &self,
+        task_ids: HashSet<String>,
+    ) -> Result<Vec<indexify_internal_api::Index>> {
+        self.state_machine_reader
+            .get_indexes_from_ids(task_ids, &self.db)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,

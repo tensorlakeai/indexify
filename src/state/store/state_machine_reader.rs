@@ -5,7 +5,7 @@ use tracing::error;
 
 use super::{
     serializer::{JsonEncode, JsonEncoder},
-    StateMachineColumns, StateMachineError,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 use indexify_internal_api;
 
@@ -53,6 +53,27 @@ impl StateMachineReader {
             })
             .collect();
         tasks
+    }
+
+    pub async fn get_indexes_from_ids(
+        &self,
+        task_ids: HashSet<TaskId>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::Index>, StateMachineError> {
+        let txn = db.transaction();
+        let indexes: Result<Vec<indexify_internal_api::Index>, StateMachineError> = task_ids
+            .into_iter()
+            .map(|task_id| {
+                let index_bytes = txn
+                    .get_cf(StateMachineColumns::IndexTable.cf(db), task_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!("Index {} not found", task_id))
+                    })?;
+                JsonEncoder::decode(&index_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        indexes
     }
 
     pub async fn get_executors_from_ids(

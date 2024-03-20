@@ -869,12 +869,12 @@ impl App {
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
         let store = self.indexify_state.read().await;
-        let indexes = store
+        let index_ids = store
             .namespace_index_table
             .get(namespace)
             .cloned()
             .unwrap_or_default();
-        let indexes = indexes.into_iter().collect_vec();
+        let indexes = self.state_machine.get_indexes_from_ids(index_ids).await?;
         Ok(indexes)
     }
 

@@ -37,7 +37,7 @@ pub struct IndexifyState {
     pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     /// Namespace -> Index index
-    pub namespace_index_table: HashMap<NamespaceName, HashSet<internal_api::Index>>, /* TODO: Store id in the second column, not the entire index */
+    pub namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
@@ -657,14 +657,14 @@ impl IndexifyState {
             }
             // change required
             RequestPayload::CreateIndex {
-                index,
+                index: _,
                 namespace,
-                id: _,
+                id,
             } => {
                 self.namespace_index_table
                     .entry(namespace.clone())
                     .or_default()
-                    .insert(index.clone());
+                    .insert(id);
             }
             RequestPayload::UpdateTask {
                 task,
