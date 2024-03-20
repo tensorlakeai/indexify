@@ -236,9 +236,8 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
-            let size_bytes = text.bytes.len() as u64;
             let content_metadata = self
-                .write_content_bytes(namespace, text, None, None, "ingestion", size_bytes)
+                .write_content_bytes(namespace, text, None, None, "ingestion")
                 .await?;
             let req: indexify_coordinator::CreateContentRequest =
                 indexify_coordinator::CreateContentRequest {
@@ -295,16 +294,8 @@ impl DataManager {
             labels: HashMap::new(),
             features: vec![],
         };
-        let size_bytes = data.len() as u64;
         let content_metadata = self
-            .write_content_bytes(
-                namespace,
-                content,
-                Some(name),
-                None,
-                "ingestion",
-                size_bytes,
-            )
+            .write_content_bytes(namespace, content, Some(name), None, "ingestion")
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
         let req = indexify_coordinator::CreateContentRequest {
@@ -331,7 +322,6 @@ impl DataManager {
         file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
-        size_bytes: u64,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -364,7 +354,7 @@ impl DataManager {
             namespace: namespace.to_string(),
             labels,
             source: source.to_string(),
-            size_bytes,
+            size_bytes: content.bytes.len() as u64,
         })
     }
 
@@ -444,7 +434,6 @@ impl DataManager {
         let mut features = HashMap::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
-            let size_bytes = content.bytes.len() as u64;
             let content_metadata = self
                 .write_content_bytes(
                     namespace.as_str(),
@@ -452,7 +441,6 @@ impl DataManager {
                     None,
                     Some(ingest_metadata.parent_content_id.to_string()),
                     &ingest_metadata.extraction_policy,
-                    size_bytes,
                 )
                 .await?;
             features.insert(content_metadata.id.clone(), content.features.clone());
