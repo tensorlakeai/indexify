@@ -4,12 +4,14 @@ import { IExtractionGraphColumns } from "../types";
 import { Link } from "react-router-dom";
 
 const ExtractionPolicyItem = ({
+  isBelowSchema,
   extractionPolicy,
   namespace,
   cols,
   depth,
   index,
 }: {
+  isBelowSchema: boolean;
   extractionPolicy: IExtractionPolicy;
   namespace: string;
   cols: IExtractionGraphColumns;
@@ -35,23 +37,9 @@ const ExtractionPolicyItem = ({
     );
   };
 
-  const renderIndexSchema = () => {
-    if (!index?.schema) {
-      return <Typography variant="body1">None</Typography>;
-    }
-    return (
-      <Box sx={{ overflowX: "scroll" }}>
-        <Stack gap={1} direction="row">
-          {Object.keys(index.schema).map((val: string) => {
-            return <Chip key={val} label={`${val}:${index.schema[val]}`} />;
-          })}
-        </Stack>
-      </Box>
-    );
-  };
-
   const LShapedLine = () => {
-    const verticalLength = 36;
+    const belowSchemaOffset = 40
+    const verticalLength = 36 + (isBelowSchema ? belowSchemaOffset : 0);
     const horizontalLength = 20;
 
     return (
@@ -60,7 +48,7 @@ const ExtractionPolicyItem = ({
         width={horizontalLength + 5}
         style={{
           marginLeft: "-35px",
-          marginTop: "-25px",
+          marginTop: `${-25 - (isBelowSchema ? belowSchemaOffset : 0)}px`,
           position: "absolute",
         }}
       >
@@ -103,11 +91,6 @@ const ExtractionPolicyItem = ({
         {index && (
           <Box sx={{ minWidth: cols.indexName.width }}>
             <Link to={`/${namespace}/indexes/${index.name}`}>{index.name}</Link>
-          </Box>
-        )}
-        {index && (
-          <Box sx={{ minWidth: cols.schema.width, pr: 2 }}>
-            {renderIndexSchema()}
           </Box>
         )}
       </Stack>

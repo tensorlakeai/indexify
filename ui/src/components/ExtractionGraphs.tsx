@@ -1,5 +1,5 @@
-import { IExtractionPolicy, IIndex } from "getindexify";
-import { Alert, Paper, Typography } from "@mui/material";
+import { IExtractionPolicy, IIndex, ISchema } from "getindexify";
+import { Alert, Chip, Paper, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React, { ReactElement } from "react";
 import GavelIcon from "@mui/icons-material/Gavel";
@@ -10,17 +10,35 @@ const ExtractionGraphs = ({
   extractionPolicies,
   namespace,
   indexes,
+  schemas,
 }: {
   extractionPolicies: IExtractionPolicy[];
   namespace: string;
   indexes: IIndex[];
+  schemas: ISchema[];
 }) => {
   const cols: IExtractionGraphColumns = {
     name: { displayName: "Name", width: 300 },
     extractor: { displayName: "Extractor", width: 250 },
     inputParams: { displayName: "Input Params", width: 200 },
     indexName: { displayName: "Index", width: 250 },
-    schema: { displayName: "Schema", width: 220 },
+  };
+
+  const renderSchema = (schema: ISchema, depth: number) => {
+    return (
+      <Box sx={{ width: 'auto', overflowX: 'auto', pl: depth * 4, py: 1 }}>
+      <Stack direction="row" gap={1} sx={{ display: 'flex', alignItems: 'center', minWidth: 'max-content' }}>
+        <Typography sx={{ ml: 0, color:"#060D3F" }} variant="label">{schema.content_source} schema:</Typography>
+        {Object.keys(schema.columns).map((val) => (
+          <Chip
+            key={val}
+            sx={{ backgroundColor: "#060D3F", color: "white" }}
+            label={`${val}: ${schema.columns[val]}`}
+          />
+        ))}
+      </Stack>
+    </Box>
+    );
   };
 
   const renderHeader = () => {
@@ -36,7 +54,7 @@ const ExtractionGraphs = ({
       </Stack>
     );
   };
-  
+
   const getIndexFromPolicyName = (name: string): IIndex | undefined => {
     return indexes.find((v) => v.name === `${name}.embedding`);
   };
@@ -47,13 +65,18 @@ const ExtractionGraphs = ({
     depth = 0
   ): ReactElement[] => {
     let items: ReactElement[] = [];
+    const schema = schemas.find((v) => v.content_source === source && !!Object.keys(v.columns).length);
+    if (schema) {
+      items.push(renderSchema(schema, depth));
+    }
 
     policies
       .filter((policy) => policy.content_source === source)
-      .forEach((policy) => {
+      .forEach((policy,i) => {
         items.push(
           <ExtractionPolicyItem
             key={policy.name}
+            isBelowSchema={i === 0 && !!schema}
             extractionPolicy={policy}
             namespace={namespace}
             cols={cols}
