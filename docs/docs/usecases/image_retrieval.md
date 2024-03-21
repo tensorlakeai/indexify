@@ -41,3 +41,30 @@ We can make OpenAI generate the SQL query based on a language -
 ```
 chain.invoke("Find the photos with a skateboard?")
 ```
+### Semantic Search with CLIP Embeddings
+OpenAI's CLIP embedding model allows searching images with semantically similar description of images. 
+
+### Download and start the Clip Embedding Extractor
+```
+indexify-extractor download hub://embedding/clip
+cd embedding/clip/
+indexify-extractor join openai_clip_extractor:ClipEmbeddingExtractor
+```
+
+### Create an Extraction Policy 
+```
+client.add_extraction_policy(extractor='tensorlake/clip-extractor', name="clip_embedding")
+```
+This creates an embedding index `clip_embedding.embedding`. You can also find the index name via the following API - 
+
+```
+client.indexes()
+```
+
+### Upload Images
+Upload some images or search on the images which were already uploaded
+
+### Search
+```
+client.search_index(name="clip_embedding.embedding", query="skateboard", top_k=2)
+```
