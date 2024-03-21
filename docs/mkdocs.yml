@@ -47,7 +47,7 @@ nav:
     - Basic RAG: 'usecases/rag.md'
     - Audio Extraction: 'usecases/audio_extraction.md'
     - PDF Extraction: 'usecases/pdf_extraction.md'
-    - Image Extraction: 'usecases/image_extraction.md'
+    - Image Retrieval: 'usecases/image_retrieval.md'
     - RAG on Video: 'usecases/video_rag.md'
   - Integrations:
     - Langchain:
