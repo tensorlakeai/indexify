@@ -20,12 +20,14 @@ import { createTheme } from "@mui/material/styles";
 
 declare module "@mui/material/styles" {
   interface TypographyVariants {
+    labelSmall: React.CSSProperties;
     label: React.CSSProperties;
     menuItem: React.CSSProperties;
   }
 
   // allow configuration using `createTheme`
   interface TypographyVariantsOptions {
+    labelSmall?: React.CSSProperties;
     label?: React.CSSProperties;
     menuItem?: React.CSSProperties;
   }
@@ -34,6 +36,7 @@ declare module "@mui/material/styles" {
 // Update the Typography's variant prop options
 declare module "@mui/material/Typography" {
   interface TypographyPropsVariantOverrides {
+    labelSmall: true
     label: true;
     menuItem: true;
   }
@@ -155,6 +158,14 @@ const theme = createTheme({
       fontSize: "16px",
       fontStyle: "normal",
       fontWeight: "500",
+      lineHeight: "22px",
+      letterSpacing: 0.32,
+    },
+    labelSmall: {
+      fontFamily: "outfit",
+      fontSize: "13px",
+      fontStyle: "normal",
+      fontWeight: "600",
       lineHeight: "22px",
       letterSpacing: 0.32,
     },

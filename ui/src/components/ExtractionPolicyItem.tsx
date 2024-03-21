@@ -5,15 +5,19 @@ import { Link } from "react-router-dom";
 
 const ExtractionPolicyItem = ({
   extractionPolicy,
+  siblingCount,
   namespace,
   cols,
   depth,
+  itemHeight,
   index,
 }: {
   extractionPolicy: IExtractionPolicy;
+  siblingCount: number;
   namespace: string;
   cols: IExtractionGraphColumns;
   depth: number;
+  itemHeight: number;
   index?: IIndex;
 }) => {
   const renderInputParams = () => {
@@ -35,23 +39,8 @@ const ExtractionPolicyItem = ({
     );
   };
 
-  const renderIndexSchema = () => {
-    if (!index?.schema) {
-      return <Typography variant="body1">None</Typography>;
-    }
-    return (
-      <Box sx={{ overflowX: "scroll" }}>
-        <Stack gap={1} direction="row">
-          {Object.keys(index.schema).map((val: string) => {
-            return <Chip key={val} label={`${val}:${index.schema[val]}`} />;
-          })}
-        </Stack>
-      </Box>
-    );
-  };
-
   const LShapedLine = () => {
-    const verticalLength = 36;
+    const verticalLength = 30 + siblingCount * itemHeight;
     const horizontalLength = 20;
 
     return (
@@ -60,7 +49,7 @@ const ExtractionPolicyItem = ({
         width={horizontalLength + 5}
         style={{
           marginLeft: "-35px",
-          marginTop: "-25px",
+          marginTop: `${12 - verticalLength}px`,
           position: "absolute",
         }}
       >
@@ -85,7 +74,7 @@ const ExtractionPolicyItem = ({
   };
 
   return (
-    <Box sx={{ py: 1, position: "relative" }}>
+    <Box sx={{ py: 0.5, position: "relative", height: 40 }}>
       <Stack direction={"row"} sx={{ display: "flex", alignItems: "center" }}>
         <Typography
           sx={{ minWidth: cols.name.width, pl: depth * 4 }}
@@ -103,11 +92,6 @@ const ExtractionPolicyItem = ({
         {index && (
           <Box sx={{ minWidth: cols.indexName.width }}>
             <Link to={`/${namespace}/indexes/${index.name}`}>{index.name}</Link>
-          </Box>
-        )}
-        {index && (
-          <Box sx={{ minWidth: cols.schema.width, pr: 2 }}>
-            {renderIndexSchema()}
           </Box>
         )}
       </Stack>
