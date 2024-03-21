@@ -3,14 +3,14 @@ Image Retreival based on natural language is typically done in the following man
 1. Embed images with CLIP, embed the query using the same model and do KNN search to retreive semantically similar images.
 2. Describe an image using a Visual LLM such as LLava and GPT-V, embed the description and retrieve images by searching the descriptions.
 
-While these work, semantic search on descriptions or CLIP based algorithms retreive semantically similar images. In addition to that, running these models are expensive. To make retreival more accurate and cheaper, Indexify in addition to **supporting CLIP and VLLM based extractors**, also supports **SQL based querying of images which are far more cheaper and accurate**.
+While these work, semantic search on descriptions or CLIP based algorithms retreive semantically similar images so they can be less accurate. In addition to that, running these models are expensive. To make retreival more accurate and cheaper, Indexify in addition to **supporting CLIP and VLLM based extractors**, also supports **SQL based querying of images which are far more cheaper and accurate**. Indexify automatically exposes structured data extracted by object detection and tracking models with a SQL interface.
 
 For SQL based retreival, you will -
 
 1. Run object detection extractors powered by efficient models like YoloV9 or Grounding Dino(if you want prompt based extraction).
-2. Indexify automatically exposes structured data as a SQL table, you will make SQL queries to find content from your applications.
+2. You will make SQL queries with predicates to find relevant images from your applications.
 
-In this tutorial we will show you how to do all three image retreival. We will upload some images of New York City, and query them with Natural Language
+In this tutorial we will show you how to do all three image retreival. We will upload some images of New York City, and query them with Natural Language to find images with skateboards.
 
 ## SQL Based Retreival 
 ### Download and Run Yolo Extractor
