@@ -4,15 +4,15 @@ import { IExtractionGraphColumns } from "../types";
 import { Link } from "react-router-dom";
 
 const ExtractionPolicyItem = ({
-  isBelowSchema,
   extractionPolicy,
+  siblingCount,
   namespace,
   cols,
   depth,
   index,
 }: {
-  isBelowSchema: boolean;
   extractionPolicy: IExtractionPolicy;
+  siblingCount: number;
   namespace: string;
   cols: IExtractionGraphColumns;
   depth: number;
@@ -38,8 +38,8 @@ const ExtractionPolicyItem = ({
   };
 
   const LShapedLine = () => {
-    const belowSchemaOffset = 40
-    const verticalLength = 36 + (isBelowSchema ? belowSchemaOffset : 0);
+    const siblingHeight = 40
+    const verticalLength = 30 + (siblingCount * siblingHeight);
     const horizontalLength = 20;
 
     return (
@@ -48,7 +48,7 @@ const ExtractionPolicyItem = ({
         width={horizontalLength + 5}
         style={{
           marginLeft: "-35px",
-          marginTop: `${-25 - (isBelowSchema ? belowSchemaOffset : 0)}px`,
+          marginTop: `${12 - verticalLength}px`,
           position: "absolute",
         }}
       >
@@ -73,7 +73,7 @@ const ExtractionPolicyItem = ({
   };
 
   return (
-    <Box sx={{ py: 1, position: "relative" }}>
+    <Box sx={{ py: 0.5, position: "relative", height:40 }}>
       <Stack direction={"row"} sx={{ display: "flex", alignItems: "center" }}>
         <Typography
           sx={{ minWidth: cols.name.width, pl: depth * 4 }}

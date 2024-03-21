@@ -26,18 +26,38 @@ const ExtractionGraphs = ({
 
   const renderSchema = (schema: ISchema, depth: number) => {
     return (
-      <Box sx={{ width: 'auto', overflowX: 'auto', pl: depth * 4, py: 1 }}>
-      <Stack direction="row" gap={1} sx={{ display: 'flex', alignItems: 'center', minWidth: 'max-content' }}>
-        <Typography sx={{ ml: 0, color:"#060D3F" }} variant="label">{schema.content_source} schema:</Typography>
-        {Object.keys(schema.columns).map((val) => (
-          <Chip
-            key={val}
-            sx={{ backgroundColor: "#060D3F", color: "white" }}
-            label={`${val}: ${schema.columns[val]}`}
-          />
-        ))}
-      </Stack>
-    </Box>
+      <Box
+        sx={{
+          width: "auto",
+          overflowX: "auto",
+          pl: depth * 4,
+          height: 40,
+          display: "flex",
+          alignContent: "center",
+        }}
+      >
+        <Stack
+          direction="row"
+          gap={1}
+          sx={{
+            height: 40,
+            display: "flex",
+            alignItems: "center",
+            minWidth: "max-content",
+          }}
+        >
+          <Typography sx={{ ml: 0, color: "#060D3F" }} variant="labelSmall">
+            {schema.content_source} schema:
+          </Typography>
+          {Object.keys(schema.columns).map((val) => (
+            <Chip
+              key={val}
+              sx={{ backgroundColor: "#060D3F", color: "white" }}
+              label={`${val}: ${schema.columns[val]}`}
+            />
+          ))}
+        </Stack>
+      </Box>
     );
   };
 
@@ -65,27 +85,31 @@ const ExtractionGraphs = ({
     depth = 0
   ): ReactElement[] => {
     let items: ReactElement[] = [];
-    const schema = schemas.find((v) => v.content_source === source && !!Object.keys(v.columns).length);
+    const schema = schemas.find(
+      (v) => v.content_source === source && !!Object.keys(v.columns).length
+    );
     if (schema) {
       items.push(renderSchema(schema, depth));
     }
-
+    // use sibling count to keep track of how many are above
+    let siblingCount = items.length;
     policies
       .filter((policy) => policy.content_source === source)
-      .forEach((policy,i) => {
+      .forEach((policy, i) => {
         items.push(
           <ExtractionPolicyItem
             key={policy.name}
-            isBelowSchema={i === 0 && !!schema}
             extractionPolicy={policy}
             namespace={namespace}
             cols={cols}
             depth={depth}
+            siblingCount={siblingCount}
             index={getIndexFromPolicyName(policy.name)}
           />
         );
         const children = renderGraphItems(policies, policy.name, depth + 1);
         items = items.concat(children);
+        siblingCount = children.length;
       });
     return items;
   };
