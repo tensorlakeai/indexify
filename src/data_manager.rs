@@ -486,7 +486,9 @@ impl DataManager {
                         .add_metadata(&content_meta.namespace, extracted_attributes)
                         .await?;
                 }
-                _ => {}
+                _ => {
+                    error!("unsupported feature type: {:?}", feature.feature_type);
+                }
             }
         }
         Ok(())
@@ -501,9 +503,7 @@ impl DataManager {
         let mut new_content_metadata = Vec::new();
         let mut features = HashMap::new();
         for content in extracted_content.content_list {
-            let content: api::Content = content.into();
             let stream = futures::stream::once(async { Ok(Bytes::from(content.bytes)) });
-
             let content_metadata = self
                 .write_content_bytes(
                     namespace.as_str(),

@@ -639,10 +639,13 @@ async fn inner_ingest_extracted_content(
                         tracing::error!("received extracted content without header metadata");
                         return;
                     }
-                    let _ = state
+                    if let Err(err) = state
                         .data_manager
                         .write_extracted_content(ingest_metadata.clone().unwrap(), payload)
-                        .await;
+                        .await
+                    {
+                        tracing::error!("error writing extracted content: {:?}", err);
+                    }
                 }
                 IngestExtractedContent::ExtractedFeatures(payload) => {
                     if ingest_metadata.is_none() {
@@ -671,7 +674,7 @@ async fn inner_ingest_extracted_content(
                         );
                     }
                     let content_meta = content_metadata.clone().unwrap();
-                    let _ = state
+                    if let Err(err) = state
                         .data_manager
                         .write_extracted_features(
                             &ingest_metadata.clone().unwrap().extractor,
@@ -684,7 +687,10 @@ async fn inner_ingest_extracted_content(
                                 .output_to_index_table_mapping
                                 .clone(),
                         )
-                        .await;
+                        .await
+                    {
+                        tracing::error!("error writing extracted features: {:?}", err);
+                    }
                 }
                 IngestExtractedContent::FinishExtractedContentIngest(_payload) => {
                     if ingest_metadata.is_none() {

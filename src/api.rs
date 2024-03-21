@@ -470,7 +470,7 @@ pub struct BeginExtractedContentIngest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ExtractedContent {
-    pub content_list: Vec<internal_api::Content>,
+    pub content_list: Vec<Content>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
