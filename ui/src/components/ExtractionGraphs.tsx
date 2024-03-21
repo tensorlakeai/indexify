@@ -17,11 +17,12 @@ const ExtractionGraphs = ({
   indexes: IIndex[];
   schemas: ISchema[];
 }) => {
+  const itemheight = 60;
   const cols: IExtractionGraphColumns = {
-    name: { displayName: "Name", width: 300 },
+    name: { displayName: "Name", width: 350 },
     extractor: { displayName: "Extractor", width: 250 },
-    inputParams: { displayName: "Input Params", width: 200 },
-    indexName: { displayName: "Index", width: 250 },
+    inputParams: { displayName: "Input Params", width: 300 },
+    indexName: { displayName: "Index", width: 200 },
   };
 
   const renderSchema = (schema: ISchema, depth: number) => {
@@ -31,19 +32,19 @@ const ExtractionGraphs = ({
           width: "auto",
           overflowX: "auto",
           pl: depth * 4,
-          height: 40,
+          height: itemheight,
           display: "flex",
-          alignContent: "center",
+          alignItems: "center",
         }}
       >
-        <Stack
-          direction="row"
-          gap={1}
+        <Box
           sx={{
-            height: 40,
-            display: "flex",
-            alignItems: "center",
-            minWidth: "max-content",
+            backgroundColor: "#ebebeb",
+            borderRadius: 3,
+            // border:'1px solid black',
+            pl: 1,
+            pr: 0.5,
+            py: 0.5,
           }}
         >
           <Typography sx={{ ml: 0, color: "#060D3F" }} variant="labelSmall">
@@ -52,18 +53,23 @@ const ExtractionGraphs = ({
           {Object.keys(schema.columns).map((val) => (
             <Chip
               key={val}
-              sx={{ backgroundColor: "#060D3F", color: "white" }}
+              sx={{ backgroundColor: "#060D3F", color: "white", ml: 1 }}
               label={`${val}: ${schema.columns[val]}`}
             />
           ))}
-        </Stack>
+        </Box>
       </Box>
     );
   };
 
   const renderHeader = () => {
     return (
-      <Stack direction={"row"} pb={2}>
+      <Stack
+        direction={"row"}
+        px={2}
+        py={2}
+        sx={{ backgroundColor: "white", borderBottom: "1px solid #e5e5e5" }}
+      >
         {Object.values(cols).map((col: IExtractionGraphCol) => {
           return (
             <Box key={col.displayName} minWidth={`${col.width}px`}>
@@ -105,6 +111,7 @@ const ExtractionGraphs = ({
             depth={depth}
             siblingCount={siblingCount}
             index={getIndexFromPolicyName(policy.name)}
+            itemHeight={itemheight}
           />
         );
         const children = renderGraphItems(policies, policy.name, depth + 1);
@@ -129,18 +136,16 @@ const ExtractionGraphs = ({
       <Box
         sx={{
           width: "100%",
+          maxWidth: "100%",
+          overflow: "auto",
+          border: "1px solid rgba(224, 224, 224, 1);",
+          borderRadius: "5px",
         }}
       >
-        <Paper
-          sx={{
-            maxWidth: "100%",
-            overflow: "auto",
-            p: 2,
-          }}
-        >
-          {renderHeader()}
+        {renderHeader()}
+        <Box sx={{ p: 2, backgroundColor: "white" }}>
           {renderGraphItems(extractionPolicies, "ingestion")}
-        </Paper>
+        </Box>
       </Box>
     );
   };

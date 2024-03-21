@@ -9,6 +9,7 @@ const ExtractionPolicyItem = ({
   namespace,
   cols,
   depth,
+  itemHeight,
   index,
 }: {
   extractionPolicy: IExtractionPolicy;
@@ -16,6 +17,7 @@ const ExtractionPolicyItem = ({
   namespace: string;
   cols: IExtractionGraphColumns;
   depth: number;
+  itemHeight: number;
   index?: IIndex;
 }) => {
   const renderInputParams = () => {
@@ -38,8 +40,7 @@ const ExtractionPolicyItem = ({
   };
 
   const LShapedLine = () => {
-    const siblingHeight = 40
-    const verticalLength = 30 + (siblingCount * siblingHeight);
+    const verticalLength = 30 + siblingCount * itemHeight;
     const horizontalLength = 20;
 
     return (
@@ -73,7 +74,7 @@ const ExtractionPolicyItem = ({
   };
 
   return (
-    <Box sx={{ py: 0.5, position: "relative", height:40 }}>
+    <Box sx={{ py: 0.5, position: "relative", height: 40 }}>
       <Stack direction={"row"} sx={{ display: "flex", alignItems: "center" }}>
         <Typography
           sx={{ minWidth: cols.name.width, pl: depth * 4 }}
