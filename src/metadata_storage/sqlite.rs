@@ -134,10 +134,10 @@ impl MetadataReader for SqliteIndexManager {
         let query = format!("SELECT * FROM {table_name} WHERE namespace = $1 and id = $2");
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare(&query)?;
-        let metadata = stmt
+        let mut metadata = stmt
             .query_map(params![namespace, id], row_to_extracted_metadata)
             .map_err(|e| anyhow!("unable to query metadata from sqlite: {}", e))?;
-        for metadata in metadata {
+        if let Some(metadata) = metadata.next() {
             let metadata = metadata.map_err(|e| anyhow!(e.to_string()))?;
             return Ok(Some(metadata));
         }

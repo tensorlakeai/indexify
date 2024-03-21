@@ -3,6 +3,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     path::Path,
+    str::FromStr,
     sync::Arc,
     time::SystemTime,
 };
@@ -255,6 +256,54 @@ impl DataManager {
                 })?;
         }
         Ok(())
+    }
+
+    pub async fn ingest_remote_file(
+        &self,
+        namespace: &str,
+        file: &str,
+        mime: &str,
+        labels: HashMap<String, String>,
+    ) -> Result<String> {
+        if !(["https://", "http://", "s3://", "file://"]
+            .iter()
+            .any(|s| file.starts_with(*s)))
+        {
+            return Err(anyhow!("invalid file path, must be a url, s3 or file path"));
+        }
+        let _ = mime::Mime::from_str(mime).map_err(|e| anyhow!("invalid mime type {}", e))?;
+        let current_ts_secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs();
+        let id = nanoid!(16);
+        let content_metadata = indexify_coordinator::ContentMetadata {
+            id: id.clone(),
+            file_name: file.to_string(),
+            storage_url: file.to_string(),
+            parent_id: "".to_string(),
+            created_at: current_ts_secs as i64,
+            mime: mime.to_string(),
+            namespace: namespace.to_string(),
+            labels,
+            source: "ingestion".to_string(),
+            size_bytes: 0,
+        };
+        let req: indexify_coordinator::CreateContentRequest =
+            indexify_coordinator::CreateContentRequest {
+                content: Some(content_metadata),
+            };
+        self.coordinator_client
+            .get()
+            .await?
+            .create_content(GrpcHelper::into_req(req))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to write content metadata to coordinator {}",
+                    e.to_string()
+                )
+            })?;
+        Ok(id)
     }
 
     pub async fn get_content_metadata(

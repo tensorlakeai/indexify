@@ -57,6 +57,12 @@ impl BlobStorageReader for DiskFileReader {
             while let Some(chunk) = stream.next().await {
                 if let Ok(chunk) = chunk {
                     let _ = tx.send(Ok(chunk));
+                } else {
+                    let _ = tx.send(Err(anyhow::anyhow!(
+                        "Error reading file: {:?}",
+                        chunk.err()
+                    )));
+                    break;
                 }
             }
         });
