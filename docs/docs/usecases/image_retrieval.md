@@ -12,6 +12,26 @@ For SQL based retreival, you will -
 
 In this tutorial we will show you how to do all three image retreival. We will upload some images of New York City, and query them with Natural Language to find images with skateboards.
 
+### Download Indexify
+Download and start Indexify!
+```
+curl https://tensorlake.ai/download
+indexify server -d 
+```
+
+### Upload Files
+Let's add some files stored remotely, which we can use for the rest of the tutorial.
+```
+file_names=["skate.jpg", "congestion.jpg", "bushwick-bred.jpg", "141900.jpg", "132500.jpg", "123801.jpg","120701.jpg", "103701.jpg"]
+file_urls = [f"https://extractor-files.diptanu-6d5.workers.dev/images/{file_name}" for file_name in file_names]
+for file_url in file_urls:
+    client.ingest_remote_file(file_url, "image/png", {})
+```
+If you have local files, you can upload them by -
+```
+client.upload_file(path="../path/to/file")
+```
+
 ## SQL Based Retreival 
 ### Download and Run Yolo Extractor
 ```
@@ -23,11 +43,6 @@ indexify-extractor join yolo_extractor:YoloExtractor
 ### Create an Extraction Policy
 ```
 client.add_extraction_policy(extractor='tensorlake/yolo-extractor', name="object_detection")
-```
-
-We will upload some photos of New York City! 
-```
-client.upload_files(files)
 ```
 
 ### Search using SQL
