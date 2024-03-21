@@ -102,3 +102,77 @@ impl BlobStorageReader for S3FileReader {
         Box::pin(UnboundedReceiverStream::new(rx))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use core::pin::pin;
+
+    use futures::{stream, TryStreamExt};
+
+    use super::*;
+
+    // This test requires localstack to be running.
+    // Configure with key: test and secret: test
+    // Make bucket 'test-bucket'
+
+    fn test_client() -> AmazonS3 {
+        AmazonS3Builder::new()
+            .with_endpoint("http://localhost:4566")
+            .with_access_key_id("test")
+            .with_secret_access_key("test")
+            .with_bucket_name("test-bucket")
+            .with_region("us-east-1")
+            .with_allow_http(true)
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_put() {
+        let client = test_client();
+
+        let list_result = client.list(None).try_collect::<Vec<_>>().await;
+        if let Err(_) = list_result {
+            println!("localstack not configured skipping test");
+            return;
+        }
+
+        let storage = S3Storage::new("test-bucket", client);
+        let result = storage.put("test-key-1", Bytes::from("test_data")).await;
+        assert!(result.is_ok());
+
+        let read_client = test_client();
+        let path = object_store::path::Path::from("test-key-1");
+        let res = read_client.get(&path).await.unwrap().bytes().await.unwrap();
+        assert_eq!(res, "test_data");
+
+        storage.delete("test-key-1").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_put_stream() {
+        let client = test_client();
+
+        let list_result = client.list(None).try_collect::<Vec<_>>().await;
+        if let Err(_) = list_result {
+            println!("localstack not configured skipping test");
+            return;
+        }
+        let storage = S3Storage::new("test-bucket", client);
+        let data = vec![
+            Bytes::from("test_data_1"),
+            Bytes::from("test_data_2"),
+            Bytes::from("test_data_3"),
+        ];
+        let stream = stream::iter(data.into_iter().map(Ok));
+        let result = storage.put_stream("test-key-2", pin!(stream)).await;
+        assert!(result.is_ok());
+
+        let read_client = test_client();
+        let path = object_store::path::Path::from("test-key-2");
+        let res = read_client.get(&path).await.unwrap().bytes().await.unwrap();
+        assert_eq!(res, "test_data_1test_data_2test_data_3");
+
+        storage.delete("test-key-2").await.unwrap();
+    }
+}
