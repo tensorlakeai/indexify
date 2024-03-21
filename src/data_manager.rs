@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use futures::Stream;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use itertools::Itertools;
@@ -18,7 +19,7 @@ use tracing::{error, info};
 
 use crate::{
     api::{self, BeginExtractedContentIngest},
-    blob_storage::{BlobStorage, BlobStorageWriter},
+    blob_storage::{BlobStorage, BlobStorageWriter, PutResult},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     metadata_storage::{
@@ -236,8 +237,17 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
+            let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
             let content_metadata = self
-                .write_content_bytes(namespace, text, None, None, "ingestion")
+                .write_content_bytes(
+                    namespace,
+                    Box::pin(stream),
+                    &text.labels,
+                    text.content_type,
+                    None,
+                    None,
+                    "ingestion",
+                )
                 .await?;
             let req: indexify_coordinator::CreateContentRequest =
                 indexify_coordinator::CreateContentRequest {
@@ -329,21 +339,30 @@ impl DataManager {
     }
 
     #[tracing::instrument(skip(self, data))]
-    pub async fn upload_file(&self, namespace: &str, data: Bytes, name: &str) -> Result<()> {
+    pub async fn upload_file(
+        &self,
+        namespace: &str,
+        data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
+        name: &str,
+    ) -> Result<()> {
         let ext = Path::new(name)
             .extension()
             .unwrap_or_default()
             .to_str()
             .unwrap_or_default();
         let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
-        let content = api::Content {
-            content_type: content_mime.to_string(),
-            bytes: data.to_vec(),
-            labels: HashMap::new(),
-            features: vec![],
-        };
+        let labels = HashMap::new();
+
         let content_metadata = self
-            .write_content_bytes(namespace, content, Some(name), None, "ingestion")
+            .write_content_bytes(
+                namespace,
+                data,
+                &labels,
+                content_mime.to_string(),
+                Some(name),
+                None,
+                "ingestion",
+            )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
         let req = indexify_coordinator::CreateContentRequest {
@@ -366,7 +385,9 @@ impl DataManager {
     async fn write_content_bytes(
         &self,
         namespace: &str,
-        content: api::Content,
+        data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
+        labels: &HashMap<String, String>,
+        content_type: String,
         file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
@@ -382,13 +403,11 @@ impl DataManager {
             parent_id.hash(&mut s);
         }
         let id = format!("{:x}", s.finish());
-        let content_size = content.bytes.len() as u64;
-        let storage_url = self
-            .write_to_blob_store(namespace, &file_name, Bytes::from(content.bytes))
+        let res = self
+            .write_to_blob_store(namespace, &file_name, data)
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
-        let labels = content
-            .labels
+        let labels = labels
             .clone()
             .into_iter()
             .map(|(k, v)| (k, v.to_string()))
@@ -396,14 +415,14 @@ impl DataManager {
         Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
-            storage_url,
+            storage_url: res.url,
             parent_id: parent_id.unwrap_or_default(),
             created_at: current_ts_secs as i64,
-            mime: content.content_type,
+            mime: content_type,
             namespace: namespace.to_string(),
             labels,
             source: source.to_string(),
-            size_bytes: content_size,
+            size_bytes: res.size_bytes,
         })
     }
 
@@ -483,16 +502,20 @@ impl DataManager {
         let mut features = HashMap::new();
         for content in extracted_content.content_list {
             let content: api::Content = content.into();
+            let stream = futures::stream::once(async { Ok(Bytes::from(content.bytes)) });
+
             let content_metadata = self
                 .write_content_bytes(
                     namespace.as_str(),
-                    content.clone(),
+                    Box::pin(stream),
+                    &content.labels,
+                    content.content_type,
                     None,
                     Some(ingest_metadata.parent_content_id.to_string()),
                     &ingest_metadata.extraction_policy,
                 )
                 .await?;
-            features.insert(content_metadata.id.clone(), content.features.clone());
+            features.insert(content_metadata.id.clone(), content.features);
             new_content_metadata.push(content_metadata.clone());
         }
         for content_meta in new_content_metadata {
@@ -624,13 +647,13 @@ impl DataManager {
         Ok(extractors)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(file))]
     async fn write_to_blob_store(
         &self,
         namespace: &str,
         name: &str,
-        file: Bytes,
-    ) -> Result<String> {
-        self.blob_storage.put(name, file).await
+        file: impl Stream<Item = Result<Bytes>> + Send + Unpin,
+    ) -> Result<PutResult> {
+        self.blob_storage.put_stream(name, file).await
     }
 }

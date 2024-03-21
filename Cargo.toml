@@ -201,6 +201,7 @@ gluesql = {workspace=true, default-features=false, features=["json-storage"]}
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
+tempfile = "3.2.0"
 
 [build-dependencies]
 # All features enabled
