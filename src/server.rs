@@ -165,6 +165,10 @@ impl Server {
                 post(add_texts).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/ingest_remote_file",
+                post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
@@ -449,6 +453,25 @@ async fn add_texts(
     Ok(Json(TextAdditionResponse::default()))
 }
 
+#[axum::debug_handler]
+async fn ingest_remote_file(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+    Json(payload): Json<IngestRemoteFile>,
+) -> Result<Json<IngestRemoteFileResponse>, IndexifyAPIError> {
+    let content_id = state
+        .data_manager
+        .ingest_remote_file(&namespace, &payload.url, &payload.mime_type, payload.labels)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                format!("failed to add text: {}", e),
+            )
+        })?;
+    Ok(Json(IngestRemoteFileResponse { content_id }))
+}
+
 #[tracing::instrument]
 #[utoipa::path(
     get,
@@ -529,9 +552,12 @@ async fn download_content(
             .unwrap();
     }
     let content_metadata = content_list.unwrap().first().unwrap().clone();
-    Response::builder()
-        .header("Content-Length", content_metadata.size)
-        .header("Content-Type", content_metadata.mime_type.clone())
+    let mut resp_builder =
+        Response::builder().header("Content-Type", content_metadata.mime_type.clone());
+    if content_metadata.size > 0 {
+        resp_builder = resp_builder.header("Content-Length", content_metadata.size);
+    }
+    resp_builder
         .body(Body::from_stream(async_stream::stream! {
             let storage_url = &content_metadata.storage_url.clone();
             let content_reader = state.content_reader.clone();

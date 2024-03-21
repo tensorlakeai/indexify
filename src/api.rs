@@ -559,3 +559,15 @@ pub struct SQLQuery {
 pub struct SqlQueryResponse {
     pub rows: Vec<serde_json::Value>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IngestRemoteFile {
+    pub url: String,
+    pub mime_type: String,
+    pub labels: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IngestRemoteFileResponse {
+    pub content_id: String,
+}
