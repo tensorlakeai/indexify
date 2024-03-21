@@ -56,7 +56,7 @@ We can make OpenAI generate the SQL query based on a language -
 ```
 chain.invoke("Find the photos with a skateboard?")
 ```
-### Semantic Search with CLIP Embeddings
+## Semantic Search with CLIP Embeddings
 OpenAI's CLIP embedding model allows searching images with semantically similar description of images. 
 
 ### Download and start the Clip Embedding Extractor
