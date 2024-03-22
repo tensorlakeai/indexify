@@ -63,6 +63,8 @@ pub trait MetadataStorage {
         namespace: &str,
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>>;
+
+    //  TODO: Create function to delete content from here using namespace and content id
 }
 
 pub type MetadataScanStream = std::result::Result<

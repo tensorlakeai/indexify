@@ -374,6 +374,12 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     }
 }
 
+pub struct ContentExtractionPolicyMapping {
+    content_id: String,
+    extraction_policies: Vec<(String)>,
+    // time_completed: HashMap<(String, Instant)>, // policy name -> time instant. This will be written to in the server.rs file when a task is completed
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
     pub id: String,

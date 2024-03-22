@@ -91,6 +91,8 @@ pub trait VectorDb {
     async fn num_vectors(&self, index: &str) -> Result<u64>;
 
     fn name(&self) -> String;
+
+    //  TODO: Add delete content using namespace and content id
 }
 
 /// Creates a new vector database based on the specified configuration.
