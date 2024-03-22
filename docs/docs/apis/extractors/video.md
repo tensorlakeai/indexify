@@ -1,7 +1,7 @@
 # Video Extractors
 
-#### [Frames](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/frames)
-Dissect a video into its individual frames and generate JPEG image content for each extracted frame. Comes with frame frequency and scene detection configuration that can be changed with input parameters.
+#### [Key Frame Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/keyframes)
+Dissect a video into its key frames and generate JPEG image content for each extracted frame. Comes with frame frequency and scene detection configuration that can be changed with input parameters.
 
 #### [Audio](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/audio-extractor)
 Extract the audio from a video file.
