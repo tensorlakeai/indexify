@@ -409,14 +409,21 @@ mod tests {
             0,
             shared_state.unprocessed_state_change_events().await?.len()
         );
+        let tasks = shared_state.tasks_for_executor("test_executor_id", None).await.unwrap();
         assert_eq!(
             1,
-            shared_state
-                .tasks_for_executor("test_executor_id", None)
-                .await?
-                .len()
+            tasks.clone().len()
         );
         assert_eq!(0, shared_state.unassigned_tasks().await?.len());
+
+        let mut task_clone = tasks[0].clone();
+        task_clone.outcome = internal_api::TaskOutcome::Success;
+        shared_state.update_task(task_clone, Some("test_executor_id".to_string()), vec![]).await.unwrap();
+        let tasks = shared_state.tasks_for_executor("test_executor_id", None).await.unwrap();
+        assert_eq!(
+            0,
+            tasks.clone().len()
+        );
         Ok(())
     }
 

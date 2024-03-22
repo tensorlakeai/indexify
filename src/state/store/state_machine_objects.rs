@@ -222,49 +222,14 @@ impl IndexifyState {
     ) -> Result<(), StateMachineError> {
         let task_assignment_cf = StateMachineColumns::TaskAssignments.cf(db);
         for (executor_id, task_ids) in task_assignments {
-            let key = executor_id;
-            let value = txn.get_cf(task_assignment_cf, key).map_err(|e| {
-                StateMachineError::DatabaseError(format!("Error reading task assignments: {}", e))
+            txn.put_cf(task_assignment_cf, executor_id, JsonEncoder::encode(&task_ids)?).map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing task assignments: {}", e))
             })?;
-
-            match value {
-                //  Update the hash set of task ids if executor id is already present as key
-                Some(existing_value) => {
-                    let mut existing_value: HashSet<TaskId> = JsonEncoder::decode(&existing_value)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error deserializing task assignments: {}",
-                                e
-                            ))
-                        })?;
-                    existing_value.extend(task_ids.clone());
-                    let new_value = JsonEncoder::encode(&existing_value)?;
-                    txn.put_cf(task_assignment_cf, key, &new_value)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error writing task assignments: {}",
-                                e
-                            ))
-                        })?;
-                }
-                None => {
-                    //  Create a new hash set of task ids if executor id is not present as
-                    // key
-                    let new_value = JsonEncoder::encode(task_ids)?;
-                    txn.put_cf(task_assignment_cf, key, &new_value)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error writing task assignments: {}",
-                                e
-                            ))
-                        })?;
-                }
-            }
         }
         Ok(())
     }
 
-    // TODO USE MULTI-GET HERE
+    // FIXME USE MULTI-GET HERE
     fn delete_task_assignments_for_executor(
         &self,
         db: &Arc<OptimisticTransactionDB>,
