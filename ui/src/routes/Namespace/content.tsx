@@ -123,6 +123,17 @@ const ContentPage = () => {
           <Typography variant="body2">{textContent}</Typography>
         </Box>
       );
+    } else if (contentMetadata.mime_type.startsWith("application/json")) {
+      return (
+        <Box
+          sx={{
+            maxHeight: "500px",
+            overflow: "scroll",
+          }}
+        >
+          <Typography variant="body2">{JSON.stringify(textContent)}</Typography>
+        </Box>
+      );
     }
     return null;
   };
