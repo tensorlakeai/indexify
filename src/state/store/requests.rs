@@ -51,6 +51,13 @@ pub enum RequestPayload {
         updated_structured_data_schema: Option<internal_api::StructuredDataSchema>,
         new_structured_data_schema: internal_api::StructuredDataSchema,
     },
+    SetContentExtractionPolicyMappings {
+        content_extraction_policy_mappings: Vec<internal_api::ContentExtractionPolicyMapping>,
+    },
+    MarkExtractionPolicyAppliedOnContent {
+        content_id: String,
+        extraction_policy_id: String,
+    },
     CreateIndex {
         index: internal_api::Index,
         namespace: String,

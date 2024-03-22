@@ -279,6 +279,16 @@ impl Coordinator {
     pub fn get_raft_metrics(&self) -> RaftMetrics {
         self.shared_state.get_raft_metrics()
     }
+
+    pub async fn mark_extraction_policy_applied_on_content(
+        &self,
+        content_id: &str,
+        extraction_policy_id: &str,
+    ) -> Result<()> {
+        self.shared_state
+            .mark_extraction_policy_applied_on_content(content_id, extraction_policy_id)
+            .await
+    }
 }
 
 fn content_request_to_content_metadata(

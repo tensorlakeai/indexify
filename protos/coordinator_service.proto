@@ -45,6 +45,8 @@ service CoordinatorService {
     rpc ListSchemas(GetAllSchemaRequest) returns (GetAllSchemaResponse) {}
 
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
+
+    rpc MarkExtractionPolicyAppliedOnContent(MarkExtractionPolicyAppliedOnContentRequest) returns (MarkExtractionPolicyAppliedOnContentResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -350,3 +352,10 @@ message RaftMetricsSnapshotResponse {
     uint64 current_leader = 20;
 }
 //  End Raft Metrics Snapshot
+
+message MarkExtractionPolicyAppliedOnContentRequest {
+    string content_id = 1;
+    string extraction_policy_id = 2;
+}
+
+message MarkExtractionPolicyAppliedOnContentResponse {}

@@ -1,8 +1,9 @@
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeMap, HashMap},
+    collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt,
     hash::{Hash, Hasher},
     str::FromStr,
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -374,10 +375,11 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContentExtractionPolicyMapping {
-    content_id: String,
-    extraction_policies: Vec<(String)>,
-    // time_completed: HashMap<(String, Instant)>, // policy name -> time instant. This will be written to in the server.rs file when a task is completed
+    pub content_id: String,
+    pub extraction_policy_ids: HashSet<String>, //  NOTE: This is a hash set because the extraction policy should only be applied to a piece of content once
+    pub time_of_policy_completion: HashMap<String, SystemTime>, // policy name -> time instant. This will be written to in the server.rs file when a task is completed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]

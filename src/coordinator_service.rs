@@ -12,48 +12,23 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    Uint64List,
-    UpdateTaskRequest,
+    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
+    ExtractionPolicyResponse, GetAllSchemaRequest, GetAllSchemaResponse, GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, MarkExtractionPolicyAppliedOnContentRequest,
+    MarkExtractionPolicyAppliedOnContentResponse, RaftMetricsSnapshotResponse,
+    RegisterExecutorRequest, RegisterExecutorResponse, Uint64List, UpdateTaskRequest,
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -588,6 +563,21 @@ impl CoordinatorService for CoordinatorServiceServer {
             current_leader: openraft_metrics.current_leader.unwrap_or(0),
         };
 
+        Ok(Response::new(response))
+    }
+
+    async fn mark_extraction_policy_applied_on_content(
+        &self,
+        req: Request<MarkExtractionPolicyAppliedOnContentRequest>,
+    ) -> Result<Response<MarkExtractionPolicyAppliedOnContentResponse>, Status> {
+        let req = req.into_inner();
+
+        self.coordinator
+            .mark_extraction_policy_applied_on_content(&req.content_id, &req.extraction_policy_id)
+            .await
+            .map_err(|e| tonic::Status::internal(e.to_string()))?;
+
+        let response = MarkExtractionPolicyAppliedOnContentResponse {};
         Ok(Response::new(response))
     }
 }

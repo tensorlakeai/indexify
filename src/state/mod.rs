@@ -579,6 +579,38 @@ impl App {
         Ok(())
     }
 
+    pub async fn set_content_extraction_policy_mappings(
+        &self,
+        mappings: Vec<internal_api::ContentExtractionPolicyMapping>,
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::SetContentExtractionPolicyMappings {
+                content_extraction_policy_mappings: mappings,
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn mark_extraction_policy_applied_on_content(
+        &self,
+        content_id: &str,
+        extraction_policy_id: &str,
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::MarkExtractionPolicyAppliedOnContent {
+                content_id: content_id.into(),
+                extraction_policy_id: extraction_policy_id.into(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     pub async fn update_task(
         &self,
         task: internal_api::Task,

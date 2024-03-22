@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -705,8 +703,9 @@ async fn inner_ingest_extracted_content(
                         .await;
 
                     info!(
-                        "finished writing extracted content for task: {}",
-                        ingest_metadata.clone().unwrap().task_id
+                        "marking the extraction policy completed for the content id {} in task {}",
+                        content_metadata.as_ref().unwrap().id,
+                        ingest_metadata.as_ref().unwrap().task_id
                     );
                 }
             };

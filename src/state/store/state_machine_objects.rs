@@ -2,12 +2,13 @@ use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
+    time::SystemTime,
 };
 
 use anyhow::Result;
 use indexify_internal_api as internal_api;
 use internal_api::{ExtractorDescription, StateChange};
-use rocksdb::OptimisticTransactionDB;
+use rocksdb::{OptimisticTransactionDB, WriteBatch};
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
@@ -206,6 +207,7 @@ impl IndexifyState {
         }
     }
 
+    /// Set the list of tasks that have been assigned to some executor
     fn set_task_assignments(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -435,6 +437,119 @@ impl IndexifyState {
         Ok(())
     }
 
+    fn set_content_policies_applied_on_content(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        mappings: &Vec<internal_api::ContentExtractionPolicyMapping>,
+    ) -> Result<(), StateMachineError> {
+        //  Fetch all values at once
+        let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
+        let keys_with_cf: Vec<(_, _)> = mappings
+            .iter()
+            .map(|m| (mapping_cf, m.content_id.as_str()))
+            .collect();
+        let values = txn.multi_get_cf(keys_with_cf.clone());
+
+        //  Iterate in memory and update the data
+        let mut updated_mappings = Vec::new();
+        for (index, value) in values.into_iter().enumerate() {
+            let mut existing_mapping: internal_api::ContentExtractionPolicyMapping = match value {
+                Ok(Some(data)) => JsonEncoder::decode(&data)?,
+                Ok(None) => internal_api::ContentExtractionPolicyMapping {
+                    content_id: keys_with_cf[index].1.to_string(),
+                    extraction_policy_ids: HashSet::new(),
+                    time_of_policy_completion: HashMap::new(),
+                },
+                Err(e) => {
+                    return Err(StateMachineError::DatabaseError(format!(
+                        "Error getting the content policies applied on content id {}: {}",
+                        keys_with_cf[index].1, e
+                    )))
+                }
+            };
+
+            let new_mapping = mappings[index].clone();
+            existing_mapping
+                .extraction_policy_ids
+                .extend(new_mapping.extraction_policy_ids);
+            existing_mapping
+                .time_of_policy_completion
+                .extend(new_mapping.time_of_policy_completion);
+
+            updated_mappings.push(existing_mapping);
+        }
+
+        //  Write the data back
+        for updated_mapping in updated_mappings {
+            let data = JsonEncoder::encode(&updated_mapping)?;
+            let key = updated_mapping.content_id;
+            txn.put_cf(mapping_cf, key.clone(), data).map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error writing content policies applied on content for id {}: {}",
+                    key, e
+                ))
+            })?;
+        }
+
+        Ok(())
+    }
+
+    pub fn mark_extraction_policy_applied_on_content(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        content_id: &str,
+        extraction_policy_id: &str,
+    ) -> Result<(), StateMachineError> {
+        let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
+        let value = txn
+            .get_cf(mapping_cf, content_id)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error getting the content policies applied on content id {}: {}",
+                    content_id, e
+                ))
+            })?
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(format!(
+                    "No content policies applied on content found for id {}",
+                    content_id
+                ))
+            })?;
+        let content_policy_mappings =
+            JsonEncoder::decode::<internal_api::ContentExtractionPolicyMapping>(&value)?;
+
+        //  First ensure that this content has the extraction policy registered against it
+        if !content_policy_mappings
+            .extraction_policy_ids
+            .contains(extraction_policy_id)
+        {
+            return Err(StateMachineError::DatabaseError(format!(
+                "Extraction policy {} not applied on content {}",
+                extraction_policy_id, content_id
+            )));
+        }
+
+        //  Mark the time the content was processed against the extraction policy and store it back
+        let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
+        time_of_policy_completion.insert(extraction_policy_id.into(), SystemTime::now());
+        let updated_mapping = internal_api::ContentExtractionPolicyMapping {
+            content_id: content_id.into(),
+            extraction_policy_ids: content_policy_mappings.extraction_policy_ids,
+            time_of_policy_completion,
+        };
+        let data = JsonEncoder::encode(&updated_mapping)?;
+        txn.put_cf(mapping_cf, content_id, data).map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error writing content policies applied on content for id {}: {}",
+                content_id, e
+            ))
+        })?;
+
+        Ok(())
+    }
+
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &mut self,
@@ -555,6 +670,26 @@ impl IndexifyState {
                     new_structured_data_schema,
                 )?;
             }
+            RequestPayload::SetContentExtractionPolicyMappings {
+                content_extraction_policy_mappings,
+            } => {
+                self.set_content_policies_applied_on_content(
+                    db,
+                    &txn,
+                    content_extraction_policy_mappings,
+                )?;
+            }
+            RequestPayload::MarkExtractionPolicyAppliedOnContent {
+                content_id,
+                extraction_policy_id,
+            } => {
+                self.mark_extraction_policy_applied_on_content(
+                    db,
+                    &txn,
+                    content_id,
+                    extraction_policy_id,
+                )?;
+            }
             RequestPayload::CreateNamespace {
                 name,
                 structured_data_schema,
@@ -655,7 +790,6 @@ impl IndexifyState {
             } => {
                 self.update_schema_reverse_idx(structured_data_schema);
             }
-            // change required
             RequestPayload::CreateIndex {
                 index: _,
                 namespace,
@@ -697,10 +831,7 @@ impl IndexifyState {
                     self.mark_state_changes_processed(&state_change, state_change.processed_at);
                 }
             }
-            RequestPayload::JoinCluster {
-                node_id: _,
-                address: _,
-            } => {} //  do nothing
+            _ => (),
         }
     }
 
