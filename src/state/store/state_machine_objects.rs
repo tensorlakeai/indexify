@@ -662,6 +662,7 @@ impl IndexifyState {
                 updated_structured_data_schema,
                 new_structured_data_schema,
             } => {
+                println!("Received request in state machine to create extraction policy");
                 self.set_extraction_policy(
                     db,
                     &txn,
@@ -775,6 +776,7 @@ impl IndexifyState {
                 updated_structured_data_schema,
                 new_structured_data_schema,
             } => {
+                println!("Received request in reverse index update to create extraction policy");
                 self.extraction_policies_table
                     .entry(extraction_policy.namespace.clone())
                     .or_default()

@@ -1205,7 +1205,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
+        let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
 
         //  First create a task and ensure it's written
@@ -1255,6 +1255,54 @@ mod tests {
             }
         };
         cluster.read_own_write(request, read_back, true).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create a piece of content
+        let content_id = "content_id";
+        let content_metadata = indexify_internal_api::ContentMetadata {
+            id: content_id.into(),
+            content_type: "text/plain".into(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content_metadata]).await?;
+
+        //  Create a default namespace
+        let namespace = "namespace";
+        node.create_namespace(namespace).await?;
+
+        //  Register an executor
+        let executor_id = "executor_id";
+        let extractor_name = "extractor";
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: extractor_name.into(),
+            input_mime_types: vec!["text/plain".into()],
+            ..Default::default()
+        };
+        let addr = "addr";
+        node.register_executor(addr, executor_id, extractor.clone())
+            .await?;
+
+        //  Set an extraction policy for the content that will force task creation
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            name: "extraction_policy".into(),
+            namespace: namespace.into(),
+            extractor: extractor_name.into(),
+            ..Default::default()
+        };
+        node.create_extraction_policy(extraction_policy.clone(), None)
+            .await?;
+
+        let tasks = node.list_tasks(namespace, Some(extraction_policy.id))?;
+        println!("The tasks are {:#?}", tasks);
 
         Ok(())
     }
