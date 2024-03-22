@@ -6,10 +6,8 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
-    Extension,
-    Json,
-    Router,
+    routing::{delete, get, post},
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -101,6 +99,7 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         // TLS is set to true if the "tls" field is present in the config and the
         // TlsConfig "api" field is set to true
+        println!("Starting the indexify server");
         let use_tls = self.config.tls.is_some() && self.config.tls.as_ref().unwrap().api;
         match use_tls {
             true => {
@@ -124,6 +123,10 @@ impl Server {
         let blob_storage = Arc::new(BlobStorage::new_with_config(
             self.config.blob_storage.clone(),
         ));
+        println!(
+            "The blob storage path is {}",
+            self.config.blob_storage.disk.as_ref().unwrap().path
+        );
         let data_manager = Arc::new(
             DataManager::new(
                 vector_index_manager,
@@ -183,6 +186,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/upload_file",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/content/:content_id",
+                delete(delete_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/search",
@@ -394,6 +401,7 @@ async fn create_extraction_policy(
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractionPolicyRequest>,
 ) -> Result<Json<ExtractionPolicyResponse>, IndexifyAPIError> {
+    println!("create_extraction_policy called in server");
     let index_names = state
         .data_manager
         .create_extraction_policy(&namespace, &payload.policy)
@@ -426,6 +434,8 @@ async fn add_texts(
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
+    println!("Called add_texts in server");
+    println!("Received text payload {:#?}", payload);
     let content = payload
         .documents
         .iter()
@@ -505,6 +515,39 @@ async fn get_content_metadata(
     Ok(Json(GetContentMetadataResponse {
         content_metadata: content_metadata.clone(),
     }))
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    delete,
+    path = "/namespaces/{namespace}/content/{content_id}",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Deletes a specific piece of content in the namespace", body = DeleteContentResponse),
+        (status = BAD_REQUEST, description = "Unable to find content to delete")
+    ),
+)]
+#[axum::debug_handler]
+async fn delete_content(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<()>, IndexifyAPIError> {
+    //  Remove the content from local stores
+    state
+        .data_manager
+        .delete_content(&namespace, &content_id)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "failed to delete content with id {}: {}",
+                    content_id,
+                    e.to_string()
+                ),
+            )
+        })?;
+    Ok(Json(()))
 }
 
 #[axum::debug_handler]
@@ -588,6 +631,7 @@ async fn ingest_extracted_content(
 ) -> impl IntoResponse {
     // TODO - Figure out a protocol which breaks up large messages into smaller
     // chunks and reassembles them
+    println!("Called ingest_extracted_content in server");
     ws.map(|ws| ws.max_message_size(592323536))
         .map(|ws| ws.max_frame_size(592323536))
         .on_upgrade(|socket| inner_ingest_extracted_content(socket, state))
@@ -598,6 +642,7 @@ async fn inner_ingest_extracted_content(
     mut socket: WebSocket<IngestExtractedContentResponse, IngestExtractedContent>,
     state: NamespaceEndpointState,
 ) {
+    println!("Called inner_ingest_extracted_content in server");
     let _ = socket.send(Message::Ping(vec![])).await;
     let mut ingest_metadata: Option<BeginExtractedContentIngest> = None;
     let mut content_metadata: Option<indexify_coordinator::ContentMetadata> = None;
@@ -606,13 +651,19 @@ async fn inner_ingest_extracted_content(
             tracing::error!("error receiving message: {:?}", err);
             return;
         }
+        println!("Received new message");
         if let Ok(Message::Item(msg)) = msg {
             match msg {
                 IngestExtractedContent::BeginExtractedContentIngest(payload) => {
+                    println!("Called IngestExtractedContent::BeginExtractedContentIngest with payload: {:?}", payload);
                     info!("beginning extraction ingest for task: {}", payload.task_id);
                     ingest_metadata.replace(payload);
                 }
                 IngestExtractedContent::ExtractedContent(payload) => {
+                    println!(
+                        "Called IngestExtractedContent::ExtractedContent with data: {:?} and extracted payload: {:?}",
+                        ingest_metadata, payload
+                    );
                     if ingest_metadata.is_none() {
                         tracing::error!("received extracted content without header metadata");
                         return;
@@ -623,6 +674,7 @@ async fn inner_ingest_extracted_content(
                         .await;
                 }
                 IngestExtractedContent::ExtractedFeatures(payload) => {
+                    println!("Called IngestExtractedContent::ExtractedFeatures");
                     if ingest_metadata.is_none() {
                         tracing::error!("received extracted features without header metadata");
                         return;
@@ -665,6 +717,7 @@ async fn inner_ingest_extracted_content(
                         .await;
                 }
                 IngestExtractedContent::FinishExtractedContentIngest(_payload) => {
+                    println!("Called IngestExtractedContent::FinishExtractedContentIngest");
                     if ingest_metadata.is_none() {
                         tracing::error!(
                             "received finished extraction ingest without header metadata"

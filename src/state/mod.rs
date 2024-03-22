@@ -19,23 +19,18 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -528,14 +523,33 @@ impl App {
         &self,
         namespace: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let store = self.indexify_state.read().await;
-        let content_ids = store
-            .content_namespace_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default();
-        drop(store);
+        let content_ids = {
+            let store = self.indexify_state.read().await;
+            store
+                .content_namespace_table
+                .get(namespace)
+                .cloned()
+                .unwrap_or_default()
+        };
+
         self.state_machine.get_content_from_ids(content_ids).await
+    }
+
+    pub async fn delete_content(&self, namespace: &str, content_id: &str) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::DeleteContent {
+                namespace: namespace.into(),
+                content_id: content_id.into(),
+            },
+            new_state_changes: vec![StateChange::new(
+                content_id.into(),
+                internal_api::ChangeType::DeleteContent,
+                timestamp_secs(),
+            )],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -563,7 +577,6 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        //  TODO: Add a new structured schema into the payload
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
@@ -842,6 +855,23 @@ impl App {
         Ok(())
     }
 
+    pub async fn create_garbage_collection_tasks(
+        &self,
+        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+        state_change_id: &str,
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateGarbageCollectionTasks { gc_tasks },
+            new_state_changes: vec![],
+            state_changes_processed: vec![StateChangeProcessed {
+                state_change_id: state_change_id.to_string(),
+                processed_at: timestamp_secs(),
+            }],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     pub fn list_tasks(
         &self,
         namespace: &str,
@@ -886,6 +916,13 @@ impl App {
             .await?
             .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
         Ok(task)
+    }
+
+    pub fn get_gc_tasks(
+        &self,
+        limit: Option<u64>,
+    ) -> Result<Vec<internal_api::GarbageCollectionTask>> {
+        self.state_machine.get_gc_tasks(limit)
     }
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
@@ -1054,8 +1091,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1267,9 +1303,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

@@ -22,9 +22,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -127,6 +125,7 @@ impl DataManager {
         namespace: &str,
         extraction_policy: &api::ExtractionPolicy,
     ) -> Result<Vec<String>> {
+        println!("create_extraction_policy called in data_manager");
         info!(
             "adding extractor bindings namespace: {}, extractor: {}, binding: {}",
             namespace, extraction_policy.extractor, extraction_policy.name,
@@ -234,7 +233,9 @@ impl DataManager {
 
     #[tracing::instrument]
     pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
+        println!("Writing content bytes via data manager");
         for text in content_list {
+            println!("Called text in content_list in add_texts");
             let content_metadata = self
                 .write_content_bytes(namespace, text, None, None, "ingestion")
                 .await?;
@@ -322,6 +323,7 @@ impl DataManager {
         parent_id: Option<String>,
         source: &str,
     ) -> Result<indexify_coordinator::ContentMetadata> {
+        println!("Writing content bytes");
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
@@ -333,6 +335,8 @@ impl DataManager {
             parent_id.hash(&mut s);
         }
         let id = format!("{:x}", s.finish());
+        println!("The hash id for these bytes is {}", id);
+        println!("Writing this data to the file: {}", file_name);
         let content_size = content.bytes.len() as u64;
         let storage_url = self
             .write_to_blob_store(namespace, &file_name, Bytes::from(content.bytes))
@@ -344,6 +348,7 @@ impl DataManager {
             .into_iter()
             .map(|(k, v)| (k, v.to_string()))
             .collect();
+        println!("Writing content metadata with id {} and file_name {} and storage_url {} and parent_id {:?}", id, file_name, storage_url, parent_id);
         Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
@@ -356,6 +361,31 @@ impl DataManager {
             source: source.to_string(),
             size_bytes: content_size,
         })
+    }
+
+    //  This requires the filename which is stored in the content_metadata
+    pub async fn delete_content(&self, namespace: &str, content_id: &str) -> Result<()> {
+        //  Remove content from the raft state machine
+        let req: indexify_coordinator::DeleteContentRequest =
+            indexify_coordinator::DeleteContentRequest {
+                namespace: namespace.to_string(),
+                content_id: content_id.to_string(),
+            };
+        let res = self
+            .coordinator_client
+            .get()
+            .await?
+            .delete_content(req)
+            .await?;
+        let content_metadata = res
+            .into_inner()
+            .content_metadata
+            .expect("Did not get back the content metadata after deleting it");
+
+        //  delete the content from the blob store
+        self.delete_from_blob_store(namespace, &content_metadata.file_name)
+            .await?;
+        Ok(())
     }
 
     pub async fn finish_extracted_content_write(
@@ -385,6 +415,8 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: HashMap<String, String>,
     ) -> Result<()> {
+        println!("Writing extracted features with extractor {}, extraction_policy: {}, content_meta: {:?}, features: {:?}, output_index_map: {:?}",
+            extractor_name, extraction_policy, content_meta, features, output_index_map);
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
@@ -429,6 +461,7 @@ impl DataManager {
         ingest_metadata: BeginExtractedContentIngest,
         extracted_content: api::ExtractedContent,
     ) -> Result<()> {
+        println!("Writing the extracted content");
         let namespace = ingest_metadata.namespace.clone();
         let mut new_content_metadata = Vec::new();
         let mut features = HashMap::new();
@@ -527,6 +560,7 @@ impl DataManager {
         query: &str,
         k: u64,
     ) -> Result<Vec<ScoredText>> {
+        println!("Calling search on data_manager");
         let req = indexify_coordinator::GetIndexRequest {
             namespace: namespace.to_string(),
             name: index_name.to_string(),
@@ -583,5 +617,10 @@ impl DataManager {
         file: Bytes,
     ) -> Result<String> {
         self.blob_storage.put(name, file).await
+    }
+
+    #[tracing::instrument]
+    async fn delete_from_blob_store(&self, namespace: &str, filename: &str) -> Result<()> {
+        self.blob_storage.delete(filename).await
     }
 }

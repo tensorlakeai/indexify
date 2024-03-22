@@ -13,22 +13,13 @@ use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+/// All the reverse indexes are stored here
 pub struct IndexifyState {
-    //  TODO: Check whether only id's can be stored in reverse indexes
-    // Reverse Indexes
     /// The tasks that are currently unassigned
     pub unassigned_tasks: HashSet<TaskId>,
 
@@ -188,6 +179,24 @@ impl IndexifyState {
         Ok(())
     }
 
+    fn set_garbage_collection_tasks(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        garbage_collection_tasks: &Vec<internal_api::GarbageCollectionTask>,
+    ) -> Result<(), StateMachineError> {
+        for gc_task in garbage_collection_tasks {
+            let serialized_gc_task = JsonEncoder::encode(gc_task)?;
+            txn.put_cf(
+                StateMachineColumns::GarbageCollectionTasks.cf(db),
+                gc_task.id.clone(),
+                &serialized_gc_task,
+            )
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn get_task_assignments_for_executor(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -318,6 +327,19 @@ impl IndexifyState {
                 StateMachineError::DatabaseError(format!("Error writing content: {}", e))
             })?;
         }
+        Ok(())
+    }
+
+    fn delete_content(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        content_id: &str,
+    ) -> Result<(), StateMachineError> {
+        txn.delete_cf(StateMachineColumns::ContentTable.cf(db), content_id)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error deleting content: {}", e))
+            })?;
         Ok(())
     }
 
@@ -504,12 +526,19 @@ impl IndexifyState {
                 //  Insert the content metadata into the db
                 self.set_content(db, &txn, content_metadata)?;
             }
+            RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
+                self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
+            }
             RequestPayload::RegisterExecutor {
                 addr,
                 executor_id,
                 extractor,
                 ts_secs,
             } => {
+                println!(
+                    "Registering the executor {} with extractor {:#?}",
+                    executor_id, extractor
+                );
                 //  Insert the executor
                 self.set_executor(db, &txn, addr.into(), executor_id, extractor, ts_secs)?;
 
@@ -549,6 +578,12 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
+            }
+            RequestPayload::DeleteContent {
+                namespace: _,
+                content_id,
+            } => {
+                self.delete_content(db, &txn, content_id)?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
@@ -634,46 +669,6 @@ impl IndexifyState {
                     );
                 }
             }
-            RequestPayload::CreateContent { content_metadata } => {
-                for content in content_metadata {
-                    //  The below write is handled in apply_state_machine_updates
-                    self.content_namespace_table
-                        .entry(content.namespace.clone())
-                        .or_default()
-                        .insert(content.id.clone());
-                }
-            }
-            RequestPayload::CreateExtractionPolicy {
-                extraction_policy,
-                updated_structured_data_schema,
-                new_structured_data_schema,
-            } => {
-                self.extraction_policies_table
-                    .entry(extraction_policy.namespace.clone())
-                    .or_default()
-                    .insert(extraction_policy.id);
-                if let Some(schema) = updated_structured_data_schema {
-                    self.update_schema_reverse_idx(schema);
-                }
-                self.update_schema_reverse_idx(new_structured_data_schema);
-            }
-            RequestPayload::CreateNamespace {
-                name: _,
-                structured_data_schema,
-            } => {
-                self.update_schema_reverse_idx(structured_data_schema);
-            }
-            // change required
-            RequestPayload::CreateIndex {
-                index: _,
-                namespace,
-                id,
-            } => {
-                self.namespace_index_table
-                    .entry(namespace.clone())
-                    .or_default()
-                    .insert(id);
-            }
             RequestPayload::UpdateTask {
                 task,
                 mark_finished,
@@ -699,6 +694,57 @@ impl IndexifyState {
                         .or_default()
                         .insert(content.id.clone());
                 }
+            }
+            RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
+                //  no reverse indexes to update here
+            }
+            RequestPayload::CreateContent { content_metadata } => {
+                for content in content_metadata {
+                    //  The below write is handled in apply_state_machine_updates
+                    self.content_namespace_table
+                        .entry(content.namespace.clone())
+                        .or_default()
+                        .insert(content.id.clone());
+                }
+            }
+            RequestPayload::DeleteContent {
+                namespace,
+                content_id,
+            } => {
+                self.content_namespace_table
+                    .entry(namespace.clone())
+                    .or_default()
+                    .remove(&content_id);
+            }
+            RequestPayload::CreateExtractionPolicy {
+                extraction_policy,
+                updated_structured_data_schema,
+                new_structured_data_schema,
+            } => {
+                self.extraction_policies_table
+                    .entry(extraction_policy.namespace.clone())
+                    .or_default()
+                    .insert(extraction_policy.id);
+                if let Some(schema) = updated_structured_data_schema {
+                    self.update_schema_reverse_idx(schema);
+                }
+                self.update_schema_reverse_idx(new_structured_data_schema);
+            }
+            RequestPayload::CreateNamespace {
+                name: _,
+                structured_data_schema,
+            } => {
+                self.update_schema_reverse_idx(structured_data_schema);
+            }
+            RequestPayload::CreateIndex {
+                index: _,
+                namespace,
+                id,
+            } => {
+                self.namespace_index_table
+                    .entry(namespace.clone())
+                    .or_default()
+                    .insert(id);
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 for state_change in state_changes {

@@ -328,6 +328,17 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         })
     }
 }
+
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
+#[schema(as = internal_api::Task)]
+pub struct GarbageCollectionTask {
+    pub id: String,
+    pub content_metadata: ContentMetadata,
+    pub namespace: String,
+    #[schema(value_type = internal_api::TaskOutcome)]
+    pub outcome: TaskOutcome,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct ExtractionPolicy {
     pub id: String,
@@ -519,6 +530,7 @@ pub enum ChangeType {
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
+    DeleteContent,
 }
 
 impl fmt::Display for ChangeType {
@@ -528,6 +540,7 @@ impl fmt::Display for ChangeType {
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+            ChangeType::DeleteContent => write!(f, "DeleteContent"),
         }
     }
 }
@@ -574,6 +587,7 @@ impl TryFrom<indexify_coordinator::StateChange> for StateChange {
             "NewBinding" => ChangeType::NewExtractionPolicy,
             "ExecutorAdded" => ChangeType::ExecutorAdded,
             "ExecutorRemoved" => ChangeType::ExecutorRemoved,
+            "DeleteContent" => ChangeType::DeleteContent,
             _ => return Err(anyhow!("Invalid ChangeType")),
         };
         Ok(Self {

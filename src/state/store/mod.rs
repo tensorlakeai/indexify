@@ -8,36 +8,19 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use itertools::Itertools;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
+    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
@@ -87,16 +70,17 @@ pub enum StateMachineError {
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
-    Executors,             //  ExecutorId -> Executor Metadata
-    Tasks,                 //  TaskId -> Task
-    TaskAssignments,       //  ExecutorId -> HashSet<TaskId>
-    StateChanges,          //  StateChangeId -> StateChange
-    ContentTable,          //  ContentId -> ContentMetadata
-    ExtractionPolicies,    //  ExtractionPolicyId -> ExtractionPolicy
-    Extractors,            //  ExtractorName -> ExtractorDescription
-    Namespaces,            //  Namespaces
-    IndexTable,            //  String -> Index
-    StructuredDataSchemas, //  SchemaId -> StructuredDataSchema
+    Executors,              //  ExecutorId -> Executor Metadata
+    Tasks,                  //  TaskId -> Task
+    GarbageCollectionTasks, //  GCTaskId -> GCTask
+    TaskAssignments,        //  ExecutorId -> HashSet<TaskId>
+    StateChanges,           //  StateChangeId -> StateChange
+    ContentTable,           //  ContentId -> ContentMetadata
+    ExtractionPolicies,     //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,             //  ExtractorName -> ExtractorDescription
+    Namespaces,             //  Namespaces
+    IndexTable,             //  String -> Index
+    StructuredDataSchemas,  //  SchemaId -> StructuredDataSchema
 }
 
 impl StateMachineColumns {
@@ -310,6 +294,26 @@ impl StateMachineStore {
             .get_tasks_for_executor(executor_id, limit, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
+    }
+
+    pub fn get_gc_tasks(
+        &self,
+        limit: Option<u64>,
+    ) -> Result<Vec<indexify_internal_api::GarbageCollectionTask>> {
+        let all_gc_tasks = self
+            .get_all_rows_from_cf::<indexify_internal_api::GarbageCollectionTask>(
+                StateMachineColumns::GarbageCollectionTasks,
+            )
+            .map_err(|e| anyhow!(e))?;
+
+        let limit = limit.unwrap_or(all_gc_tasks.len() as u64) as usize;
+
+        let gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask> = all_gc_tasks
+            .into_iter()
+            .take(limit)
+            .map(|(_, task)| task)
+            .collect();
+        Ok(gc_tasks)
     }
 
     pub async fn get_indexes_from_ids(

@@ -12,48 +12,22 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    Uint64List,
-    UpdateTaskRequest,
+    self, coordinator_service_server::CoordinatorService, ContentMetadata, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, DeleteContentRequest,
+    DeleteContentResponse, ExtractionPolicyRequest, ExtractionPolicyResponse, GetAllSchemaRequest,
+    GetAllSchemaResponse, GetContentMetadataRequest, GetExtractorCoordinatesRequest,
+    GetIndexRequest, GetIndexResponse, GetRaftMetricsSnapshotRequest, GetSchemaRequest,
+    GetSchemaResponse, HeartbeatRequest, HeartbeatResponse, ListContentRequest,
+    ListContentResponse, ListExtractionPoliciesRequest, ListExtractionPoliciesResponse,
+    ListExtractorsRequest, ListExtractorsResponse, ListIndexesRequest, ListIndexesResponse,
+    ListStateChangesRequest, ListTasksRequest, ListTasksResponse, RaftMetricsSnapshotResponse,
+    RegisterExecutorRequest, RegisterExecutorResponse, Uint64List, UpdateTaskRequest,
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -118,6 +92,26 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    async fn delete_content(
+        &self,
+        request: tonic::Request<DeleteContentRequest>,
+    ) -> Result<tonic::Response<DeleteContentResponse>, tonic::Status> {
+        let req = request.into_inner();
+        self.coordinator
+            .delete_content(&req.namespace, &req.content_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let content_metadata = self
+            .coordinator
+            .delete_content(&req.namespace, &req.content_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        Ok(tonic::Response::new(DeleteContentResponse {
+            content_metadata: Some(indexify_coordinator::ContentMetadata::default()),
+        }))
+    }
+
     async fn create_extraction_policy(
         &self,
         request: tonic::Request<ExtractionPolicyRequest>,
@@ -136,6 +130,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .get_extractor(&extraction_policy.extractor)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        println!("The extractor for the policy {:#?}", extractor);
         let mut index_name_table_mapping = HashMap::new();
         let mut output_index_name_mapping = HashMap::new();
         for output_name in extractor.outputs.keys() {
@@ -283,6 +278,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<Streaming<HeartbeatRequest>>,
     ) -> Result<tonic::Response<Self::HeartbeatStream>, tonic::Status> {
+        println!("Starting heartbeat on coordinator server");
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
         let rx = DropReceiver { inner: rx };
@@ -307,9 +303,12 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                         // We could have used Option<> here but it would be inconvenient to dereference
                         // it every time we need to use it below
+                        let frame = frame.unwrap();
                         if executor_id.is_empty() {
-                            executor_id = frame.unwrap().unwrap().executor_id;
+                            executor_id = frame.as_ref().unwrap().executor_id.clone();
+                            println!("Got the executor id {}", executor_id);
                         }
+                        println!("Received a frame {:?}", frame);
                         let tasks = coordinator.heartbeat(&executor_id).await;
                             if let Err(err) = &tasks {
                                 if let Err(err) =
@@ -332,6 +331,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                                 executor_id: executor_id.clone(),
                                 tasks,
                             };
+                            println!("Sending response {:?}", resp);
                             if let Err(err) = tx.send(Ok(resp)).await {
                                 error!("error sending heartbeat response: {:?}", err);
                                 break;

@@ -43,8 +43,21 @@ pub enum RequestPayload {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
+    UpdateTask {
+        task: internal_api::Task,
+        mark_finished: bool,
+        executor_id: Option<String>,
+        content_metadata: Vec<internal_api::ContentMetadata>,
+    },
+    CreateGarbageCollectionTasks {
+        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+    },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
+    },
+    DeleteContent {
+        namespace: String,
+        content_id: String,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,
@@ -55,12 +68,6 @@ pub enum RequestPayload {
         index: internal_api::Index,
         namespace: String,
         id: String,
-    },
-    UpdateTask {
-        task: internal_api::Task,
-        mark_finished: bool,
-        executor_id: Option<String>,
-        content_metadata: Vec<internal_api::ContentMetadata>,
     },
     RemoveExecutor {
         executor_id: String,

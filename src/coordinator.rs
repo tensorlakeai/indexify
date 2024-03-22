@@ -47,6 +47,13 @@ impl Coordinator {
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
     }
 
+    pub async fn delete_content(&self, namespace: &str, content_id: &str) -> Result<()> {
+        self.shared_state
+            .delete_content(namespace, content_id)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_policies(
         &self,
         namespace: &str,
@@ -104,6 +111,10 @@ impl Coordinator {
             .tasks_for_executor(executor_id, Some(10))
             .await?;
         Ok(tasks)
+    }
+
+    pub async fn get_gc_tasks(&self) -> Result<Vec<internal_api::GarbageCollectionTask>> {
+        self.shared_state.get_gc_tasks(Some(10))
     }
 
     pub async fn list_state_changes(&self) -> Result<Vec<internal_api::StateChange>> {
@@ -210,7 +221,7 @@ impl Coordinator {
                 ));
             }
         }
-        let structued_data_schema = self
+        let structured_data_schema = self
             .shared_state
             .get_structured_data_schema(
                 &extraction_policy.namespace,
@@ -220,7 +231,7 @@ impl Coordinator {
         let mut updated_schema = None;
         for (_, output_schema) in extractor.outputs {
             if let OutputSchema::Attributes(columns) = output_schema {
-                let updated_structured_data_schema = structued_data_schema.merge(columns)?;
+                let updated_structured_data_schema = structured_data_schema.merge(columns)?;
                 updated_schema.replace(updated_structured_data_schema);
             }
         }
@@ -251,7 +262,7 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
-        let content_meta_list = content_request_to_content_metadata(content_list)?;
+        let content_meta_list = content_request_to_content_metadata(content_list)?; //  TODO: Why? We are converting from ContentMetadata to ContentMetadata
         self.shared_state
             .create_content_batch(content_meta_list)
             .await?;

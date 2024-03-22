@@ -27,9 +27,28 @@ impl Scheduler {
     }
 
     pub async fn handle_change_event(&self, state_change: StateChange) -> Result<()> {
+        println!(
+            "handle_change_event triggered with state_change {:#?}",
+            state_change
+        );
         let mut state_change_processed = false;
+
+        //  Check if garbage collection tasks need to be created
+        if state_change.change_type == internal_api::ChangeType::DeleteContent {
+            let content = self
+                .shared_state
+                .get_conent_metadata(&state_change.object_id)
+                .await?;
+            let gc_tasks = self.create_garbage_collection_tasks(content).await;
+            self.shared_state
+                .create_garbage_collection_tasks(gc_tasks, &state_change.id)
+                .await?;
+            state_change_processed = true;
+        }
+
         // Create new tasks
         let tasks = self.create_new_tasks(state_change.clone()).await?;
+        println!("\nTasks created: {:?}\n", tasks);
         // Commit them
         if !tasks.is_empty() {
             self.shared_state
@@ -66,16 +85,37 @@ impl Scheduler {
         Ok(())
     }
 
+    pub async fn create_garbage_collection_tasks(
+        &self,
+        content_metadata: internal_api::ContentMetadata,
+    ) -> Vec<internal_api::GarbageCollectionTask> {
+        let mut hasher = DefaultHasher::new();
+        content_metadata.id.hash(&mut hasher);
+        content_metadata.name.hash(&mut hasher);
+        content_metadata.namespace.hash(&mut hasher);
+        //  TODO: Should the id here just be a nanoid rather than a hash of values?
+        let id = format!("{:x}", hasher.finish());
+        let task = internal_api::GarbageCollectionTask {
+            id,
+            namespace: content_metadata.namespace.clone(),
+            content_metadata,
+            outcome: internal_api::TaskOutcome::Unknown,
+        };
+        vec![task]
+    }
+
     pub async fn create_new_tasks(
         &self,
         state_change: StateChange,
     ) -> Result<Vec<internal_api::Task>> {
         let tasks = match &state_change.change_type {
             internal_api::ChangeType::NewExtractionPolicy => {
+                println!("Creating tasks for the new extraction policy");
                 let content_list = self
                     .shared_state
                     .content_matching_policy(&state_change.object_id)
                     .await?;
+                println!("The content list is {:?}", content_list);
 
                 self.create_task(&state_change.object_id, content_list)
                     .await?
