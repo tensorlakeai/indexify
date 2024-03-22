@@ -382,6 +382,21 @@ pub struct ContentExtractionPolicyMapping {
     pub time_of_policy_completion: HashMap<String, SystemTime>, // policy name -> time instant. This will be written to in the server.rs file when a task is completed
 }
 
+impl Default for ContentExtractionPolicyMapping {
+    fn default() -> Self {
+        let mut extraction_policy_ids = HashSet::new();
+        extraction_policy_ids.insert("extraction_policy_id".to_string());
+        let mut time_of_policy_completion = HashMap::new();
+        time_of_policy_completion.insert("extraction_policy_id".to_string(), SystemTime::now());
+
+        Self {
+            content_id: "content_id".to_string(),
+            extraction_policy_ids,
+            time_of_policy_completion,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
     pub id: String,

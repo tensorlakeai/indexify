@@ -611,6 +611,15 @@ impl App {
         Ok(())
     }
 
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+    ) -> Result<internal_api::ContentExtractionPolicyMapping> {
+        self.state_machine
+            .get_content_extraction_policy_mappings_for_content_id(content_id)
+            .await
+    }
+
     pub async fn update_task(
         &self,
         task: internal_api::Task,
@@ -1075,7 +1084,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{Index, TaskOutcome};
+    use indexify_internal_api::{ContentExtractionPolicyMapping, Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1503,7 +1512,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1538,7 +1547,6 @@ mod tests {
 
         //  Read the namespace back and expect to get the extraction policies as well
         // which will be asserted
-        println!("Retrieving namespace");
         let retrieved_namespace = node.namespace(namespace).await?;
         assert_eq!(retrieved_namespace.clone().unwrap().name, namespace);
         assert_eq!(
@@ -1550,12 +1558,41 @@ mod tests {
             3
         );
 
-        // //  Read all namespaces back and assert that only the created namespace is
+        // Read all namespaces back and assert that only the created namespace is
         // present along with the extraction policies
-        println!("Retrieving all namespaces");
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces.first().unwrap().name, namespace);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_mark_and_read_content_extraction_policy_mappings(
+    ) -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create a mapping of content -> extraction policies, insert it, mark it as read and read it back to assert
+        let mapping = ContentExtractionPolicyMapping::default();
+        let initial_time = mapping
+            .time_of_policy_completion
+            .get("extraction_policy_id")
+            .unwrap();
+        node.set_content_extraction_policy_mappings(vec![mapping.clone()])
+            .await?;
+        node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")
+            .await?;
+        let retrieved_mappings = node
+            .get_content_extraction_policy_mappings_for_content_id("content_id")
+            .await?;
+        let set_time = retrieved_mappings
+            .time_of_policy_completion
+            .get("extraction_policy_id")
+            .unwrap();
+        assert!(set_time > initial_time);
 
         Ok(())
     }

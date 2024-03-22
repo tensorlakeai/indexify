@@ -6,15 +6,34 @@ use tracing::error;
 
 use super::{
     serializer::{JsonEncode, JsonEncoder},
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(Clone)]
 pub struct StateMachineReader {}
 
 impl StateMachineReader {
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<indexify_internal_api::ContentExtractionPolicyMapping, StateMachineError> {
+        let txn = db.transaction();
+        let mapping_bytes = txn
+            .get_cf(
+                StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
+                content_id.as_bytes(),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(format!(
+                    "ContentExtractionPolicyMapping {} not found",
+                    content_id
+                ))
+            })?;
+        JsonEncoder::decode(&mapping_bytes).map_err(StateMachineError::from)
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,
