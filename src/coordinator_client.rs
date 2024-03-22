@@ -52,13 +52,13 @@ impl CoordinatorClient {
         let mut client = self
             .get()
             .await
-            .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| IndexifyAPIError::internal_error(e))?;
         let grpc_res = client
             .get_raft_metrics_snapshot(tonic::Request::new(
                 indexify_coordinator::GetRaftMetricsSnapshotRequest {},
             ))
             .await
-            .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?;
         let raft_metrics = grpc_res.into_inner();
         let snapshot_response = RaftMetricsSnapshotResponse {
             fail_connect_to_peer: raft_metrics.fail_connect_to_peer,
@@ -90,8 +90,7 @@ impl CoordinatorClient {
             last_log_index: raft_metrics.last_log_index,
             current_leader: raft_metrics.current_leader,
         };
-        Ok(Json(snapshot_response))
-            .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        Ok(Json(snapshot_response)).map_err(|e| IndexifyAPIError::internal_error(e))
     }
 
     pub async fn get_structured_schemas(

@@ -323,7 +323,7 @@ async fn create_namespace(
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to sync namespace: {}", e),
+                &format!("failed to sync namespace: {}", e),
             )
         })?;
     Ok(Json(CreateNamespaceResponse {}))
@@ -345,7 +345,7 @@ async fn list_namespaces(
     let namespaces = state.data_manager.list_namespaces().await.map_err(|e| {
         IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to list namespaces: {}", e),
+            &format!("failed to list namespaces: {}", e),
         )
     })?;
     let data_namespaces: Vec<DataNamespace> = namespaces.into_iter().collect();
@@ -372,7 +372,7 @@ async fn get_namespace(
     let data_namespace = state.data_manager.get(&namespace).await.map_err(|e| {
         IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to get namespace: {}", e),
+            &format!("failed to get namespace: {}", e),
         )
     })?;
     Ok(Json(GetNamespaceResponse {
@@ -402,12 +402,7 @@ async fn create_extraction_policy(
         .data_manager
         .create_extraction_policy(&namespace, &payload.policy)
         .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to bind extractor: {}", e),
-            )
-        })?
+        .map_err(|e| IndexifyAPIError::internal_error(e))?
         .into_iter()
         .collect();
     Ok(Json(ExtractionPolicyResponse { index_names }))
@@ -447,7 +442,7 @@ async fn add_texts(
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::BAD_REQUEST,
-                format!("failed to add text: {}", e),
+                &format!("failed to add text: {}", e),
             )
         })?;
     Ok(Json(TextAdditionResponse::default()))
@@ -466,7 +461,7 @@ async fn ingest_remote_file(
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::BAD_REQUEST,
-                format!("failed to add text: {}", e),
+                &format!("failed to add text: {}", e),
             )
         })?;
     Ok(Json(IngestRemoteFileResponse { content_id }))
@@ -497,7 +492,7 @@ async fn list_content(
             filter.labels_eq.as_ref(),
         )
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
     Ok(Json(ListContentResponse { content_list }))
 }
 
@@ -520,10 +515,10 @@ async fn get_content_metadata(
         .data_manager
         .get_content_metadata(&namespace, vec![content_id])
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let content_metadata = content_list.first().ok_or_else(|| {
-        IndexifyAPIError::new(StatusCode::NOT_FOUND, "content not found".to_string())
-    })?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    let content_metadata = content_list
+        .first()
+        .ok_or_else(|| IndexifyAPIError::new(StatusCode::NOT_FOUND, "content not found"))?;
 
     Ok(Json(GetContentMetadataResponse {
         content_metadata: content_metadata.clone(),
@@ -534,24 +529,17 @@ async fn get_content_metadata(
 async fn download_content(
     Path((namespace, content_id)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-) -> impl IntoResponse {
+) -> Result<Response<Body>, IndexifyAPIError> {
     let content_list = state
         .data_manager
         .get_content_metadata(&namespace, vec![content_id])
         .await;
-    if let Err(err) = content_list.as_ref() {
-        return Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(format!("unable to get content: {}", err)))
-            .unwrap();
-    }
-    if content_list.as_ref().unwrap().is_empty() {
-        return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("content not found"))
-            .unwrap();
-    }
-    let content_metadata = content_list.unwrap().first().unwrap().clone();
+    let content_list = content_list.map_err(|e| IndexifyAPIError::internal_error(e))?;
+    let content_metadata = content_list
+        .first()
+        .ok_or(anyhow!("content not found"))
+        .map_err(|e| IndexifyAPIError::not_found(&e.to_string()))?
+        .clone();
     let mut resp_builder =
         Response::builder().header("Content-Type", content_metadata.mime_type.clone());
     if content_metadata.size > 0 {
@@ -567,7 +555,7 @@ async fn download_content(
                 yield buf;
             }
         }))
-        .unwrap()
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
 
 #[tracing::instrument]
@@ -588,7 +576,13 @@ async fn upload_file(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     while let Some(file) = files.next_field().await.unwrap() {
-        let name = file.file_name().unwrap().to_string();
+        let name = file
+            .file_name()
+            .ok_or(IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                "file_name is not present",
+            ))?
+            .to_string();
         info!("writing to blob store, file name = {:?}", name);
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         state
@@ -598,7 +592,7 @@ async fn upload_file(
             .map_err(|e| {
                 IndexifyAPIError::new(
                     StatusCode::BAD_REQUEST,
-                    format!("failed to upload file: {}", e),
+                    &format!("failed to upload file: {}", e),
                 )
             })?;
     }
@@ -749,7 +743,7 @@ async fn list_extractors(
         .data_manager
         .list_extractors()
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::internal_error(e))?
         .into_iter()
         .collect();
     Ok(Json(ListExtractorsResponse { extractors }))
@@ -774,10 +768,10 @@ async fn list_state_changes(
         .coordinator_client
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::internal_error(e))?
         .list_state_changes(ListStateChangesRequest {})
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
         .into_inner()
         .changes;
 
@@ -810,13 +804,13 @@ async fn list_tasks(
         .coordinator_client
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::internal_error(e))?
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
             extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
         })
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.message()))?
         .into_inner()
         .tasks;
     let tasks = tasks
@@ -845,7 +839,7 @@ async fn extract_content(
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
     let cache = caches.cache_extract_content.clone();
     let extractor_router = ExtractorRouter::new(namespace_endpoint.coordinator_client.clone())
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
         .with_cache(cache);
     let content_list = extractor_router
         .extract_content(&request.name, request.content, request.input_params)
@@ -853,7 +847,7 @@ async fn extract_content(
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to extract content: {}", e),
+                &format!("failed to extract content: {}", e),
             )
         })?;
     Ok(Json(ExtractResponse {
@@ -880,7 +874,7 @@ async fn list_indexes(
         .data_manager
         .list_indexes(&namespace)
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::internal_error(e))?
         .into_iter()
         .collect();
     Ok(Json(ListIndexesResponse { indexes }))
@@ -910,7 +904,7 @@ async fn index_search(
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
         )
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
     let document_fragments: Vec<DocumentFragment> = results
         .iter()
         .map(|text| DocumentFragment {
@@ -936,11 +930,17 @@ async fn run_sql_query(
         .data_manager
         .query_content_source(&namespace, &query.query)
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     let mut json_result = Vec::new();
     for result in results {
-        json_result.push(serde_json::to_value(&result).unwrap());
+        let result_value = serde_json::to_value(&result).map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to serialize result {:?}: error: {}", result, e),
+            )
+        })?;
+        json_result.push(result_value);
     }
     Ok(Json(SqlQueryResponse { rows: json_result }))
 }
@@ -963,19 +963,25 @@ async fn list_schemas(
         .coordinator_client
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| IndexifyAPIError::internal_error(e))?
         .list_schemas(tonic::Request::new(
             indexify_coordinator::GetAllSchemaRequest {
                 namespace: namespace.clone(),
             },
         ))
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let results = results.into_inner().schemas;
     let mut schemas = Vec::new();
     for schema in results {
+        let columns = serde_json::from_str(&schema.columns).map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to parse schema columns: {} {}", schema.columns, e),
+            )
+        })?;
         schemas.push(StructuredDataSchema {
-            columns: serde_json::from_str(&schema.columns).unwrap(),
+            columns,
             namespace: namespace.to_string(),
             content_source: schema.content_source,
         })
@@ -1003,7 +1009,7 @@ async fn get_extracted_metadata(
         .data_manager
         .metadata_lookup(&namespace, &content_id)
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
     Ok(Json(MetadataResponse {
         metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
     }))
