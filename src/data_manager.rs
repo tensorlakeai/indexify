@@ -24,9 +24,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -441,6 +439,30 @@ impl DataManager {
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {
             error!("unable to update task: {}", err.to_string());
+        }
+        Ok(())
+    }
+
+    pub async fn mark_extraction_policy_applied_on_content(
+        &self,
+        content_id: &str,
+        extraction_policy_id: &str,
+    ) -> Result<()> {
+        let req = indexify_coordinator::MarkExtractionPolicyAppliedOnContentRequest {
+            content_id: content_id.into(),
+            extraction_policy_id: extraction_policy_id.into(),
+        };
+        let res = self
+            .coordinator_client
+            .get()
+            .await?
+            .mark_extraction_policy_applied_on_content(req)
+            .await;
+        if let Err(err) = res {
+            error!(
+                "unable to mark the extraction policy as completed: {}",
+                err.to_string()
+            );
         }
         Ok(())
     }

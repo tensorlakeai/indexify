@@ -703,10 +703,19 @@ async fn inner_ingest_extracted_content(
                         .await;
 
                     info!(
-                        "marking the extraction policy completed for the content id {} in task {}",
+                        "marking the extraction policy {} completed for the content id {} in task {}",
+                        ingest_metadata.as_ref().unwrap().extraction_policy,
                         content_metadata.as_ref().unwrap().id,
                         ingest_metadata.as_ref().unwrap().task_id
                     );
+
+                    let _ = state
+                        .data_manager
+                        .mark_extraction_policy_applied_on_content(
+                            &content_metadata.clone().unwrap().id,
+                            &ingest_metadata.clone().unwrap().extraction_policy,
+                        )
+                        .await;
                 }
             };
         }
