@@ -105,10 +105,10 @@ tracing-core = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-unwrap = { version = "0.10" }
 url = "2"
-utoipa = { version = "4", features = ["axum_extras"] }
+utoipa = { version = "4.2.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "6", features = ["axum"] }
-utoipa-rapidoc = { version = "3", features = ["axum"] }
-utoipa-redoc = { version = "3", features = ["axum"] }
+utoipa-rapidoc = { version = "3.0.0", features = ["axum"] }
+utoipa-redoc = { version = "3.0.0", features = ["axum"] }
 object_store = { version = "0.9", features = ["aws"] }
 local-ip-address = { version = "0.6" }
 flate2 = "1"
