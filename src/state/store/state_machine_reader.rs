@@ -38,7 +38,6 @@ impl StateMachineReader {
             })
             .unwrap_or_else(Vec::new);
 
-
         // FIXME Use MULTIGET
         let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
 

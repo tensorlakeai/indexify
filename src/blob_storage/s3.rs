@@ -132,7 +132,7 @@ mod tests {
         let client = test_client();
 
         let list_result = client.list(None).try_collect::<Vec<_>>().await;
-        if let Err(_) = list_result {
+        if list_result.is_err() {
             println!("localstack not configured skipping test");
             return;
         }
@@ -154,7 +154,7 @@ mod tests {
         let client = test_client();
 
         let list_result = client.list(None).try_collect::<Vec<_>>().await;
-        if let Err(_) = list_result {
+        if list_result.is_err() {
             println!("localstack not configured skipping test");
             return;
         }

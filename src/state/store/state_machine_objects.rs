@@ -222,7 +222,12 @@ impl IndexifyState {
     ) -> Result<(), StateMachineError> {
         let task_assignment_cf = StateMachineColumns::TaskAssignments.cf(db);
         for (executor_id, task_ids) in task_assignments {
-            txn.put_cf(task_assignment_cf, executor_id, JsonEncoder::encode(&task_ids)?).map_err(|e| {
+            txn.put_cf(
+                task_assignment_cf,
+                executor_id,
+                JsonEncoder::encode(&task_ids)?,
+            )
+            .map_err(|e| {
                 StateMachineError::DatabaseError(format!("Error writing task assignments: {}", e))
             })?;
         }
