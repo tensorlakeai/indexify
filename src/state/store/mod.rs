@@ -19,9 +19,7 @@ use openraft::{
     RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
     StoredMembership, Vote,
 };
-use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options, Transaction,
-};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;

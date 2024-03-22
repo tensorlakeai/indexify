@@ -8,7 +8,7 @@ use std::{
 use anyhow::Result;
 use indexify_internal_api as internal_api;
 use internal_api::{ExtractorDescription, StateChange};
-use rocksdb::{OptimisticTransactionDB, WriteBatch};
+use rocksdb::OptimisticTransactionDB;
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
