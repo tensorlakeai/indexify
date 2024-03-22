@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -610,99 +608,141 @@ async fn ingest_extracted_content(
     // chunks and reassembles them
     ws.map(|ws| ws.max_message_size(592323536))
         .map(|ws| ws.max_frame_size(592323536))
-        .on_upgrade(|socket| inner_ingest_extracted_content(socket, state))
+        .on_upgrade(|socket| IngestExtractedContentState::new(state).run(socket))
 }
 
-// Send a ping and measure how long time it takes to get a pong back
-async fn inner_ingest_extracted_content(
-    mut socket: WebSocket<IngestExtractedContentResponse, IngestExtractedContent>,
+struct IngestExtractedContentState {
+    ingest_metadata: Option<BeginExtractedContentIngest>,
+    content_metadata: Option<indexify_coordinator::ContentMetadata>,
     state: NamespaceEndpointState,
-) {
-    let _ = socket.send(Message::Ping(vec![])).await;
-    let mut ingest_metadata: Option<BeginExtractedContentIngest> = None;
-    let mut content_metadata: Option<indexify_coordinator::ContentMetadata> = None;
-    while let Some(msg) = socket.recv().await {
-        if let Err(err) = &msg {
-            tracing::error!("error receiving message: {:?}", err);
-            return;
+}
+
+impl IngestExtractedContentState {
+    fn new(state: NamespaceEndpointState) -> Self {
+        Self {
+            ingest_metadata: None,
+            content_metadata: None,
+            state,
         }
-        if let Ok(Message::Item(msg)) = msg {
-            match msg {
-                IngestExtractedContent::BeginExtractedContentIngest(payload) => {
-                    info!("beginning extraction ingest for task: {}", payload.task_id);
-                    ingest_metadata.replace(payload);
-                }
-                IngestExtractedContent::ExtractedContent(payload) => {
-                    if ingest_metadata.is_none() {
-                        tracing::error!("received extracted content without header metadata");
-                        return;
+    }
+
+    fn begin(&mut self, payload: BeginExtractedContentIngest) {
+        info!("beginning extraction ingest for task: {}", payload.task_id);
+        self.ingest_metadata.replace(payload);
+    }
+
+    async fn write_content(&mut self, payload: ExtractedContent) -> Result<()> {
+        if self.ingest_metadata.is_none() {
+            return Err(anyhow!(
+                "received extracted content without header metadata"
+            ));
+        }
+        self.state
+            .data_manager
+            .write_extracted_content(self.ingest_metadata.clone().unwrap(), payload)
+            .await
+    }
+
+    async fn ensure_has_content_metadata(
+        &mut self,
+        content_id: String,
+    ) -> Result<indexify_coordinator::ContentMetadata> {
+        if self.content_metadata.is_none() {
+            self.content_metadata = Some(
+                self.state
+                    .coordinator_client
+                    .get()
+                    .await?
+                    .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
+                        content_list: vec![content_id],
+                    })
+                    .await?
+                    .into_inner()
+                    .content_list
+                    .first()
+                    .ok_or(anyhow!("No content metadata found"))?
+                    .clone(),
+            );
+        }
+        Ok(self.content_metadata.clone().unwrap())
+    }
+
+    async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
+        if self.ingest_metadata.is_none() {
+            return Err(anyhow!(
+                "received extracted features without header metadata"
+            ));
+        }
+        let content_meta = self
+            .ensure_has_content_metadata(payload.content_id.clone())
+            .await?;
+        self.state
+            .data_manager
+            .write_extracted_features(
+                &self.ingest_metadata.clone().unwrap().extractor,
+                &self.ingest_metadata.clone().unwrap().extraction_policy,
+                &content_meta,
+                payload.features,
+                self.ingest_metadata
+                    .clone()
+                    .unwrap()
+                    .output_to_index_table_mapping
+                    .clone(),
+            )
+            .await
+    }
+
+    async fn finish(&self) -> Result<()> {
+        if self.ingest_metadata.is_none() {
+            tracing::error!("received finished extraction ingest without header metadata");
+            return Err(anyhow!(
+                "received finished extraction ingest without header metadata"
+            ));
+        }
+        self.state
+            .data_manager
+            .finish_extracted_content_write(self.ingest_metadata.clone().unwrap())
+            .await?;
+        Ok(())
+    }
+
+    // Send a ping and measure how long time it takes to get a pong back
+    async fn run(
+        mut self,
+        mut socket: WebSocket<IngestExtractedContentResponse, IngestExtractedContent>,
+    ) {
+        let _ = socket.send(Message::Ping(vec![])).await;
+        while let Some(msg) = socket.recv().await {
+            if let Err(err) = &msg {
+                tracing::error!("error receiving message: {:?}", err);
+                return;
+            }
+            if let Ok(Message::Item(msg)) = msg {
+                match msg {
+                    IngestExtractedContent::BeginExtractedContentIngest(payload) => {
+                        self.begin(payload);
                     }
-                    if let Err(err) = state
-                        .data_manager
-                        .write_extracted_content(ingest_metadata.clone().unwrap(), payload)
-                        .await
-                    {
-                        tracing::error!("error writing extracted content: {:?}", err);
+                    IngestExtractedContent::ExtractedContent(payload) => {
+                        if let Err(e) = self.write_content(payload).await {
+                            tracing::error!("Error handling extracted content: {}", e);
+                            return;
+                        }
                     }
-                }
-                IngestExtractedContent::ExtractedFeatures(payload) => {
-                    if ingest_metadata.is_none() {
-                        tracing::error!("received extracted features without header metadata");
-                        return;
+                    IngestExtractedContent::ExtractedFeatures(payload) => {
+                        if let Err(e) = self.write_features(payload).await {
+                            tracing::error!("Error handling extracted features: {}", e);
+                            return;
+                        }
                     }
-                    if content_metadata.is_none() {
-                        content_metadata = Some(
-                            state
-                                .coordinator_client
-                                .get()
-                                .await
-                                .unwrap()
-                                .get_content_metadata(
-                                    indexify_coordinator::GetContentMetadataRequest {
-                                        content_list: vec![payload.content_id.clone()],
-                                    },
-                                )
-                                .await
-                                .unwrap()
-                                .into_inner()
-                                .content_list
-                                .first()
-                                .unwrap()
-                                .clone(),
-                        );
+                    IngestExtractedContent::FinishExtractedContentIngest(_payload) => {
+                        if let Err(e) = self.finish().await {
+                            tracing::error!("Error finishing extraction ingest: {}", e);
+                            return;
+                        }
                     }
-                    let content_meta = content_metadata.clone().unwrap();
-                    if let Err(err) = state
-                        .data_manager
-                        .write_extracted_features(
-                            &ingest_metadata.clone().unwrap().extractor,
-                            &ingest_metadata.clone().unwrap().extraction_policy,
-                            &content_meta,
-                            payload.features,
-                            ingest_metadata
-                                .clone()
-                                .unwrap()
-                                .output_to_index_table_mapping
-                                .clone(),
-                        )
-                        .await
-                    {
-                        tracing::error!("error writing extracted features: {:?}", err);
-                    }
-                }
-                IngestExtractedContent::FinishExtractedContentIngest(_payload) => {
-                    if ingest_metadata.is_none() {
-                        tracing::error!(
-                            "received finished extraction ingest without header metadata"
-                        );
-                        return;
-                    }
-                    let _ = state
-                        .data_manager
-                        .finish_extracted_content_write(ingest_metadata.clone().unwrap())
-                        .await;
-                }
-            };
+                };
+            }
+>>>>>>> 877925d7 (add separate functions for ingestextractedcontent sm)
         }
     }
 }
