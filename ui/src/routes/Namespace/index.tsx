@@ -14,24 +14,28 @@ import ExtractorsTable from "../../components/ExtractorsTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const { namespace } = params;
-  const client = await IndexifyClient.createClient({ namespace });
+  const client = await IndexifyClient.createClient({
+    serviceUrl: window.location.origin,
+    namespace,
+  });
   const [extractors, indexes, contentList, schemas] = await Promise.all([
     client.extractors(),
     client.indexes(),
     client.getContent(),
-    client.getSchemas()
+    client.getSchemas(),
   ]);
   return { client, extractors, indexes, contentList, schemas };
 }
 
 const NamespacePage = () => {
-  const { client, extractors, indexes, contentList, schemas } = useLoaderData() as {
-    client: IndexifyClient;
-    extractors: Extractor[];
-    indexes: IIndex[];
-    contentList: IContentMetadata[];
-    schemas:ISchema[]
-  };
+  const { client, extractors, indexes, contentList, schemas } =
+    useLoaderData() as {
+      client: IndexifyClient;
+      extractors: Extractor[];
+      indexes: IIndex[];
+      contentList: IContentMetadata[];
+      schemas: ISchema[];
+    };
 
   return (
     <Stack direction="column" spacing={3}>
