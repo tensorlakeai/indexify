@@ -237,6 +237,10 @@ impl Server {
                 post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/task_assignments",
+                get(list_task_assignments).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/metrics/raft",
                 get(get_raft_metrics_snapshot).with_state(namespace_endpoint_state.clone()),
             )
@@ -402,7 +406,7 @@ async fn create_extraction_policy(
         .data_manager
         .create_extraction_policy(&namespace, &payload.policy)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?
+        .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
         .collect();
     Ok(Json(ExtractionPolicyResponse { index_names }))
@@ -492,7 +496,7 @@ async fn list_content(
             filter.labels_eq.as_ref(),
         )
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ListContentResponse { content_list }))
 }
 
@@ -515,7 +519,7 @@ async fn get_content_metadata(
         .data_manager
         .get_content_metadata(&namespace, vec![content_id])
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     let content_metadata = content_list
         .first()
         .ok_or_else(|| IndexifyAPIError::new(StatusCode::NOT_FOUND, "content not found"))?;
@@ -534,7 +538,7 @@ async fn download_content(
         .data_manager
         .get_content_metadata(&namespace, vec![content_id])
         .await;
-    let content_list = content_list.map_err(|e| IndexifyAPIError::internal_error(e))?;
+    let content_list = content_list.map_err(IndexifyAPIError::internal_error)?;
     let content_metadata = content_list
         .first()
         .ok_or(anyhow!("content not found"))
@@ -743,7 +747,7 @@ async fn list_extractors(
         .data_manager
         .list_extractors()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?
+        .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
         .collect();
     Ok(Json(ListExtractorsResponse { extractors }))
@@ -768,7 +772,7 @@ async fn list_state_changes(
         .coordinator_client
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?
+        .map_err(IndexifyAPIError::internal_error)?
         .list_state_changes(ListStateChangesRequest {})
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
@@ -804,13 +808,13 @@ async fn list_tasks(
         .coordinator_client
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?
+        .map_err(IndexifyAPIError::internal_error)?
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
             extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
         })
         .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.message()))?
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?
         .into_inner()
         .tasks;
     let tasks = tasks
@@ -855,6 +859,18 @@ async fn extract_content(
     }))
 }
 
+#[axum::debug_handler]
+async fn list_task_assignments(
+    State(namespace_endpoint): State<NamespaceEndpointState>,
+) -> Result<Json<TaskAssignments>, IndexifyAPIError> {
+    let response = namespace_endpoint
+        .coordinator_client
+        .all_task_assignments()
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(Json(response))
+}
+
 #[tracing::instrument]
 #[utoipa::path(
     get,
@@ -874,7 +890,7 @@ async fn list_indexes(
         .data_manager
         .list_indexes(&namespace)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?
+        .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
         .collect();
     Ok(Json(ListIndexesResponse { indexes }))
@@ -904,7 +920,7 @@ async fn index_search(
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
         )
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     let document_fragments: Vec<DocumentFragment> = results
         .iter()
         .map(|text| DocumentFragment {
@@ -930,7 +946,7 @@ async fn run_sql_query(
         .data_manager
         .query_content_source(&namespace, &query.query)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     let mut json_result = Vec::new();
     for result in results {
@@ -963,7 +979,7 @@ async fn list_schemas(
         .coordinator_client
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?
+        .map_err(IndexifyAPIError::internal_error)?
         .list_schemas(tonic::Request::new(
             indexify_coordinator::GetAllSchemaRequest {
                 namespace: namespace.clone(),
@@ -1009,7 +1025,7 @@ async fn get_extracted_metadata(
         .data_manager
         .metadata_lookup(&namespace, &content_id)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(MetadataResponse {
         metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
     }))

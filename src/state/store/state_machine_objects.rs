@@ -444,7 +444,15 @@ impl IndexifyState {
                             acc
                         });
 
-                self.set_task_assignments(db, &txn, &assignments)?;
+
+                // FIXME - Write a test which assigns tasks mutliple times to the same executor and make sure it's additive.
+
+                for (executor_id, tasks) in assignments.iter() {
+                    let mut existing_tasks = self.get_task_assignments_for_executor(db, &txn, executor_id)?;
+                    existing_tasks.extend(tasks.clone());
+                    let task_assignment = HashMap::from([(executor_id.clone(), existing_tasks)]);
+                    self.set_task_assignments(db, &txn,&task_assignment)?;
+                }
             }
             RequestPayload::UpdateTask {
                 task,

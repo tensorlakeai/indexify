@@ -106,6 +106,10 @@ impl Coordinator {
         Ok(tasks)
     }
 
+    pub async fn all_task_assignments(&self) -> Result<HashMap<String, String>> {
+        self.shared_state.task_assignments().await
+    }
+
     pub async fn list_state_changes(&self) -> Result<Vec<internal_api::StateChange>> {
         self.shared_state.list_state_changes()
     }
