@@ -11,7 +11,7 @@ use itertools::Itertools;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
-use crate::api::{IndexifyAPIError, RaftMetricsSnapshotResponse};
+use crate::api::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments};
 
 #[derive(Debug)]
 pub struct CoordinatorClient {
@@ -52,7 +52,7 @@ impl CoordinatorClient {
         let mut client = self
             .get()
             .await
-            .map_err(|e| IndexifyAPIError::internal_error(e))?;
+            .map_err(IndexifyAPIError::internal_error)?;
         let grpc_res = client
             .get_raft_metrics_snapshot(tonic::Request::new(
                 indexify_coordinator::GetRaftMetricsSnapshotRequest {},
@@ -90,7 +90,7 @@ impl CoordinatorClient {
             last_log_index: raft_metrics.last_log_index,
             current_leader: raft_metrics.current_leader,
         };
-        Ok(Json(snapshot_response)).map_err(|e| IndexifyAPIError::internal_error(e))
+        Ok(Json(snapshot_response)).map_err(IndexifyAPIError::internal_error)
     }
 
     pub async fn get_structured_schemas(
@@ -113,5 +113,15 @@ impl CoordinatorClient {
             })
             .collect_vec();
         Ok(schemas)
+    }
+
+    pub async fn all_task_assignments(&self) -> Result<TaskAssignments> {
+        let request = tonic::Request::new(
+            indexify_proto::indexify_coordinator::GetAllTaskAssignmentRequest {},
+        );
+        let response = self.get().await?.get_all_task_assignments(request).await?;
+        Ok(TaskAssignments {
+            assignments: response.into_inner().assignments,
+        })
     }
 }

@@ -22,6 +22,7 @@ use indexify_proto::indexify_coordinator::{
     ExtractionPolicyResponse,
     GetAllSchemaRequest,
     GetAllSchemaResponse,
+    GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
@@ -45,6 +46,7 @@ use indexify_proto::indexify_coordinator::{
     RaftMetricsSnapshotResponse,
     RegisterExecutorRequest,
     RegisterExecutorResponse,
+    TaskAssignments,
     Uint64List,
     UpdateTaskRequest,
     UpdateTaskResponse,
@@ -587,6 +589,18 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
 
         Ok(Response::new(response))
+    }
+
+    async fn get_all_task_assignments(
+        &self,
+        _req: Request<GetAllTaskAssignmentRequest>,
+    ) -> Result<Response<TaskAssignments>, Status> {
+        let assignments = self
+            .coordinator
+            .all_task_assignments()
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(Response::new(TaskAssignments { assignments }))
     }
 }
 

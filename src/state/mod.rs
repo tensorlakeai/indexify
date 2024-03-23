@@ -488,6 +488,10 @@ impl App {
         Ok(tasks)
     }
 
+    pub async fn task_assignments(&self) -> Result<HashMap<ExecutorId, TaskId>> {
+        self.state_machine.all_task_assignments()
+    }
+
     pub async fn get_executors_for_extractor(
         &self,
         extractor: &str,

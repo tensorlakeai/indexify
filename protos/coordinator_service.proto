@@ -45,6 +45,8 @@ service CoordinatorService {
     rpc ListSchemas(GetAllSchemaRequest) returns (GetAllSchemaResponse) {}
 
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
+
+    rpc GetAllTaskAssignments(GetAllTaskAssignmentRequest) returns (TaskAssignments) {}
 }
 
 message GetContentMetadataRequest {
@@ -349,4 +351,10 @@ message RaftMetricsSnapshotResponse {
     uint64 last_log_index = 19;
     uint64 current_leader = 20;
 }
-//  End Raft Metrics Snapshot
+
+message GetAllTaskAssignmentRequest {
+}
+
+message TaskAssignments {
+    map<string, string> assignments = 1;
+}

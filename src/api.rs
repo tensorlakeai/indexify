@@ -579,3 +579,8 @@ pub struct IngestRemoteFile {
 pub struct IngestRemoteFileResponse {
     pub content_id: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TaskAssignments {
+    pub assignments: HashMap<String, String>,
+}
