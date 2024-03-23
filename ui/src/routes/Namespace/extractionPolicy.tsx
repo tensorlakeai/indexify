@@ -10,7 +10,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const policyname = params.policyname;
   if (!namespace || !policyname) return redirect("/");
 
-  const client = await IndexifyClient.createClient();
+  const client = await IndexifyClient.createClient({
+    serviceUrl: window.location.origin,
+    namespace
+  });
   const tasks = (await client.getTasks(policyname)).filter(
     (task) => task.extraction_policy === policyname
   );

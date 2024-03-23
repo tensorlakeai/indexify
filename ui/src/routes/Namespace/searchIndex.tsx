@@ -17,7 +17,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
   const indexName = params.indexName;
 
-  const client = await IndexifyClient.createClient();
+  const client = await IndexifyClient.createClient({
+    serviceUrl: window.location.origin,
+    namespace,
+  });
   const indexes = (await client.indexes()).filter(
     (index) => index.name === indexName
   );
