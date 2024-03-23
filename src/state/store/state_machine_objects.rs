@@ -218,7 +218,7 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        task_assignments: &HashMap<&String, HashSet<TaskId>>,
+        task_assignments: &HashMap<String, HashSet<TaskId>>,
     ) -> Result<(), StateMachineError> {
         let task_assignment_cf = StateMachineColumns::TaskAssignments.cf(db);
         for (executor_id, task_ids) in task_assignments {
@@ -450,7 +450,7 @@ impl IndexifyState {
                 for (executor_id, tasks) in assignments.iter() {
                     let mut existing_tasks = self.get_task_assignments_for_executor(db, &txn, executor_id)?;
                     existing_tasks.extend(tasks.clone());
-                    let task_assignment = HashMap::from([(executor_id.clone(), existing_tasks)]);
+                    let task_assignment = HashMap::from([(executor_id.to_string(), existing_tasks)]);
                     self.set_task_assignments(db, &txn,&task_assignment)?;
                 }
             }
@@ -470,7 +470,7 @@ impl IndexifyState {
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
                         existing_tasks.remove(&task.id);
                         let mut new_task_assignment = HashMap::new();
-                        new_task_assignment.insert(executor_id, existing_tasks);
+                        new_task_assignment.insert(executor_id.to_string(), existing_tasks);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                         decrement_running_task_count(
                             &mut self.executor_running_task_count,
