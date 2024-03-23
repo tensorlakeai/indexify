@@ -49,10 +49,7 @@ impl CoordinatorClient {
     pub async fn get_raft_metrics_snapshot(
         &self,
     ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
-        let mut client = self
-            .get()
-            .await
-            .map_err(IndexifyAPIError::internal_error)?;
+        let mut client = self.get().await.map_err(IndexifyAPIError::internal_error)?;
         let grpc_res = client
             .get_raft_metrics_snapshot(tonic::Request::new(
                 indexify_coordinator::GetRaftMetricsSnapshotRequest {},
