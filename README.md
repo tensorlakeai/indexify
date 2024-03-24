@@ -1,7 +1,7 @@
 ![Indexify](./docs/docs/images/Indexify_Logo_Wordmark.png)
 
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
-[![Discord](https://dcbadge.vercel.app/api/server/indexify?style=flat&compact=true)](https://discord.gg/mrXrq3DmV8)
+[![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
 
 Indexify is a reactive structured extraction and indexing engine for un-structured data.
