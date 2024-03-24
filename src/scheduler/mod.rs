@@ -198,10 +198,14 @@ impl Scheduler {
             tasks.push(task);
 
             let mut time_of_policy_completion = HashMap::new();
-            time_of_policy_completion.insert(extraction_policy_id.into(), SystemTime::now());
+            time_of_policy_completion
+                .insert(extraction_policy.name.clone().into(), SystemTime::now());
             let content_extraction_policy_mapping = internal_api::ContentExtractionPolicyMapping {
                 content_id: content.id,
-                extraction_policy_ids: HashSet::from_iter(vec![extraction_policy_id.into()]),
+                extraction_policy_names: HashSet::from_iter(vec![extraction_policy
+                    .name
+                    .clone()
+                    .into()]),
                 time_of_policy_completion,
             };
             info!(

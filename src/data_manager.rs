@@ -446,11 +446,11 @@ impl DataManager {
     pub async fn mark_extraction_policy_applied_on_content(
         &self,
         content_id: &str,
-        extraction_policy_id: &str,
+        extraction_policy_name: &str,
     ) -> Result<()> {
         let req = indexify_coordinator::MarkExtractionPolicyAppliedOnContentRequest {
             content_id: content_id.into(),
-            extraction_policy_id: extraction_policy_id.into(),
+            extraction_policy_name: extraction_policy_name.into(),
         };
         let res = self
             .coordinator_client

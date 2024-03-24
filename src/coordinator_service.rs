@@ -134,7 +134,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             index_name_table_mapping: index_name_table_mapping.clone(),
             content_source: extraction_policy.content_source,
         };
-        println!("Creating the extraction policy {:#?}", extraction_policy);
         let _ = self
             .coordinator
             .create_policy(extraction_policy, extractor.clone())
@@ -242,7 +241,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<RegisterExecutorRequest>,
     ) -> Result<tonic::Response<RegisterExecutorResponse>, tonic::Status> {
         let request = request.into_inner();
-        println!("Received register executor request {:#?}", request);
         let extractor = request
             .extractor
             .ok_or(tonic::Status::aborted("missing extractor"))?;
@@ -574,7 +572,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let req = req.into_inner();
 
         self.coordinator
-            .mark_extraction_policy_applied_on_content(&req.content_id, &req.extraction_policy_id)
+            .mark_extraction_policy_applied_on_content(&req.content_id, &req.extraction_policy_name)
             .await
             .map_err(|e| tonic::Status::internal(e.to_string()))?;
 

@@ -620,7 +620,6 @@ async fn inner_ingest_extracted_content(
     let mut ingest_metadata: Option<BeginExtractedContentIngest> = None;
     let mut content_metadata: Option<indexify_coordinator::ContentMetadata> = None;
     while let Some(msg) = socket.recv().await {
-        println!("Received message {:#?}", msg);
         if let Err(err) = &msg {
             tracing::error!("error receiving message: {:?}", err);
             return;
@@ -701,20 +700,20 @@ async fn inner_ingest_extracted_content(
                         .finish_extracted_content_write(ingest_metadata.clone().unwrap())
                         .await;
 
-                    // info!(
-                    //     "marking the extraction policy {} completed for the content id {} in task {}",
-                    //     ingest_metadata.as_ref().unwrap().extraction_policy,
-                    //     content_metadata.as_ref().unwrap().id,
-                    //     ingest_metadata.as_ref().unwrap().task_id
-                    // );
+                    info!(
+                        "marking the extraction policy {} completed for the content id {} in task {}",
+                        ingest_metadata.as_ref().unwrap().extraction_policy,
+                        ingest_metadata.as_ref().unwrap().parent_content_id,
+                        ingest_metadata.as_ref().unwrap().task_id
+                    );
 
-                    // let _ = state
-                    //     .data_manager
-                    //     .mark_extraction_policy_applied_on_content(
-                    //         &content_metadata.clone().unwrap().id,
-                    //         &ingest_metadata.clone().unwrap().extraction_policy,
-                    //     )
-                    //     .await;
+                    let _ = state
+                        .data_manager
+                        .mark_extraction_policy_applied_on_content(
+                            &ingest_metadata.as_ref().unwrap().parent_content_id,
+                            &ingest_metadata.clone().unwrap().extraction_policy,
+                        )
+                        .await;
                 }
             };
         }

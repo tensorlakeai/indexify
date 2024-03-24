@@ -287,10 +287,10 @@ impl Coordinator {
     pub async fn mark_extraction_policy_applied_on_content(
         &self,
         content_id: &str,
-        extraction_policy_id: &str,
+        extraction_policy_name: &str,
     ) -> Result<()> {
         self.shared_state
-            .mark_extraction_policy_applied_on_content(content_id, extraction_policy_id)
+            .mark_extraction_policy_applied_on_content(content_id, extraction_policy_name)
             .await
     }
 }

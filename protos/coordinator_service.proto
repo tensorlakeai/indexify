@@ -356,7 +356,7 @@ message RaftMetricsSnapshotResponse {
 
 message MarkExtractionPolicyAppliedOnContentRequest {
     string content_id = 1;
-    string extraction_policy_id = 2;
+    string extraction_policy_name = 2;
 }
 
 message MarkExtractionPolicyAppliedOnContentResponse {}

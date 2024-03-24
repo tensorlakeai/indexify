@@ -530,7 +530,7 @@ pub struct MarkExtractionPolicyAppliedOnContentRequest {
     #[prost(string, tag = "1")]
     pub content_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub extraction_policy_id: ::prost::alloc::string::String,
+    pub extraction_policy_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

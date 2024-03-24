@@ -428,7 +428,7 @@ impl IndexifyState {
                 Ok(Some(data)) => JsonEncoder::decode(&data)?,
                 Ok(None) => internal_api::ContentExtractionPolicyMapping {
                     content_id: keys_with_cf[index].1.to_string(),
-                    extraction_policy_ids: HashSet::new(),
+                    extraction_policy_names: HashSet::new(),
                     time_of_policy_completion: HashMap::new(),
                 },
                 Err(e) => {
@@ -441,8 +441,8 @@ impl IndexifyState {
 
             let new_mapping = mappings[index].clone();
             existing_mapping
-                .extraction_policy_ids
-                .extend(new_mapping.extraction_policy_ids);
+                .extraction_policy_names
+                .extend(new_mapping.extraction_policy_names);
             existing_mapping
                 .time_of_policy_completion
                 .extend(new_mapping.time_of_policy_completion);
@@ -470,7 +470,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &str,
-        extraction_policy_id: &str,
+        extraction_policy_name: &str,
     ) -> Result<(), StateMachineError> {
         let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
         let value = txn
@@ -492,21 +492,21 @@ impl IndexifyState {
 
         //  First ensure that this content has the extraction policy registered against it
         if !content_policy_mappings
-            .extraction_policy_ids
-            .contains(extraction_policy_id)
+            .extraction_policy_names
+            .contains(extraction_policy_name)
         {
             return Err(StateMachineError::DatabaseError(format!(
-                "Extraction policy {} not applied on content {}",
-                extraction_policy_id, content_id
+                "Extraction policy {} not applied on content {} because extraction policy was not registered against the content",
+                extraction_policy_name, content_id
             )));
         }
 
         //  Mark the time the content was processed against the extraction policy and store it back
         let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
-        time_of_policy_completion.insert(extraction_policy_id.into(), SystemTime::now());
+        time_of_policy_completion.insert(extraction_policy_name.into(), SystemTime::now());
         let updated_mapping = internal_api::ContentExtractionPolicyMapping {
             content_id: content_id.into(),
-            extraction_policy_ids: content_policy_mappings.extraction_policy_ids,
+            extraction_policy_names: content_policy_mappings.extraction_policy_names,
             time_of_policy_completion,
         };
         let data = JsonEncoder::encode(&updated_mapping)?;
@@ -642,7 +642,6 @@ impl IndexifyState {
                 updated_structured_data_schema,
                 new_structured_data_schema,
             } => {
-                println!("Received request in state machine to create extraction policy");
                 self.set_extraction_policy(
                     db,
                     &txn,
@@ -662,13 +661,13 @@ impl IndexifyState {
             }
             RequestPayload::MarkExtractionPolicyAppliedOnContent {
                 content_id,
-                extraction_policy_id,
+                extraction_policy_name,
             } => {
                 self.mark_extraction_policy_applied_on_content(
                     db,
                     &txn,
                     content_id,
-                    extraction_policy_id,
+                    &extraction_policy_name,
                 )?;
             }
             RequestPayload::CreateNamespace {
@@ -756,7 +755,6 @@ impl IndexifyState {
                 updated_structured_data_schema,
                 new_structured_data_schema,
             } => {
-                println!("Received request in reverse index update to create extraction policy");
                 self.extraction_policies_table
                     .entry(extraction_policy.namespace.clone())
                     .or_default()

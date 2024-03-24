@@ -562,7 +562,6 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        println!("Creating an extraction policy {:?}", extraction_policy);
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
@@ -601,12 +600,12 @@ impl App {
     pub async fn mark_extraction_policy_applied_on_content(
         &self,
         content_id: &str,
-        extraction_policy_id: &str,
+        extraction_policy_name: &str,
     ) -> Result<()> {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::MarkExtractionPolicyAppliedOnContent {
                 content_id: content_id.into(),
-                extraction_policy_id: extraction_policy_id.into(),
+                extraction_policy_name: extraction_policy_name.into(),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],
@@ -1305,8 +1304,7 @@ mod tests {
         node.create_extraction_policy(extraction_policy.clone(), None)
             .await?;
 
-        let tasks = node.list_tasks(namespace, Some(extraction_policy.id))?;
-        println!("The tasks are {:#?}", tasks);
+        let _tasks = node.list_tasks(namespace, Some(extraction_policy.id))?;
 
         Ok(())
     }
@@ -1409,15 +1407,12 @@ mod tests {
             .await?;
 
         //  Read the executors from multiple functions
-        println!("Getting executors");
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 1);
 
-        println!("Getting executor by id");
         let executor = node.get_executor_by_id(executor_id).await?;
         assert_eq!(executor.id, executor_id);
 
-        println!("Getting executors for extractor");
         let executors = node.get_executors_for_extractor(&extractor.name).await?;
         assert_eq!(executors.len(), 1);
         assert_eq!(executors.first().unwrap().id, executor_id);
