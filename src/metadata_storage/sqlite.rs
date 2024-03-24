@@ -66,6 +66,15 @@ impl MetadataStorage for SqliteIndexManager {
         Ok(())
     }
 
+    #[cfg(test)]
+    async fn drop_metadata_table(&self, namespace: &str) -> anyhow::Result<()> {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("DROP TABLE IF EXISTS {table_name};");
+        let conn = self.conn.lock().await;
+        let _ = conn.execute(&query, params![])?;
+        Ok(())
+    }
+
     async fn add_metadata(
         &self,
         namespace: &str,

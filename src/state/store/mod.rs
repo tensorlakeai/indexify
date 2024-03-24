@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     fs::{self, File},
     io::{BufReader, Cursor, Read, Write},
@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
@@ -307,6 +307,26 @@ impl StateMachineStore {
             .get_tasks_for_executor(executor_id, limit, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
+    }
+
+    pub fn all_task_assignments(&self) -> Result<HashMap<TaskId, ExecutorId>> {
+        let mut assignments = HashMap::new();
+        let iter = self.db.iterator_cf(
+            StateMachineColumns::TaskAssignments.cf(&self.db),
+            rocksdb::IteratorMode::Start,
+        );
+        for item in iter {
+            let (key, value) =
+                item.map_err(|e| anyhow!("unable to get values from task assignment {}", e))?;
+            let executor_id =
+                String::from_utf8(key.to_vec()).map_err(|e| anyhow!(e.to_string()))?;
+            let task_ids: HashSet<TaskId> = JsonEncoder::decode(&value)
+                .map_err(|e| anyhow!("unable to decoded task hashset {}", e))?;
+            for task_id in task_ids {
+                assignments.insert(task_id, executor_id.clone());
+            }
+        }
+        Ok(assignments)
     }
 
     pub async fn get_indexes_from_ids(

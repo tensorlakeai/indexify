@@ -42,9 +42,8 @@ impl StateMachineReader {
     ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
         //  NOTE: Don't do deserialization within the transaction
         let txn = db.transaction();
-        let task_ids_key = executor_id.as_bytes();
         let task_ids_bytes = txn
-            .get_cf(StateMachineColumns::TaskAssignments.cf(db), task_ids_key)
+            .get_cf(StateMachineColumns::TaskAssignments.cf(db), executor_id)
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
         let task_ids: Vec<String> = task_ids_bytes
@@ -58,6 +57,7 @@ impl StateMachineReader {
             })
             .unwrap_or_else(Vec::new);
 
+        // FIXME Use MULTIGET
         let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
 
         let tasks: Result<Vec<indexify_internal_api::Task>, StateMachineError> = task_ids

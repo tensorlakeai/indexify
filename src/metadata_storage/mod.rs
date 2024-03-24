@@ -65,6 +65,8 @@ pub trait MetadataStorage {
     ) -> Result<Vec<ExtractedMetadata>>;
 
     //  TODO: Create function to delete content from here using namespace and content id
+    #[cfg(test)]
+    async fn drop_metadata_table(&self, namespace: &str) -> Result<()>;
 }
 
 pub type MetadataScanStream = std::result::Result<

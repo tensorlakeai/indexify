@@ -47,6 +47,7 @@ service CoordinatorService {
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
 
     rpc MarkExtractionPolicyAppliedOnContent(MarkExtractionPolicyAppliedOnContentRequest) returns (MarkExtractionPolicyAppliedOnContentResponse) {}
+    rpc GetAllTaskAssignments(GetAllTaskAssignmentRequest) returns (TaskAssignments) {}
 }
 
 message GetContentMetadataRequest {
@@ -359,3 +360,10 @@ message MarkExtractionPolicyAppliedOnContentRequest {
 }
 
 message MarkExtractionPolicyAppliedOnContentResponse {}
+
+message GetAllTaskAssignmentRequest {
+}
+
+message TaskAssignments {
+    map<string, string> assignments = 1;
+}

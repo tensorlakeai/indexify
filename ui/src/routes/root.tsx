@@ -24,9 +24,11 @@ import CircleIcon from "@mui/icons-material/Circle";
 import { stringToColor } from "../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const namespaces = (await IndexifyClient.namespaces()).map(
-    (repo) => repo.name
-  );
+  const namespaces = (
+    await IndexifyClient.namespaces({
+      serviceUrl: window.location.origin,
+    })
+  ).map((repo) => repo.name);
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
     if (params.namespace !== "default") {

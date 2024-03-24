@@ -20,7 +20,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
   const contentId = params.contentId;
   if (!namespace || !contentId) return redirect("/");
-  const client = await IndexifyClient.createClient();
+  const client = await IndexifyClient.createClient({
+    serviceUrl: window.location.origin,
+    namespace,
+  });
   // get content from contentId
   const tasks = await client
     .getTasks()
@@ -50,7 +53,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
     tasks,
     contentId,
     contentMetadata,
-    groupedExtractedMetadata:groupMetadataByExtractor(extractedMetadataList),
+    groupedExtractedMetadata: groupMetadataByExtractor(extractedMetadataList),
     errors,
   };
 }
@@ -69,7 +72,7 @@ const ContentPage = () => {
     tasks: ITask[];
     contentId: string;
     contentMetadata: IContentMetadata;
-    groupedExtractedMetadata: Record<string,IExtractedMetadata[]>;
+    groupedExtractedMetadata: Record<string, IExtractedMetadata[]>;
     client: IndexifyClient;
     errors: string[];
   };
@@ -123,6 +126,17 @@ const ContentPage = () => {
           <Typography variant="body2">{textContent}</Typography>
         </Box>
       );
+    } else if (contentMetadata.mime_type.startsWith("application/json")) {
+      return (
+        <Box
+          sx={{
+            maxHeight: "500px",
+            overflow: "scroll",
+          }}
+        >
+          <Typography variant="body2">{JSON.stringify(textContent)}</Typography>
+        </Box>
+      );
     }
     return null;
   };
@@ -144,9 +158,9 @@ const ContentPage = () => {
       {/* display content */}
       {renderContent()}
       {/* tasks */}
-      {Object.keys(groupedExtractedMetadata).map(key => {
-        const extractedMetadata = groupedExtractedMetadata[key]
-        return <ExtractedMetadataTable extractedMetadata={extractedMetadata} />
+      {Object.keys(groupedExtractedMetadata).map((key) => {
+        const extractedMetadata = groupedExtractedMetadata[key];
+        return <ExtractedMetadataTable extractedMetadata={extractedMetadata} />;
       })}
       <TasksTable namespace={namespace} tasks={tasks} hideContentId />
     </Stack>

@@ -212,53 +212,23 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        task_assignments: &HashMap<&String, HashSet<TaskId>>,
+        task_assignments: &HashMap<String, HashSet<TaskId>>,
     ) -> Result<(), StateMachineError> {
         let task_assignment_cf = StateMachineColumns::TaskAssignments.cf(db);
         for (executor_id, task_ids) in task_assignments {
-            let key = executor_id;
-            let value = txn.get_cf(task_assignment_cf, key).map_err(|e| {
-                StateMachineError::DatabaseError(format!("Error reading task assignments: {}", e))
+            txn.put_cf(
+                task_assignment_cf,
+                executor_id,
+                JsonEncoder::encode(&task_ids)?,
+            )
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing task assignments: {}", e))
             })?;
-
-            match value {
-                //  Update the hash set of task ids if executor id is already present as key
-                Some(existing_value) => {
-                    let mut existing_value: HashSet<TaskId> = JsonEncoder::decode(&existing_value)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error deserializing task assignments: {}",
-                                e
-                            ))
-                        })?;
-                    existing_value.extend(task_ids.clone());
-                    let new_value = JsonEncoder::encode(&existing_value)?;
-                    txn.put_cf(task_assignment_cf, key, &new_value)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error writing task assignments: {}",
-                                e
-                            ))
-                        })?;
-                }
-                None => {
-                    //  Create a new hash set of task ids if executor id is not present as
-                    // key
-                    let new_value = JsonEncoder::encode(task_ids)?;
-                    txn.put_cf(task_assignment_cf, key, &new_value)
-                        .map_err(|e| {
-                            StateMachineError::DatabaseError(format!(
-                                "Error writing task assignments: {}",
-                                e
-                            ))
-                        })?;
-                }
-            }
         }
         Ok(())
     }
 
-    // TODO USE MULTI-GET HERE
+    // FIXME USE MULTI-GET HERE
     fn delete_task_assignments_for_executor(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -581,7 +551,17 @@ impl IndexifyState {
                             acc
                         });
 
-                self.set_task_assignments(db, &txn, &assignments)?;
+                // FIXME - Write a test which assigns tasks mutliple times to the same executor
+                // and make sure it's additive.
+
+                for (executor_id, tasks) in assignments.iter() {
+                    let mut existing_tasks =
+                        self.get_task_assignments_for_executor(db, &txn, executor_id)?;
+                    existing_tasks.extend(tasks.clone());
+                    let task_assignment =
+                        HashMap::from([(executor_id.to_string(), existing_tasks)]);
+                    self.set_task_assignments(db, &txn, &task_assignment)?;
+                }
             }
             RequestPayload::UpdateTask {
                 task,
@@ -599,7 +579,7 @@ impl IndexifyState {
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
                         existing_tasks.remove(&task.id);
                         let mut new_task_assignment = HashMap::new();
-                        new_task_assignment.insert(executor_id, existing_tasks);
+                        new_task_assignment.insert(executor_id.to_string(), existing_tasks);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                         decrement_running_task_count(
                             &mut self.executor_running_task_count,

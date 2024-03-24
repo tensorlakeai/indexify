@@ -194,7 +194,7 @@ impl TryFrom<indexify_coordinator::Extractor> for ExtractorDescription {
         Ok(Self {
             name: value.name,
             description: value.description,
-            input_params: serde_json::from_str(&value.input_params).unwrap(),
+            input_params: serde_json::from_str(&value.input_params)?,
             outputs,
             input_mime_types: value.input_mime_types,
         })
@@ -322,11 +322,19 @@ pub struct IndexifyAPIError {
 }
 
 impl IndexifyAPIError {
-    pub fn new(status_code: StatusCode, message: String) -> Self {
+    pub fn new(status_code: StatusCode, message: &str) -> Self {
         Self {
             status_code,
-            message,
+            message: message.to_string(),
         }
+    }
+
+    pub fn internal_error(e: anyhow::Error) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str())
+    }
+
+    pub fn not_found(message: &str) -> Self {
+        Self::new(StatusCode::NOT_FOUND, message)
     }
 }
 
@@ -570,4 +578,9 @@ pub struct IngestRemoteFile {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IngestRemoteFileResponse {
     pub content_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TaskAssignments {
+    pub assignments: HashMap<String, String>,
 }
