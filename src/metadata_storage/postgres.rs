@@ -1,11 +1,24 @@
 use std::{
+    collections::BTreeMap,
     fmt,
     sync::{atomic::AtomicBool, Arc},
 };
 
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
+use futures::stream;
+use gluesql::core::{
+    data::{Key, Value},
+    error::Error::StorageMsg as GlueStorageError,
+    store::DataRow,
+};
+use itertools::Itertools;
+use sqlx::{
+    postgres::{PgPoolOptions, PgRow},
+    Pool,
+    Postgres,
+    Row,
+};
 
 use super::{table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage};
 use crate::utils::{timestamp_secs, PostgresIndexName};
@@ -55,6 +68,14 @@ impl MetadataStorage for PostgresIndexManager {
         Ok(())
     }
 
+    #[cfg(test)]
+    async fn drop_metadata_table(&self, namespace: &str) -> Result<()> {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("DROP TABLE IF EXISTS \"{table_name}\";");
+        let _ = sqlx::query(&query).execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
         if !self
             .default_index_created
@@ -91,32 +112,15 @@ impl MetadataStorage for PostgresIndexManager {
         let query = format!(
             "SELECT * FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2"
         );
-        let rows = sqlx::query(&query)
+        let extracted_attributes = sqlx::query(&query)
             .bind(namespace)
             .bind(content_id)
             .fetch_all(&self.pool)
-            .await?;
+            .await?
+            .iter()
+            .map(row_to_extracted_metadata)
+            .collect();
 
-        let mut extracted_attributes = Vec::new();
-        for row in rows {
-            let id: String = row.get(0);
-            let extractor: String = row.get(2);
-            let extraction_policy: String = row.get(3);
-            let content_source: String = row.get(4);
-            let data: serde_json::Value = row.get(6);
-            let content_id: String = row.get(7);
-            let parent_content_id: String = row.get(8);
-            let attributes = ExtractedMetadata {
-                id,
-                content_id,
-                parent_content_id,
-                content_source,
-                metadata: data,
-                extractor_name: extractor,
-                extraction_policy,
-            };
-            extracted_attributes.push(attributes);
-        }
         Ok(extracted_attributes)
     }
 }
@@ -125,14 +129,86 @@ impl MetadataStorage for PostgresIndexManager {
 impl MetadataReader for PostgresIndexManager {
     async fn get_metadata_for_id(
         &self,
-        _namespace: &str,
-        _id: &str,
+        namespace: &str,
+        id: &str,
     ) -> Result<Option<ExtractedMetadata>> {
-        unimplemented!()
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("SELECT * FROM \"{table_name}\" WHERE namespace = $2 and id = $3");
+        let metadata = sqlx::query(&query)
+            .bind(namespace)
+            .bind(id)
+            .bind(table_name.to_string())
+            .fetch_all(&self.pool)
+            .await?
+            .first()
+            .map(row_to_extracted_metadata);
+
+        Ok(metadata)
     }
 
-    async fn scan_metadata(&self, _namespace: &str, _content_source: &str) -> MetadataScanStream {
-        unimplemented!()
+    async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!(
+            "
+            SELECT content_id, data
+            FROM \"{table_name}\"
+            WHERE namespace = $1 AND content_source = $2
+        "
+        );
+        let rows = sqlx::query(&query)
+            .bind(namespace)
+            .bind(content_source)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                GlueStorageError(format!("unable to query metadata from postgres: {}", e))
+            })?
+            .into_iter()
+            .map(|row: PgRow| {
+                let content_id: String = row.get(0);
+                let mut out_rows: Vec<Value> = Vec::new();
+                out_rows.push(Value::Str(content_id.clone()));
+
+                let data: serde_json::Value = row.get(1);
+                let data = match data {
+                    serde_json::Value::Object(json_map) => json_map
+                        .into_iter()
+                        .map(|(key, value)| {
+                            let value = Value::try_from(value)?;
+
+                            Ok((key, value))
+                        })
+                        .collect::<Result<BTreeMap<String, Value>>>()
+                        .map_err(|e| {
+                            GlueStorageError(format!("invalid metadata from postgres: {}", e))
+                        })?,
+                    _ => return Err(GlueStorageError("expected JSON object".to_string())),
+                };
+                out_rows.extend(data.values().cloned().collect_vec());
+
+                Ok((Key::Str(content_id), DataRow::Vec(out_rows)))
+            });
+
+        Ok(Box::pin(stream::iter(rows)))
+    }
+}
+
+fn row_to_extracted_metadata(row: &PgRow) -> ExtractedMetadata {
+    let id: String = row.get(0);
+    let extractor: String = row.get(2);
+    let extraction_policy: String = row.get(3);
+    let content_source: String = row.get(4);
+    let data: serde_json::Value = row.get(6);
+    let content_id: String = row.get(7);
+    let parent_content_id: String = row.get(8);
+    ExtractedMetadata {
+        id,
+        content_id,
+        parent_content_id,
+        content_source,
+        metadata: data,
+        extractor_name: extractor,
+        extraction_policy,
     }
 }
 
