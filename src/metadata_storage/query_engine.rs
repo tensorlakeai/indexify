@@ -188,12 +188,22 @@ mod tests {
     use nanoid::nanoid;
     use serde_json::json;
 
-    use super::{super::MetadataStorageTS, *};
-    use crate::metadata_storage::{sqlite::SqliteIndexManager, ExtractedMetadata};
+    use super::*;
+    use crate::metadata_storage::{
+        postgres::PostgresIndexManager,
+        sqlite::SqliteIndexManager,
+        ExtractedMetadata,
+        MetadataReader,
+        MetadataStorage,
+    };
 
     async fn create_sqlite_metadata_store() -> Arc<SqliteIndexManager> {
         std::fs::remove_file("/tmp/foo").unwrap_or(());
         SqliteIndexManager::new("/tmp/foo").unwrap()
+    }
+
+    async fn create_postgres_metadata_store() -> Arc<PostgresIndexManager> {
+        PostgresIndexManager::new("postgres://postgres:postgres@localhost:5432/indexify").unwrap()
     }
 
     fn create_schema(
@@ -212,8 +222,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_schema_to_sql_ddl() {
+    async fn test_schema_to_sql_ddl<T: MetadataStorage + MetadataReader + Sync + Send + 'static>(
+        index_manager: Arc<T>,
+    ) {
         let cols1 = vec![
             ("id", SchemaColumnType::Text),
             ("name", SchemaColumnType::Text),
@@ -224,20 +235,18 @@ mod tests {
             ("foo", SchemaColumnType::Text),
         ];
         let schema2 = create_schema("test", cols2, "User2");
-        let query_engine = QueryEngine::new(
-            create_sqlite_metadata_store().await,
-            vec![schema, schema2],
-            "test",
-        );
+        let query_engine = QueryEngine::new(index_manager, vec![schema, schema2], "test");
         let glue_query = Glue::new(query_engine);
         let schemas = glue_query.storage.fetch_all_schemas().await.unwrap();
         assert_eq!(schemas.len(), 2);
     }
 
-    #[tokio::test]
-    async fn test_query_data() {
-        let sqlite_index_manager = create_sqlite_metadata_store().await;
+    async fn test_query_data<T: MetadataStorage + MetadataReader + Sync + Send + 'static>(
+        index_manager: Arc<T>,
+    ) {
         let ns = "mynamespace";
+        index_manager.drop_metadata_table(ns).await.unwrap();
+
         let meta1 = ExtractedMetadata::new(
             "test_content_id",
             "test_parent_content_id",
@@ -262,18 +271,9 @@ mod tests {
             "test_extractor",
             "test_extractor_policy",
         );
-        (sqlite_index_manager.clone() as MetadataStorageTS)
-            .add_metadata(ns, meta1)
-            .await
-            .unwrap();
-        (sqlite_index_manager.clone() as MetadataStorageTS)
-            .add_metadata(ns, meta2)
-            .await
-            .unwrap();
-        (sqlite_index_manager.clone() as MetadataStorageTS)
-            .add_metadata(ns, meta3)
-            .await
-            .unwrap();
+        index_manager.add_metadata(ns, meta1).await.unwrap();
+        index_manager.add_metadata(ns, meta2).await.unwrap();
+        index_manager.add_metadata(ns, meta3).await.unwrap();
         let cols1 = vec![
             ("name", SchemaColumnType::Text),
             ("role", SchemaColumnType::Text),
@@ -281,7 +281,7 @@ mod tests {
         let schema = create_schema(ns, cols1, "test_content_source");
         let result = run_query(
             "SELECT * FROM test_content_source;".to_string(),
-            sqlite_index_manager.clone(),
+            index_manager.clone(),
             vec![schema.clone()],
             ns.to_string(),
         )
@@ -297,12 +297,26 @@ mod tests {
 
         let result = run_query(
             r#"SELECT * FROM test_content_source where role='founder';"#.to_string(),
-            sqlite_index_manager,
+            index_manager,
             vec![schema],
             ns.to_string(),
         )
         .await
         .unwrap();
         assert_eq!(result.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_sqlite() {
+        let sqlite_index_manager = create_sqlite_metadata_store().await;
+        test_schema_to_sql_ddl(sqlite_index_manager.clone()).await;
+        test_query_data(sqlite_index_manager).await;
+    }
+
+    #[tokio::test]
+    async fn test_postgres() {
+        let postgres_index_manager = create_postgres_metadata_store().await;
+        test_schema_to_sql_ddl(postgres_index_manager.clone()).await;
+        test_query_data(postgres_index_manager).await;
     }
 }

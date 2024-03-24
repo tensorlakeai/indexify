@@ -68,6 +68,14 @@ impl MetadataStorage for PostgresIndexManager {
         Ok(())
     }
 
+    #[cfg(test)]
+    async fn drop_metadata_table(&self, namespace: &str) -> Result<()> {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("DROP TABLE IF EXISTS \"{table_name}\";");
+        let _ = sqlx::query(&query).execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
         if !self
             .default_index_created
