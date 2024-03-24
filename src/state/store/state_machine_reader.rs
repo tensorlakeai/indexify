@@ -6,7 +6,9 @@ use tracing::error;
 
 use super::{
     serializer::{JsonEncode, JsonEncoder},
-    StateMachineColumns, StateMachineError, TaskId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(Clone)]

@@ -378,8 +378,13 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContentExtractionPolicyMapping {
     pub content_id: String,
-    pub extraction_policy_names: HashSet<String>, //  NOTE: This is a hash set because the extraction policy should only be applied to a piece of content once
-    pub time_of_policy_completion: HashMap<String, SystemTime>, // policy name -> time instant. This will be written to in the server.rs file when a task is completed
+    pub extraction_policy_names: HashSet<String>, /*  NOTE: This is a hash set because the
+                                                   * extraction policy should only be applied to
+                                                   * a piece of content once */
+    pub time_of_policy_completion: HashMap<String, SystemTime>, /* policy name -> time instant.
+                                                                 * This will be written to in
+                                                                 * the server.rs file when a
+                                                                 * task is completed */
 }
 
 impl Default for ContentExtractionPolicyMapping {

@@ -14,8 +14,16 @@ use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -411,7 +419,7 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        mappings: &Vec<internal_api::ContentExtractionPolicyMapping>,
+        mappings: &[internal_api::ContentExtractionPolicyMapping],
     ) -> Result<(), StateMachineError> {
         //  Fetch all values at once
         let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
@@ -490,7 +498,8 @@ impl IndexifyState {
         let content_policy_mappings =
             JsonEncoder::decode::<internal_api::ContentExtractionPolicyMapping>(&value)?;
 
-        //  First ensure that this content has the extraction policy registered against it
+        //  First ensure that this content has the extraction policy registered against
+        // it
         if !content_policy_mappings
             .extraction_policy_names
             .contains(extraction_policy_name)
@@ -501,7 +510,8 @@ impl IndexifyState {
             )));
         }
 
-        //  Mark the time the content was processed against the extraction policy and store it back
+        //  Mark the time the content was processed against the extraction policy and
+        // store it back
         let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
         time_of_policy_completion.insert(extraction_policy_name.into(), SystemTime::now());
         let updated_mapping = internal_api::ContentExtractionPolicyMapping {
@@ -667,7 +677,7 @@ impl IndexifyState {
                     db,
                     &txn,
                     content_id,
-                    &extraction_policy_name,
+                    extraction_policy_name,
                 )?;
             }
             RequestPayload::CreateNamespace {

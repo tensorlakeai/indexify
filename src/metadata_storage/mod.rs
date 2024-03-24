@@ -64,7 +64,8 @@ pub trait MetadataStorage {
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>>;
 
-    //  TODO: Create function to delete content from here using namespace and content id
+    //  TODO: Create function to delete content from here using namespace and
+    // content id
     #[cfg(test)]
     async fn drop_metadata_table(&self, namespace: &str) -> Result<()>;
 }
