@@ -160,7 +160,7 @@ const ContentPage = () => {
       <Typography variant="body1">
         <Stack direction={"column"} gap={1}>
           <div>Filename: {contentMetadata.name}</div>
-          <div>Created At: {moment(contentMetadata.created_at).format()}</div>
+          <div>Created At: {moment(contentMetadata.created_at * 1000).format()}</div>
           <div>MimeType: {contentMetadata.mime_type}</div>
           <div>Source: {contentMetadata.source}</div>
           <div>Storage Url: {contentMetadata.storage_url}</div>
