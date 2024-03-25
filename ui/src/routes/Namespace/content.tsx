@@ -6,7 +6,7 @@ import {
   IndexifyClient,
   ITask,
 } from "getindexify";
-import React, { useEffect, useState } from "react";
+import React, { ReactElement, useEffect, useState } from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
 import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
@@ -80,6 +80,15 @@ const ContentPage = () => {
     groupedExtractedMetadata: Record<string, IExtractedMetadata[]>;
     client: IndexifyClient;
     errors: string[];
+  };
+
+  const renderMetadataEntry = (label: string, value: ReactElement | string) => {
+    return (
+      <div>
+        <Typography variant="label">{label}: </Typography>
+        {value}
+      </div>
+    );
   };
 
   const [textContent, setTextContent] = useState("");
@@ -159,12 +168,26 @@ const ContentPage = () => {
       <Typography variant="h2">{contentId}</Typography>
       <Typography variant="body1">
         <Stack direction={"column"} gap={1}>
-          <div>Filename: {contentMetadata.name}</div>
-          <div>Created At: {moment(contentMetadata.created_at * 1000).format()}</div>
-          <div>MimeType: {contentMetadata.mime_type}</div>
-          <div>Source: {contentMetadata.source}</div>
-          <div>Storage Url: {contentMetadata.storage_url}</div>
-          <div>Size: {formatBytes(contentMetadata.size)}</div>
+          {renderMetadataEntry("Filename", contentMetadata.name)}
+          {contentMetadata.parent_id
+            ? renderMetadataEntry(
+                "ParentID:",
+                <Link
+                  to={`/${namespace}/content/${contentMetadata.parent_id}`}
+                  target="_blank"
+                >
+                  {contentMetadata.parent_id}
+                </Link>
+              )
+            : null}
+          {renderMetadataEntry(
+            "Created At",
+            moment(contentMetadata.created_at * 1000).format()
+          )}
+          {renderMetadataEntry("MimeType", contentMetadata.mime_type)}
+          {renderMetadataEntry("Source", contentMetadata.source)}
+          {renderMetadataEntry("Storage Url", contentMetadata.storage_url)}
+          {renderMetadataEntry("Size", formatBytes(contentMetadata.size))}
         </Stack>
       </Typography>
       {/* display content */}
