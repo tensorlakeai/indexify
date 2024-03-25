@@ -14,8 +14,16 @@ use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -491,8 +499,6 @@ impl IndexifyState {
         let content_policy_mappings =
             JsonEncoder::decode::<internal_api::ContentExtractionPolicyMapping>(&value)?;
 
-        println!("The original mapping {:#?}", content_policy_mappings);
-
         //  First ensure that this content has the extraction policy registered against
         // it
         if !content_policy_mappings
@@ -521,7 +527,6 @@ impl IndexifyState {
                 content_id, e
             ))
         })?;
-        println!("The updated mapping {:#?}", updated_mapping);
 
         Ok(())
     }
@@ -674,7 +679,7 @@ impl IndexifyState {
                     db,
                     &txn,
                     content_id,
-                    &extraction_policy_id,
+                    extraction_policy_id,
                     policy_completion_time,
                 )?;
             }
