@@ -354,7 +354,7 @@ impl StateMachineStore {
     pub async fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
-    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>> {
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
         self.state_machine_reader
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
             .await
@@ -403,7 +403,9 @@ impl StateMachineStore {
         let extraction_policies = self
             .state_machine_reader
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
-            .await?;
+            .await?
+            .unwrap_or_else(Vec::new);
+
         Ok(Some(indexify_internal_api::Namespace {
             name: ns_name,
             extraction_policies,

@@ -156,33 +156,41 @@ impl StateMachineReader {
         content
     }
 
+    /// This method tries to retrieve all policies based on id's. If it cannot
+    /// find any, it skips them If it encounters an error at any point
+    /// during the transaction, it returns an error overall
     pub async fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>, StateMachineError> {
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
         let txn = db.transaction();
-        let extraction_policies: Result<
-            Vec<indexify_internal_api::ExtractionPolicy>,
-            StateMachineError,
-        > = extraction_policy_ids
-            .into_iter()
-            .map(|extraction_policy_id| {
-                let extraction_policy_bytes = txn
-                    .get_cf(
-                        StateMachineColumns::ExtractionPolicies.cf(db),
-                        extraction_policy_id.as_bytes(),
-                    )
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!(
-                            "Extraction Policy {} not found",
-                            extraction_policy_id
-                        ))
-                    })?;
-                serde_json::from_slice(&extraction_policy_bytes).map_err(StateMachineError::from)
+
+        let retrieved_policies: Result<Vec<_>, _> = extraction_policy_ids
+            .iter()
+            .filter_map(|id| {
+                match txn.get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    id.as_bytes(),
+                ) {
+                    Ok(Some(bytes)) => {
+                        match serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(
+                            &bytes,
+                        ) {
+                            Ok(policy) => Some(Ok(policy)),
+                            Err(e) => Some(Err(StateMachineError::SerializationError(e))),
+                        }
+                    }
+                    Ok(None) => None,
+                    Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
+                }
             })
             .collect();
-        extraction_policies
+
+        match retrieved_policies {
+            Ok(policies) if policies.is_empty() => Ok(None),
+            Ok(policies) => Ok(Some(policies)),
+            Err(e) => Err(e),
+        }
     }
 }

@@ -390,7 +390,7 @@ pub struct ContentExtractionPolicyMapping {
 impl Default for ContentExtractionPolicyMapping {
     fn default() -> Self {
         let mut extraction_policy_ids = HashSet::new();
-        extraction_policy_ids.insert("12345".to_string());
+        extraction_policy_ids.insert("extraction_policy_id".to_string());
         let mut time_of_policy_completion = HashMap::new();
         time_of_policy_completion.insert("extraction_policy_id".to_string(), SystemTime::now());
 

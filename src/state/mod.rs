@@ -366,7 +366,9 @@ impl App {
         let extraction_policies = self
             .state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids)
-            .await?;
+            .await?
+            .unwrap_or_else(Vec::new);
+
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
             if extraction_policy.content_source != content_metadata.source {
@@ -571,6 +573,27 @@ impl App {
         // create it again  TODO: Add delete_extraction_policy. This will only
         // remove the actual object from the forward and reverse indexes. Leave
         // artifacts in place
+
+        //  Check if the extraction policy has already been created. If so, don't create
+        // it
+        let existing_policies = self
+            .state_machine
+            .get_extraction_policies_from_ids(HashSet::from_iter(
+                vec![extraction_policy.id.clone()].into_iter(),
+            ))
+            .await?;
+
+        if let Some(policies) = existing_policies {
+            if !policies.is_empty() {
+                info!(
+                    "The extraction policy with id {} already exists, ignoring this request",
+                    extraction_policy.id
+                );
+                return Ok(()); // Return immediately if the policy already
+                               // exists.
+            }
+        }
+
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
@@ -691,7 +714,8 @@ impl App {
         let extraction_policies = self
             .state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())
-            .await?;
+            .await?
+            .unwrap_or_else(Vec::new);
         Ok(extraction_policies)
     }
 
@@ -731,7 +755,8 @@ impl App {
             let extraction_policies = self
                 .state_machine
                 .get_extraction_policies_from_ids(extraction_policy_ids)
-                .await?;
+                .await?
+                .unwrap_or_else(Vec::new);
 
             let namespace = internal_api::Namespace {
                 name: namespace_name,
