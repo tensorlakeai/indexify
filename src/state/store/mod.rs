@@ -31,14 +31,7 @@ use openraft::{
     StoredMembership,
     Vote,
 };
-use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    Direction,
-    OptimisticTransactionDB,
-    Options,
-    Transaction,
-};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
@@ -87,16 +80,17 @@ pub enum StateMachineError {
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
-    Executors,             //  ExecutorId -> Executor Metadata
-    Tasks,                 //  TaskId -> Task
-    TaskAssignments,       //  ExecutorId -> HashSet<TaskId>
-    StateChanges,          //  StateChangeId -> StateChange
-    ContentTable,          //  ContentId -> ContentMetadata
-    ExtractionPolicies,    //  ExtractionPolicyId -> ExtractionPolicy
-    Extractors,            //  ExtractorName -> ExtractorDescription
-    Namespaces,            //  Namespaces
-    IndexTable,            //  String -> Index
-    StructuredDataSchemas, //  SchemaId -> StructuredDataSchema
+    Executors,                          //  ExecutorId -> Executor Metadata
+    Tasks,                              //  TaskId -> Task
+    TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
+    StateChanges,                       //  StateChangeId -> StateChange
+    ContentTable,                       //  ContentId -> ContentMetadata
+    ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,                         //  ExtractorName -> ExtractorDescription
+    Namespaces,                         //  Namespaces
+    IndexTable,                         //  String -> Index
+    StructuredDataSchemas,              //  SchemaId -> StructuredDataSchema
+    ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
 }
 
 impl StateMachineColumns {
@@ -301,6 +295,21 @@ impl StateMachineStore {
         Ok(Some(result))
     }
 
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>> {
+        self.state_machine_reader
+            .get_content_extraction_policy_mappings_for_content_id(content_id, &self.db)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to get content extraction policy mappings for content id: {}",
+                    e
+                )
+            })
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,
@@ -345,7 +354,7 @@ impl StateMachineStore {
     pub async fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
-    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>> {
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
         self.state_machine_reader
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
             .await
@@ -394,7 +403,9 @@ impl StateMachineStore {
         let extraction_policies = self
             .state_machine_reader
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
-            .await?;
+            .await?
+            .unwrap_or_else(Vec::new);
+
         Ok(Some(indexify_internal_api::Namespace {
             name: ns_name,
             extraction_policies,
@@ -417,17 +428,6 @@ impl StateMachineStore {
             schemas.push(schema);
         }
         Ok(schemas)
-    }
-
-    pub async fn with_transaction<F, Fut>(&self, operation: F) -> Result<(), anyhow::Error>
-    where
-        F: FnOnce(&Transaction<OptimisticTransactionDB>) -> Fut,
-        Fut: std::future::Future<Output = Result<(), anyhow::Error>>,
-    {
-        let txn = self.db.transaction();
-        operation(&txn).await?;
-        txn.commit()?;
-        Ok(())
     }
 
     /// Test utility method to get all key-value pairs from a column family
@@ -826,6 +826,9 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
 ) -> (LogStore, StateMachineStore) {
+    //  TODO: Don't return sm from here, just return the StateMachineReader and use
+    // that in AppState. Don't take locks unless reading from reverse indexes on the
+    // state machine
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);

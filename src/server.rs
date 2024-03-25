@@ -701,11 +701,6 @@ async fn inner_ingest_extracted_content(
                         .data_manager
                         .finish_extracted_content_write(ingest_metadata.clone().unwrap())
                         .await;
-
-                    info!(
-                        "finished writing extracted content for task: {}",
-                        ingest_metadata.clone().unwrap().task_id
-                    );
                 }
             };
         }

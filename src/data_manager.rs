@@ -428,15 +428,17 @@ impl DataManager {
 
     pub async fn finish_extracted_content_write(
         &self,
-        _begin_ingest: BeginExtractedContentIngest,
+        begin_ingest: BeginExtractedContentIngest,
     ) -> Result<()> {
-        let outcome: indexify_coordinator::TaskOutcome = _begin_ingest.task_outcome.into();
+        let outcome: indexify_coordinator::TaskOutcome = begin_ingest.task_outcome.into();
 
         let req = indexify_coordinator::UpdateTaskRequest {
-            executor_id: _begin_ingest.executor_id,
-            task_id: _begin_ingest.task_id,
+            executor_id: begin_ingest.executor_id,
+            task_id: begin_ingest.task_id,
             outcome: outcome as i32,
             content_list: Vec::new(),
+            content_id: begin_ingest.parent_content_id,
+            extraction_policy_name: begin_ingest.extraction_policy,
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {

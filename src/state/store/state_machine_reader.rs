@@ -14,7 +14,29 @@ use super::{
 #[derive(Clone)]
 pub struct StateMachineReader {}
 
+//  TODO: Initialize this with a DB reference, so DB doesn't need to be passed
+// everywhere
 impl StateMachineReader {
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>, StateMachineError>
+    {
+        let mapping_bytes = match db
+            .get_cf(
+                StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
+                content_id.as_bytes(),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+        {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        JsonEncoder::decode::<indexify_internal_api::ContentExtractionPolicyMapping>(&mapping_bytes)
+            .map(Some)
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,
@@ -134,33 +156,38 @@ impl StateMachineReader {
         content
     }
 
+    /// This method tries to retrieve all policies based on id's. If it cannot
+    /// find any, it skips them If it encounters an error at any point
+    /// during the transaction, it returns out immediately
     pub async fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ExtractionPolicy>, StateMachineError> {
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
         let txn = db.transaction();
-        let extraction_policies: Result<
-            Vec<indexify_internal_api::ExtractionPolicy>,
-            StateMachineError,
-        > = extraction_policy_ids
-            .into_iter()
-            .map(|extraction_policy_id| {
-                let extraction_policy_bytes = txn
-                    .get_cf(
-                        StateMachineColumns::ExtractionPolicies.cf(db),
-                        extraction_policy_id.as_bytes(),
-                    )
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!(
-                            "Extraction Policy {} not found",
-                            extraction_policy_id
-                        ))
-                    })?;
-                serde_json::from_slice(&extraction_policy_bytes).map_err(StateMachineError::from)
-            })
-            .collect();
-        extraction_policies
+
+        let mut policies = Vec::new();
+        for id in extraction_policy_ids.iter() {
+            let bytes_opt = txn
+                .get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    id.as_bytes(),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+            if let Some(bytes) = bytes_opt {
+                let policy =
+                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
+                        .map_err(StateMachineError::SerializationError)?;
+                policies.push(policy);
+            }
+            // If None, the policy is not found; we simply skip it.
+        }
+
+        if policies.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(policies))
+        }
     }
 }

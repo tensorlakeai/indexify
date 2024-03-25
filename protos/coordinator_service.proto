@@ -68,6 +68,8 @@ message UpdateTaskRequest {
     string task_id = 2;
     TaskOutcome outcome = 3;
     repeated ContentMetadata content_list = 4;
+    string content_id = 5;
+    string extraction_policy_name = 6;
 }
 
 message ListStateChangesRequest {
@@ -184,7 +186,7 @@ message Task {
     string namespace = 3;
     ContentMetadata content_metadata = 4;
     string input_params = 5;
-    string extraction_policy = 6;
+    string extraction_policy_id = 6;
     map<string, string> output_index_mapping = 7;
     TaskOutcome outcome = 8;
 }
@@ -351,6 +353,7 @@ message RaftMetricsSnapshotResponse {
     uint64 last_log_index = 19;
     uint64 current_leader = 20;
 }
+//  End Raft Metrics Snapshot
 
 message GetAllTaskAssignmentRequest {
 }

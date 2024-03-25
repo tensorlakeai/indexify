@@ -363,6 +363,8 @@ impl CoordinatorService for CoordinatorServiceServer {
                 &request.executor_id,
                 outcome,
                 request.content_list,
+                &request.content_id,
+                &request.extraction_policy_name,
             )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;

@@ -366,7 +366,9 @@ impl App {
         let extraction_policies = self
             .state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids)
-            .await?;
+            .await?
+            .unwrap_or_else(Vec::new);
+
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
             if extraction_policy.content_source != content_metadata.source {
@@ -567,7 +569,31 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        //  TODO: Add a new structured schema into the payload
+        //  TODO: Check if the extraction policy has already been created and don't
+        // create it again  TODO: Add delete_extraction_policy. This will only
+        // remove the actual object from the forward and reverse indexes. Leave
+        // artifacts in place
+
+        //  Check if the extraction policy has already been created. If so, don't create
+        // it
+        let existing_policies = self
+            .state_machine
+            .get_extraction_policies_from_ids(HashSet::from_iter(
+                vec![extraction_policy.id.clone()].into_iter(),
+            ))
+            .await?;
+
+        if let Some(policies) = existing_policies {
+            if !policies.is_empty() {
+                info!(
+                    "The extraction policy with id {} already exists, ignoring this request",
+                    extraction_policy.id
+                );
+                return Ok(()); // Return immediately if the policy already
+                               // exists.
+            }
+        }
+
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
@@ -586,6 +612,48 @@ impl App {
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
+    }
+
+    pub async fn set_content_extraction_policy_mappings(
+        &self,
+        mappings: Vec<internal_api::ContentExtractionPolicyMapping>,
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::SetContentExtractionPolicyMappings {
+                content_extraction_policy_mappings: mappings,
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn mark_extraction_policy_applied_on_content(
+        &self,
+        content_id: &str,
+        extraction_policy_id: &str,
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::MarkExtractionPolicyAppliedOnContent {
+                content_id: content_id.into(),
+                extraction_policy_id: extraction_policy_id.into(),
+                policy_completion_time: std::time::SystemTime::now(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+    ) -> Result<Option<internal_api::ContentExtractionPolicyMapping>> {
+        self.state_machine
+            .get_content_extraction_policy_mappings_for_content_id(content_id)
+            .await
     }
 
     pub async fn update_task(
@@ -646,7 +714,8 @@ impl App {
         let extraction_policies = self
             .state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())
-            .await?;
+            .await?
+            .unwrap_or_else(Vec::new);
         Ok(extraction_policies)
     }
 
@@ -686,7 +755,8 @@ impl App {
             let extraction_policies = self
                 .state_machine
                 .get_extraction_policies_from_ids(extraction_policy_ids)
-                .await?;
+                .await?
+                .unwrap_or_else(Vec::new);
 
             let namespace = internal_api::Namespace {
                 name: namespace_name,
@@ -863,7 +933,7 @@ impl App {
             .filter(|task| {
                 extraction_policy
                     .as_ref()
-                    .map(|eb| eb == &task.extraction_policy)
+                    .map(|eb| eb == &task.extraction_policy_id)
                     .unwrap_or(true)
             })
             .cloned()
@@ -1052,7 +1122,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{Index, TaskOutcome};
+    use indexify_internal_api::{ContentExtractionPolicyMapping, Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1174,7 +1244,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
+        let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
 
         //  First create a task and ensure it's written
@@ -1224,6 +1294,53 @@ mod tests {
             }
         };
         cluster.read_own_write(request, read_back, true).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create a piece of content
+        let content_id = "content_id";
+        let content_metadata = indexify_internal_api::ContentMetadata {
+            id: content_id.into(),
+            content_type: "text/plain".into(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content_metadata]).await?;
+
+        //  Create a default namespace
+        let namespace = "namespace";
+        node.create_namespace(namespace).await?;
+
+        //  Register an executor
+        let executor_id = "executor_id";
+        let extractor_name = "extractor";
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: extractor_name.into(),
+            input_mime_types: vec!["text/plain".into()],
+            ..Default::default()
+        };
+        let addr = "addr";
+        node.register_executor(addr, executor_id, extractor.clone())
+            .await?;
+
+        //  Set an extraction policy for the content that will force task creation
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            name: "extraction_policy".into(),
+            namespace: namespace.into(),
+            extractor: extractor_name.into(),
+            ..Default::default()
+        };
+        node.create_extraction_policy(extraction_policy.clone(), None)
+            .await?;
+
+        let _tasks = node.list_tasks(namespace, Some(extraction_policy.id))?;
 
         Ok(())
     }
@@ -1326,15 +1443,12 @@ mod tests {
             .await?;
 
         //  Read the executors from multiple functions
-        println!("Getting executors");
         let executors = node.get_executors().await?;
         assert_eq!(executors.len(), 1);
 
-        println!("Getting executor by id");
         let executor = node.get_executor_by_id(executor_id).await?;
         assert_eq!(executor.id, executor_id);
 
-        println!("Getting executors for extractor");
         let executors = node.get_executors_for_extractor(&extractor.name).await?;
         assert_eq!(executors.len(), 1);
         assert_eq!(executors.first().unwrap().id, executor_id);
@@ -1481,7 +1595,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1516,7 +1630,6 @@ mod tests {
 
         //  Read the namespace back and expect to get the extraction policies as well
         // which will be asserted
-        println!("Retrieving namespace");
         let retrieved_namespace = node.namespace(namespace).await?;
         assert_eq!(retrieved_namespace.clone().unwrap().name, namespace);
         assert_eq!(
@@ -1528,12 +1641,43 @@ mod tests {
             3
         );
 
-        // //  Read all namespaces back and assert that only the created namespace is
+        // Read all namespaces back and assert that only the created namespace is
         // present along with the extraction policies
-        println!("Retrieving all namespaces");
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces.first().unwrap().name, namespace);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_mark_and_read_content_extraction_policy_mappings(
+    ) -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(0)?;
+
+        //  Create a mapping of content -> extraction policies, insert it, mark it as
+        // read and read it back to assert
+        let mapping = ContentExtractionPolicyMapping::default();
+        let initial_time = mapping
+            .time_of_policy_completion
+            .get("extraction_policy_id")
+            .unwrap();
+        node.set_content_extraction_policy_mappings(vec![mapping.clone()])
+            .await?;
+        node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")
+            .await?;
+        let retrieved_mappings = node
+            .get_content_extraction_policy_mappings_for_content_id("content_id")
+            .await?
+            .unwrap();
+        let set_time = retrieved_mappings
+            .time_of_policy_completion
+            .get("extraction_policy_id")
+            .unwrap();
+        assert!(set_time > initial_time);
 
         Ok(())
     }
