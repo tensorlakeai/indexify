@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::SystemTime,
 };
 
@@ -11,7 +11,7 @@ use internal_api::{ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
-use tracing::error;
+use tracing::{error, info};
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
@@ -21,21 +21,179 @@ use super::{
     StateMachineColumns, StateMachineError, TaskId,
 };
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct UnassignedTasks {
+    unassigned_tasks: Arc<RwLock<HashSet<TaskId>>>,
+}
+
+impl UnassignedTasks {
+    pub fn insert(&self, task_id: &TaskId) {
+        let mut guard = match self.unassigned_tasks.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unassigned tasks was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.insert(task_id.into());
+    }
+
+    pub fn remove(&self, task_id: &TaskId) {
+        let mut guard = match self.unassigned_tasks.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unassigned tasks was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.remove(task_id);
+    }
+
+    pub fn inner(&self) -> HashSet<TaskId> {
+        let guard = match self.unassigned_tasks.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unassigned tasks was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct UnprocessedStateChanges {
+    unprocessed_state_changes: Arc<RwLock<HashSet<StateChangeId>>>,
+}
+
+impl UnprocessedStateChanges {
+    pub fn insert(&self, state_change_id: StateChangeId) {
+        let mut guard = match self.unprocessed_state_changes.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unprocessed state changes was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.insert(state_change_id);
+    }
+
+    pub fn remove(&self, state_change_id: &StateChangeId) {
+        let mut guard = match self.unprocessed_state_changes.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unprocessed state changes was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.remove(state_change_id);
+    }
+
+    pub fn inner(&self) -> HashSet<StateChangeId> {
+        let guard = match self.unprocessed_state_changes.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unprocessed state changes was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ContentNamespaceTable {
+    content_namespace_table: Arc<RwLock<HashMap<NamespaceName, HashSet<ContentId>>>>,
+}
+
+impl ContentNamespaceTable {
+    pub fn insert(&self, namespace: &NamespaceName, content_id: &ContentId) {
+        let mut guard = match self.content_namespace_table.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for content namespace table was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(content_id.clone());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, content_id: &ContentId) {
+        let mut guard = match self.content_namespace_table.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for content namespace table was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .remove(content_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+        let guard = match self.content_namespace_table.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for content namespace table was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExtractionPoliciesTable {
+    extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
+}
+
+impl ExtractionPoliciesTable {
+    pub fn get(&self, namespace: &NamespaceName) -> HashSet<String> {
+        self.extraction_policies_table
+            .get(namespace)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &String) {
+        self.extraction_policies_table
+            .entry(namespace.clone())
+            .or_default()
+            .insert(extraction_policy_id.clone());
+    }
+
+    pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &String) {
+        self.extraction_policies_table
+            .entry(namespace.clone())
+            .or_default()
+            .remove(extraction_policy_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.extraction_policies_table.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
     /// The tasks that are currently unassigned
-    unassigned_tasks: HashSet<TaskId>,
+    unassigned_tasks: UnassignedTasks,
 
     /// State changes that have not been processed yet
-    unprocessed_state_changes: HashSet<StateChangeId>,
+    unprocessed_state_changes: UnprocessedStateChanges,
 
     /// Namespace -> Content ID
-    content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
+    content_namespace_table: ContentNamespaceTable,
 
     /// Namespace -> Extraction policy id
-    extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
+    extraction_policies_table: ExtractionPoliciesTable,
 
     /// Extractor -> Executors table
     extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
@@ -48,7 +206,7 @@ pub struct IndexifyState {
     unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
 
     /// Number of tasks currently running on each executor
-    pub executor_running_task_count: HashMap<ExecutorId, usize>,
+    executor_running_task_count: HashMap<ExecutorId, usize>,
 
     /// Namespace -> Schemas
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
@@ -648,7 +806,7 @@ impl IndexifyState {
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
-                    self.unassigned_tasks.insert(task_id);
+                    self.unassigned_tasks.insert(&task_id);
                 }
 
                 // Remove from the executor load table
@@ -748,7 +906,7 @@ impl IndexifyState {
             RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
-                    self.unassigned_tasks.insert(task.id.clone());
+                    self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
                         .entry(task.extractor.clone())
                         .or_default()
@@ -767,11 +925,8 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
-                    //  The below write is handled in apply_state_machine_updates
                     self.content_namespace_table
-                        .entry(content.namespace.clone())
-                        .or_default()
-                        .insert(content.id.clone());
+                        .insert(&content.namespace, &content.id);
                 }
             }
             RequestPayload::CreateExtractionPolicy {
@@ -780,9 +935,7 @@ impl IndexifyState {
                 new_structured_data_schema,
             } => {
                 self.extraction_policies_table
-                    .entry(extraction_policy.namespace.clone())
-                    .or_default()
-                    .insert(extraction_policy.id);
+                    .insert(&extraction_policy.namespace, &extraction_policy.id);
                 if let Some(schema) = updated_structured_data_schema {
                     self.update_schema_reverse_idx(schema);
                 }
@@ -825,9 +978,7 @@ impl IndexifyState {
                 }
                 for content in content_metadata {
                     self.content_namespace_table
-                        .entry(content.namespace.clone())
-                        .or_default()
-                        .insert(content.id.clone());
+                        .insert(&content.namespace, &content.id);
                 }
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
@@ -1089,11 +1240,7 @@ impl IndexifyState {
             None => return Ok(None),
         };
 
-        let extraction_policy_ids = self
-            .extraction_policies_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default();
+        let extraction_policy_ids = self.extraction_policies_table.get(&namespace.to_string());
         let extraction_policies = self
             .get_extraction_policies_from_ids(extraction_policy_ids, db)?
             .unwrap_or_else(Vec::new);
@@ -1156,20 +1303,20 @@ impl IndexifyState {
     //  END READER METHODS FOR ROCKSDB FORWARD INDEXES
 
     //  START READER METHODS FOR REVERSE INDEXES
-    pub fn get_unassigned_tasks(&self) -> &HashSet<TaskId> {
-        &self.unassigned_tasks
+    pub fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
+        self.unassigned_tasks.inner()
     }
 
-    pub fn get_unprocessed_state_changes(&self) -> &HashSet<StateChangeId> {
-        &self.unprocessed_state_changes
+    pub fn get_unprocessed_state_changes(&self) -> HashSet<StateChangeId> {
+        self.unprocessed_state_changes.inner()
     }
 
-    pub fn get_content_namespace_table(&self) -> &HashMap<NamespaceName, HashSet<ContentId>> {
-        &self.content_namespace_table
+    pub fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+        self.content_namespace_table.inner()
     }
 
-    pub fn get_extraction_policies_table(&self) -> &HashMap<NamespaceName, HashSet<String>> {
-        &self.extraction_policies_table
+    pub fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.extraction_policies_table.inner()
     }
 
     pub fn get_extractor_executors_table(&self) -> &HashMap<ExtractorName, HashSet<ExecutorId>> {
@@ -1188,16 +1335,13 @@ impl IndexifyState {
         &self.executor_running_task_count
     }
 
-    pub fn get_executor_running_task_count_mut(&mut self) -> &HashMap<ExecutorId, usize> {
-        &mut self.executor_running_task_count
-    }
-
     pub fn get_schemas_by_namespace(&self) -> &HashMap<NamespaceName, HashSet<SchemaId>> {
         &self.schemas_by_namespace
     }
+    //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
-    pub fn add_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
+    pub fn insert_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
         let count = self
             .executor_running_task_count
             .get(executor_id)

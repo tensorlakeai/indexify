@@ -556,7 +556,7 @@ mod tests {
         }
 
         let mut tasks = Vec::new();
-        // Crate the tasks
+        // Create the tasks
         for i in 1..=100 {
             let task1 = create_task(
                 &format!("test-text-task-{}", i),
@@ -577,10 +577,8 @@ mod tests {
 
         // arbitrarily increase the load on the first text executor and json executor
         let mut sm = shared_state.indexify_state.write().await;
-        sm.executor_running_task_count
-            .insert("text_executor1".to_string(), 20);
-        sm.executor_running_task_count
-            .insert("json_executor1".to_string(), 20);
+        sm.insert_executor_running_task_count("text_executor1", 20);
+        sm.insert_executor_running_task_count("json_executor1", 20);
         drop(sm);
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
