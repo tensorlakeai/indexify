@@ -314,7 +314,7 @@ impl App {
     pub async fn unprocessed_state_change_events(&self) -> Result<Vec<StateChange>> {
         let store = self.indexify_state.read().await;
         let mut state_changes = vec![];
-        for event_id in store.unprocessed_state_changes.iter() {
+        for event_id in store.get_unprocessed_state_changes().iter() {
             let event = self
                 .state_machine
                 .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)
@@ -353,7 +353,7 @@ impl App {
         let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
-                .extraction_policies_table
+                .get_extraction_policies_table()
                 .get(&content_metadata.namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -420,7 +420,7 @@ impl App {
         let content_list = {
             let store = self.indexify_state.read().await;
             let content_list = store
-                .content_namespace_table
+                .get_content_namespace_table()
                 .get(&extraction_policy.namespace)
                 .cloned()
                 .unwrap_or_default();
@@ -469,7 +469,7 @@ impl App {
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let store = self.indexify_state.read().await;
         let mut tasks = vec![];
-        for task_id in store.unassigned_tasks.iter() {
+        for task_id in store.get_unassigned_tasks().iter() {
             let task = self
                 .state_machine
                 .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
@@ -495,7 +495,7 @@ impl App {
     ) -> Result<Vec<internal_api::ExecutorMetadata>> {
         let store = self.indexify_state.read().await;
         let executor_ids = store
-            .extractor_executors_table
+            .get_extractor_executors_table()
             .get(extractor)
             .cloned()
             .unwrap_or(HashSet::new());
@@ -508,7 +508,7 @@ impl App {
         self.indexify_state
             .read()
             .await
-            .executor_running_task_count
+            .get_executor_running_task_count()
             .clone()
     }
 
@@ -518,7 +518,7 @@ impl App {
     ) -> Result<HashSet<TaskId>, anyhow::Error> {
         let sm = self.indexify_state.read().await;
         let task_ids = sm
-            .unfinished_tasks_by_extractor
+            .get_unfinished_tasks_by_extractor()
             .get(extractor)
             .cloned()
             .unwrap_or_default();
@@ -531,7 +531,7 @@ impl App {
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let store = self.indexify_state.read().await;
         let content_ids = store
-            .content_namespace_table
+            .get_content_namespace_table()
             .get(namespace)
             .cloned()
             .unwrap_or_default();
@@ -698,7 +698,7 @@ impl App {
         let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
-                .extraction_policies_table
+                .get_extraction_policies_table()
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -742,7 +742,7 @@ impl App {
             let extraction_policy_ids = {
                 let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
                 store
-                    .extraction_policies_table
+                    .get_extraction_policies_table()
                     .get(&namespace_name)
                     .cloned()
                     .unwrap_or_default()
@@ -964,7 +964,7 @@ impl App {
         let index_ids = {
             let store = self.indexify_state.read().await;
             store
-                .namespace_index_table
+                .get_namespace_index_table()
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -1032,7 +1032,7 @@ impl App {
     ) -> Result<Vec<StructuredDataSchema>> {
         let store = self.indexify_state.read().await;
         let schemas_for_ns = store
-            .schemas_by_namespace
+            .get_schemas_by_namespace()
             .get(namespace)
             .cloned()
             .unwrap_or(HashSet::new());

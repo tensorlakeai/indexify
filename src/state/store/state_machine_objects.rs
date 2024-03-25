@@ -26,32 +26,32 @@ pub struct IndexifyState {
     //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
     /// The tasks that are currently unassigned
-    pub unassigned_tasks: HashSet<TaskId>,
+    unassigned_tasks: HashSet<TaskId>,
 
     /// State changes that have not been processed yet
-    pub unprocessed_state_changes: HashSet<StateChangeId>,
+    unprocessed_state_changes: HashSet<StateChangeId>,
 
     /// Namespace -> Content ID
-    pub content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
+    content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
 
     /// Namespace -> Extraction policy id
-    pub extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
+    extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
 
     /// Extractor -> Executors table
-    pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
+    extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
 
     /// Namespace -> Index id
-    pub namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
+    namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
-    pub unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
+    unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
 
     /// Number of tasks currently running on each executor
     pub executor_running_task_count: HashMap<ExecutorId, usize>,
 
     /// Namespace -> Schemas
-    pub schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
+    schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -714,7 +714,7 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// This method handles all reverse index writes which are in memory
+    /// This method handles all reverse index writes. All reverse indexes are written in memory
     /// This will only run after the RocksDB transaction to commit the forward
     /// index writes is done
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
@@ -838,6 +838,8 @@ impl IndexifyState {
             _ => (),
         }
     }
+
+    //  START READER METHODS FOR ROCKSDB FORWARD INDEXES
 
     /// This method fetches a key from a specific column family
     pub fn get_from_cf<T, K>(
@@ -1006,7 +1008,7 @@ impl IndexifyState {
     }
 
     /// This method tries to retrieve all policies based on id's. If it cannot
-    /// find any, it skips them If it encounters an error at any point
+    /// find any, it skips them. If it encounters an error at any point
     /// during the transaction, it returns out immediately
     pub fn get_extraction_policies_from_ids(
         &self,
@@ -1150,5 +1152,58 @@ impl IndexifyState {
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
+    }
+    //  END READER METHODS FOR ROCKSDB FORWARD INDEXES
+
+    //  START READER METHODS FOR REVERSE INDEXES
+    pub fn get_unassigned_tasks(&self) -> &HashSet<TaskId> {
+        &self.unassigned_tasks
+    }
+
+    pub fn get_unprocessed_state_changes(&self) -> &HashSet<StateChangeId> {
+        &self.unprocessed_state_changes
+    }
+
+    pub fn get_content_namespace_table(&self) -> &HashMap<NamespaceName, HashSet<ContentId>> {
+        &self.content_namespace_table
+    }
+
+    pub fn get_extraction_policies_table(&self) -> &HashMap<NamespaceName, HashSet<String>> {
+        &self.extraction_policies_table
+    }
+
+    pub fn get_extractor_executors_table(&self) -> &HashMap<ExtractorName, HashSet<ExecutorId>> {
+        &self.extractor_executors_table
+    }
+
+    pub fn get_namespace_index_table(&self) -> &HashMap<NamespaceName, HashSet<String>> {
+        &self.namespace_index_table
+    }
+
+    pub fn get_unfinished_tasks_by_extractor(&self) -> &HashMap<ExtractorName, HashSet<TaskId>> {
+        &self.unfinished_tasks_by_extractor
+    }
+
+    pub fn get_executor_running_task_count(&self) -> &HashMap<ExecutorId, usize> {
+        &self.executor_running_task_count
+    }
+
+    pub fn get_executor_running_task_count_mut(&mut self) -> &HashMap<ExecutorId, usize> {
+        &mut self.executor_running_task_count
+    }
+
+    pub fn get_schemas_by_namespace(&self) -> &HashMap<NamespaceName, HashSet<SchemaId>> {
+        &self.schemas_by_namespace
+    }
+
+    //  START WRITER METHODS FOR REVERSE INDEXES
+    pub fn add_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
+        let count = self
+            .executor_running_task_count
+            .get(executor_id)
+            .copied()
+            .unwrap_or(0);
+        self.executor_running_task_count
+            .insert(executor_id.to_string(), count + tasks as usize);
     }
 }
