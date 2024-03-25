@@ -158,7 +158,7 @@ impl StateMachineReader {
 
     /// This method tries to retrieve all policies based on id's. If it cannot
     /// find any, it skips them If it encounters an error at any point
-    /// during the transaction, it returns an error overall
+    /// during the transaction, it returns out immediately
     pub async fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
@@ -166,31 +166,28 @@ impl StateMachineReader {
     ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
         let txn = db.transaction();
 
-        let retrieved_policies: Result<Vec<_>, _> = extraction_policy_ids
-            .iter()
-            .filter_map(|id| {
-                match txn.get_cf(
+        let mut policies = Vec::new();
+        for id in extraction_policy_ids.iter() {
+            let bytes_opt = txn
+                .get_cf(
                     StateMachineColumns::ExtractionPolicies.cf(db),
                     id.as_bytes(),
-                ) {
-                    Ok(Some(bytes)) => {
-                        match serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(
-                            &bytes,
-                        ) {
-                            Ok(policy) => Some(Ok(policy)),
-                            Err(e) => Some(Err(StateMachineError::SerializationError(e))),
-                        }
-                    }
-                    Ok(None) => None,
-                    Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
-                }
-            })
-            .collect();
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
-        match retrieved_policies {
-            Ok(policies) if policies.is_empty() => Ok(None),
-            Ok(policies) => Ok(Some(policies)),
-            Err(e) => Err(e),
+            if let Some(bytes) = bytes_opt {
+                let policy =
+                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
+                        .map_err(StateMachineError::SerializationError)?;
+                policies.push(policy);
+            }
+            // If None, the policy is not found; we simply skip it.
+        }
+
+        if policies.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(policies))
         }
     }
 }
