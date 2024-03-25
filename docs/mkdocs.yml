@@ -24,20 +24,21 @@ markdown_extensions:
 
 
 nav:
-  - Home: 'index.md'
-  - Getting Started: 'getting_started.md'
-  - Key Concepts: 'concepts.md'
+  - Home: 
+    - Indexify: index.md
+    - Getting Started: 'getting_started.md'
+    - Key Concepts: 'concepts.md'
   - User Interface: 'ui.md'
   - Extractors:
     - Introduction: 'apis/extractors.md'
     - Develop Extractors: 'apis/develop_extractors.md'
-  - Available Extractors: 
-    - PDF: 'apis/extractors/pdf.md'
-    - Image: 'apis/extractors/image.md'
-    - Audio: 'apis/extractors/audio.md'
-    - Video: 'apis/extractors/video.md'
-    - Embedding: 'apis/extractors/embedding.md'
-    - Web: 'apis/extractors/web.md'
+    - Available Extractors: 
+      - PDF: 'apis/extractors/pdf.md'
+      - Image: 'apis/extractors/image.md'
+      - Audio: 'apis/extractors/audio.md'
+      - Video: 'apis/extractors/video.md'
+      - Embedding: 'apis/extractors/embedding.md'
+      - Web: 'apis/extractors/web.md'
 
   - APIs:
     - Content Ingestion: 'apis/content_ingestion.md'
@@ -49,11 +50,11 @@ nav:
     - PDF Extraction: 'usecases/pdf_extraction.md'
     - Image Retrieval: 'usecases/image_retrieval.md'
     - RAG on Video: 'usecases/video_rag.md'
-  - Integrations:
+  - LLM Frameworks:
     - Langchain:
       - Python: 'integrations/langchain/python_langchain.md'
       - TypeScript: 'integrations/langchain/typescript_langchain.md'
-  - Operating Indexify:
+  - Deployment and Operation:
     - Configuration: 'configuration.md'
     - Deployment: 'deployment.md'
     - Develop Indexify: 'develop.md'
@@ -74,7 +75,10 @@ theme:
     - navigation.instant
     - navigation.tracking
     - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.expand
+    - navigation.path
     - content.code.copy
     - content.code.annotate
 

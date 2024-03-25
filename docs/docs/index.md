@@ -1,6 +1,4 @@
-# Indexify
-
-## Multi-Modal Extraction Engine for Large Language Models Applications
+# Multi-Modal Extraction Engine for Large Language Models Applications
 
 Indexify is a reactive structured extraction and embedding engine for un-structured data such as PDFs, raw text, audio and video. You can use Indexify to index and serve data to RAG applications, or consume structured data from any unstructured data into any kind of applications in real time.
 
