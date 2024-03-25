@@ -8,22 +8,17 @@ use std::{
 use anyhow::Result;
 use indexify_internal_api as internal_api;
 use internal_api::{ExtractorDescription, StateChange};
+use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
+use serde::de::DeserializeOwned;
+use tracing::error;
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -531,6 +526,22 @@ impl IndexifyState {
         Ok(())
     }
 
+    pub fn mark_state_changes_processed(
+        &mut self,
+        state_change: &StateChangeProcessed,
+        _processed_at: u64,
+    ) {
+        self.unprocessed_state_changes
+            .remove(&state_change.state_change_id);
+    }
+
+    fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
+        self.schemas_by_namespace
+            .entry(schema.namespace.clone())
+            .or_default()
+            .insert(schema.id.clone());
+    }
+
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &mut self,
@@ -828,19 +839,316 @@ impl IndexifyState {
         }
     }
 
-    pub fn mark_state_changes_processed(
-        &mut self,
-        state_change: &StateChangeProcessed,
-        _processed_at: u64,
-    ) {
-        self.unprocessed_state_changes
-            .remove(&state_change.state_change_id);
+    /// This method fetches a key from a specific column family
+    pub fn get_from_cf<T, K>(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        column: StateMachineColumns,
+        key: K,
+    ) -> Result<Option<T>, anyhow::Error>
+    where
+        T: DeserializeOwned,
+        K: AsRef<[u8]>,
+    {
+        let result_bytes = match db.get_cf(column.cf(&db), key)? {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        let result = JsonEncoder::decode::<T>(&result_bytes)
+            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
+
+        Ok(Some(result))
     }
 
-    fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
-        self.schemas_by_namespace
-            .entry(schema.namespace.clone())
-            .or_default()
-            .insert(schema.id.clone());
+    /// Read method to get the extraction policy id's applied to a piece of content
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>, StateMachineError>
+    {
+        let mapping_bytes = match db
+            .get_cf(
+                StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
+                content_id.as_bytes(),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+        {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        JsonEncoder::decode::<indexify_internal_api::ContentExtractionPolicyMapping>(&mapping_bytes)
+            .map(Some)
+    }
+
+    /// This method is used to get the tasks assigned to an executor
+    /// It does this by looking up the TaskAssignments CF to get the task id's and then using those id's to look up tasks via Tasks CF
+    pub async fn get_tasks_for_executor(
+        &self,
+        executor_id: &str,
+        limit: Option<u64>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
+        //  NOTE: Don't do deserialization within the transaction
+        let txn = db.transaction();
+        let task_ids_bytes = txn
+            .get_cf(StateMachineColumns::TaskAssignments.cf(db), executor_id)
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+        let task_ids: Vec<String> = task_ids_bytes
+            .map(|task_id_bytes| {
+                JsonEncoder::decode(&task_id_bytes)
+                    .map_err(StateMachineError::from)
+                    .unwrap_or_else(|e| {
+                        error!("Failed to deserialize task id: {}", e);
+                        Vec::new()
+                    })
+            })
+            .unwrap_or_else(Vec::new);
+
+        // FIXME Use MULTIGET
+        let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
+
+        let tasks: Result<Vec<indexify_internal_api::Task>, StateMachineError> = task_ids
+            .into_iter()
+            .take(limit)
+            .map(|task_id| {
+                let task_bytes = txn
+                    .get_cf(StateMachineColumns::Tasks.cf(db), task_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!("Task {} not found", task_id))
+                    })?;
+                JsonEncoder::decode(&task_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        tasks
+    }
+
+    /// This method will fetch indexes based on the id's of the indexes provided
+    pub async fn get_indexes_from_ids(
+        &self,
+        task_ids: HashSet<TaskId>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::Index>, StateMachineError> {
+        let txn = db.transaction();
+        let indexes: Result<Vec<indexify_internal_api::Index>, StateMachineError> = task_ids
+            .into_iter()
+            .map(|task_id| {
+                let index_bytes = txn
+                    .get_cf(StateMachineColumns::IndexTable.cf(db), task_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!("Index {} not found", task_id))
+                    })?;
+                JsonEncoder::decode(&index_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        indexes
+    }
+
+    /// This method will fetch the executors from RocksDB CF based on the executor id's provided
+    pub async fn get_executors_from_ids(
+        &self,
+        executor_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ExecutorMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let executors: Result<Vec<indexify_internal_api::ExecutorMetadata>, StateMachineError> =
+            executor_ids
+                .into_iter()
+                .map(|executor_id| {
+                    let executor_bytes = txn
+                        .get_cf(
+                            StateMachineColumns::Executors.cf(db),
+                            executor_id.as_bytes(),
+                        )
+                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                        .ok_or_else(|| {
+                            StateMachineError::DatabaseError(format!(
+                                "Executor {} not found",
+                                executor_id
+                            ))
+                        })?;
+                    JsonEncoder::decode(&executor_bytes).map_err(StateMachineError::from)
+                })
+                .collect();
+        executors
+    }
+
+    /// This method will fetch content based on the id's provided
+    pub async fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
+            content_ids
+                .into_iter()
+                .map(|content_id| {
+                    let content_bytes = txn
+                        .get_cf(
+                            StateMachineColumns::ContentTable.cf(db),
+                            content_id.as_bytes(),
+                        )
+                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                        .ok_or_else(|| {
+                            StateMachineError::DatabaseError(format!(
+                                "Content {} not found",
+                                content_id
+                            ))
+                        })?;
+                    serde_json::from_slice(&content_bytes).map_err(StateMachineError::from)
+                })
+                .collect();
+        content
+    }
+
+    /// This method tries to retrieve all policies based on id's. If it cannot
+    /// find any, it skips them If it encounters an error at any point
+    /// during the transaction, it returns out immediately
+    pub fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
+        let txn = db.transaction();
+
+        let mut policies = Vec::new();
+        for id in extraction_policy_ids.iter() {
+            let bytes_opt = txn
+                .get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    id.as_bytes(),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+            if let Some(bytes) = bytes_opt {
+                let policy =
+                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
+                        .map_err(StateMachineError::SerializationError)?;
+                policies.push(policy);
+            }
+            // If None, the policy is not found; we simply skip it.
+        }
+
+        if policies.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(policies))
+        }
+    }
+
+    /// This method gets all task assignments stored in the relevant CF
+    pub fn get_all_task_assignments(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<HashMap<TaskId, ExecutorId>, StateMachineError> {
+        let mut assignments = HashMap::new();
+        let iter = db.iterator_cf(
+            StateMachineColumns::TaskAssignments.cf(db),
+            rocksdb::IteratorMode::Start,
+        );
+        for item in iter {
+            let (key, value) = item.map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "unable to get values from task assignment {}",
+                    e
+                ))
+            })?;
+            let executor_id = String::from_utf8(key.to_vec()).map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "unable to get executor id from task assignment {}",
+                    e
+                ))
+            })?;
+            let task_ids: HashSet<TaskId> = JsonEncoder::decode(&value).map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "unable to decoded task hashset from task assignment {}",
+                    e
+                ))
+            })?;
+            for task_id in task_ids {
+                assignments.insert(task_id, executor_id.clone());
+            }
+        }
+        Ok(assignments)
+    }
+
+    /// This method will get the namespace based on the key provided
+    pub fn get_namespace(
+        &self,
+        namespace: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<indexify_internal_api::Namespace>> {
+        let ns_name = match self.get_from_cf(db, StateMachineColumns::Namespaces, namespace)? {
+            Some(name) => name,
+            None => return Ok(None),
+        };
+
+        let extraction_policy_ids = self
+            .extraction_policies_table
+            .get(namespace)
+            .cloned()
+            .unwrap_or_default();
+        let extraction_policies = self
+            .get_extraction_policies_from_ids(extraction_policy_ids, db)?
+            .unwrap_or_else(Vec::new);
+
+        Ok(Some(indexify_internal_api::Namespace {
+            name: ns_name,
+            extraction_policies,
+        }))
+    }
+
+    pub fn get_schemas(
+        &self,
+        ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<internal_api::StructuredDataSchema>> {
+        let txn = db.transaction();
+        let keys = ids
+            .iter()
+            .map(|id| (StateMachineColumns::StructuredDataSchemas.cf(db), id))
+            .collect_vec();
+        let schema_bytes = txn.multi_get_cf(keys);
+        let mut schemas = vec![];
+        for schema in schema_bytes {
+            let schema = schema
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
+                .ok_or(StateMachineError::DatabaseError("Schema not found".into()))?;
+            let schema = JsonEncoder::decode(&schema)?;
+            schemas.push(schema);
+        }
+        Ok(schemas)
+    }
+
+    /// Test utility method to get all key-value pairs from a column family
+    pub fn get_all_rows_from_cf<V>(
+        &self,
+        column: StateMachineColumns,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<(String, V)>, anyhow::Error>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = db.cf_handle(column.as_ref()).ok_or(anyhow::anyhow!(
+            "Failed to get column family {}",
+            column.to_string()
+        ))?;
+        let iter = db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+
+        iter.map(|item| {
+            item.map_err(|e| anyhow::anyhow!(e))
+                .and_then(|(key, value)| {
+                    let key = String::from_utf8(key.to_vec())
+                        .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
+                    let value = JsonEncoder::decode(&value)
+                        .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
+                    Ok((key, value))
+                })
+        })
+        .collect::<Result<Vec<(String, V)>, _>>()
     }
 }

@@ -375,7 +375,8 @@ mod tests {
 
         let task_ids: HashSet<TaskId> = shared_state
             .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)?
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
+            .await?
             .into_iter()
             .map(|(_, task)| task.id.clone())
             .collect();

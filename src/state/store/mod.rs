@@ -8,28 +8,15 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
-use itertools::Itertools;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -43,7 +30,6 @@ type Node = BasicNode;
 use self::{
     serializer::{JsonEncode, JsonEncoder},
     state_machine_objects::IndexifyState,
-    state_machine_reader::StateMachineReader,
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::utils::OptionInspectNone;
@@ -63,7 +49,6 @@ pub type SchemaId = String;
 pub mod requests;
 pub mod serializer;
 pub mod state_machine_objects;
-mod state_machine_reader;
 mod store_utils;
 
 #[derive(Error, Debug)]
@@ -131,7 +116,6 @@ pub struct StateMachineData {
 #[derive(Clone)]
 pub struct StateMachineStore {
     pub data: StateMachineData,
-    pub state_machine_reader: StateMachineReader,
 
     /// snapshot index is not persisted in this example.
     ///
@@ -160,7 +144,6 @@ impl StateMachineStore {
                 state_change_tx: Arc::new(tx),
                 indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
             },
-            state_machine_reader: StateMachineReader {},
             snapshot_idx: 0,
             db,
             state_change_rx: rx,
@@ -274,8 +257,7 @@ impl StateMachineStore {
         Ok(())
     }
 
-    /// This method fetches a key from a specific column family within a
-    /// transaction
+    /// This method fetches a key from a specific column family
     pub async fn get_from_cf<T, K>(
         &self,
         column: StateMachineColumns,
@@ -285,21 +267,21 @@ impl StateMachineStore {
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        let result_bytes = match self.db.get_cf(column.cf(&self.db), key)? {
-            Some(bytes) => bytes,
-            None => return Ok(None),
-        };
-        let result = JsonEncoder::decode::<T>(&result_bytes)
-            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
-
-        Ok(Some(result))
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_from_cf(&self.db, column, key)
     }
 
     pub async fn get_content_extraction_policy_mappings_for_content_id(
         &self,
         content_id: &str,
     ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>> {
-        self.state_machine_reader
+        self.data
+            .indexify_state
+            .read()
+            .await
             .get_content_extraction_policy_mappings_for_content_id(content_id, &self.db)
             .await
             .map_err(|e| {
@@ -315,37 +297,32 @@ impl StateMachineStore {
         executor_id: &str,
         limit: Option<u64>,
     ) -> Result<Vec<indexify_internal_api::Task>> {
-        self.state_machine_reader
+        self.data
+            .indexify_state
+            .read()
+            .await
             .get_tasks_for_executor(executor_id, limit, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
     }
 
-    pub fn all_task_assignments(&self) -> Result<HashMap<TaskId, ExecutorId>> {
-        let mut assignments = HashMap::new();
-        let iter = self.db.iterator_cf(
-            StateMachineColumns::TaskAssignments.cf(&self.db),
-            rocksdb::IteratorMode::Start,
-        );
-        for item in iter {
-            let (key, value) =
-                item.map_err(|e| anyhow!("unable to get values from task assignment {}", e))?;
-            let executor_id =
-                String::from_utf8(key.to_vec()).map_err(|e| anyhow!(e.to_string()))?;
-            let task_ids: HashSet<TaskId> = JsonEncoder::decode(&value)
-                .map_err(|e| anyhow!("unable to decoded task hashset {}", e))?;
-            for task_id in task_ids {
-                assignments.insert(task_id, executor_id.clone());
-            }
-        }
-        Ok(assignments)
+    pub async fn get_all_task_assignments(&self) -> Result<HashMap<TaskId, ExecutorId>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_all_task_assignments(&self.db)
+            .map_err(|e| anyhow::anyhow!("Failed to get task assignments: {}", e))
     }
 
     pub async fn get_indexes_from_ids(
         &self,
         task_ids: HashSet<String>,
     ) -> Result<Vec<indexify_internal_api::Index>> {
-        self.state_machine_reader
+        self.data
+            .indexify_state
+            .read()
+            .await
             .get_indexes_from_ids(task_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
@@ -355,9 +332,11 @@ impl StateMachineStore {
         &self,
         extraction_policy_ids: HashSet<String>,
     ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
-        self.state_machine_reader
-            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+        self.data
+            .indexify_state
+            .read()
             .await
+            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -365,7 +344,10 @@ impl StateMachineStore {
         &self,
         executor_ids: HashSet<String>,
     ) -> Result<Vec<ExecutorMetadata>> {
-        self.state_machine_reader
+        self.data
+            .indexify_state
+            .read()
+            .await
             .get_executors_from_ids(executor_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
@@ -375,7 +357,10 @@ impl StateMachineStore {
         &self,
         content_ids: HashSet<String>,
     ) -> Result<Vec<ContentMetadata>> {
-        self.state_machine_reader
+        self.data
+            .indexify_state
+            .read()
+            .await
             .get_content_from_ids(content_ids, &self.db)
             .await
             .map_err(|e| anyhow::anyhow!(e))
@@ -385,76 +370,34 @@ impl StateMachineStore {
         &self,
         namespace: &str,
     ) -> Result<Option<indexify_internal_api::Namespace>> {
-        let ns_name = match self
-            .get_from_cf(StateMachineColumns::Namespaces, namespace)
-            .await?
-        {
-            Some(name) => name,
-            None => return Ok(None),
-        };
-        let extraction_policy_ids = {
-            let indexify_state = self.data.indexify_state.read().await;
-            indexify_state
-                .extraction_policies_table
-                .get(namespace)
-                .cloned()
-                .unwrap_or_default()
-        };
-        let extraction_policies = self
-            .state_machine_reader
-            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
-            .await?
-            .unwrap_or_else(Vec::new);
-
-        Ok(Some(indexify_internal_api::Namespace {
-            name: ns_name,
-            extraction_policies,
-        }))
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_namespace(namespace, &self.db)
     }
 
-    pub fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
-        let txn = self.db.transaction();
-        let keys = ids
-            .iter()
-            .map(|id| (StateMachineColumns::StructuredDataSchemas.cf(&self.db), id))
-            .collect_vec();
-        let schema_bytes = txn.multi_get_cf(keys);
-        let mut schemas = vec![];
-        for schema in schema_bytes {
-            let schema = schema
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or(StateMachineError::DatabaseError("Schema not found".into()))?;
-            let schema = JsonEncoder::decode(&schema)?;
-            schemas.push(schema);
-        }
-        Ok(schemas)
+    pub async fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_schemas(ids, &self.db)
     }
 
     /// Test utility method to get all key-value pairs from a column family
-    pub fn get_all_rows_from_cf<V>(
+    pub async fn get_all_rows_from_cf<V>(
         &self,
         column: StateMachineColumns,
     ) -> Result<Vec<(String, V)>, anyhow::Error>
     where
         V: DeserializeOwned,
     {
-        let cf_handle = self.db.cf_handle(column.as_ref()).ok_or(anyhow::anyhow!(
-            "Failed to get column family {}",
-            column.to_string()
-        ))?;
-        let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
-
-        iter.map(|item| {
-            item.map_err(|e| anyhow::anyhow!(e))
-                .and_then(|(key, value)| {
-                    let key = String::from_utf8(key.to_vec())
-                        .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
-                    let value = JsonEncoder::decode(&value)
-                        .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
-                    Ok((key, value))
-                })
-        })
-        .collect::<Result<Vec<(String, V)>, _>>()
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_all_rows_from_cf(column, &self.db)
     }
 }
 
@@ -850,8 +793,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     let db: OptimisticTransactionDB =
         OptimisticTransactionDB::open_cf_descriptors(&db_opts, db_path, all_column_families)
             .unwrap();
-    // let db = DB::open_cf_descriptors(&db_opts, db_path,
-    // all_column_families).unwrap();
+
     let db = Arc::new(db);
 
     let log_store = LogStore { db: db.clone() };

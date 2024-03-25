@@ -19,23 +19,18 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -491,7 +486,7 @@ impl App {
     }
 
     pub async fn task_assignments(&self) -> Result<HashMap<ExecutorId, TaskId>> {
-        self.state_machine.all_task_assignments()
+        self.state_machine.get_all_task_assignments().await
     }
 
     pub async fn get_executors_for_extractor(
@@ -569,8 +564,7 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        //  TODO: Check if the extraction policy has already been created and don't
-        // create it again  TODO: Add delete_extraction_policy. This will only
+        // TODO: Add delete_extraction_policy. This will only
         // remove the actual object from the forward and reverse indexes. Leave
         // artifacts in place
 
@@ -736,7 +730,8 @@ impl App {
         //  Fetch the namespaces from the db
         let namespaces: Vec<String> = self
             .state_machine
-            .get_all_rows_from_cf::<String>(StateMachineColumns::Namespaces)?
+            .get_all_rows_from_cf::<String>(StateMachineColumns::Namespaces)
+            .await?
             .into_iter()
             .map(|(key, _)| key)
             .collect();
@@ -802,7 +797,8 @@ impl App {
             .state_machine
             .get_all_rows_from_cf::<internal_api::ExtractorDescription>(
                 StateMachineColumns::Extractors,
-            )?
+            )
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -812,7 +808,8 @@ impl App {
     pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
         let executors: Vec<internal_api::ExecutorMetadata> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::ExecutorMetadata>(StateMachineColumns::Executors)?
+            .get_all_rows_from_cf::<internal_api::ExecutorMetadata>(StateMachineColumns::Executors)
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -916,14 +913,15 @@ impl App {
         Ok(())
     }
 
-    pub fn list_tasks(
+    pub async fn list_tasks(
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
         let tasks: Vec<internal_api::Task> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)?
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -1003,10 +1001,11 @@ impl App {
         Ok(())
     }
 
-    pub fn list_state_changes(&self) -> Result<Vec<StateChange>> {
+    pub async fn list_state_changes(&self) -> Result<Vec<StateChange>> {
         let state_changes = self
             .state_machine
-            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges)?
+            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges)
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -1037,7 +1036,7 @@ impl App {
             .get(namespace)
             .cloned()
             .unwrap_or(HashSet::new());
-        let schemas = self.state_machine.get_schemas(schemas_for_ns)?;
+        let schemas = self.state_machine.get_schemas(schemas_for_ns).await?;
         Ok(schemas)
     }
 
@@ -1128,8 +1127,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1340,7 +1338,9 @@ mod tests {
         node.create_extraction_policy(extraction_policy.clone(), None)
             .await?;
 
-        let _tasks = node.list_tasks(namespace, Some(extraction_policy.id))?;
+        let _tasks = node
+            .list_tasks(namespace, Some(extraction_policy.id))
+            .await?;
 
         Ok(())
     }
@@ -1388,9 +1388,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

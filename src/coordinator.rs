@@ -116,7 +116,7 @@ impl Coordinator {
     }
 
     pub async fn list_state_changes(&self) -> Result<Vec<internal_api::StateChange>> {
-        self.shared_state.list_state_changes()
+        self.shared_state.list_state_changes().await
     }
 
     pub async fn list_tasks(
@@ -124,7 +124,9 @@ impl Coordinator {
         namespace: &str,
         extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        self.shared_state.list_tasks(namespace, extraction_policy)
+        self.shared_state
+            .list_tasks(namespace, extraction_policy)
+            .await
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
