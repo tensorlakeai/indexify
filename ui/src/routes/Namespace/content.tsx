@@ -84,10 +84,10 @@ const ContentPage = () => {
 
   const renderMetadataEntry = (label: string, value: ReactElement | string) => {
     return (
-      <div>
-        <Typography variant="label">{label}: </Typography>
-        {value}
-      </div>
+      <Box display="flex">
+        <Typography variant="label">{label}:</Typography>
+        <Typography sx={{ml:1}} variant="body1">{value}</Typography>
+      </Box>
     );
   };
 
@@ -166,30 +166,28 @@ const ContentPage = () => {
       </Breadcrumbs>
       <Errors errors={errors} />
       <Typography variant="h2">{contentId}</Typography>
-      <Typography variant="body1">
-        <Stack direction={"column"} gap={1}>
-          {renderMetadataEntry("Filename", contentMetadata.name)}
-          {contentMetadata.parent_id
-            ? renderMetadataEntry(
-                "ParentID:",
-                <Link
-                  to={`/${namespace}/content/${contentMetadata.parent_id}`}
-                  target="_blank"
-                >
-                  {contentMetadata.parent_id}
-                </Link>
-              )
-            : null}
-          {renderMetadataEntry(
-            "Created At",
-            moment(contentMetadata.created_at * 1000).format()
-          )}
-          {renderMetadataEntry("MimeType", contentMetadata.mime_type)}
-          {renderMetadataEntry("Source", contentMetadata.source)}
-          {renderMetadataEntry("Storage Url", contentMetadata.storage_url)}
-          {renderMetadataEntry("Size", formatBytes(contentMetadata.size))}
-        </Stack>
-      </Typography>
+      <Stack direction={"column"} gap={1}>
+        {renderMetadataEntry("Filename", contentMetadata.name)}
+        {contentMetadata.parent_id
+          ? renderMetadataEntry(
+              "ParentID",
+              <Link
+                to={`/${namespace}/content/${contentMetadata.parent_id}`}
+                target="_blank"
+              >
+                {contentMetadata.parent_id}
+              </Link>
+            )
+          : null}
+        {renderMetadataEntry(
+          "Created At",
+          moment(contentMetadata.created_at * 1000).format()
+        )}
+        {renderMetadataEntry("MimeType", contentMetadata.mime_type)}
+        {renderMetadataEntry("Source", contentMetadata.source)}
+        {renderMetadataEntry("Storage Url", contentMetadata.storage_url)}
+        {renderMetadataEntry("Size", formatBytes(contentMetadata.size))}
+      </Stack>
       {/* display content */}
       {renderContent()}
       {/* tasks */}
