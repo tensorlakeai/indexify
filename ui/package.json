@@ -19,7 +19,7 @@
     "@types/react-router-dom": "^5.3.3",
     "axios": "^1.6.7",
     "crypto": "^1.0.1",
-    "getindexify": "^0.0.20",
+    "getindexify": "^0.0.21",
     "moment": "^2.30.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -33,7 +33,7 @@
   "scripts": {
     "start": "serve build --single",
     "dev": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "NODE_ENV=production react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "npx eslint --max-warnings 0 ./src"

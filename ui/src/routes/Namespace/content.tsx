@@ -13,7 +13,12 @@ import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
 import { isAxiosError } from "axios";
 import Errors from "../../components/Errors";
 import PdfDisplay from "../../components/PdfViewer";
-import { groupMetadataByExtractor } from "../../utils/helpers";
+import {
+  getIndexifyServiceURL,
+  groupMetadataByExtractor,
+  formatBytes,
+} from "../../utils/helpers";
+import moment from "moment";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const errors: string[] = [];
@@ -21,7 +26,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const contentId = params.contentId;
   if (!namespace || !contentId) return redirect("/");
   const client = await IndexifyClient.createClient({
-    serviceUrl: window.location.origin,
+    serviceUrl: getIndexifyServiceURL(),
     namespace,
   });
   // get content from contentId
@@ -151,9 +156,16 @@ const ContentPage = () => {
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
       <Errors errors={errors} />
-      <Typography variant="h2">Content - {contentId}</Typography>
+      <Typography variant="h2">{contentId}</Typography>
       <Typography variant="body1">
-        MimeType: {contentMetadata.mime_type}
+        <Stack direction={"column"} gap={1}>
+          <div>Filename: {contentMetadata.name}</div>
+          <div>Created At: {moment(contentMetadata.created_at).format()}</div>
+          <div>MimeType: {contentMetadata.mime_type}</div>
+          <div>Source: {contentMetadata.source}</div>
+          <div>Storage Url: {contentMetadata.storage_url}</div>
+          <div>Size: {formatBytes(contentMetadata.size)}</div>
+        </Stack>
       </Typography>
       {/* display content */}
       {renderContent()}

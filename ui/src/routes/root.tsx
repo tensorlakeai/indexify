@@ -21,12 +21,12 @@ import { Button } from "@mui/material";
 import { IndexifyClient } from "getindexify";
 import DataObjectIcon from "@mui/icons-material/DataObject";
 import CircleIcon from "@mui/icons-material/Circle";
-import { stringToColor } from "../utils/helpers";
+import { getIndexifyServiceURL, stringToColor } from "../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
     await IndexifyClient.namespaces({
-      serviceUrl: window.location.origin,
+      serviceUrl: getIndexifyServiceURL(),
     })
   ).map((repo) => repo.name);
 
