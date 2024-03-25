@@ -453,12 +453,27 @@ pub struct ExtractResponse {
     pub content: Vec<Content>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ContentFrame {
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FinishContent {
+    pub mime: String,
+    pub features: Vec<Feature>,
+    pub labels: HashMap<String, String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum IngestExtractedContent {
     BeginExtractedContentIngest(BeginExtractedContentIngest),
     ExtractedFeatures(ExtractedFeatures),
     ExtractedContent(ExtractedContent),
     FinishExtractedContentIngest(FinishExtractedContentIngest),
+    BeginMultipartContent,
+    MultipartContentFrame(ContentFrame),
+    FinishMultipartContent(FinishContent),
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
