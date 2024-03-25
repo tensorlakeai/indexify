@@ -285,7 +285,7 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
 pub struct Task {
     pub id: String,
     pub extractor: String,
-    pub extraction_policy: String,
+    pub extraction_policy_id: String,
     pub output_index_table_mapping: HashMap<String, String>,
     pub namespace: String,
     pub content_metadata: ContentMetadata,
@@ -303,7 +303,7 @@ impl From<Task> for indexify_coordinator::Task {
             namespace: value.namespace,
             content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
-            extraction_policy: value.extraction_policy,
+            extraction_policy_id: value.extraction_policy_id,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
         }
@@ -323,7 +323,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
             namespace: value.namespace,
             content_metadata,
             input_params: serde_json::from_str(&value.input_params).unwrap(),
-            extraction_policy: value.extraction_policy,
+            extraction_policy_id: value.extraction_policy_id,
             output_index_table_mapping: value.output_index_mapping,
             outcome,
         })
@@ -378,9 +378,9 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContentExtractionPolicyMapping {
     pub content_id: String,
-    pub extraction_policy_names: HashSet<String>, /*  NOTE: This is a hash set because the
-                                                   * extraction policy should only be applied to
-                                                   * a piece of content once */
+    pub extraction_policy_ids: HashSet<String>, /*  NOTE: This is a hash set because the
+                                                 * extraction policy should only be applied to
+                                                 * a piece of content once */
     pub time_of_policy_completion: HashMap<String, SystemTime>, /* policy name -> time instant.
                                                                  * This will be written to in
                                                                  * the server.rs file when a
@@ -389,14 +389,14 @@ pub struct ContentExtractionPolicyMapping {
 
 impl Default for ContentExtractionPolicyMapping {
     fn default() -> Self {
-        let mut extraction_policy_names = HashSet::new();
-        extraction_policy_names.insert("extraction_policy_id".to_string());
+        let mut extraction_policy_ids = HashSet::new();
+        extraction_policy_ids.insert("12345".to_string());
         let mut time_of_policy_completion = HashMap::new();
         time_of_policy_completion.insert("extraction_policy_id".to_string(), SystemTime::now());
 
         Self {
             content_id: "content_id".to_string(),
-            extraction_policy_names,
+            extraction_policy_ids,
             time_of_policy_completion,
         }
     }

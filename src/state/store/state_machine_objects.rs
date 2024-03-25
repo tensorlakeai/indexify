@@ -14,16 +14,8 @@ use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     store_utils::{decrement_running_task_count, increment_running_task_count},
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -421,7 +413,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         mappings: &[internal_api::ContentExtractionPolicyMapping],
     ) -> Result<(), StateMachineError> {
-        //  Fetch all values at once
+        //  Fetch all keys at once
         let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
         let keys_with_cf: Vec<(_, _)> = mappings
             .iter()
@@ -436,7 +428,7 @@ impl IndexifyState {
                 Ok(Some(data)) => JsonEncoder::decode(&data)?,
                 Ok(None) => internal_api::ContentExtractionPolicyMapping {
                     content_id: keys_with_cf[index].1.to_string(),
-                    extraction_policy_names: HashSet::new(),
+                    extraction_policy_ids: HashSet::new(),
                     time_of_policy_completion: HashMap::new(),
                 },
                 Err(e) => {
@@ -449,8 +441,8 @@ impl IndexifyState {
 
             let new_mapping = mappings[index].clone();
             existing_mapping
-                .extraction_policy_names
-                .extend(new_mapping.extraction_policy_names);
+                .extraction_policy_ids
+                .extend(new_mapping.extraction_policy_ids);
             existing_mapping
                 .time_of_policy_completion
                 .extend(new_mapping.time_of_policy_completion);
@@ -478,7 +470,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &str,
-        extraction_policy_name: &str,
+        extraction_policy_id: &str,
         policy_completion_time: &SystemTime,
     ) -> Result<(), StateMachineError> {
         let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
@@ -499,25 +491,27 @@ impl IndexifyState {
         let content_policy_mappings =
             JsonEncoder::decode::<internal_api::ContentExtractionPolicyMapping>(&value)?;
 
+        println!("The original mapping {:#?}", content_policy_mappings);
+
         //  First ensure that this content has the extraction policy registered against
         // it
         if !content_policy_mappings
-            .extraction_policy_names
-            .contains(extraction_policy_name)
+            .extraction_policy_ids
+            .contains(extraction_policy_id)
         {
             return Err(StateMachineError::DatabaseError(format!(
-                "Extraction policy {} not applied on content {} because extraction policy was not registered against the content",
-                extraction_policy_name, content_id
+                "Extraction policy id {} not applied on content {} because extraction policy was not registered against the content",
+                extraction_policy_id, content_id
             )));
         }
 
         //  Mark the time the content was processed against the extraction policy and
         // store it back
         let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
-        time_of_policy_completion.insert(extraction_policy_name.into(), *policy_completion_time);
+        time_of_policy_completion.insert(extraction_policy_id.into(), *policy_completion_time);
         let updated_mapping = internal_api::ContentExtractionPolicyMapping {
             content_id: content_id.into(),
-            extraction_policy_names: content_policy_mappings.extraction_policy_names,
+            extraction_policy_ids: content_policy_mappings.extraction_policy_ids,
             time_of_policy_completion,
         };
         let data = JsonEncoder::encode(&updated_mapping)?;
@@ -527,6 +521,7 @@ impl IndexifyState {
                 content_id, e
             ))
         })?;
+        println!("The updated mapping {:#?}", updated_mapping);
 
         Ok(())
     }
@@ -672,14 +667,14 @@ impl IndexifyState {
             }
             RequestPayload::MarkExtractionPolicyAppliedOnContent {
                 content_id,
-                extraction_policy_name,
+                extraction_policy_id,
                 policy_completion_time,
             } => {
                 self.mark_extraction_policy_applied_on_content(
                     db,
                     &txn,
                     content_id,
-                    extraction_policy_name,
+                    &extraction_policy_id,
                     policy_completion_time,
                 )?;
             }

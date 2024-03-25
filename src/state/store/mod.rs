@@ -15,21 +15,9 @@ use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, Stru
 use itertools::Itertools;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -824,6 +812,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
 ) -> (LogStore, StateMachineStore) {
+    //  TODO: Don't return sm from here, just return the StateMachineReader and use that in AppState. Don't take locks unless reading from reverse indexes on the state machine
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);

@@ -207,7 +207,7 @@ pub struct Task {
     #[prost(string, tag = "5")]
     pub input_params: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
-    pub extraction_policy: ::prost::alloc::string::String,
+    pub extraction_policy_id: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "7")]
     pub output_index_mapping: ::std::collections::HashMap<
         ::prost::alloc::string::String,

@@ -186,7 +186,7 @@ message Task {
     string namespace = 3;
     ContentMetadata content_metadata = 4;
     string input_params = 5;
-    string extraction_policy = 6;
+    string extraction_policy_id = 6;
     map<string, string> output_index_mapping = 7;
     TaskOutcome outcome = 8;
 }

@@ -6,14 +6,13 @@ use tracing::error;
 
 use super::{
     serializer::{JsonEncode, JsonEncoder},
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(Clone)]
 pub struct StateMachineReader {}
 
+//  TODO: Initialize this with a DB reference, so DB doesn't need to be passed everywhere
 impl StateMachineReader {
     pub async fn get_content_extraction_policy_mappings_for_content_id(
         &self,

@@ -19,23 +19,18 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     state_machine_objects::IndexifyState,
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
-        Mutex,
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -567,7 +562,8 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        println!("Adding extraction policy {:#?}", extraction_policy);
+        //  TODO: Check if the extraction policy has already been created and don't create it again
+        //  TODO: Add delete_extraction_policy. This will only remove the actual object from the forward and reverse indexes. Leave artifacts in place
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
@@ -606,12 +602,12 @@ impl App {
     pub async fn mark_extraction_policy_applied_on_content(
         &self,
         content_id: &str,
-        extraction_policy_name: &str,
+        extraction_policy_id: &str,
     ) -> Result<()> {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::MarkExtractionPolicyAppliedOnContent {
                 content_id: content_id.into(),
-                extraction_policy_name: extraction_policy_name.into(),
+                extraction_policy_id: extraction_policy_id.into(),
                 policy_completion_time: std::time::SystemTime::now(),
             },
             new_state_changes: vec![],
@@ -905,7 +901,7 @@ impl App {
             .filter(|task| {
                 extraction_policy
                     .as_ref()
-                    .map(|eb| eb == &task.extraction_policy)
+                    .map(|eb| eb == &task.extraction_policy_id)
                     .unwrap_or(true)
             })
             .cloned()
@@ -1100,8 +1096,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1360,9 +1355,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

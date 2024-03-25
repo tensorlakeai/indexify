@@ -56,7 +56,7 @@ pub enum RequestPayload {
     },
     MarkExtractionPolicyAppliedOnContent {
         content_id: String,
-        extraction_policy_name: String,
+        extraction_policy_id: String,
         policy_completion_time: SystemTime,
     },
     CreateIndex {
