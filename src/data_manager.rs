@@ -428,43 +428,21 @@ impl DataManager {
 
     pub async fn finish_extracted_content_write(
         &self,
-        _begin_ingest: BeginExtractedContentIngest,
+        begin_ingest: BeginExtractedContentIngest,
     ) -> Result<()> {
-        let outcome: indexify_coordinator::TaskOutcome = _begin_ingest.task_outcome.into();
+        let outcome: indexify_coordinator::TaskOutcome = begin_ingest.task_outcome.into();
 
         let req = indexify_coordinator::UpdateTaskRequest {
-            executor_id: _begin_ingest.executor_id,
-            task_id: _begin_ingest.task_id,
+            executor_id: begin_ingest.executor_id,
+            task_id: begin_ingest.task_id,
             outcome: outcome as i32,
             content_list: Vec::new(),
+            content_id: begin_ingest.parent_content_id,
+            extraction_policy_name: begin_ingest.extraction_policy,
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {
             error!("unable to update task: {}", err.to_string());
-        }
-        Ok(())
-    }
-
-    pub async fn mark_extraction_policy_applied_on_content(
-        &self,
-        content_id: &str,
-        extraction_policy_name: &str,
-    ) -> Result<()> {
-        let req = indexify_coordinator::MarkExtractionPolicyAppliedOnContentRequest {
-            content_id: content_id.into(),
-            extraction_policy_name: extraction_policy_name.into(),
-        };
-        let res = self
-            .coordinator_client
-            .get()
-            .await?
-            .mark_extraction_policy_applied_on_content(req)
-            .await;
-        if let Err(err) = res {
-            error!(
-                "unable to mark the extraction policy as completed: {}",
-                err.to_string()
-            );
         }
         Ok(())
     }

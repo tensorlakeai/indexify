@@ -43,8 +43,6 @@ use indexify_proto::indexify_coordinator::{
     ListStateChangesRequest,
     ListTasksRequest,
     ListTasksResponse,
-    MarkExtractionPolicyAppliedOnContentRequest,
-    MarkExtractionPolicyAppliedOnContentResponse,
     RaftMetricsSnapshotResponse,
     RegisterExecutorRequest,
     RegisterExecutorResponse,
@@ -365,6 +363,8 @@ impl CoordinatorService for CoordinatorServiceServer {
                 &request.executor_id,
                 outcome,
                 request.content_list,
+                &request.content_id,
+                &request.extraction_policy_name,
             )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
@@ -591,21 +591,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             current_leader: openraft_metrics.current_leader.unwrap_or(0),
         };
 
-        Ok(Response::new(response))
-    }
-
-    async fn mark_extraction_policy_applied_on_content(
-        &self,
-        req: Request<MarkExtractionPolicyAppliedOnContentRequest>,
-    ) -> Result<Response<MarkExtractionPolicyAppliedOnContentResponse>, Status> {
-        let req = req.into_inner();
-
-        self.coordinator
-            .mark_extraction_policy_applied_on_content(&req.content_id, &req.extraction_policy_name)
-            .await
-            .map_err(|e| tonic::Status::internal(e.to_string()))?;
-
-        let response = MarkExtractionPolicyAppliedOnContentResponse {};
         Ok(Response::new(response))
     }
 

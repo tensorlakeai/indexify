@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api as internal_api;
 use internal_api::StateChange;
@@ -57,6 +57,7 @@ pub enum RequestPayload {
     MarkExtractionPolicyAppliedOnContent {
         content_id: String,
         extraction_policy_name: String,
+        policy_completion_time: SystemTime,
     },
     CreateIndex {
         index: internal_api::Index,

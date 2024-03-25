@@ -60,6 +60,8 @@ impl Coordinator {
         executor_id: &str,
         outcome: internal_api::TaskOutcome,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
+        content_id: &str,
+        extraction_policy_name: &str,
     ) -> Result<()> {
         info!(
             "updating task: {}, executor_id: {}, outcome: {:?}",
@@ -70,6 +72,9 @@ impl Coordinator {
         task.outcome = outcome;
         self.shared_state
             .update_task(task, Some(executor_id.to_string()), content_meta_list)
+            .await?;
+        self.shared_state
+            .mark_extraction_policy_applied_on_content(content_id, extraction_policy_name)
             .await?;
         Ok(())
     }
@@ -282,16 +287,6 @@ impl Coordinator {
 
     pub fn get_raft_metrics(&self) -> RaftMetrics {
         self.shared_state.get_raft_metrics()
-    }
-
-    pub async fn mark_extraction_policy_applied_on_content(
-        &self,
-        content_id: &str,
-        extraction_policy_name: &str,
-    ) -> Result<()> {
-        self.shared_state
-            .mark_extraction_policy_applied_on_content(content_id, extraction_policy_name)
-            .await
     }
 }
 

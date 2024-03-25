@@ -46,7 +46,6 @@ service CoordinatorService {
 
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
 
-    rpc MarkExtractionPolicyAppliedOnContent(MarkExtractionPolicyAppliedOnContentRequest) returns (MarkExtractionPolicyAppliedOnContentResponse) {}
     rpc GetAllTaskAssignments(GetAllTaskAssignmentRequest) returns (TaskAssignments) {}
 }
 
@@ -69,6 +68,8 @@ message UpdateTaskRequest {
     string task_id = 2;
     TaskOutcome outcome = 3;
     repeated ContentMetadata content_list = 4;
+    string content_id = 5;
+    string extraction_policy_name = 6;
 }
 
 message ListStateChangesRequest {
@@ -353,13 +354,6 @@ message RaftMetricsSnapshotResponse {
     uint64 current_leader = 20;
 }
 //  End Raft Metrics Snapshot
-
-message MarkExtractionPolicyAppliedOnContentRequest {
-    string content_id = 1;
-    string extraction_policy_name = 2;
-}
-
-message MarkExtractionPolicyAppliedOnContentResponse {}
 
 message GetAllTaskAssignmentRequest {
 }

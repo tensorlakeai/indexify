@@ -479,6 +479,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &str,
         extraction_policy_name: &str,
+        policy_completion_time: &SystemTime,
     ) -> Result<(), StateMachineError> {
         let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
         let value = txn
@@ -513,7 +514,7 @@ impl IndexifyState {
         //  Mark the time the content was processed against the extraction policy and
         // store it back
         let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
-        time_of_policy_completion.insert(extraction_policy_name.into(), SystemTime::now());
+        time_of_policy_completion.insert(extraction_policy_name.into(), *policy_completion_time);
         let updated_mapping = internal_api::ContentExtractionPolicyMapping {
             content_id: content_id.into(),
             extraction_policy_names: content_policy_mappings.extraction_policy_names,
@@ -672,12 +673,14 @@ impl IndexifyState {
             RequestPayload::MarkExtractionPolicyAppliedOnContent {
                 content_id,
                 extraction_policy_name,
+                policy_completion_time,
             } => {
                 self.mark_extraction_policy_applied_on_content(
                     db,
                     &txn,
                     content_id,
                     extraction_policy_name,
+                    policy_completion_time,
                 )?;
             }
             RequestPayload::CreateNamespace {

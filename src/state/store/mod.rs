@@ -298,7 +298,7 @@ impl StateMachineStore {
     pub async fn get_content_extraction_policy_mappings_for_content_id(
         &self,
         content_id: &str,
-    ) -> Result<indexify_internal_api::ContentExtractionPolicyMapping> {
+    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>> {
         self.state_machine_reader
             .get_content_extraction_policy_mappings_for_content_id(content_id, &self.db)
             .await

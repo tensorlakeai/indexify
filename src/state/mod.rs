@@ -567,6 +567,7 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
+        println!("Adding extraction policy {:#?}", extraction_policy);
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionPolicy {
                 extraction_policy: extraction_policy.clone(),
@@ -611,6 +612,7 @@ impl App {
             payload: RequestPayload::MarkExtractionPolicyAppliedOnContent {
                 content_id: content_id.into(),
                 extraction_policy_name: extraction_policy_name.into(),
+                policy_completion_time: std::time::SystemTime::now(),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],
@@ -622,7 +624,7 @@ impl App {
     pub async fn get_content_extraction_policy_mappings_for_content_id(
         &self,
         content_id: &str,
-    ) -> Result<internal_api::ContentExtractionPolicyMapping> {
+    ) -> Result<Option<internal_api::ContentExtractionPolicyMapping>> {
         self.state_machine
             .get_content_extraction_policy_mappings_for_content_id(content_id)
             .await
@@ -1641,7 +1643,8 @@ mod tests {
             .await?;
         let retrieved_mappings = node
             .get_content_extraction_policy_mappings_for_content_id("content_id")
-            .await?;
+            .await?
+            .unwrap();
         let set_time = retrieved_mappings
             .time_of_policy_completion
             .get("extraction_policy_id")

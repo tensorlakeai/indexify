@@ -701,21 +701,6 @@ async fn inner_ingest_extracted_content(
                         .data_manager
                         .finish_extracted_content_write(ingest_metadata.clone().unwrap())
                         .await;
-
-                    info!(
-                        "marking the extraction policy {} completed for the content id {} in task {}",
-                        ingest_metadata.as_ref().unwrap().extraction_policy,
-                        ingest_metadata.as_ref().unwrap().parent_content_id,
-                        ingest_metadata.as_ref().unwrap().task_id
-                    );
-
-                    let _ = state
-                        .data_manager
-                        .mark_extraction_policy_applied_on_content(
-                            &ingest_metadata.as_ref().unwrap().parent_content_id,
-                            &ingest_metadata.clone().unwrap().extraction_policy,
-                        )
-                        .await;
                 }
             };
         }

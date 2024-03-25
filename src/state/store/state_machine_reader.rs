@@ -19,21 +19,20 @@ impl StateMachineReader {
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<indexify_internal_api::ContentExtractionPolicyMapping, StateMachineError> {
-        let txn = db.transaction();
-        let mapping_bytes = txn
+    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>, StateMachineError>
+    {
+        let mapping_bytes = match db
             .get_cf(
                 StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
                 content_id.as_bytes(),
             )
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!(
-                    "ContentExtractionPolicyMapping {} not found",
-                    content_id
-                ))
-            })?;
-        JsonEncoder::decode(&mapping_bytes).map_err(StateMachineError::from)
+        {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        JsonEncoder::decode::<indexify_internal_api::ContentExtractionPolicyMapping>(&mapping_bytes)
+            .map(Some)
     }
 
     pub async fn get_tasks_for_executor(
