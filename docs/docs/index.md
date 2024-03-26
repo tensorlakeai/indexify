@@ -2,7 +2,12 @@
 
 Indexify is a reactive structured extraction and embedding engine for un-structured data such as PDFs, raw text, audio and video. You can use Indexify to index and serve data to RAG applications, or consume structured data from any unstructured data into any kind of applications in real time.
 
-## Why use Indexify
+## Why Use Indexify 
+Building a product with LLMs often involve ingesting new data, extracting structured infromation, or embedding and writing them to storage and retreiving them from applications.
+
+Indexify solves the complexity of building a durable, reliable and fast distributed orchestation and ingestion system for running complex extraction and data transformation workflow for production applications. Indexify will assure that content meant for extraction are not dropped on the floor in production. 
+
+## Features
 
 * Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
 * **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
@@ -18,3 +23,10 @@ Indexify is a reactive structured extraction and embedding engine for un-structu
 ## Start Using Indexify
 
 Dive into [Getting Started](getting_started.md) to learn how to use Indexify.
+
+## Difference Between Indexify and LlamaIndex
+
+Indexify is the data backend and compute engine for Generative Applicatoins. Your extraction and data processing workflows will run asynchronously in Indexify. LlamaIndex is an application level framework for querying data and for response synthesis with LLMs. It doesn't include a fault tolerant and reliable distributed orchestration engine in the open source library. Indexify plays well with LlamaIndex, you can use LlamaIndex's query engine and other components such as data loaders to ingest content for transformation and extraction using Indexify. 
+
+## Different Between Indexify and Spark
+Spark is a map-reduce system, works well with tabular data and with compute functions written in Java. Indexify is faster than Spark as it doesn't rely on an external scheduler like Kubernetes for Mesos for task scheduling. Indexify also remembers the extracted content form data so it can go and update them when the source changes.
