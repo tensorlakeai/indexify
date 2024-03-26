@@ -254,8 +254,9 @@ message ListNamespaceResponse {
 }
 
 message ExtractionPolicy {
-    string extractor = 1;
-    string name = 2;
+    string id = 1;
+    string extractor = 2;
+    string name = 3;
     string input_params = 4;
     map<string, string> filters = 5;
     string content_source = 6;

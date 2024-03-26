@@ -321,8 +321,10 @@ pub struct ListNamespaceResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractionPolicy {
     #[prost(string, tag = "1")]
-    pub extractor: ::prost::alloc::string::String,
+    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
+    pub extractor: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
