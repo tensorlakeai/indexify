@@ -11,21 +11,13 @@ use internal_api::{ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -35,35 +27,17 @@ pub struct UnassignedTasks {
 
 impl UnassignedTasks {
     pub fn insert(&self, task_id: &TaskId) {
-        let mut guard = match self.unassigned_tasks.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unassigned tasks was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.unassigned_tasks.write().unwrap();
         guard.insert(task_id.into());
     }
 
     pub fn remove(&self, task_id: &TaskId) {
-        let mut guard = match self.unassigned_tasks.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unassigned tasks was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.unassigned_tasks.write().unwrap();
         guard.remove(task_id);
     }
 
     pub fn inner(&self) -> HashSet<TaskId> {
-        let guard = match self.unassigned_tasks.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unassigned tasks was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.unassigned_tasks.read().unwrap();
         guard.clone()
     }
 }
@@ -75,35 +49,17 @@ pub struct UnprocessedStateChanges {
 
 impl UnprocessedStateChanges {
     pub fn insert(&self, state_change_id: StateChangeId) {
-        let mut guard = match self.unprocessed_state_changes.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unprocessed state changes was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.unprocessed_state_changes.write().unwrap();
         guard.insert(state_change_id);
     }
 
     pub fn remove(&self, state_change_id: &StateChangeId) {
-        let mut guard = match self.unprocessed_state_changes.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unprocessed state changes was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.unprocessed_state_changes.write().unwrap();
         guard.remove(state_change_id);
     }
 
     pub fn inner(&self) -> HashSet<StateChangeId> {
-        let guard = match self.unprocessed_state_changes.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unprocessed state changes was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.unprocessed_state_changes.read().unwrap();
         guard.clone()
     }
 }
@@ -115,13 +71,7 @@ pub struct ContentNamespaceTable {
 
 impl ContentNamespaceTable {
     pub fn insert(&self, namespace: &NamespaceName, content_id: &ContentId) {
-        let mut guard = match self.content_namespace_table.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for content namespace table was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.content_namespace_table.write().unwrap();
         guard
             .entry(namespace.clone())
             .or_default()
@@ -129,13 +79,7 @@ impl ContentNamespaceTable {
     }
 
     pub fn remove(&self, namespace: &NamespaceName, content_id: &ContentId) {
-        let mut guard = match self.content_namespace_table.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for content namespace table was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.content_namespace_table.write().unwrap();
         guard
             .entry(namespace.clone())
             .or_default()
@@ -143,71 +87,69 @@ impl ContentNamespaceTable {
     }
 
     pub fn inner(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
-        let guard = match self.content_namespace_table.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for content namespace table was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.content_namespace_table.read().unwrap();
         guard.clone()
     }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExtractionPoliciesTable {
-    extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
+    extraction_policies_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
 }
 
 impl ExtractionPoliciesTable {
     pub fn get(&self, namespace: &NamespaceName) -> HashSet<String> {
-        self.extraction_policies_table
-            .get(namespace)
-            .cloned()
-            .unwrap_or_default()
+        let guard = self.extraction_policies_table.read().unwrap();
+        guard.get(namespace).cloned().unwrap_or_default()
     }
 
     pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
-        self.extraction_policies_table
+        let mut guard = self.extraction_policies_table.write().unwrap();
+        guard
             .entry(namespace.clone())
             .or_default()
             .insert(extraction_policy_id.to_owned());
     }
 
     pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
-        self.extraction_policies_table
+        let mut guard = self.extraction_policies_table.write().unwrap();
+        guard
             .entry(namespace.clone())
             .or_default()
             .remove(extraction_policy_id);
     }
 
     pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.extraction_policies_table.clone()
+        let guard = self.extraction_policies_table.read().unwrap();
+        guard.clone()
     }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExtractorExecutorsTable {
-    extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
+    extractor_executors_table: Arc<RwLock<HashMap<ExtractorName, HashSet<ExecutorId>>>>,
 }
 
 impl ExtractorExecutorsTable {
     pub fn insert(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
-        self.extractor_executors_table
+        let mut guard = self.extractor_executors_table.write().unwrap();
+        guard
             .entry(extractor.clone())
             .or_default()
             .insert(executor_id.clone());
     }
 
     pub fn remove(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
-        self.extractor_executors_table
+        let mut guard = self.extractor_executors_table.write().unwrap();
+        guard
             .entry(extractor.clone())
             .or_default()
             .remove(executor_id);
     }
 
     pub fn inner(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
-        self.extractor_executors_table.clone()
+        let guard = self.extractor_executors_table.read().unwrap();
+        guard.clone()
     }
 }
 
@@ -218,13 +160,7 @@ pub struct NamespaceIndexTable {
 
 impl NamespaceIndexTable {
     pub fn insert(&self, namespace: &NamespaceName, index_id: &str) {
-        let mut guard = match self.namespace_index_table.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for namespace index table was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.namespace_index_table.write().unwrap();
         guard
             .entry(namespace.clone())
             .or_default()
@@ -232,24 +168,12 @@ impl NamespaceIndexTable {
     }
 
     pub fn remove(&self, namespace: &NamespaceName, index_id: &String) {
-        let mut guard = match self.namespace_index_table.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for namespace index table was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.namespace_index_table.write().unwrap();
         guard.entry(namespace.clone()).or_default().remove(index_id);
     }
 
     pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        let guard = match self.namespace_index_table.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for namespace index table was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.namespace_index_table.read().unwrap();
         guard.clone()
     }
 }
@@ -261,13 +185,7 @@ pub struct UnfinishedTasksByExtractor {
 
 impl UnfinishedTasksByExtractor {
     pub fn insert(&self, extractor: &ExtractorName, task_id: &TaskId) {
-        let mut guard = match self.unfinished_tasks_by_extractor.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unfinished tasks by extractor was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.unfinished_tasks_by_extractor.write().unwrap();
         guard
             .entry(extractor.clone())
             .or_default()
@@ -275,24 +193,12 @@ impl UnfinishedTasksByExtractor {
     }
 
     pub fn remove(&self, extractor: &ExtractorName, task_id: &TaskId) {
-        let mut guard = match self.unfinished_tasks_by_extractor.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unfinished tasks by extractor was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.unfinished_tasks_by_extractor.write().unwrap();
         guard.entry(extractor.clone()).or_default().remove(task_id);
     }
 
     pub fn inner(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        let guard = match self.unfinished_tasks_by_extractor.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for unfinished tasks by extractor was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.unfinished_tasks_by_extractor.read().unwrap();
         guard.clone()
     }
 }
@@ -310,46 +216,22 @@ impl ExecutorRunningTaskCount {
     }
 
     pub fn get(&self, executor_id: &ExecutorId) -> Option<usize> {
-        let guard = match self.executor_running_task_count.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for executor running task count was found to be poisoned while getting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.executor_running_task_count.read().unwrap();
         guard.get(executor_id).copied()
     }
 
     pub fn insert(&self, executor_id: &ExecutorId, count: usize) {
-        let mut guard = match self.executor_running_task_count.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for executor running task count was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.executor_running_task_count.write().unwrap();
         guard.insert(executor_id.clone(), count);
     }
 
     pub fn remove(&self, executor_id: &ExecutorId) {
-        let mut guard = match self.executor_running_task_count.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for executor running task count was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.executor_running_task_count.write().unwrap();
         guard.remove(executor_id);
     }
 
     pub fn inner(&self) -> HashMap<ExecutorId, usize> {
-        let guard = match self.executor_running_task_count.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for executor running task count was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.executor_running_task_count.read().unwrap();
         guard.clone()
     }
 
@@ -382,13 +264,7 @@ pub struct SchemasByNamespace {
 
 impl SchemasByNamespace {
     pub fn insert(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
-        let mut guard = match self.schemas_by_namespace.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for schemas by namespace was found to be poisoned while inserting, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.schemas_by_namespace.write().unwrap();
         guard
             .entry(namespace.clone())
             .or_default()
@@ -396,13 +272,7 @@ impl SchemasByNamespace {
     }
 
     pub fn remove(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
-        let mut guard = match self.schemas_by_namespace.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for schemas by namespace was found to be poisoned while removing, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = self.schemas_by_namespace.write().unwrap();
         guard
             .entry(namespace.clone())
             .or_default()
@@ -410,13 +280,7 @@ impl SchemasByNamespace {
     }
 
     pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
-        let guard = match self.schemas_by_namespace.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                info!("The lock for schemas by namespace was found to be poisoned while copying, continuing anyway");
-                poisoned.into_inner()
-            }
-        };
+        let guard = self.schemas_by_namespace.read().unwrap();
         guard.clone()
     }
 }
