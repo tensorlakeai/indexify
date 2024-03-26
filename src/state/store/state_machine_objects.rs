@@ -366,6 +366,52 @@ impl ExecutorRunningTaskCount {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct SchemasByNamespace {
+    schemas_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<SchemaId>>>>,
+}
+
+impl SchemasByNamespace {
+    pub fn insert(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
+        let mut guard = match self.schemas_by_namespace.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for schemas by namespace was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(schema_id.clone());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
+        let mut guard = match self.schemas_by_namespace.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for schemas by namespace was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .remove(schema_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+        let guard = match self.schemas_by_namespace.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for schemas by namespace was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -397,7 +443,7 @@ pub struct IndexifyState {
     executor_running_task_count: ExecutorRunningTaskCount,
 
     /// Namespace -> Schemas
-    schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
+    schemas_by_namespace: SchemasByNamespace,
 }
 
 impl fmt::Display for IndexifyState {
@@ -883,9 +929,7 @@ impl IndexifyState {
 
     fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
         self.schemas_by_namespace
-            .entry(schema.namespace.clone())
-            .or_default()
-            .insert(schema.id.clone());
+            .insert(&schema.namespace, &schema.id);
     }
 
     /// This method will make all state machine forward index writes to RocksDB
@@ -1520,8 +1564,8 @@ impl IndexifyState {
         self.executor_running_task_count.inner()
     }
 
-    pub fn get_schemas_by_namespace(&self) -> &HashMap<NamespaceName, HashSet<SchemaId>> {
-        &self.schemas_by_namespace
+    pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+        self.schemas_by_namespace.inner()
     }
     //  END READER METHODS FOR REVERSE INDEXES
 
