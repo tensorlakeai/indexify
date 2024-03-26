@@ -11,12 +11,11 @@ use internal_api::{ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    store_utils::{decrement_running_task_count, increment_running_task_count},
     ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
     StateMachineColumns, StateMachineError, TaskId,
 };
@@ -290,9 +289,85 @@ impl UnfinishedTasksByExtractor {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExecutorRunningTaskCount {
+    executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, usize>>>,
+}
+
+impl ExecutorRunningTaskCount {
+    pub fn new() -> Self {
+        Self {
+            executor_running_task_count: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn get(&self, executor_id: &ExecutorId) -> Option<usize> {
+        let guard = match self.executor_running_task_count.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for executor running task count was found to be poisoned while getting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.get(executor_id).copied()
+    }
+
+    pub fn insert(&self, executor_id: &ExecutorId, count: usize) {
+        let mut guard = match self.executor_running_task_count.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for executor running task count was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.insert(executor_id.clone(), count);
+    }
+
+    pub fn remove(&self, executor_id: &ExecutorId) {
+        let mut guard = match self.executor_running_task_count.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for executor running task count was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.remove(executor_id);
+    }
+
+    pub fn inner(&self) -> HashMap<ExecutorId, usize> {
+        let guard = match self.executor_running_task_count.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for executor running task count was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+
+    pub fn increment_running_task_count(&self, executor_id: &ExecutorId) {
+        let mut executor_load = self.executor_running_task_count.write().unwrap();
+        let load = executor_load.entry(executor_id.clone()).or_insert(0);
+        *load += 1;
+    }
+
+    pub fn decrement_running_task_count(&self, executor_id: &ExecutorId) {
+        let mut executor_load = self.executor_running_task_count.write().unwrap();
+        if let Some(load) = executor_load.get_mut(executor_id) {
+            if *load > 0 {
+                *load -= 1;
+            } else {
+                warn!("Tried to decrement load below 0. This is a bug because the state machine shouldn't allow it.");
+            }
+        } else {
+            // Add the executor to the load map if it's not there, with an initial load of 0.
+            executor_load.insert(executor_id.clone(), 0);
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
-    //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
     /// The tasks that are currently unassigned
     unassigned_tasks: UnassignedTasks,
@@ -318,7 +393,8 @@ pub struct IndexifyState {
     unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Number of tasks currently running on each executor
-    executor_running_task_count: HashMap<ExecutorId, usize>,
+    /// Executor id -> number of tasks running on executor
+    executor_running_task_count: ExecutorRunningTaskCount,
 
     /// Namespace -> Schemas
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
@@ -873,10 +949,13 @@ impl IndexifyState {
                         let mut new_task_assignment = HashMap::new();
                         new_task_assignment.insert(executor_id.to_string(), existing_tasks);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
-                        decrement_running_task_count(
-                            &mut self.executor_running_task_count,
-                            executor_id,
-                        );
+
+                        self.executor_running_task_count
+                            .decrement_running_task_count(executor_id);
+                        // decrement_running_task_count(
+                        //     &mut self.executor_running_task_count,
+                        //     executor_id,
+                        // );
                     }
                 }
 
@@ -1008,8 +1087,9 @@ impl IndexifyState {
                     extractor: extractor.clone(),
                 };
                 // initialize executor load at 0
-                self.executor_running_task_count
-                    .insert(executor_id.clone(), 0);
+                self.executor_running_task_count.insert(&executor_id, 0);
+                // self.executor_running_task_count
+                //     .insert(executor_id.clone(), 0);
             }
             RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
@@ -1027,10 +1107,12 @@ impl IndexifyState {
                 for (task_id, executor_id) in assignments {
                     self.unassigned_tasks.remove(&task_id);
 
-                    increment_running_task_count(
-                        &mut self.executor_running_task_count,
-                        &executor_id,
-                    );
+                    self.executor_running_task_count
+                        .increment_running_task_count(&executor_id);
+                    // increment_running_task_count(
+                    //     &mut self.executor_running_task_count,
+                    //     &executor_id,
+                    // );
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {
@@ -1074,15 +1156,9 @@ impl IndexifyState {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
-                    // self.unfinished_tasks_by_extractor
-                    //     .entry(task.extractor.clone())
-                    //     .or_default()
-                    //     .remove(&task.id);
                     if let Some(executor_id) = executor_id {
-                        decrement_running_task_count(
-                            &mut self.executor_running_task_count,
-                            &executor_id,
-                        );
+                        self.executor_running_task_count
+                            .decrement_running_task_count(&executor_id);
                     }
                 }
                 for content in content_metadata {
@@ -1440,8 +1516,8 @@ impl IndexifyState {
         self.unfinished_tasks_by_extractor.inner()
     }
 
-    pub fn get_executor_running_task_count(&self) -> &HashMap<ExecutorId, usize> {
-        &self.executor_running_task_count
+    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+        self.executor_running_task_count.inner()
     }
 
     pub fn get_schemas_by_namespace(&self) -> &HashMap<NamespaceName, HashSet<SchemaId>> {
@@ -1451,12 +1527,34 @@ impl IndexifyState {
 
     //  START WRITER METHODS FOR REVERSE INDEXES
     pub fn insert_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
-        let count = self
-            .executor_running_task_count
-            .get(executor_id)
-            .copied()
-            .unwrap_or(0);
         self.executor_running_task_count
-            .insert(executor_id.to_string(), count + tasks as usize);
+            .insert(&executor_id.to_string(), tasks as usize);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_increment_running_task_count() {
+        let executor_running_task_count = ExecutorRunningTaskCount::new();
+        let executor_id = "executor_id".to_string();
+        executor_running_task_count.insert(&executor_id, 0);
+        executor_running_task_count.increment_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 1);
+        executor_running_task_count.increment_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_decrement_running_task_count() {
+        let executor_running_task_count = ExecutorRunningTaskCount::new();
+        let executor_id = "executor_id".to_string();
+        executor_running_task_count.insert(&executor_id, 2);
+        executor_running_task_count.decrement_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 1);
+        executor_running_task_count.decrement_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 0);
     }
 }
