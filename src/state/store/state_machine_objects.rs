@@ -877,10 +877,6 @@ impl IndexifyState {
 
                         self.executor_running_task_count
                             .decrement_running_task_count(executor_id);
-                        // decrement_running_task_count(
-                        //     &mut self.executor_running_task_count,
-                        //     executor_id,
-                        // );
                     }
                 }
 
@@ -977,11 +973,10 @@ impl IndexifyState {
             _ => (),
         };
 
-        //  TODO: Move the commit after the reverse index writes
+        self.apply(request);
+
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-
-        self.apply(request);
 
         Ok(())
     }
