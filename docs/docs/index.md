@@ -7,7 +7,7 @@ Building a product with LLMs often involve ingesting new data, extracting struct
 
 Moving compute heavy extraction improves performance of your LLM applications. Making extraction processes which requries a series of steps such as breaking down a document or media into chunks, extracting embeddig, requires a persistent state machine which is hard to get right.
 
-Indexify solves the complexity of building a durable, reliable and fast distributed orchestation and ingestion system for running complex extraction and data transformation workflow for production applications. Indexify will assure that content meant for extraction are not dropped on the floor in production. 
+Indexify solves the complexity of building a durable, reliable and fast distributed orchestation and ingestion system for running complex extraction and data transformation workflow for production applications to use with LLM applications. Indexify will assure that content meant for extraction are not dropped on the floor in production. 
 
 ## Features
 
