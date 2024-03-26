@@ -459,6 +459,12 @@ pub struct ContentFrame {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AddContentFeature {
+    pub name: String,
+    pub values: Vec<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FinishContent {
     pub mime: String,
     pub features: Vec<Feature>,
@@ -473,6 +479,7 @@ pub enum IngestExtractedContent {
     FinishExtractedContentIngest(FinishExtractedContentIngest),
     BeginMultipartContent,
     MultipartContentFrame(ContentFrame),
+    MultipartContentFeature(AddContentFeature),
     FinishMultipartContent(FinishContent),
 }
 

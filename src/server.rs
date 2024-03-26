@@ -660,7 +660,7 @@ impl IngestExtractedContentState {
             .await
     }
 
-    async fn start_frame(&mut self) -> Result<()> {
+    async fn start_content(&mut self) -> Result<()> {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -693,7 +693,7 @@ impl IngestExtractedContentState {
         }
         match &self.frame_state {
             FrameState::New => {
-                self.start_frame().await?;
+                self.start_content().await?;
             }
             FrameState::Writing(_) => {
                 return Err(anyhow!(
@@ -710,27 +710,57 @@ impl IngestExtractedContentState {
                 "received finished extraction ingest without header metadata"
             ));
         }
-        if let FrameState::New = self.frame_state {
+        match &mut self.frame_state {
+            FrameState::New => {
+                return Err(anyhow!(
+                    "received content frame without starting multipart content"
+                ));
+            }
+            FrameState::Writing(frame_state) => {
+                frame_state.file_size += payload.bytes.len() as u64;
+                frame_state
+                    .writer
+                    .writer
+                    .write_all(&payload.bytes)
+                    .await
+                    .map_err(|e| {
+                        anyhow!(
+                            "unable to write extracted content frame to blob store: {}",
+                            e
+                        )
+                    })
+            }
+        }
+    }
+
+    async fn add_content_feature(&mut self, payload: AddContentFeature) -> Result<()> {
+        if self.ingest_metadata.is_none() {
             return Err(anyhow!(
-                "received content frame without starting multipart content"
+                "received finished extraction ingest without header metadata"
             ));
         }
-        if let FrameState::Writing(frame_state) = &mut self.frame_state {
-            frame_state.file_size += payload.bytes.len() as u64;
-            frame_state
-                .writer
-                .writer
-                .write_all(&payload.bytes)
-                .await
-                .map_err(|e| {
-                    anyhow!(
-                        "unable to write extracted content frame to blob store: {}",
-                        e
+        match &self.frame_state {
+            FrameState::New => {
+                return Err(anyhow!(
+                    "received content feature without starting multipart content"
+                ));
+            }
+            FrameState::Writing(frame_state) => {
+                self.state
+                    .data_manager
+                    .write_extracted_embedding(
+                        &payload.name,
+                        &payload.values,
+                        &frame_state.id,
+                        &self
+                            .ingest_metadata
+                            .as_ref()
+                            .unwrap()
+                            .output_to_index_table_mapping,
                     )
-                })?;
+                    .await
+            }
         }
-
-        Ok(())
     }
 
     async fn finish_content(&mut self, payload: FinishContent) -> Result<()> {
@@ -739,13 +769,13 @@ impl IngestExtractedContentState {
                 "received finished extraction ingest without header metadata"
             ));
         }
-        match self.frame_state {
+        match &mut self.frame_state {
             FrameState::New => {
                 return Err(anyhow!(
                     "received finish content without any content frames"
                 ));
             }
-            FrameState::Writing(ref mut frame_state) => {
+            FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
 
                 let metadata = self.ingest_metadata.as_ref().unwrap();
@@ -815,11 +845,11 @@ impl IngestExtractedContentState {
                 &self.ingest_metadata.clone().unwrap().extraction_policy,
                 &content_meta,
                 payload.features,
-                self.ingest_metadata
-                    .clone()
+                &self
+                    .ingest_metadata
+                    .as_ref()
                     .unwrap()
-                    .output_to_index_table_mapping
-                    .clone(),
+                    .output_to_index_table_mapping,
             )
             .await
     }
@@ -868,6 +898,12 @@ impl IngestExtractedContentState {
                     IngestExtractedContent::MultipartContentFrame(payload) => {
                         if let Err(e) = self.write_content_frame(payload).await {
                             tracing::error!("Error handling content frame: {}", e);
+                            return;
+                        }
+                    }
+                    IngestExtractedContent::MultipartContentFeature(payload) => {
+                        if let Err(e) = self.add_content_feature(payload).await {
+                            tracing::error!("Error handling content feature: {}", e);
                             return;
                         }
                     }

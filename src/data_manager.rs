@@ -458,32 +458,49 @@ impl DataManager {
         Ok(())
     }
 
+    pub async fn write_extracted_embedding(
+        &self,
+        name: &str,
+        embedding: &[f32],
+        content_id: &str,
+        output_index_map: &HashMap<String, String>,
+    ) -> Result<()> {
+        let embeddings = internal_api::ExtractedEmbeddings {
+            content_id: content_id.to_string(),
+            embedding: embedding.to_vec(),
+        };
+        let index_table = output_index_map
+            .get(name)
+            .ok_or(anyhow!("index table not found"))?;
+        self.vector_index_manager
+            .add_embedding(index_table, vec![embeddings])
+            .await
+            .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
+        Ok(())
+    }
+
     pub async fn write_extracted_features(
         &self,
         extractor_name: &str,
         extraction_policy: &str,
         content_meta: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
-        output_index_map: HashMap<String, String>,
+        output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
                     let embedding_payload: internal_api::Embedding =
-                        serde_json::from_value(feature.data).map_err(|e| {
+                        serde_json::from_value(feature.data.clone()).map_err(|e| {
                             anyhow!("unable to get embedding from extracted data {}", e)
                         })?;
-                    let embeddings = internal_api::ExtractedEmbeddings {
-                        content_id: content_meta.id.to_string(),
-                        embedding: embedding_payload.values,
-                    };
-                    let index_table = output_index_map
-                        .get(&feature.name)
-                        .ok_or(anyhow!("index table not found"))?;
-                    self.vector_index_manager
-                        .add_embedding(index_table, vec![embeddings])
-                        .await
-                        .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
+                    self.write_extracted_embedding(
+                        &feature.name,
+                        &embedding_payload.values,
+                        &content_meta.id,
+                        &output_index_map,
+                    )
+                    .await?;
                 }
                 api::FeatureType::Metadata => {
                     let extracted_attributes = ExtractedMetadata::new(
@@ -532,7 +549,7 @@ impl DataManager {
             &ingest_metadata.extraction_policy,
             &content_meta,
             features,
-            ingest_metadata.output_to_index_table_mapping.clone(),
+            &ingest_metadata.output_to_index_table_mapping,
         )
         .await
     }
