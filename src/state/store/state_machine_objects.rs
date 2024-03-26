@@ -179,6 +179,74 @@ impl ExtractionPoliciesTable {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExtractorExecutorsTable {
+    extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
+}
+
+impl ExtractorExecutorsTable {
+    pub fn insert(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+        self.extractor_executors_table
+            .entry(extractor.clone())
+            .or_default()
+            .insert(executor_id.clone());
+    }
+
+    pub fn remove(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+        self.extractor_executors_table
+            .entry(extractor.clone())
+            .or_default()
+            .remove(executor_id);
+    }
+
+    pub fn inner(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
+        self.extractor_executors_table.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct NamespaceIndexTable {
+    namespace_index_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
+}
+
+impl NamespaceIndexTable {
+    pub fn insert(&self, namespace: &NamespaceName, index_id: &String) {
+        let mut guard = match self.namespace_index_table.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for namespace index table was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(index_id.clone());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, index_id: &String) {
+        let mut guard = match self.namespace_index_table.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for namespace index table was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.entry(namespace.clone()).or_default().remove(index_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        let guard = match self.namespace_index_table.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for namespace index table was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     //  TODO: Check whether only id's can be stored in reverse indexes
@@ -196,10 +264,10 @@ pub struct IndexifyState {
     extraction_policies_table: ExtractionPoliciesTable,
 
     /// Extractor -> Executors table
-    extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
+    extractor_executors_table: ExtractorExecutorsTable,
 
     /// Namespace -> Index id
-    namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
+    namespace_index_table: NamespaceIndexTable,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
@@ -800,9 +868,12 @@ impl IndexifyState {
                 //  Remove the the extractor from the executor -> extractor mapping table
                 let executors = self
                     .extractor_executors_table
-                    .entry(executor_meta.extractor.name.clone())
-                    .or_default();
-                executors.remove(&executor_meta.id);
+                    .remove(&executor_meta.extractor.name, &executor_meta.id);
+                // let executors = self
+                //     .extractor_executors_table
+                //     .entry(executor_meta.extractor.name.clone())
+                //     .or_default();
+                // executors.remove(&executor_meta.id);
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
@@ -891,9 +962,7 @@ impl IndexifyState {
                 ts_secs,
             } => {
                 self.extractor_executors_table
-                    .entry(extractor.name.clone())
-                    .or_default()
-                    .insert(executor_id.clone());
+                    .insert(&extractor.name, &executor_id);
                 let _executor_info = internal_api::ExecutorMetadata {
                     id: executor_id.clone(),
                     last_seen: ts_secs,
@@ -953,10 +1022,7 @@ impl IndexifyState {
                 namespace,
                 id,
             } => {
-                self.namespace_index_table
-                    .entry(namespace.clone())
-                    .or_default()
-                    .insert(id);
+                self.namespace_index_table.insert(&namespace, &id);
             }
             RequestPayload::UpdateTask {
                 task,
@@ -1320,12 +1386,12 @@ impl IndexifyState {
         self.extraction_policies_table.inner()
     }
 
-    pub fn get_extractor_executors_table(&self) -> &HashMap<ExtractorName, HashSet<ExecutorId>> {
-        &self.extractor_executors_table
+    pub fn get_extractor_executors_table(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
+        self.extractor_executors_table.inner()
     }
 
-    pub fn get_namespace_index_table(&self) -> &HashMap<NamespaceName, HashSet<String>> {
-        &self.namespace_index_table
+    pub fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.namespace_index_table.inner()
     }
 
     pub fn get_unfinished_tasks_by_extractor(&self) -> &HashMap<ExtractorName, HashSet<TaskId>> {
