@@ -97,7 +97,7 @@ indexify-extractor download hub://embedding/minilm-l6
 
 Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane.
 ```shell
-indexify-extractor join minilm_l6:MiniLML6Extractor
+indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
 ```
 The extractor is now ready to receive content you upload and extract embedding using the MiniLML6Extractor
 
@@ -145,7 +145,13 @@ We now have an index with embedding extracted by MiniLML6.
 
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
+Install indexify-langchain
+```shell
+pip install indexify-langchain
+```
+
 We will use Langchain to setup our RAG application and use Indexify as a retreiver to feed in data from Indexify.
+
 ```python
 from indexify_langchain import IndexifyRetriever
 params = {"name": "minilml6.embedding", "top_k": 3}
