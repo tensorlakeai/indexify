@@ -106,7 +106,7 @@ impl LoadAwareDistributor {
 
         // Initialize the result HashMap to collect the filtered task IDs by extractor.
         let mut result = HashMap::new();
-        for (extractor, extractor_task_ids) in sm.unfinished_tasks_by_extractor.iter() {
+        for (extractor, extractor_task_ids) in sm.get_unfinished_tasks_by_extractor().iter() {
             let filtered_task_ids: HashSet<TaskId> =
                 extractor_task_ids.intersection(task_ids).cloned().collect();
             if !filtered_task_ids.is_empty() {
@@ -375,7 +375,8 @@ mod tests {
 
         let task_ids: HashSet<TaskId> = shared_state
             .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)?
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
+            .await?
             .into_iter()
             .map(|(_, task)| task.id.clone())
             .collect();
@@ -555,7 +556,7 @@ mod tests {
         }
 
         let mut tasks = Vec::new();
-        // Crate the tasks
+        // Create the tasks
         for i in 1..=100 {
             let task1 = create_task(
                 &format!("test-text-task-{}", i),
@@ -576,10 +577,8 @@ mod tests {
 
         // arbitrarily increase the load on the first text executor and json executor
         let mut sm = shared_state.indexify_state.write().await;
-        sm.executor_running_task_count
-            .insert("text_executor1".to_string(), 20);
-        sm.executor_running_task_count
-            .insert("json_executor1".to_string(), 20);
+        sm.insert_executor_running_task_count("text_executor1", 20);
+        sm.insert_executor_running_task_count("json_executor1", 20);
         drop(sm);
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());

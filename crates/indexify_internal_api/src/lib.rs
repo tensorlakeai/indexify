@@ -232,7 +232,7 @@ pub struct Feature {
 // Specifying alternate name as utoipa has issues with namespaced schemas. See https://github.com/juhaku/utoipa/issues/569#issuecomment-1503466468
 #[schema(as = internal_api::Content)]
 pub struct Content {
-    pub mime: String,
+    pub content_type: String,
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub features: Vec<Feature>,
@@ -241,7 +241,7 @@ pub struct Content {
 
 impl Content {
     pub fn source_as_text(&self) -> Option<String> {
-        let mime_type = mime::Mime::from_str(&self.mime);
+        let mime_type = mime::Mime::from_str(&self.content_type);
         if let Ok(mime_type) = mime_type {
             if mime_type == mime::TEXT_PLAIN {
                 return Some(String::from_utf8(self.bytes.clone()).unwrap());

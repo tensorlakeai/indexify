@@ -1,19 +1,21 @@
 use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::SystemTime,
 };
 
 use anyhow::Result;
 use indexify_internal_api as internal_api;
 use internal_api::{ExtractorDescription, StateChange};
+use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
+use serde::de::DeserializeOwned;
+use tracing::{error, warn};
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    store_utils::{decrement_running_task_count, increment_running_task_count},
     ContentId,
     ExecutorId,
     ExtractorName,
@@ -26,37 +28,303 @@ use super::{
     TaskId,
 };
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct UnassignedTasks {
+    unassigned_tasks: Arc<RwLock<HashSet<TaskId>>>,
+}
+
+impl UnassignedTasks {
+    pub fn insert(&self, task_id: &TaskId) {
+        let mut guard = self.unassigned_tasks.write().unwrap();
+        guard.insert(task_id.into());
+    }
+
+    pub fn remove(&self, task_id: &TaskId) {
+        let mut guard = self.unassigned_tasks.write().unwrap();
+        guard.remove(task_id);
+    }
+
+    pub fn inner(&self) -> HashSet<TaskId> {
+        let guard = self.unassigned_tasks.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct UnprocessedStateChanges {
+    unprocessed_state_changes: Arc<RwLock<HashSet<StateChangeId>>>,
+}
+
+impl UnprocessedStateChanges {
+    pub fn insert(&self, state_change_id: StateChangeId) {
+        let mut guard = self.unprocessed_state_changes.write().unwrap();
+        guard.insert(state_change_id);
+    }
+
+    pub fn remove(&self, state_change_id: &StateChangeId) {
+        let mut guard = self.unprocessed_state_changes.write().unwrap();
+        guard.remove(state_change_id);
+    }
+
+    pub fn inner(&self) -> HashSet<StateChangeId> {
+        let guard = self.unprocessed_state_changes.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ContentNamespaceTable {
+    content_namespace_table: Arc<RwLock<HashMap<NamespaceName, HashSet<ContentId>>>>,
+}
+
+impl ContentNamespaceTable {
+    pub fn insert(&self, namespace: &NamespaceName, content_id: &ContentId) {
+        let mut guard = self.content_namespace_table.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(content_id.clone());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, content_id: &ContentId) {
+        let mut guard = self.content_namespace_table.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .remove(content_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+        let guard = self.content_namespace_table.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExtractionPoliciesTable {
+    extraction_policies_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
+}
+
+impl ExtractionPoliciesTable {
+    pub fn get(&self, namespace: &NamespaceName) -> HashSet<String> {
+        let guard = self.extraction_policies_table.read().unwrap();
+        guard.get(namespace).cloned().unwrap_or_default()
+    }
+
+    pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
+        let mut guard = self.extraction_policies_table.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(extraction_policy_id.to_owned());
+    }
+
+    pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
+        let mut guard = self.extraction_policies_table.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .remove(extraction_policy_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        let guard = self.extraction_policies_table.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExtractorExecutorsTable {
+    extractor_executors_table: Arc<RwLock<HashMap<ExtractorName, HashSet<ExecutorId>>>>,
+}
+
+impl ExtractorExecutorsTable {
+    pub fn insert(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+        let mut guard = self.extractor_executors_table.write().unwrap();
+        guard
+            .entry(extractor.clone())
+            .or_default()
+            .insert(executor_id.clone());
+    }
+
+    pub fn remove(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+        let mut guard = self.extractor_executors_table.write().unwrap();
+        guard
+            .entry(extractor.clone())
+            .or_default()
+            .remove(executor_id);
+    }
+
+    pub fn inner(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
+        let guard = self.extractor_executors_table.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct NamespaceIndexTable {
+    namespace_index_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
+}
+
+impl NamespaceIndexTable {
+    pub fn insert(&self, namespace: &NamespaceName, index_id: &str) {
+        let mut guard = self.namespace_index_table.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(index_id.to_owned());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, index_id: &String) {
+        let mut guard = self.namespace_index_table.write().unwrap();
+        guard.entry(namespace.clone()).or_default().remove(index_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        let guard = self.namespace_index_table.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct UnfinishedTasksByExtractor {
+    unfinished_tasks_by_extractor: Arc<RwLock<HashMap<ExtractorName, HashSet<TaskId>>>>,
+}
+
+impl UnfinishedTasksByExtractor {
+    pub fn insert(&self, extractor: &ExtractorName, task_id: &TaskId) {
+        let mut guard = self.unfinished_tasks_by_extractor.write().unwrap();
+        guard
+            .entry(extractor.clone())
+            .or_default()
+            .insert(task_id.clone());
+    }
+
+    pub fn remove(&self, extractor: &ExtractorName, task_id: &TaskId) {
+        let mut guard = self.unfinished_tasks_by_extractor.write().unwrap();
+        guard.entry(extractor.clone()).or_default().remove(task_id);
+    }
+
+    pub fn inner(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
+        let guard = self.unfinished_tasks_by_extractor.read().unwrap();
+        guard.clone()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExecutorRunningTaskCount {
+    executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, usize>>>,
+}
+
+impl ExecutorRunningTaskCount {
+    pub fn new() -> Self {
+        Self {
+            executor_running_task_count: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn get(&self, executor_id: &ExecutorId) -> Option<usize> {
+        let guard = self.executor_running_task_count.read().unwrap();
+        guard.get(executor_id).copied()
+    }
+
+    pub fn insert(&self, executor_id: &ExecutorId, count: usize) {
+        let mut guard = self.executor_running_task_count.write().unwrap();
+        guard.insert(executor_id.clone(), count);
+    }
+
+    pub fn remove(&self, executor_id: &ExecutorId) {
+        let mut guard = self.executor_running_task_count.write().unwrap();
+        guard.remove(executor_id);
+    }
+
+    pub fn inner(&self) -> HashMap<ExecutorId, usize> {
+        let guard = self.executor_running_task_count.read().unwrap();
+        guard.clone()
+    }
+
+    pub fn increment_running_task_count(&self, executor_id: &ExecutorId) {
+        let mut executor_load = self.executor_running_task_count.write().unwrap();
+        let load = executor_load.entry(executor_id.clone()).or_insert(0);
+        *load += 1;
+    }
+
+    pub fn decrement_running_task_count(&self, executor_id: &ExecutorId) {
+        let mut executor_load = self.executor_running_task_count.write().unwrap();
+        if let Some(load) = executor_load.get_mut(executor_id) {
+            if *load > 0 {
+                *load -= 1;
+            } else {
+                warn!("Tried to decrement load below 0. This is a bug because the state machine shouldn't allow it.");
+            }
+        } else {
+            // Add the executor to the load map if it's not there, with an initial load of
+            // 0.
+            executor_load.insert(executor_id.clone(), 0);
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct SchemasByNamespace {
+    schemas_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<SchemaId>>>>,
+}
+
+impl SchemasByNamespace {
+    pub fn insert(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
+        let mut guard = self.schemas_by_namespace.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(schema_id.clone());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
+        let mut guard = self.schemas_by_namespace.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .remove(schema_id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+        let guard = self.schemas_by_namespace.read().unwrap();
+        guard.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
-    //  TODO: Check whether only id's can be stored in reverse indexes
     // Reverse Indexes
     /// The tasks that are currently unassigned
-    pub unassigned_tasks: HashSet<TaskId>,
+    unassigned_tasks: UnassignedTasks,
 
     /// State changes that have not been processed yet
-    pub unprocessed_state_changes: HashSet<StateChangeId>,
+    unprocessed_state_changes: UnprocessedStateChanges,
 
     /// Namespace -> Content ID
-    pub content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
+    content_namespace_table: ContentNamespaceTable,
 
     /// Namespace -> Extraction policy id
-    pub extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
+    extraction_policies_table: ExtractionPoliciesTable,
 
     /// Extractor -> Executors table
-    pub extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
+    extractor_executors_table: ExtractorExecutorsTable,
 
     /// Namespace -> Index id
-    pub namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
+    namespace_index_table: NamespaceIndexTable,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
-    pub unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
+    /// Extractor name -> Task Ids
+    unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Number of tasks currently running on each executor
-    pub executor_running_task_count: HashMap<ExecutorId, usize>,
+    /// Executor id -> number of tasks running on executor
+    executor_running_task_count: ExecutorRunningTaskCount,
 
     /// Namespace -> Schemas
-    pub schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
+    schemas_by_namespace: SchemasByNamespace,
 }
 
 impl fmt::Display for IndexifyState {
@@ -531,6 +799,20 @@ impl IndexifyState {
         Ok(())
     }
 
+    pub fn mark_state_changes_processed(
+        &mut self,
+        state_change: &StateChangeProcessed,
+        _processed_at: u64,
+    ) {
+        self.unprocessed_state_changes
+            .remove(&state_change.state_change_id);
+    }
+
+    fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
+        self.schemas_by_namespace
+            .insert(&schema.namespace, &schema.id);
+    }
+
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &mut self,
@@ -592,10 +874,13 @@ impl IndexifyState {
                         let mut new_task_assignment = HashMap::new();
                         new_task_assignment.insert(executor_id.to_string(), existing_tasks);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
-                        decrement_running_task_count(
-                            &mut self.executor_running_task_count,
-                            executor_id,
-                        );
+
+                        self.executor_running_task_count
+                            .decrement_running_task_count(executor_id);
+                        // decrement_running_task_count(
+                        //     &mut self.executor_running_task_count,
+                        //     executor_id,
+                        // );
                     }
                 }
 
@@ -629,15 +914,12 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
                 //  Remove the the extractor from the executor -> extractor mapping table
-                let executors = self
-                    .extractor_executors_table
-                    .entry(executor_meta.extractor.name.clone())
-                    .or_default();
-                executors.remove(&executor_meta.id);
+                self.extractor_executors_table
+                    .remove(&executor_meta.extractor.name, &executor_meta.id);
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
-                    self.unassigned_tasks.insert(task_id);
+                    self.unassigned_tasks.insert(&task_id);
                 }
 
                 // Remove from the executor load table
@@ -695,6 +977,7 @@ impl IndexifyState {
             _ => (),
         };
 
+        //  TODO: Move the commit after the reverse index writes
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
@@ -703,9 +986,9 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// This method handles all reverse index writes which are in memory
-    /// This will only run after the RocksDB transaction to commit the forward
-    /// index writes is done
+    /// This method handles all reverse index writes. All reverse indexes are
+    /// written in memory This will only run after the RocksDB transaction
+    /// to commit the forward index writes is done
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
@@ -721,9 +1004,7 @@ impl IndexifyState {
                 ts_secs,
             } => {
                 self.extractor_executors_table
-                    .entry(extractor.name.clone())
-                    .or_default()
-                    .insert(executor_id.clone());
+                    .insert(&extractor.name, &executor_id);
                 let _executor_info = internal_api::ExecutorMetadata {
                     id: executor_id.clone(),
                     last_seen: ts_secs,
@@ -731,36 +1012,38 @@ impl IndexifyState {
                     extractor: extractor.clone(),
                 };
                 // initialize executor load at 0
-                self.executor_running_task_count
-                    .insert(executor_id.clone(), 0);
+                self.executor_running_task_count.insert(&executor_id, 0);
+                // self.executor_running_task_count
+                //     .insert(executor_id.clone(), 0);
             }
             RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
-                    self.unassigned_tasks.insert(task.id.clone());
+                    self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
-                        .entry(task.extractor.clone())
-                        .or_default()
-                        .insert(task.id.clone());
+                        .insert(&task.extractor, &task.id);
+                    // self.unfinished_tasks_by_extractor
+                    //     .entry(task.extractor.clone())
+                    //     .or_default()
+                    //     .insert(task.id.clone());
                 }
             }
             RequestPayload::AssignTask { assignments } => {
                 for (task_id, executor_id) in assignments {
                     self.unassigned_tasks.remove(&task_id);
 
-                    increment_running_task_count(
-                        &mut self.executor_running_task_count,
-                        &executor_id,
-                    );
+                    self.executor_running_task_count
+                        .increment_running_task_count(&executor_id);
+                    // increment_running_task_count(
+                    //     &mut self.executor_running_task_count,
+                    //     &executor_id,
+                    // );
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
-                    //  The below write is handled in apply_state_machine_updates
                     self.content_namespace_table
-                        .entry(content.namespace.clone())
-                        .or_default()
-                        .insert(content.id.clone());
+                        .insert(&content.namespace, &content.id);
                 }
             }
             RequestPayload::CreateExtractionPolicy {
@@ -769,9 +1052,7 @@ impl IndexifyState {
                 new_structured_data_schema,
             } => {
                 self.extraction_policies_table
-                    .entry(extraction_policy.namespace.clone())
-                    .or_default()
-                    .insert(extraction_policy.id);
+                    .insert(&extraction_policy.namespace, &extraction_policy.id);
                 if let Some(schema) = updated_structured_data_schema {
                     self.update_schema_reverse_idx(schema);
                 }
@@ -788,10 +1069,7 @@ impl IndexifyState {
                 namespace,
                 id,
             } => {
-                self.namespace_index_table
-                    .entry(namespace.clone())
-                    .or_default()
-                    .insert(id);
+                self.namespace_index_table.insert(&namespace, &id);
             }
             RequestPayload::UpdateTask {
                 task,
@@ -802,21 +1080,15 @@ impl IndexifyState {
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
-                        .entry(task.extractor.clone())
-                        .or_default()
-                        .remove(&task.id);
+                        .remove(&task.extractor, &task.id);
                     if let Some(executor_id) = executor_id {
-                        decrement_running_task_count(
-                            &mut self.executor_running_task_count,
-                            &executor_id,
-                        );
+                        self.executor_running_task_count
+                            .decrement_running_task_count(&executor_id);
                     }
                 }
                 for content in content_metadata {
                     self.content_namespace_table
-                        .entry(content.namespace.clone())
-                        .or_default()
-                        .insert(content.id.clone());
+                        .insert(&content.namespace, &content.id);
                 }
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
@@ -828,19 +1100,391 @@ impl IndexifyState {
         }
     }
 
-    pub fn mark_state_changes_processed(
-        &mut self,
-        state_change: &StateChangeProcessed,
-        _processed_at: u64,
-    ) {
-        self.unprocessed_state_changes
-            .remove(&state_change.state_change_id);
+    //  START READER METHODS FOR ROCKSDB FORWARD INDEXES
+
+    /// This method fetches a key from a specific column family
+    pub fn get_from_cf<T, K>(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        column: StateMachineColumns,
+        key: K,
+    ) -> Result<Option<T>, anyhow::Error>
+    where
+        T: DeserializeOwned,
+        K: AsRef<[u8]>,
+    {
+        let result_bytes = match db.get_cf(column.cf(db), key)? {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        let result = JsonEncoder::decode::<T>(&result_bytes)
+            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
+
+        Ok(Some(result))
     }
 
-    fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
-        self.schemas_by_namespace
-            .entry(schema.namespace.clone())
-            .or_default()
-            .insert(schema.id.clone());
+    /// Read method to get the extraction policy id's applied to a piece of
+    /// content
+    pub async fn get_content_extraction_policy_mappings_for_content_id(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>, StateMachineError>
+    {
+        let mapping_bytes = match db
+            .get_cf(
+                StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
+                content_id.as_bytes(),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+        {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        JsonEncoder::decode::<indexify_internal_api::ContentExtractionPolicyMapping>(&mapping_bytes)
+            .map(Some)
+    }
+
+    /// This method is used to get the tasks assigned to an executor
+    /// It does this by looking up the TaskAssignments CF to get the task id's
+    /// and then using those id's to look up tasks via Tasks CF
+    pub async fn get_tasks_for_executor(
+        &self,
+        executor_id: &str,
+        limit: Option<u64>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
+        //  NOTE: Don't do deserialization within the transaction
+        let txn = db.transaction();
+        let task_ids_bytes = txn
+            .get_cf(StateMachineColumns::TaskAssignments.cf(db), executor_id)
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+        let task_ids: Vec<String> = task_ids_bytes
+            .map(|task_id_bytes| {
+                JsonEncoder::decode(&task_id_bytes)
+                    .map_err(StateMachineError::from)
+                    .unwrap_or_else(|e| {
+                        error!("Failed to deserialize task id: {}", e);
+                        Vec::new()
+                    })
+            })
+            .unwrap_or_else(Vec::new);
+
+        // FIXME Use MULTIGET
+        let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
+
+        let tasks: Result<Vec<indexify_internal_api::Task>, StateMachineError> = task_ids
+            .into_iter()
+            .take(limit)
+            .map(|task_id| {
+                let task_bytes = txn
+                    .get_cf(StateMachineColumns::Tasks.cf(db), task_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!("Task {} not found", task_id))
+                    })?;
+                JsonEncoder::decode(&task_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        tasks
+    }
+
+    /// This method will fetch indexes based on the id's of the indexes provided
+    pub async fn get_indexes_from_ids(
+        &self,
+        task_ids: HashSet<TaskId>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::Index>, StateMachineError> {
+        let txn = db.transaction();
+        let indexes: Result<Vec<indexify_internal_api::Index>, StateMachineError> = task_ids
+            .into_iter()
+            .map(|task_id| {
+                let index_bytes = txn
+                    .get_cf(StateMachineColumns::IndexTable.cf(db), task_id.as_bytes())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!("Index {} not found", task_id))
+                    })?;
+                JsonEncoder::decode(&index_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
+        indexes
+    }
+
+    /// This method will fetch the executors from RocksDB CF based on the
+    /// executor id's provided
+    pub async fn get_executors_from_ids(
+        &self,
+        executor_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ExecutorMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let executors: Result<Vec<indexify_internal_api::ExecutorMetadata>, StateMachineError> =
+            executor_ids
+                .into_iter()
+                .map(|executor_id| {
+                    let executor_bytes = txn
+                        .get_cf(
+                            StateMachineColumns::Executors.cf(db),
+                            executor_id.as_bytes(),
+                        )
+                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                        .ok_or_else(|| {
+                            StateMachineError::DatabaseError(format!(
+                                "Executor {} not found",
+                                executor_id
+                            ))
+                        })?;
+                    JsonEncoder::decode(&executor_bytes).map_err(StateMachineError::from)
+                })
+                .collect();
+        executors
+    }
+
+    /// This method will fetch content based on the id's provided
+    pub async fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
+            content_ids
+                .into_iter()
+                .map(|content_id| {
+                    let content_bytes = txn
+                        .get_cf(
+                            StateMachineColumns::ContentTable.cf(db),
+                            content_id.as_bytes(),
+                        )
+                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                        .ok_or_else(|| {
+                            StateMachineError::DatabaseError(format!(
+                                "Content {} not found",
+                                content_id
+                            ))
+                        })?;
+                    serde_json::from_slice(&content_bytes).map_err(StateMachineError::from)
+                })
+                .collect();
+        content
+    }
+
+    /// This method tries to retrieve all policies based on id's. If it cannot
+    /// find any, it skips them. If it encounters an error at any point
+    /// during the transaction, it returns out immediately
+    pub fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
+        let txn = db.transaction();
+
+        let mut policies = Vec::new();
+        for id in extraction_policy_ids.iter() {
+            let bytes_opt = txn
+                .get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    id.as_bytes(),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+            if let Some(bytes) = bytes_opt {
+                let policy =
+                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
+                        .map_err(StateMachineError::SerializationError)?;
+                policies.push(policy);
+            }
+            // If None, the policy is not found; we simply skip it.
+        }
+
+        if policies.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(policies))
+        }
+    }
+
+    /// This method gets all task assignments stored in the relevant CF
+    pub fn get_all_task_assignments(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<HashMap<TaskId, ExecutorId>, StateMachineError> {
+        let mut assignments = HashMap::new();
+        let iter = db.iterator_cf(
+            StateMachineColumns::TaskAssignments.cf(db),
+            rocksdb::IteratorMode::Start,
+        );
+        for item in iter {
+            let (key, value) = item.map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "unable to get values from task assignment {}",
+                    e
+                ))
+            })?;
+            let executor_id = String::from_utf8(key.to_vec()).map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "unable to get executor id from task assignment {}",
+                    e
+                ))
+            })?;
+            let task_ids: HashSet<TaskId> = JsonEncoder::decode(&value).map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "unable to decoded task hashset from task assignment {}",
+                    e
+                ))
+            })?;
+            for task_id in task_ids {
+                assignments.insert(task_id, executor_id.clone());
+            }
+        }
+        Ok(assignments)
+    }
+
+    /// This method will get the namespace based on the key provided
+    pub fn get_namespace(
+        &self,
+        namespace: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<indexify_internal_api::Namespace>> {
+        let ns_name = match self.get_from_cf(db, StateMachineColumns::Namespaces, namespace)? {
+            Some(name) => name,
+            None => return Ok(None),
+        };
+
+        let extraction_policy_ids = self.extraction_policies_table.get(&namespace.to_string());
+        let extraction_policies = self
+            .get_extraction_policies_from_ids(extraction_policy_ids, db)?
+            .unwrap_or_else(Vec::new);
+
+        Ok(Some(indexify_internal_api::Namespace {
+            name: ns_name,
+            extraction_policies,
+        }))
+    }
+
+    pub fn get_schemas(
+        &self,
+        ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<internal_api::StructuredDataSchema>> {
+        let txn = db.transaction();
+        let keys = ids
+            .iter()
+            .map(|id| (StateMachineColumns::StructuredDataSchemas.cf(db), id))
+            .collect_vec();
+        let schema_bytes = txn.multi_get_cf(keys);
+        let mut schemas = vec![];
+        for schema in schema_bytes {
+            let schema = schema
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
+                .ok_or(StateMachineError::DatabaseError("Schema not found".into()))?;
+            let schema = JsonEncoder::decode(&schema)?;
+            schemas.push(schema);
+        }
+        Ok(schemas)
+    }
+
+    /// Test utility method to get all key-value pairs from a column family
+    pub fn get_all_rows_from_cf<V>(
+        &self,
+        column: StateMachineColumns,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<(String, V)>, anyhow::Error>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = db.cf_handle(column.as_ref()).ok_or(anyhow::anyhow!(
+            "Failed to get column family {}",
+            column.to_string()
+        ))?;
+        let iter = db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+
+        iter.map(|item| {
+            item.map_err(|e| anyhow::anyhow!(e))
+                .and_then(|(key, value)| {
+                    let key = String::from_utf8(key.to_vec())
+                        .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
+                    let value = JsonEncoder::decode(&value)
+                        .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
+                    Ok((key, value))
+                })
+        })
+        .collect::<Result<Vec<(String, V)>, _>>()
+    }
+
+    //  END READER METHODS FOR ROCKSDB FORWARD INDEXES
+
+    //  START READER METHODS FOR REVERSE INDEXES
+    pub fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
+        self.unassigned_tasks.inner()
+    }
+
+    pub fn get_unprocessed_state_changes(&self) -> HashSet<StateChangeId> {
+        self.unprocessed_state_changes.inner()
+    }
+
+    pub fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+        self.content_namespace_table.inner()
+    }
+
+    pub fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.extraction_policies_table.inner()
+    }
+
+    pub fn get_extractor_executors_table(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
+        self.extractor_executors_table.inner()
+    }
+
+    pub fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.namespace_index_table.inner()
+    }
+
+    pub fn get_unfinished_tasks_by_extractor(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
+        self.unfinished_tasks_by_extractor.inner()
+    }
+
+    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+        self.executor_running_task_count.inner()
+    }
+
+    pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+        self.schemas_by_namespace.inner()
+    }
+
+    //  END READER METHODS FOR REVERSE INDEXES
+
+    //  START WRITER METHODS FOR REVERSE INDEXES
+    pub fn insert_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
+        self.executor_running_task_count
+            .insert(&executor_id.to_string(), tasks as usize);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_increment_running_task_count() {
+        let executor_running_task_count = ExecutorRunningTaskCount::new();
+        let executor_id = "executor_id".to_string();
+        executor_running_task_count.insert(&executor_id, 0);
+        executor_running_task_count.increment_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 1);
+        executor_running_task_count.increment_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_decrement_running_task_count() {
+        let executor_running_task_count = ExecutorRunningTaskCount::new();
+        let executor_id = "executor_id".to_string();
+        executor_running_task_count.insert(&executor_id, 2);
+        executor_running_task_count.decrement_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 1);
+        executor_running_task_count.decrement_running_task_count(&executor_id);
+        assert_eq!(executor_running_task_count.get(&executor_id).unwrap(), 0);
     }
 }

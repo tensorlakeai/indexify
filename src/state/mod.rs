@@ -319,7 +319,7 @@ impl App {
     pub async fn unprocessed_state_change_events(&self) -> Result<Vec<StateChange>> {
         let store = self.indexify_state.read().await;
         let mut state_changes = vec![];
-        for event_id in store.unprocessed_state_changes.iter() {
+        for event_id in store.get_unprocessed_state_changes().iter() {
             let event = self
                 .state_machine
                 .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)
@@ -358,7 +358,7 @@ impl App {
         let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
-                .extraction_policies_table
+                .get_extraction_policies_table()
                 .get(&content_metadata.namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -425,7 +425,7 @@ impl App {
         let content_list = {
             let store = self.indexify_state.read().await;
             let content_list = store
-                .content_namespace_table
+                .get_content_namespace_table()
                 .get(&extraction_policy.namespace)
                 .cloned()
                 .unwrap_or_default();
@@ -474,7 +474,7 @@ impl App {
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let store = self.indexify_state.read().await;
         let mut tasks = vec![];
-        for task_id in store.unassigned_tasks.iter() {
+        for task_id in store.get_unassigned_tasks().iter() {
             let task = self
                 .state_machine
                 .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
@@ -491,7 +491,7 @@ impl App {
     }
 
     pub async fn task_assignments(&self) -> Result<HashMap<ExecutorId, TaskId>> {
-        self.state_machine.all_task_assignments()
+        self.state_machine.get_all_task_assignments().await
     }
 
     pub async fn get_executors_for_extractor(
@@ -500,7 +500,7 @@ impl App {
     ) -> Result<Vec<internal_api::ExecutorMetadata>> {
         let store = self.indexify_state.read().await;
         let executor_ids = store
-            .extractor_executors_table
+            .get_extractor_executors_table()
             .get(extractor)
             .cloned()
             .unwrap_or(HashSet::new());
@@ -513,7 +513,7 @@ impl App {
         self.indexify_state
             .read()
             .await
-            .executor_running_task_count
+            .get_executor_running_task_count()
             .clone()
     }
 
@@ -523,7 +523,7 @@ impl App {
     ) -> Result<HashSet<TaskId>, anyhow::Error> {
         let sm = self.indexify_state.read().await;
         let task_ids = sm
-            .unfinished_tasks_by_extractor
+            .get_unfinished_tasks_by_extractor()
             .get(extractor)
             .cloned()
             .unwrap_or_default();
@@ -536,7 +536,7 @@ impl App {
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let store = self.indexify_state.read().await;
         let content_ids = store
-            .content_namespace_table
+            .get_content_namespace_table()
             .get(namespace)
             .cloned()
             .unwrap_or_default();
@@ -569,8 +569,7 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        //  TODO: Check if the extraction policy has already been created and don't
-        // create it again  TODO: Add delete_extraction_policy. This will only
+        // TODO: Add delete_extraction_policy. This will only
         // remove the actual object from the forward and reverse indexes. Leave
         // artifacts in place
 
@@ -704,7 +703,7 @@ impl App {
         let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
-                .extraction_policies_table
+                .get_extraction_policies_table()
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -736,7 +735,8 @@ impl App {
         //  Fetch the namespaces from the db
         let namespaces: Vec<String> = self
             .state_machine
-            .get_all_rows_from_cf::<String>(StateMachineColumns::Namespaces)?
+            .get_all_rows_from_cf::<String>(StateMachineColumns::Namespaces)
+            .await?
             .into_iter()
             .map(|(key, _)| key)
             .collect();
@@ -747,7 +747,7 @@ impl App {
             let extraction_policy_ids = {
                 let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
                 store
-                    .extraction_policies_table
+                    .get_extraction_policies_table()
                     .get(&namespace_name)
                     .cloned()
                     .unwrap_or_default()
@@ -802,7 +802,8 @@ impl App {
             .state_machine
             .get_all_rows_from_cf::<internal_api::ExtractorDescription>(
                 StateMachineColumns::Extractors,
-            )?
+            )
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -812,7 +813,8 @@ impl App {
     pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
         let executors: Vec<internal_api::ExecutorMetadata> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::ExecutorMetadata>(StateMachineColumns::Executors)?
+            .get_all_rows_from_cf::<internal_api::ExecutorMetadata>(StateMachineColumns::Executors)
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -916,14 +918,15 @@ impl App {
         Ok(())
     }
 
-    pub fn list_tasks(
+    pub async fn list_tasks(
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
         let tasks: Vec<internal_api::Task> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)?
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -966,7 +969,7 @@ impl App {
         let index_ids = {
             let store = self.indexify_state.read().await;
             store
-                .namespace_index_table
+                .get_namespace_index_table()
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -1003,10 +1006,11 @@ impl App {
         Ok(())
     }
 
-    pub fn list_state_changes(&self) -> Result<Vec<StateChange>> {
+    pub async fn list_state_changes(&self) -> Result<Vec<StateChange>> {
         let state_changes = self
             .state_machine
-            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges)?
+            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges)
+            .await?
             .into_iter()
             .map(|(_, value)| value)
             .collect();
@@ -1033,11 +1037,11 @@ impl App {
     ) -> Result<Vec<StructuredDataSchema>> {
         let store = self.indexify_state.read().await;
         let schemas_for_ns = store
-            .schemas_by_namespace
+            .get_schemas_by_namespace()
             .get(namespace)
             .cloned()
             .unwrap_or(HashSet::new());
-        let schemas = self.state_machine.get_schemas(schemas_for_ns)?;
+        let schemas = self.state_machine.get_schemas(schemas_for_ns).await?;
         Ok(schemas)
     }
 
@@ -1340,7 +1344,9 @@ mod tests {
         node.create_extraction_policy(extraction_policy.clone(), None)
             .await?;
 
-        let _tasks = node.list_tasks(namespace, Some(extraction_policy.id))?;
+        let _tasks = node
+            .list_tasks(namespace, Some(extraction_policy.id))
+            .await?;
 
         Ok(())
     }
