@@ -11,11 +11,12 @@ import ContentTable from "../../components/ContentTable";
 import React from "react";
 import ExtractionGraphs from "../../components/ExtractionGraphs";
 import ExtractorsTable from "../../components/ExtractorsTable";
+import { getIndexifyServiceURL } from "../../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const { namespace } = params;
   const client = await IndexifyClient.createClient({
-    serviceUrl: window.location.origin,
+    serviceUrl: getIndexifyServiceURL(),
     namespace,
   });
   const [extractors, indexes, contentList, schemas] = await Promise.all([

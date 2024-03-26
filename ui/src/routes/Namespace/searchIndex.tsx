@@ -12,13 +12,14 @@ import { IIndex, IndexifyClient, ISearchIndexResponse } from "getindexify";
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import SearchResultCard from "../../components/SearchResultCard";
+import { getIndexifyServiceURL } from "../../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
   const indexName = params.indexName;
 
   const client = await IndexifyClient.createClient({
-    serviceUrl: window.location.origin,
+    serviceUrl: getIndexifyServiceURL(),
     namespace,
   });
   const indexes = (await client.indexes()).filter(

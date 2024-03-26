@@ -4,6 +4,7 @@ import { IndexifyClient, ITask } from "getindexify";
 import React from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
+import { getIndexifyServiceURL } from "../../utils/helpers";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
@@ -11,7 +12,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (!namespace || !policyname) return redirect("/");
 
   const client = await IndexifyClient.createClient({
-    serviceUrl: window.location.origin,
+    serviceUrl: getIndexifyServiceURL(),
     namespace
   });
   const tasks = (await client.getTasks(policyname)).filter(

@@ -51,13 +51,13 @@ impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
 
     fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
         let mut extraction_policies = Vec::new();
-        for policies in value.policies {
+        for policy in value.policies {
             extraction_policies.push(ExtractionPolicy {
-                extractor: policies.extractor,
-                name: policies.name,
-                filters_eq: Some(policies.filters),
-                input_params: Some(serde_json::from_str(&policies.input_params)?),
-                content_source: Some(policies.content_source),
+                extractor: policy.extractor,
+                name: policy.name,
+                filters_eq: Some(policy.filters),
+                input_params: Some(serde_json::from_str(&policy.input_params)?),
+                content_source: Some(policy.content_source),
             });
         }
         Ok(Self {

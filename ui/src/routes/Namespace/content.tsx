@@ -6,14 +6,19 @@ import {
   IndexifyClient,
   ITask,
 } from "getindexify";
-import React, { useEffect, useState } from "react";
+import React, { ReactElement, useEffect, useState } from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
 import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
 import { isAxiosError } from "axios";
 import Errors from "../../components/Errors";
 import PdfDisplay from "../../components/PdfViewer";
-import { groupMetadataByExtractor } from "../../utils/helpers";
+import {
+  getIndexifyServiceURL,
+  groupMetadataByExtractor,
+  formatBytes,
+} from "../../utils/helpers";
+import moment from "moment";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const errors: string[] = [];
@@ -21,7 +26,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const contentId = params.contentId;
   if (!namespace || !contentId) return redirect("/");
   const client = await IndexifyClient.createClient({
-    serviceUrl: window.location.origin,
+    serviceUrl: getIndexifyServiceURL(),
     namespace,
   });
   // get content from contentId
@@ -75,6 +80,15 @@ const ContentPage = () => {
     groupedExtractedMetadata: Record<string, IExtractedMetadata[]>;
     client: IndexifyClient;
     errors: string[];
+  };
+
+  const renderMetadataEntry = (label: string, value: ReactElement | string) => {
+    return (
+      <Box display="flex">
+        <Typography variant="label">{label}:</Typography>
+        <Typography sx={{ml:1}} variant="body1">{value}</Typography>
+      </Box>
+    );
   };
 
   const [textContent, setTextContent] = useState("");
@@ -151,10 +165,29 @@ const ContentPage = () => {
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
       <Errors errors={errors} />
-      <Typography variant="h2">Content - {contentId}</Typography>
-      <Typography variant="body1">
-        MimeType: {contentMetadata.mime_type}
-      </Typography>
+      <Typography variant="h2">{contentId}</Typography>
+      <Stack direction={"column"} gap={1}>
+        {renderMetadataEntry("Filename", contentMetadata.name)}
+        {contentMetadata.parent_id
+          ? renderMetadataEntry(
+              "ParentID",
+              <Link
+                to={`/${namespace}/content/${contentMetadata.parent_id}`}
+                target="_blank"
+              >
+                {contentMetadata.parent_id}
+              </Link>
+            )
+          : null}
+        {renderMetadataEntry(
+          "Created At",
+          moment(contentMetadata.created_at * 1000).format()
+        )}
+        {renderMetadataEntry("MimeType", contentMetadata.mime_type)}
+        {renderMetadataEntry("Source", contentMetadata.source)}
+        {renderMetadataEntry("Storage Url", contentMetadata.storage_url)}
+        {renderMetadataEntry("Size", formatBytes(contentMetadata.size))}
+      </Stack>
       {/* display content */}
       {renderContent()}
       {/* tasks */}
