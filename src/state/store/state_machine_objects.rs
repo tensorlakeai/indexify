@@ -247,6 +247,49 @@ impl NamespaceIndexTable {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct UnfinishedTasksByExtractor {
+    unfinished_tasks_by_extractor: Arc<RwLock<HashMap<ExtractorName, HashSet<TaskId>>>>,
+}
+
+impl UnfinishedTasksByExtractor {
+    pub fn insert(&self, extractor: &ExtractorName, task_id: &TaskId) {
+        let mut guard = match self.unfinished_tasks_by_extractor.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unfinished tasks by extractor was found to be poisoned while inserting, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard
+            .entry(extractor.clone())
+            .or_default()
+            .insert(task_id.clone());
+    }
+
+    pub fn remove(&self, extractor: &ExtractorName, task_id: &TaskId) {
+        let mut guard = match self.unfinished_tasks_by_extractor.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unfinished tasks by extractor was found to be poisoned while removing, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.entry(extractor.clone()).or_default().remove(task_id);
+    }
+
+    pub fn inner(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
+        let guard = match self.unfinished_tasks_by_extractor.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                info!("The lock for unfinished tasks by extractor was found to be poisoned while copying, continuing anyway");
+                poisoned.into_inner()
+            }
+        };
+        guard.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     //  TODO: Check whether only id's can be stored in reverse indexes
@@ -271,7 +314,8 @@ pub struct IndexifyState {
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
-    unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
+    /// Extractor name -> Task Ids
+    unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Number of tasks currently running on each executor
     executor_running_task_count: HashMap<ExecutorId, usize>,
@@ -866,14 +910,8 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
                 //  Remove the the extractor from the executor -> extractor mapping table
-                let executors = self
-                    .extractor_executors_table
+                self.extractor_executors_table
                     .remove(&executor_meta.extractor.name, &executor_meta.id);
-                // let executors = self
-                //     .extractor_executors_table
-                //     .entry(executor_meta.extractor.name.clone())
-                //     .or_default();
-                // executors.remove(&executor_meta.id);
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
@@ -978,9 +1016,11 @@ impl IndexifyState {
                 for task in tasks {
                     self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
-                        .entry(task.extractor.clone())
-                        .or_default()
-                        .insert(task.id.clone());
+                        .insert(&task.extractor, &task.id);
+                    // self.unfinished_tasks_by_extractor
+                    //     .entry(task.extractor.clone())
+                    //     .or_default()
+                    //     .insert(task.id.clone());
                 }
             }
             RequestPayload::AssignTask { assignments } => {
@@ -1033,9 +1073,11 @@ impl IndexifyState {
                 if mark_finished {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
-                        .entry(task.extractor.clone())
-                        .or_default()
-                        .remove(&task.id);
+                        .remove(&task.extractor, &task.id);
+                    // self.unfinished_tasks_by_extractor
+                    //     .entry(task.extractor.clone())
+                    //     .or_default()
+                    //     .remove(&task.id);
                     if let Some(executor_id) = executor_id {
                         decrement_running_task_count(
                             &mut self.executor_running_task_count,
@@ -1394,8 +1436,8 @@ impl IndexifyState {
         self.namespace_index_table.inner()
     }
 
-    pub fn get_unfinished_tasks_by_extractor(&self) -> &HashMap<ExtractorName, HashSet<TaskId>> {
-        &self.unfinished_tasks_by_extractor
+    pub fn get_unfinished_tasks_by_extractor(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
+        self.unfinished_tasks_by_extractor.inner()
     }
 
     pub fn get_executor_running_task_count(&self) -> &HashMap<ExecutorId, usize> {
