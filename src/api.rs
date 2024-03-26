@@ -433,7 +433,7 @@ impl From<internal_api::Content> for Content {
     fn from(content: internal_api::Content) -> Self {
         let features = content.features.into_iter().map(|f| f.into()).collect();
         Self {
-            content_type: content.mime,
+            content_type: content.content_type,
             bytes: content.bytes,
             features,
             labels: content.labels,

@@ -16,8 +16,16 @@ use tracing::{error, info, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -159,14 +167,14 @@ impl ExtractionPoliciesTable {
             .unwrap_or_default()
     }
 
-    pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &String) {
+    pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
         self.extraction_policies_table
             .entry(namespace.clone())
             .or_default()
-            .insert(extraction_policy_id.clone());
+            .insert(extraction_policy_id.to_owned());
     }
 
-    pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &String) {
+    pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
         self.extraction_policies_table
             .entry(namespace.clone())
             .or_default()
@@ -209,7 +217,7 @@ pub struct NamespaceIndexTable {
 }
 
 impl NamespaceIndexTable {
-    pub fn insert(&self, namespace: &NamespaceName, index_id: &String) {
+    pub fn insert(&self, namespace: &NamespaceName, index_id: &str) {
         let mut guard = match self.namespace_index_table.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -220,7 +228,7 @@ impl NamespaceIndexTable {
         guard
             .entry(namespace.clone())
             .or_default()
-            .insert(index_id.clone());
+            .insert(index_id.to_owned());
     }
 
     pub fn remove(&self, namespace: &NamespaceName, index_id: &String) {
@@ -360,7 +368,8 @@ impl ExecutorRunningTaskCount {
                 warn!("Tried to decrement load below 0. This is a bug because the state machine shouldn't allow it.");
             }
         } else {
-            // Add the executor to the load map if it's not there, with an initial load of 0.
+            // Add the executor to the load map if it's not there, with an initial load of
+            // 0.
             executor_load.insert(executor_id.clone(), 0);
         }
     }
@@ -1105,9 +1114,9 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// This method handles all reverse index writes. All reverse indexes are written in memory
-    /// This will only run after the RocksDB transaction to commit the forward
-    /// index writes is done
+    /// This method handles all reverse index writes. All reverse indexes are
+    /// written in memory This will only run after the RocksDB transaction
+    /// to commit the forward index writes is done
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
@@ -1232,7 +1241,7 @@ impl IndexifyState {
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        let result_bytes = match db.get_cf(column.cf(&db), key)? {
+        let result_bytes = match db.get_cf(column.cf(db), key)? {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
@@ -1242,7 +1251,8 @@ impl IndexifyState {
         Ok(Some(result))
     }
 
-    /// Read method to get the extraction policy id's applied to a piece of content
+    /// Read method to get the extraction policy id's applied to a piece of
+    /// content
     pub async fn get_content_extraction_policy_mappings_for_content_id(
         &self,
         content_id: &str,
@@ -1264,7 +1274,8 @@ impl IndexifyState {
     }
 
     /// This method is used to get the tasks assigned to an executor
-    /// It does this by looking up the TaskAssignments CF to get the task id's and then using those id's to look up tasks via Tasks CF
+    /// It does this by looking up the TaskAssignments CF to get the task id's
+    /// and then using those id's to look up tasks via Tasks CF
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,
@@ -1329,7 +1340,8 @@ impl IndexifyState {
         indexes
     }
 
-    /// This method will fetch the executors from RocksDB CF based on the executor id's provided
+    /// This method will fetch the executors from RocksDB CF based on the
+    /// executor id's provided
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
@@ -1529,6 +1541,7 @@ impl IndexifyState {
         })
         .collect::<Result<Vec<(String, V)>, _>>()
     }
+
     //  END READER METHODS FOR ROCKSDB FORWARD INDEXES
 
     //  START READER METHODS FOR REVERSE INDEXES
@@ -1567,6 +1580,7 @@ impl IndexifyState {
     pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
         self.schemas_by_namespace.inner()
     }
+
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES

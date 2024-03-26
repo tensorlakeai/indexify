@@ -83,7 +83,7 @@ impl ExtractorRouter {
         // not found in cache - proceed to extract
         let request = internal_api::ExtractRequest {
             content: internal_api::Content {
-                mime: content.content_type,
+                content_type: content.content_type,
                 bytes: content.bytes,
                 features: vec![],
                 labels: HashMap::new(),
