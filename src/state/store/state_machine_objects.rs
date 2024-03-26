@@ -864,6 +864,7 @@ impl IndexifyState {
             _ => (),
         };
 
+        //  TODO: Move the commit after the reverse index writes
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
