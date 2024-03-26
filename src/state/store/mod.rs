@@ -49,7 +49,6 @@ pub type SchemaId = String;
 pub mod requests;
 pub mod serializer;
 pub mod state_machine_objects;
-mod store_utils;
 
 #[derive(Error, Debug)]
 pub enum StateMachineError {
