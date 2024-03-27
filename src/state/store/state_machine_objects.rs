@@ -16,8 +16,16 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -1518,6 +1526,7 @@ impl IndexifyState {
     pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
         self.schemas_by_namespace.inner()
     }
+
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
@@ -1525,6 +1534,7 @@ impl IndexifyState {
         self.executor_running_task_count
             .insert(&executor_id.to_string(), tasks as usize);
     }
+
     //  END WRITER METHODS FOR REVERSE INDEXES
 
     //  START SNAPSHOT METHODS
