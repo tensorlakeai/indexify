@@ -25,3 +25,4 @@ local_server_config_*.yaml
 indexify-extractor/**/*
 rag/**/*
 *.mp4
+*.mp3

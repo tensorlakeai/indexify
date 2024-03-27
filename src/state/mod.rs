@@ -346,7 +346,8 @@ impl App {
     }
 
     /// This method uses the content id to fetch the associated extraction
-    /// policies based on certain filters It's the mirror equivalent to
+    /// policies based on certain filters and checks which policies can be
+    /// applied to the content It's the mirror equivalent to
     /// content_matching_policy
     pub async fn filter_extraction_policy_for_content(
         &self,
@@ -369,7 +370,16 @@ impl App {
 
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
-            if extraction_policy.content_source != content_metadata.source {
+            //  Check whether the sources match. Make an additional check in case the
+            // content has  a source which is an extraction policy id instead of
+            // a name
+            if extraction_policy.content_source != content_metadata.source &&
+                self.get_extraction_policy(&content_metadata.source)
+                    .await
+                    .map_or(true, |retrieved_extraction_policy| {
+                        extraction_policy.content_source != retrieved_extraction_policy.name
+                    })
+            {
                 continue;
             }
             for (name, value) in &extraction_policy.filters {
@@ -450,10 +460,18 @@ impl App {
             }
             content_meta_list
         };
-
         let mut matched_content_list = Vec::new();
         for content in content_list {
-            if content.source != extraction_policy.content_source {
+            //  Check whether the sources match. Make an additional check in case the
+            // content has a source which is an extraction policy id instead of a name
+            if content.source != extraction_policy.content_source &&
+                self.get_extraction_policy(&content.source).await.map_or(
+                    true,
+                    |retrieved_extraction_policy| {
+                        extraction_policy.content_source != retrieved_extraction_policy.name
+                    },
+                )
+            {
                 continue;
             }
             let is_match = &extraction_policy.filters.iter().all(|(name, value)| {
