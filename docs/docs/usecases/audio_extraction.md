@@ -16,7 +16,7 @@ indexify server -d
 On another terminal start the embedding extractor which we will use to index text from the wikiepdia page.
 ```bash
 indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor join minilm_l6:MiniLML6Extractor
+indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
 ```
 
 ### Download a Speech To Text Extractor
@@ -33,10 +33,18 @@ Install ffmpeg on your machine
 On another terminal start a Whisper based Speech To Text Extractor
 ```bash
 indexify-extractor download hub://audio/whisper-asr
-indexify-extractor join whisper:WhisperExtractor
+indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor 
 ```
 
+
+
 ### Create Extraction Policies
+Instantiate the Indexify Client 
+```python
+from indexify import IndexifyClient
+client = IndexifyClient()
+```
+
 First, create a policy to transcribe audio to text.
 ```python
 client.add_extraction_policy(extractor='tensorlake/whisper-asr', name="audio-transcription")
@@ -49,9 +57,11 @@ client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcripti
 
 ### Upload an Audio File
 ```python
-import urllib.request
+import requests
+req = requests.get("https://extractor-files.diptanu-6d5.workers.dev/ALLIN-E167.mp3")
 
-urllib.request.urlretrieve(filename="ALLIN-E167.mp3", url="https://content.libsyn.com/p/5/d/f/5df17f8350f43745/ALLIN-E167.mp3?c_id=168165938&cs_id=168165938&destination_id=1928300&response-content-type=audio%2Fmpeg&Expires=1708741176&Signature=P6FSLybeGf4~lPTP5n1w0rVSYsSW7hraj0AqMd6DcMHAwNKGc2h7Zpka2rD0mXDB4VovIPPS1WgpUl30~cMv9eICU6NZGeypWAh9I~vRSB7siFoZwfl~~RbXME-ovRGXu2kSsQdSlx4pynuECYsnu03YvNdBTGEvxROfGXOWd6jrTYL5tVrPDrJYDpDnP~LwrrLfzBT7~CD~s1vvKnPBzrAKFA-KiZ~40GvuLAFOHl77JPk5u5tPk1mO~jTwEKiOmjBwPWkpf359gGys4ozaOBKoeYZeWEOlJDfHT8OHXvLZUjAdqzx95WellT8hWRs85irqZ4uTaWYwbkhT2QHN3A__&Key-Pair-Id=K1YS7LZGUP96OI")
+with open('ALLIN-E167.mp3','wb') as f:
+    f.write(req.content)
 ```
 
 ```python
@@ -68,7 +78,7 @@ You can upload 100s of audio files parallely into Indexify and it will handle tr
 Initialize the Langchain Retreiver.
 ```python
 from indexify_langchain import IndexifyRetriever
-params = {"name": "minilml6.embedding", "top_k": 3}
+params = {"name": "transcription-embedding.embedding", "top_k": 3}
 retriever = IndexifyRetriever(client=client, params=params)
 ```
 

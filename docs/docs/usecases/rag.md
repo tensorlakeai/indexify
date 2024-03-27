@@ -2,9 +2,9 @@
 
 Here we show an example of building a basic RAG application with Indexify. We are going to upload content about Kevin Durant from Wikipedia and ask questions about KD's career.
 
-### Install the Indexify Extractor SDK and the Indexify Client
+### Install the Indexify Extractor SDK, Indexify Langchain and the Indexify Client
 ```bash
-pip install indexify-extractor-sdk indexify
+pip install indexify-extractor-sdk indexify indexify-langchain
 ```
 
 ### Start the Indexify Server
@@ -16,13 +16,14 @@ indexify server -d
 On another terminal start the embedding extractor which we will use to index text from the wikiepdia page.
 ```bash
 indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor join minilm_l6:MiniLML6Extractor
+indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
 ```
 
 ### Upload Content
 We will use the lanchain wikipedia loader to download content from wikipedia and upload to Indexify. We will also use langchain to prompt OpenAI for the RAG application.
+
 ```python
-pip install --upgrade --quiet  wikipedia langchain_openai
+pip install --upgrade --quiet  wikipedia langchain_openai langchain-community
 ```
 
 Now download some pages from Wikipedia and upload them to Indexify
@@ -38,7 +39,6 @@ client = IndexifyClient()
 ```
 
 ```python
-client = IndexifyClient()
 for doc in docs:
     client.add_documents(doc.page_content)
 ```
