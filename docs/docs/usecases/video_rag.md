@@ -20,10 +20,10 @@ The Q&A will be powered by Langchain and OpenAI. We will create a Indexify Retre
 
 ### Download Indexify and the necessary extractors
 ```bash
-curl https://tensorlake.ai/download | sh
+curl https://tensorlake.ai | sh
 
 pip install indexify-extractor-sdk
-indexify-extractor download hub://whisper-asr
+indexify-extractor download hub://audio/whisper-asr
 indexify-extractor download hub://video/audio-extractor
 indexify-extractor download hub://embedding/minilm-l6
 ```
@@ -35,19 +35,18 @@ indexify server -d
 ```
 Start the audio extractor
 ```bash
-cd indexify-extractor/audio-extractor/
-indexify-extractor join audio_extractor:AudioExtractor
+indexify-extractor join audio-extractor.audio_extractor:AudioExtractor
 ```
 Start the minilm embedding extractor
 ```bash
 cd indexify-extractor/minilm-l6/
-indexify-extractor join minilm_l6:MiniLML6Extractor
+indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
 ```
 
 Start the whisper extractor
 ```bash
 cd indexify-extractor
-indexify-extractor join whisper_extractor:WhisperExtractor
+indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor
 ```
 
 ### Download the Video
