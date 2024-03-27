@@ -6,7 +6,7 @@ Indexify is a reactive structured extraction and embedding engine for un-structu
 Building a product with LLMs often involves -
 
 1. Ingesting new data, extracting structured infromation, or embedding and writing them to storage.
-2. Retreiving them from applications so that they don't respond to user queries on stale data.
+2. Retreiving extracted structured data and embedding so that products don't respond to user queries with stale data.
 
 The challenges of building such applications are -  
 
@@ -19,7 +19,7 @@ Indexify solves the complexity of building a durable and fast orchestation and i
 
 * Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
 * **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
-* Create **Extraction Graph** to describe **data transformation** and extraction of **embedding** and **structured extraction**.
+* Create **Extraction Graph** to create multi-step workflows for **data transformation**, **embedding** and **structured extraction**.
 * **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
 * **Extractor SDK** allows adding new extraction capabilities, and many readily avaialble extractors for **PDF**, **Image** and **Video** indexing and extraction.
 * **Multi-Tenant** from the ground up, **Namespaces** to isolate sensistive data.
