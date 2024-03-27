@@ -28,6 +28,7 @@ const ExtractionGraphs = ({
   const renderSchema = (schema: ISchema, depth: number) => {
     return (
       <Box
+        key={`schema-${schema.content_source}`}
         sx={{
           width: "auto",
           overflowX: "auto",

@@ -20,7 +20,7 @@ function createWidthMapFromObjects(
     Object.entries(row).forEach(([key, value]) => {
       // get suggested width
       const currentWidth =
-        JSON.stringify(value).length * averageCharWidth + padding;
+        Math.max(JSON.stringify(value).length, key.length) * averageCharWidth + padding;
       // update width map to max
       if (!widthMap[key] || currentWidth > widthMap[key]) {
         widthMap[key] = currentWidth;
