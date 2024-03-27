@@ -125,50 +125,48 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<ExtractionPolicyRequest>,
     ) -> Result<tonic::Response<ExtractionPolicyResponse>, tonic::Status> {
         let request = request.into_inner();
-        let extraction_policy = request.policy.clone().unwrap();
         let mut s = DefaultHasher::new();
         request.namespace.hash(&mut s);
-        request.policy.unwrap().name.hash(&mut s);
+        request.name.hash(&mut s);
         let id = s.finish().to_string();
-        let input_params = serde_json::from_str(&extraction_policy.input_params)
+        let input_params = serde_json::from_str(&request.input_params)
             .map_err(|e| tonic::Status::aborted(format!("unable to parse input_params: {}", e)))?;
 
         let extractor = self
             .coordinator
-            .get_extractor(&extraction_policy.extractor)
+            .get_extractor(&request.extractor)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let mut index_name_table_mapping = HashMap::new();
         let mut output_index_name_mapping = HashMap::new();
         for output_name in extractor.outputs.keys() {
-            let index_name = format!("{}.{}", extraction_policy.name, output_name);
-            let index_table_name = format!(
-                "{}.{}.{}",
-                request.namespace, extraction_policy.name, output_name
-            );
+            let index_name = format!("{}.{}", request.name, output_name);
+            let index_table_name =
+                format!("{}.{}.{}", request.namespace, request.name, output_name);
             index_name_table_mapping.insert(index_name.clone(), index_table_name.clone());
             output_index_name_mapping.insert(output_name.clone(), index_name.clone());
         }
 
         let extraction_policy = internal_api::ExtractionPolicy {
             id,
-            extractor: extraction_policy.extractor,
-            name: extraction_policy.name,
+            extractor: request.extractor,
+            name: request.name,
             namespace: request.namespace,
-            filters: extraction_policy.filters,
+            filters: request.filters,
             input_params,
             output_index_name_mapping: output_index_name_mapping.clone(),
             index_name_table_mapping: index_name_table_mapping.clone(),
-            content_source: extraction_policy.content_source,
+            content_source: request.content_source,
         };
         let _ = self
             .coordinator
-            .create_policy(extraction_policy, extractor.clone())
+            .create_policy(extraction_policy.clone(), extractor.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ExtractionPolicyResponse {
             created_at: timestamp_secs() as i64,
             extractor: Some(extractor.into()),
+            extraction_policy: Some(extraction_policy.into()),
             index_name_table_mapping,
             output_index_name_mapping,
         }))

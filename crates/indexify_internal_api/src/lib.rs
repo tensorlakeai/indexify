@@ -376,6 +376,7 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
         }
 
         Self {
+            id: value.id,
             extractor: value.extractor,
             name: value.name,
             filters,
