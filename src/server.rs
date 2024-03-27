@@ -833,13 +833,10 @@ async fn list_tasks(
 #[axum::debug_handler]
 async fn extract_content(
     State(namespace_endpoint): State<NamespaceEndpointState>,
-    Extension(caches): Extension<Caches>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let cache = caches.cache_extract_content.clone();
     let extractor_router = ExtractorRouter::new(namespace_endpoint.coordinator_client.clone())
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
-        .with_cache(cache);
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let content_list = extractor_router
         .extract_content(&request.name, request.content, request.input_params)
         .await
@@ -848,7 +845,13 @@ async fn extract_content(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &format!("failed to extract content: {}", e),
             )
-        })?;
+        })?
+        .content;
+    let content_list = content_list
+        .into_iter()
+        .map(|c| c.try_into())
+        .filter_map(|c| c.ok())
+        .collect();
     Ok(Json(ExtractResponse {
         content: content_list,
     }))

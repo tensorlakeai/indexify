@@ -89,17 +89,14 @@ impl VectorIndexManager {
             labels: HashMap::new(),
         };
         info!("Extracting searching from index {:?}", index);
-        let content = self
+        let feature = self
             .extractor_router
             .extract_content(&index.extractor, content, None)
             .await
             .map_err(|e| anyhow!("unable to extract embedding: {}", e.to_string()))?
-            .pop()
-            .ok_or(anyhow!("No content was extracted"))?;
-        let feature = content
             .features
-            .first()
-            .ok_or(anyhow!("No features were extracted"))?;
+            .pop()
+            .ok_or(anyhow!("No embeddings were extracted"))?;
         let embedding: internal_api::Embedding =
             serde_json::from_value(feature.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
         let search_result = self
