@@ -14,15 +14,26 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tracing::debug;
 
 type Node = BasicNode;
@@ -107,7 +118,7 @@ pub struct StateMachineData {
     pub last_membership: StoredMembership<NodeId, Node>,
 
     /// State built from applying the raft log
-    pub indexify_state: Arc<RwLock<IndexifyState>>,
+    pub indexify_state: IndexifyState,
 
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
 }
@@ -141,7 +152,7 @@ impl StateMachineStore {
                 last_applied_log_id: None,
                 last_membership: Default::default(),
                 state_change_tx: Arc::new(tx),
-                indexify_state: Arc::new(RwLock::new(IndexifyState::default())),
+                indexify_state: IndexifyState::default(),
             },
             snapshot_idx: 0,
             db,
@@ -163,18 +174,15 @@ impl StateMachineStore {
         &mut self,
         snapshot: StoredSnapshot,
     ) -> Result<(), StorageError<NodeId>> {
-        let indexify_state: IndexifyStateSnapshot = JsonEncoder::decode(&snapshot.data)
+        let indexify_state_snapshot: IndexifyStateSnapshot = JsonEncoder::decode(&snapshot.data)
             .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
 
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
         self.data.last_membership = snapshot.meta.last_membership.clone();
-        // let mut x = self.data.indexify_state.write().await;
-        // *x = indexify_state;
+
         self.data
             .indexify_state
-            .write()
-            .await
-            .install_snapshot(indexify_state);
+            .install_snapshot(indexify_state_snapshot);
 
         Ok(())
     }
@@ -272,11 +280,7 @@ impl StateMachineStore {
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_from_cf(&self.db, column, key)
+        self.data.indexify_state.get_from_cf(&self.db, column, key)
     }
 
     pub async fn get_content_extraction_policy_mappings_for_content_id(
@@ -285,10 +289,7 @@ impl StateMachineStore {
     ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_content_extraction_policy_mappings_for_content_id(content_id, &self.db)
-            .await
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to get content extraction policy mappings for content id: {}",
@@ -304,18 +305,13 @@ impl StateMachineStore {
     ) -> Result<Vec<indexify_internal_api::Task>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_tasks_for_executor(executor_id, limit, &self.db)
-            .await
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
     }
 
     pub async fn get_all_task_assignments(&self) -> Result<HashMap<TaskId, ExecutorId>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_all_task_assignments(&self.db)
             .map_err(|e| anyhow::anyhow!("Failed to get task assignments: {}", e))
     }
@@ -326,10 +322,7 @@ impl StateMachineStore {
     ) -> Result<Vec<indexify_internal_api::Index>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_indexes_from_ids(task_ids, &self.db)
-            .await
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -339,8 +332,6 @@ impl StateMachineStore {
     ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
@@ -351,10 +342,7 @@ impl StateMachineStore {
     ) -> Result<Vec<ExecutorMetadata>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_executors_from_ids(executor_ids, &self.db)
-            .await
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -364,10 +352,7 @@ impl StateMachineStore {
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_content_from_ids(content_ids, &self.db)
-            .await
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -375,19 +360,11 @@ impl StateMachineStore {
         &self,
         namespace: &str,
     ) -> Result<Option<indexify_internal_api::Namespace>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_namespace(namespace, &self.db)
+        self.data.indexify_state.get_namespace(namespace, &self.db)
     }
 
     pub async fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_schemas(ids, &self.db)
+        self.data.indexify_state.get_schemas(ids, &self.db)
     }
 
     /// Test utility method to get all key-value pairs from a column family
@@ -400,8 +377,6 @@ impl StateMachineStore {
     {
         self.data
             .indexify_state
-            .read()
-            .await
             .get_all_rows_from_cf(column, &self.db)
     }
 
@@ -409,85 +384,51 @@ impl StateMachineStore {
 
     //  START REVERSE INDEX READER METHOD INTERFACES
     pub async fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
-        self.data.indexify_state.read().await.get_unassigned_tasks()
+        self.data.indexify_state.get_unassigned_tasks()
     }
 
     pub async fn get_unprocessed_state_changes(&self) -> HashSet<StateChangeId> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_unprocessed_state_changes()
+        self.data.indexify_state.get_unprocessed_state_changes()
     }
 
     pub async fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_content_namespace_table()
+        self.data.indexify_state.get_content_namespace_table()
     }
 
     pub async fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_extraction_policies_table()
+        self.data.indexify_state.get_extraction_policies_table()
     }
 
     pub async fn get_extractor_executors_table(
         &self,
     ) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_extractor_executors_table()
+        self.data.indexify_state.get_extractor_executors_table()
     }
 
     pub async fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_namespace_index_table()
+        self.data.indexify_state.get_namespace_index_table()
     }
 
     pub async fn get_unfinished_tasks_by_extractor(
         &self,
     ) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_unfinished_tasks_by_extractor()
+        self.data.indexify_state.get_unfinished_tasks_by_extractor()
     }
 
     pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_executor_running_task_count()
+        self.data.indexify_state.get_executor_running_task_count()
     }
 
     pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
-        self.data
-            .indexify_state
-            .read()
-            .await
-            .get_schemas_by_namespace()
+        self.data.indexify_state.get_schemas_by_namespace()
     }
 
     //  END REVERSE INDEX READER METHOD INTERFACES
 
     //  START REVERSE INDEX WRITER METHOD INTERFACES
-    pub async fn insert_executor_running_task_count(&self, executor_id: &str, task_count: u64) {
+    pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {
         self.data
             .indexify_state
-            .write()
-            .await
             .insert_executor_running_task_count(executor_id, task_count);
     }
     //  END REVERSE INDEX WRITER METHOD INTERFACES
@@ -500,7 +441,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
         let last_membership = self.data.last_membership.clone();
 
         let indexify_state_json = {
-            let indexify_state_snapshot = self.data.indexify_state.read().await.build_snapshot();
+            let indexify_state_snapshot = self.data.indexify_state.build_snapshot();
             JsonEncoder::encode(&indexify_state_snapshot)
                 .map_err(|e| StorageIOError::read_state_machine(&e))?
         };
@@ -551,7 +492,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
         let mut change_events: Vec<StateChange> = Vec::new();
-        let mut sm = self.data.indexify_state.write().await;
 
         for ent in entries {
             self.data.last_applied_log_id = Some(ent.log_id);
@@ -561,7 +501,11 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                 EntryPayload::Normal(req) => {
                     change_events.extend(req.new_state_changes.clone());
 
-                    if let Err(e) = sm.apply_state_machine_updates(req.clone(), &self.db) {
+                    if let Err(e) = self
+                        .data
+                        .indexify_state
+                        .apply_state_machine_updates(req.clone(), &self.db)
+                    {
                         //  TODO: Should we just log the error here? This seems incorrect as it
                         // includes any errors that are thrown from a RocksDB transaction
                         panic!("error applying state machine update: {}", e);
@@ -908,7 +852,7 @@ mod tests {
             self,
             store::{
                 serializer::{JsonEncode, JsonEncoder},
-                state_machine_objects::IndexifyState,
+                state_machine_objects::IndexifyStateSnapshot,
             },
         },
         test_utils::RaftTestCluster,
@@ -923,7 +867,7 @@ mod tests {
     async fn test_install_snapshot() -> anyhow::Result<()> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let indexify_state = IndexifyState::default();
+        let indexify_state = IndexifyStateSnapshot::default();
         let serialized_state =
             JsonEncoder::encode(&indexify_state).expect("Failed to serialize the data");
         let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =

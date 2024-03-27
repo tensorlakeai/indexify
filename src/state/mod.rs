@@ -1048,7 +1048,7 @@ impl App {
         self.state_machine.get_unfinished_tasks_by_extractor().await
     }
 
-    pub async fn insert_executor_running_task_count(&self, executor_id: &str, task_count: u64) {
+    pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {
         self.state_machine
             .insert_executor_running_task_count(executor_id, task_count)
             .await;

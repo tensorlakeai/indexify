@@ -16,8 +16,16 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -1191,7 +1199,7 @@ impl IndexifyState {
 
     /// Read method to get the extraction policy id's applied to a piece of
     /// content
-    pub async fn get_content_extraction_policy_mappings_for_content_id(
+    pub fn get_content_extraction_policy_mappings_for_content_id(
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
@@ -1214,7 +1222,7 @@ impl IndexifyState {
     /// This method is used to get the tasks assigned to an executor
     /// It does this by looking up the TaskAssignments CF to get the task id's
     /// and then using those id's to look up tasks via Tasks CF
-    pub async fn get_tasks_for_executor(
+    pub fn get_tasks_for_executor(
         &self,
         executor_id: &str,
         limit: Option<u64>,
@@ -1257,7 +1265,7 @@ impl IndexifyState {
     }
 
     /// This method will fetch indexes based on the id's of the indexes provided
-    pub async fn get_indexes_from_ids(
+    pub fn get_indexes_from_ids(
         &self,
         task_ids: HashSet<TaskId>,
         db: &Arc<OptimisticTransactionDB>,
@@ -1280,7 +1288,7 @@ impl IndexifyState {
 
     /// This method will fetch the executors from RocksDB CF based on the
     /// executor id's provided
-    pub async fn get_executors_from_ids(
+    pub fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
@@ -1309,7 +1317,7 @@ impl IndexifyState {
     }
 
     /// This method will fetch content based on the id's provided
-    pub async fn get_content_from_ids(
+    pub fn get_content_from_ids(
         &self,
         content_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
@@ -1526,6 +1534,7 @@ impl IndexifyState {
         self.executor_running_task_count
             .insert(&executor_id.to_string(), tasks as usize);
     }
+
     //  END WRITER METHODS FOR REVERSE INDEXES
 
     //  START SNAPSHOT METHODS
@@ -1558,7 +1567,7 @@ impl IndexifyState {
     //  END SNAPSHOT METHODS
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyStateSnapshot {
     unassigned_tasks: HashSet<TaskId>,
     unprocessed_state_changes: HashSet<StateChangeId>,
