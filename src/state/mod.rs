@@ -355,6 +355,15 @@ impl App {
         content_id: &str,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
+        let content_source = if content_metadata.source.eq("ingestion") {
+            "ingestion".to_string()
+        } else {
+            self.get_extraction_policy(&content_metadata.source)
+                .await
+                .map_err(|e| anyhow!("unable to get extraction policy: {}", e))?
+                .name
+                .clone()
+        };
         let extraction_policy_ids = {
             let store = self.indexify_state.read().await;
             store
@@ -371,7 +380,7 @@ impl App {
 
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
-            if extraction_policy.content_source != content_metadata.source {
+            if extraction_policy.content_source != content_source {
                 continue;
             }
             for (name, value) in &extraction_policy.filters {

@@ -1,6 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
-    fmt,
+    fmt::{self, Display},
     hash::{Hash, Hasher},
     str::FromStr,
     time::SystemTime,
@@ -292,6 +292,16 @@ pub struct Task {
     pub input_params: serde_json::Value,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
+}
+
+impl Display for Task {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Task(id: {}, extractor: {}, extraction_policy_id: {}, namespace: {}, content_id: {}, outcome: {:?})",
+            self.id, self.extractor, self.extraction_policy_id, self.namespace, self.content_metadata.id, self.outcome
+        )
+    }
 }
 
 impl From<Task> for indexify_coordinator::Task {
