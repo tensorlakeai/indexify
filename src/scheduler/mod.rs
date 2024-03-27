@@ -194,7 +194,7 @@ impl Scheduler {
                 input_params: extraction_policy.input_params.clone(),
                 outcome: internal_api::TaskOutcome::Unknown,
             };
-            info!("created task: {}", task);
+            info!("created task: {:?}", task);
             tasks.push(task);
 
             let mut time_of_policy_completion = HashMap::new();

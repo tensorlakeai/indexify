@@ -102,11 +102,16 @@ impl LoadAwareDistributor {
         &self,
         task_ids: &'a HashSet<TaskId>,
     ) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        let sm = self.shared_state.indexify_state.read().await;
+        // let sm = self.shared_state.indexify_state.read().await;
 
         // Initialize the result HashMap to collect the filtered task IDs by extractor.
         let mut result = HashMap::new();
-        for (extractor, extractor_task_ids) in sm.get_unfinished_tasks_by_extractor().iter() {
+        for (extractor, extractor_task_ids) in self
+            .shared_state
+            .get_unfinished_tasks_by_extractor()
+            .await
+            .iter()
+        {
             let filtered_task_ids: HashSet<TaskId> =
                 extractor_task_ids.intersection(task_ids).cloned().collect();
             if !filtered_task_ids.is_empty() {
@@ -576,10 +581,16 @@ mod tests {
             .await?;
 
         // arbitrarily increase the load on the first text executor and json executor
-        let mut sm = shared_state.indexify_state.write().await;
-        sm.insert_executor_running_task_count("text_executor1", 20);
-        sm.insert_executor_running_task_count("json_executor1", 20);
-        drop(sm);
+        // let mut sm = shared_state.indexify_state.write().await;
+        // sm.insert_executor_running_task_count("text_executor1", 20);
+        shared_state
+            .insert_executor_running_task_count("text_executor1", 20)
+            .await;
+        shared_state
+            .insert_executor_running_task_count("json_executor1", 20)
+            .await;
+        // sm.insert_executor_running_task_count("json_executor1", 20);
+        // drop(sm);
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor

@@ -268,6 +268,7 @@ impl StateMachineStore {
         Ok(())
     }
 
+    //  START FORWARD INDEX READER METHODS INTERFACES
     /// This method fetches a key from a specific column family
     pub async fn get_from_cf<T, K>(
         &self,
@@ -410,6 +411,93 @@ impl StateMachineStore {
             .await
             .get_all_rows_from_cf(column, &self.db)
     }
+
+    //  END FORWARD INDEX READER METHOD INTERFACES
+
+    //  START REVERSE INDEX READER METHOD INTERFACES
+    pub async fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
+        self.data.indexify_state.read().await.get_unassigned_tasks()
+    }
+
+    pub async fn get_unprocessed_state_changes(&self) -> HashSet<StateChangeId> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_unprocessed_state_changes()
+    }
+
+    pub async fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_content_namespace_table()
+    }
+
+    pub async fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_extraction_policies_table()
+    }
+
+    pub async fn get_extractor_executors_table(
+        &self,
+    ) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_extractor_executors_table()
+    }
+
+    pub async fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_namespace_index_table()
+    }
+
+    pub async fn get_unfinished_tasks_by_extractor(
+        &self,
+    ) -> HashMap<ExtractorName, HashSet<TaskId>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_unfinished_tasks_by_extractor()
+    }
+
+    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_executor_running_task_count()
+    }
+
+    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+        self.data
+            .indexify_state
+            .read()
+            .await
+            .get_schemas_by_namespace()
+    }
+
+    //  END REVERSE INDEX READER METHOD INTERFACES
+
+    //  START REVERSE INDEX WRITER METHOD INTERFACES
+    pub async fn insert_executor_running_task_count(&self, executor_id: &str, task_count: u64) {
+        self.data
+            .indexify_state
+            .write()
+            .await
+            .insert_executor_running_task_count(executor_id, task_count);
+    }
+    //  END REVERSE INDEX WRITER METHOD INTERFACES
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
