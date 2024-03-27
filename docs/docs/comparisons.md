@@ -1,4 +1,4 @@
-Indexify can be used for many different use-cases while building Generative AI applications, because it provides a framework for plugging in any extractor or data transformation steps with a flexible workflow compute engine. This means there are a number of existing tools that overlap with the capabilities of Terraform. It should be noted that Indexify is not mutually exclusive with other tools in the AI Infrastucture landscape.
+Indexify can be used for many different use-cases while building Generative AI applications, because it provides a framework for plugging in any extractor or data transformation steps with a flexible workflow compute engine. This means there are a number of existing tools that overlap with the capabilities of Indexify. It should be noted that Indexify is not mutually exclusive with other tools in the AI Infrastucture landscape.
 
 ## Indexify vs LlamaIndex
 
