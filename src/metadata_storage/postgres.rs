@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use futures::stream;
+use futures::StreamExt;
 use gluesql::core::{
     data::{Key, Value},
     error::Error::StorageMsg as GlueStorageError,
@@ -146,7 +146,7 @@ impl MetadataReader for PostgresIndexManager {
         Ok(metadata)
     }
 
-    async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream {
+    fn get_metadata_scan_query(&self, namespace: &str) -> String {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!(
             "
@@ -155,16 +155,24 @@ impl MetadataReader for PostgresIndexManager {
             WHERE namespace = $1 AND content_source = $2
         "
         );
-        let rows = sqlx::query(&query)
-            .bind(namespace)
-            .bind(content_source)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| {
-                GlueStorageError(format!("unable to query metadata from postgres: {}", e))
-            })?
-            .into_iter()
-            .map(|row: PgRow| {
+
+        query
+    }
+
+    async fn scan_metadata<'a>(
+        &self,
+        query: &'a str,
+        namespace: &str,
+        content_source: &str,
+    ) -> MetadataScanStream<'a> {
+        let rows = sqlx::query(query)
+            .bind(namespace.to_string())
+            .bind(content_source.to_string())
+            .fetch(&self.pool)
+            .then(|row: Result<PgRow, sqlx::Error>| async move {
+                let row = row.map_err(|e| {
+                    GlueStorageError(format!("error scanning metadata from postgres: {}", e))
+                })?;
                 let content_id: String = row.get(0);
                 let mut out_rows: Vec<Value> = Vec::new();
                 out_rows.push(Value::Str(content_id.clone()));
@@ -189,7 +197,7 @@ impl MetadataReader for PostgresIndexManager {
                 Ok((Key::Str(content_id), DataRow::Vec(out_rows)))
             });
 
-        Ok(Box::pin(stream::iter(rows)))
+        Ok(Box::pin(rows))
     }
 }
 

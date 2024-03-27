@@ -2822,18 +2822,15 @@ dependencies = [
 [[package]]
 name = "gluesql"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45dfe66dc370c1d234bf8d0a22b7e62062af674f304ed3e347e3ad4e8f8224d3"
+source = "git+https://github.com/gluesql/gluesql.git?rev=69309d2#69309d2f0755c8184392dfd2024b64bdc50a1f2f"
 dependencies = [
  "gluesql-core",
- "gluesql-json-storage",
 ]
 
 [[package]]
 name = "gluesql-core"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9caaf3cf33c4fc065da4b769dfc8d594a440b459dc38652185419f671b00bc69"
+source = "git+https://github.com/gluesql/gluesql.git?rev=69309d2#69309d2f0755c8184392dfd2024b64bdc50a1f2f"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -2846,43 +2843,24 @@ dependencies = [
  "hex",
  "im-rc",
  "iter-enum",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "md-5",
- "ordered-float 3.9.2",
+ "ordered-float 4.2.0",
  "rand",
  "regex",
  "rust_decimal",
  "serde",
  "serde_json",
- "sqlparser 0.36.1",
- "strum_macros 0.24.3",
+ "sqlparser 0.39.0",
+ "strum_macros 0.25.3",
  "thiserror",
  "uuid",
 ]
 
 [[package]]
-name = "gluesql-json-storage"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8418cdf235337e436a47a8a8a5c6dbda67755af0ea1b88c9602d68359032b8ef"
-dependencies = [
- "async-trait",
- "futures",
- "gluesql-core",
- "gluesql-utils",
- "hex",
- "iter-enum",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "gluesql-utils"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4689be8d1ec30ee78b2e3898cd96b40b1c27fde7ec5956dcf943b66502a45571"
+source = "git+https://github.com/gluesql/gluesql.git?rev=69309d2#69309d2f0755c8184392dfd2024b64bdc50a1f2f"
 dependencies = [
  "futures",
  "indexmap 1.9.3",
@@ -4727,8 +4705,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1e1c390732d15f1d48471625cd92d154e66db2c56645e29a9cd26f4699f72dc"
 dependencies = [
  "num-traits",
- "rand",
- "serde",
 ]
 
 [[package]]
@@ -4738,6 +4714,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a76df7075c7d4d01fdcb46c912dd17fba5b60c78ea480b475f2b6ab6f666584e"
 dependencies = [
  "num-traits",
+ "rand",
+ "serde",
 ]
 
 [[package]]
@@ -6301,9 +6279,9 @@ dependencies = [
 
 [[package]]
 name = "sqlparser"
-version = "0.36.1"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eaa1e88e78d2c2460d78b7dc3f0c08dbb606ab4222f9aff36f420d36e307d87"
+checksum = "743b4dc2cbde11890ccb254a8fc9d537fa41b36da00de2a1c5e9848c9bc42bd7"
 dependencies = [
  "bigdecimal",
  "log",
@@ -6580,19 +6558,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "723b93e8addf9aa965ebe2d11da6d7540fa2283fcea14b3371ff055f7ba13f5f"
 dependencies = [
  "strum_macros 0.26.1",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.24.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e385be0d24f186b4ce2f9982191e7101bb737312ad61c1f2f984f34bcf85d59"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 1.0.109",
 ]
 
 [[package]]

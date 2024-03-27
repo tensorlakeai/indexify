@@ -153,13 +153,28 @@ impl MetadataReader for SqliteIndexManager {
         Ok(None)
     }
 
-    async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream {
+    fn get_metadata_scan_query(&self, namespace: &str) -> String {
         let table_name = PostgresIndexName::new(&table_name(namespace));
-        let query =
-            format!("SELECT content_id, data FROM {table_name} WHERE namespace = $1 and content_source = $2");
+        let query = format!(
+            "
+            SELECT content_id, data
+            FROM {table_name}
+            WHERE namespace = $1 AND content_source = $2
+        "
+        );
+
+        query
+    }
+
+    async fn scan_metadata<'a>(
+        &self,
+        query: &'a str,
+        namespace: &str,
+        content_source: &str,
+    ) -> MetadataScanStream<'a> {
         let conn = self.conn.lock().await;
         let mut stmt = conn
-            .prepare(&query)
+            .prepare(query)
             .map_err(|e| GlueStorageError(format!("unable to execute query on sqlite: {}", e)))?;
         let metadata = stmt
             .query_map(params![namespace, content_source], |row| {
