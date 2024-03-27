@@ -14,21 +14,9 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -41,7 +29,7 @@ type Node = BasicNode;
 
 use self::{
     serializer::{JsonEncode, JsonEncoder},
-    state_machine_objects::IndexifyState,
+    state_machine_objects::{IndexifyState, IndexifyStateSnapshot},
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::utils::OptionInspectNone;
@@ -175,13 +163,18 @@ impl StateMachineStore {
         &mut self,
         snapshot: StoredSnapshot,
     ) -> Result<(), StorageError<NodeId>> {
-        let indexify_state = JsonEncoder::decode(&snapshot.data)
+        let indexify_state: IndexifyStateSnapshot = JsonEncoder::decode(&snapshot.data)
             .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
 
         self.data.last_applied_log_id = snapshot.meta.last_log_id;
         self.data.last_membership = snapshot.meta.last_membership.clone();
-        let mut x = self.data.indexify_state.write().await;
-        *x = indexify_state;
+        // let mut x = self.data.indexify_state.write().await;
+        // *x = indexify_state;
+        self.data
+            .indexify_state
+            .write()
+            .await
+            .install_snapshot(indexify_state);
 
         Ok(())
     }
@@ -507,8 +500,8 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
         let last_membership = self.data.last_membership.clone();
 
         let indexify_state_json = {
-            let indexify_state = self.data.indexify_state.read().await;
-            JsonEncoder::encode(&*indexify_state)
+            let indexify_state_snapshot = self.data.indexify_state.read().await.build_snapshot();
+            JsonEncoder::encode(&indexify_state_snapshot)
                 .map_err(|e| StorageIOError::read_state_machine(&e))?
         };
 
