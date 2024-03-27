@@ -44,6 +44,7 @@ const NamespacePage = () => {
         indexes={indexes}
         namespace={client.namespace}
         schemas={schemas}
+        extractors={extractors}
         extractionPolicies={client.extractionPolicies}
       />
       <ContentTable

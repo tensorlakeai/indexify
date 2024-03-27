@@ -81,7 +81,7 @@ const ExtractionPolicyItem = ({
           variant="body1"
         >
           {depth > 0 && <LShapedLine />}
-          {extractionPolicy.name}
+          <Link to={`/${namespace}/extraction-policies/${extractionPolicy.name}`}>{extractionPolicy.name}</Link>
         </Typography>
         <Typography variant="body1" sx={{ minWidth: cols.extractor.width }}>
           {extractionPolicy.extractor}

@@ -193,9 +193,9 @@ const ContentPage = () => {
       {/* tasks */}
       {Object.keys(groupedExtractedMetadata).map((key) => {
         const extractedMetadata = groupedExtractedMetadata[key];
-        return <ExtractedMetadataTable extractedMetadata={extractedMetadata} />;
+        return <ExtractedMetadataTable key={key} extractedMetadata={extractedMetadata} />;
       })}
-      <TasksTable namespace={namespace} tasks={tasks} hideContentId />
+      <TasksTable policies={client.extractionPolicies} namespace={namespace} tasks={tasks} hideContentId />
     </Stack>
   );
 };

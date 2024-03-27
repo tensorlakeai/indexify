@@ -1,6 +1,6 @@
 import { useLoaderData, LoaderFunctionArgs, redirect } from "react-router-dom";
 import { Box, Typography, Stack, Breadcrumbs } from "@mui/material";
-import { IndexifyClient, ITask } from "getindexify";
+import { IExtractionPolicy, IndexifyClient, ITask } from "getindexify";
 import React from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
@@ -13,20 +13,25 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
   const client = await IndexifyClient.createClient({
     serviceUrl: getIndexifyServiceURL(),
-    namespace
+    namespace,
   });
-  const tasks = (await client.getTasks(policyname)).filter(
-    (task) => task.extraction_policy === policyname
+
+  const policy = client.extractionPolicies.find(
+    (policy) => policy.name === policyname
+  );
+  const tasks = (await client.getTasks()).filter(
+    (task) => task.extraction_policy_id === policy?.id
   );
 
-  return { tasks, policyname, namespace };
+  return { tasks, policy, namespace, client };
 }
 
 const ExtractionPolicyPage = () => {
-  const { tasks, policyname, namespace } = useLoaderData() as {
+  const { tasks, policy, namespace, client } = useLoaderData() as {
     tasks: ITask[];
-    policyname: string;
+    policy: IExtractionPolicy;
     namespace: string;
+    client: IndexifyClient;
   };
 
   return (
@@ -36,14 +41,19 @@ const ExtractionPolicyPage = () => {
           {namespace}
         </Link>
         <Typography color="text.primary">Extraction Policies</Typography>
-        <Typography color="text.primary">{policyname}</Typography>
+        <Typography color="text.primary">{policy.name}</Typography>
       </Breadcrumbs>
       <Box display={"flex"} alignItems={"center"}>
         <Typography variant="h2" component="h1">
-          Extraction Policy - {policyname}
+          Extraction Policy - {policy.name}
         </Typography>
       </Box>
-      <TasksTable namespace={namespace} tasks={tasks} hideExtractionPolicy />
+      <TasksTable
+        policies={client.extractionPolicies}
+        namespace={namespace}
+        tasks={tasks}
+        hideExtractionPolicy
+      />
     </Stack>
   );
 };
