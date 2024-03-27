@@ -404,7 +404,7 @@ async fn create_extraction_policy(
 ) -> Result<Json<ExtractionPolicyResponse>, IndexifyAPIError> {
     let index_names = state
         .data_manager
-        .create_extraction_policy(&namespace, &payload.policy)
+        .create_extraction_policy(&namespace, &payload)
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
