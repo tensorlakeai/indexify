@@ -581,16 +581,12 @@ mod tests {
             .await?;
 
         // arbitrarily increase the load on the first text executor and json executor
-        // let mut sm = shared_state.indexify_state.write().await;
-        // sm.insert_executor_running_task_count("text_executor1", 20);
         shared_state
             .insert_executor_running_task_count("text_executor1", 20)
             .await;
         shared_state
             .insert_executor_running_task_count("json_executor1", 20)
             .await;
-        // sm.insert_executor_running_task_count("json_executor1", 20);
-        // drop(sm);
 
         let distributor = LoadAwareDistributor::new(shared_state.clone());
         let result = distributor
