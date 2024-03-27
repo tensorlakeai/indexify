@@ -50,6 +50,13 @@ impl UnassignedTasks {
     }
 }
 
+impl From<HashSet<TaskId>> for UnassignedTasks {
+    fn from(tasks: HashSet<TaskId>) -> Self {
+        let unassigned_tasks = Arc::new(RwLock::new(tasks));
+        Self { unassigned_tasks }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct UnprocessedStateChanges {
     unprocessed_state_changes: Arc<RwLock<HashSet<StateChangeId>>>,
@@ -69,6 +76,15 @@ impl UnprocessedStateChanges {
     pub fn inner(&self) -> HashSet<StateChangeId> {
         let guard = self.unprocessed_state_changes.read().unwrap();
         guard.clone()
+    }
+}
+
+impl From<HashSet<StateChangeId>> for UnprocessedStateChanges {
+    fn from(state_changes: HashSet<StateChangeId>) -> Self {
+        let unprocessed_state_changes = Arc::new(RwLock::new(state_changes));
+        Self {
+            unprocessed_state_changes,
+        }
     }
 }
 
@@ -97,6 +113,15 @@ impl ContentNamespaceTable {
     pub fn inner(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
         let guard = self.content_namespace_table.read().unwrap();
         guard.clone()
+    }
+}
+
+impl From<HashMap<NamespaceName, HashSet<ContentId>>> for ContentNamespaceTable {
+    fn from(content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>) -> Self {
+        let content_namespace_table = Arc::new(RwLock::new(content_namespace_table));
+        Self {
+            content_namespace_table,
+        }
     }
 }
 
@@ -133,6 +158,15 @@ impl ExtractionPoliciesTable {
     }
 }
 
+impl From<HashMap<NamespaceName, HashSet<String>>> for ExtractionPoliciesTable {
+    fn from(extraction_policies_table: HashMap<NamespaceName, HashSet<String>>) -> Self {
+        let extraction_policies_table = Arc::new(RwLock::new(extraction_policies_table));
+        Self {
+            extraction_policies_table,
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExtractorExecutorsTable {
     extractor_executors_table: Arc<RwLock<HashMap<ExtractorName, HashSet<ExecutorId>>>>,
@@ -161,6 +195,15 @@ impl ExtractorExecutorsTable {
     }
 }
 
+impl From<HashMap<ExtractorName, HashSet<ExecutorId>>> for ExtractorExecutorsTable {
+    fn from(extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>) -> Self {
+        let extractor_executors_table = Arc::new(RwLock::new(extractor_executors_table));
+        Self {
+            extractor_executors_table,
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct NamespaceIndexTable {
     namespace_index_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
@@ -186,6 +229,15 @@ impl NamespaceIndexTable {
     }
 }
 
+impl From<HashMap<NamespaceName, HashSet<String>>> for NamespaceIndexTable {
+    fn from(namespace_index_table: HashMap<NamespaceName, HashSet<String>>) -> Self {
+        let namespace_index_table = Arc::new(RwLock::new(namespace_index_table));
+        Self {
+            namespace_index_table,
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct UnfinishedTasksByExtractor {
     unfinished_tasks_by_extractor: Arc<RwLock<HashMap<ExtractorName, HashSet<TaskId>>>>,
@@ -208,6 +260,15 @@ impl UnfinishedTasksByExtractor {
     pub fn inner(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
         let guard = self.unfinished_tasks_by_extractor.read().unwrap();
         guard.clone()
+    }
+}
+
+impl From<HashMap<ExtractorName, HashSet<TaskId>>> for UnfinishedTasksByExtractor {
+    fn from(unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>) -> Self {
+        let unfinished_tasks_by_extractor = Arc::new(RwLock::new(unfinished_tasks_by_extractor));
+        Self {
+            unfinished_tasks_by_extractor,
+        }
     }
 }
 
@@ -265,6 +326,15 @@ impl ExecutorRunningTaskCount {
     }
 }
 
+impl From<HashMap<ExecutorId, usize>> for ExecutorRunningTaskCount {
+    fn from(executor_running_task_count: HashMap<ExecutorId, usize>) -> Self {
+        let executor_running_task_count = Arc::new(RwLock::new(executor_running_task_count));
+        Self {
+            executor_running_task_count,
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct SchemasByNamespace {
     schemas_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<SchemaId>>>>,
@@ -290,6 +360,15 @@ impl SchemasByNamespace {
     pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
         let guard = self.schemas_by_namespace.read().unwrap();
         guard.clone()
+    }
+}
+
+impl From<HashMap<NamespaceName, HashSet<SchemaId>>> for SchemasByNamespace {
+    fn from(schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>) -> Self {
+        let schemas_by_namespace = Arc::new(RwLock::new(schemas_by_namespace));
+        Self {
+            schemas_by_namespace,
+        }
     }
 }
 
@@ -1120,7 +1199,7 @@ impl IndexifyState {
 
     /// Read method to get the extraction policy id's applied to a piece of
     /// content
-    pub async fn get_content_extraction_policy_mappings_for_content_id(
+    pub fn get_content_extraction_policy_mappings_for_content_id(
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
@@ -1143,7 +1222,7 @@ impl IndexifyState {
     /// This method is used to get the tasks assigned to an executor
     /// It does this by looking up the TaskAssignments CF to get the task id's
     /// and then using those id's to look up tasks via Tasks CF
-    pub async fn get_tasks_for_executor(
+    pub fn get_tasks_for_executor(
         &self,
         executor_id: &str,
         limit: Option<u64>,
@@ -1186,7 +1265,7 @@ impl IndexifyState {
     }
 
     /// This method will fetch indexes based on the id's of the indexes provided
-    pub async fn get_indexes_from_ids(
+    pub fn get_indexes_from_ids(
         &self,
         task_ids: HashSet<TaskId>,
         db: &Arc<OptimisticTransactionDB>,
@@ -1209,7 +1288,7 @@ impl IndexifyState {
 
     /// This method will fetch the executors from RocksDB CF based on the
     /// executor id's provided
-    pub async fn get_executors_from_ids(
+    pub fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
@@ -1238,7 +1317,7 @@ impl IndexifyState {
     }
 
     /// This method will fetch content based on the id's provided
-    pub async fn get_content_from_ids(
+    pub fn get_content_from_ids(
         &self,
         content_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
@@ -1455,6 +1534,50 @@ impl IndexifyState {
         self.executor_running_task_count
             .insert(&executor_id.to_string(), tasks as usize);
     }
+
+    //  END WRITER METHODS FOR REVERSE INDEXES
+
+    //  START SNAPSHOT METHODS
+    pub fn build_snapshot(&self) -> IndexifyStateSnapshot {
+        IndexifyStateSnapshot {
+            unassigned_tasks: self.get_unassigned_tasks(),
+            unprocessed_state_changes: self.get_unprocessed_state_changes(),
+            content_namespace_table: self.get_content_namespace_table(),
+            extraction_policies_table: self.get_extraction_policies_table(),
+            extractor_executors_table: self.get_extractor_executors_table(),
+            namespace_index_table: self.get_namespace_index_table(),
+            unfinished_tasks_by_extractor: self.get_unfinished_tasks_by_extractor(),
+            executor_running_task_count: self.get_executor_running_task_count(),
+            schemas_by_namespace: self.get_schemas_by_namespace(),
+        }
+    }
+
+    pub fn install_snapshot(&mut self, snapshot: IndexifyStateSnapshot) {
+        self.unassigned_tasks = snapshot.unassigned_tasks.into();
+        self.unprocessed_state_changes = snapshot.unprocessed_state_changes.into();
+        self.content_namespace_table = snapshot.content_namespace_table.into();
+        self.extraction_policies_table = snapshot.extraction_policies_table.into();
+        self.extractor_executors_table = snapshot.extractor_executors_table.into();
+        self.namespace_index_table = snapshot.namespace_index_table.into();
+        self.unfinished_tasks_by_extractor = snapshot.unfinished_tasks_by_extractor.into();
+        self.executor_running_task_count = snapshot.executor_running_task_count.into();
+        self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
+    }
+
+    //  END SNAPSHOT METHODS
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+pub struct IndexifyStateSnapshot {
+    unassigned_tasks: HashSet<TaskId>,
+    unprocessed_state_changes: HashSet<StateChangeId>,
+    content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
+    extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
+    extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
+    namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
+    unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
+    executor_running_task_count: HashMap<ExecutorId, usize>,
+    schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
 }
 
 #[cfg(test)]

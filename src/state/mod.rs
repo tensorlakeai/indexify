@@ -25,7 +25,6 @@ use openraft::{
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    state_machine_objects::IndexifyState,
     ExecutorId,
     ExecutorIdRef,
     Response,
@@ -35,7 +34,6 @@ use tokio::{
     sync::{
         watch::{self, Receiver, Sender},
         Mutex,
-        RwLock,
     },
     task::JoinHandle,
 };
@@ -116,7 +114,6 @@ pub struct App {
     shutdown_tx: Sender<()>,
     pub leader_change_rx: Receiver<bool>,
     join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
-    pub indexify_state: Arc<RwLock<IndexifyState>>,
     pub config: Arc<openraft::Config>,
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
@@ -166,8 +163,6 @@ impl App {
 
         let (log_store, state_machine) = new_storage(db_path, sm_blob_store_path).await;
         let state_change_rx = state_machine.state_change_rx.clone();
-
-        let indexify_state = state_machine.data.indexify_state.clone();
 
         let raft_client = Arc::new(RaftClient::new());
         let network = Network::new(Arc::clone(&raft_client));
@@ -219,7 +214,6 @@ impl App {
             leader_change_rx,
             join_handles: Mutex::new(vec![]),
             nodes,
-            indexify_state,
             config,
             state_change_rx,
             network,
@@ -317,9 +311,13 @@ impl App {
     }
 
     pub async fn unprocessed_state_change_events(&self) -> Result<Vec<StateChange>> {
-        let store = self.indexify_state.read().await;
         let mut state_changes = vec![];
-        for event_id in store.get_unprocessed_state_changes().iter() {
+        for event_id in self
+            .state_machine
+            .get_unprocessed_state_changes()
+            .await
+            .iter()
+        {
             let event = self
                 .state_machine
                 .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)
@@ -355,19 +353,10 @@ impl App {
         content_id: &str,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
-        let content_source = if content_metadata.source.eq("ingestion") {
-            "ingestion".to_string()
-        } else {
-            self.get_extraction_policy(&content_metadata.source)
-                .await
-                .map_err(|e| anyhow!("unable to get extraction policy: {}", e))?
-                .name
-                .clone()
-        };
         let extraction_policy_ids = {
-            let store = self.indexify_state.read().await;
-            store
+            self.state_machine
                 .get_extraction_policies_table()
+                .await
                 .get(&content_metadata.namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -380,7 +369,7 @@ impl App {
 
         let mut matched_policies = Vec::new();
         for extraction_policy in &extraction_policies {
-            if extraction_policy.content_source != content_source {
+            if extraction_policy.content_source != content_metadata.source {
                 continue;
             }
             for (name, value) in &extraction_policy.filters {
@@ -432,9 +421,10 @@ impl App {
             .extractor_with_name(&extraction_policy.extractor)
             .await?;
         let content_list = {
-            let store = self.indexify_state.read().await;
-            let content_list = store
+            let content_list = self
+                .state_machine
                 .get_content_namespace_table()
+                .await
                 .get(&extraction_policy.namespace)
                 .cloned()
                 .unwrap_or_default();
@@ -481,9 +471,8 @@ impl App {
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
-        let store = self.indexify_state.read().await;
         let mut tasks = vec![];
-        for task_id in store.get_unassigned_tasks().iter() {
+        for task_id in self.state_machine.get_unassigned_tasks().await.iter() {
             let task = self
                 .state_machine
                 .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
@@ -507,9 +496,10 @@ impl App {
         &self,
         extractor: &str,
     ) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        let store = self.indexify_state.read().await;
-        let executor_ids = store
+        let executor_ids = self
+            .state_machine
             .get_extractor_executors_table()
+            .await
             .get(extractor)
             .cloned()
             .unwrap_or(HashSet::new());
@@ -519,20 +509,17 @@ impl App {
     }
 
     pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
-        self.indexify_state
-            .read()
-            .await
-            .get_executor_running_task_count()
-            .clone()
+        self.state_machine.get_executor_running_task_count().await
     }
 
     pub async fn unfinished_tasks_by_extractor(
         &self,
         extractor: &str,
     ) -> Result<HashSet<TaskId>, anyhow::Error> {
-        let sm = self.indexify_state.read().await;
-        let task_ids = sm
+        let task_ids = self
+            .state_machine
             .get_unfinished_tasks_by_extractor()
+            .await
             .get(extractor)
             .cloned()
             .unwrap_or_default();
@@ -543,13 +530,13 @@ impl App {
         &self,
         namespace: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let store = self.indexify_state.read().await;
-        let content_ids = store
+        let content_ids = self
+            .state_machine
             .get_content_namespace_table()
+            .await
             .get(namespace)
             .cloned()
             .unwrap_or_default();
-        drop(store);
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
@@ -710,9 +697,9 @@ impl App {
 
     pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
         let extraction_policy_ids = {
-            let store = self.indexify_state.read().await;
-            store
+            self.state_machine
                 .get_extraction_policies_table()
+                .await
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -754,9 +741,9 @@ impl App {
         let mut result_namespaces = Vec::new();
         for namespace_name in namespaces {
             let extraction_policy_ids = {
-                let store = self.indexify_state.read().await; // Moved inside the loop to avoid holding the lock while not necessary
-                store
+                self.state_machine
                     .get_extraction_policies_table()
+                    .await
                     .get(&namespace_name)
                     .cloned()
                     .unwrap_or_default()
@@ -976,9 +963,9 @@ impl App {
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
         let index_ids = {
-            let store = self.indexify_state.read().await;
-            store
+            self.state_machine
                 .get_namespace_index_table()
+                .await
                 .get(namespace)
                 .cloned()
                 .unwrap_or_default()
@@ -1044,14 +1031,27 @@ impl App {
         &self,
         namespace: &str,
     ) -> Result<Vec<StructuredDataSchema>> {
-        let store = self.indexify_state.read().await;
-        let schemas_for_ns = store
+        let schemas_for_ns = self
+            .state_machine
             .get_schemas_by_namespace()
+            .await
             .get(namespace)
             .cloned()
             .unwrap_or(HashSet::new());
         let schemas = self.state_machine.get_schemas(schemas_for_ns).await?;
         Ok(schemas)
+    }
+
+    pub async fn get_unfinished_tasks_by_extractor(
+        &self,
+    ) -> HashMap<store::ExtractorName, HashSet<TaskId>> {
+        self.state_machine.get_unfinished_tasks_by_extractor().await
+    }
+
+    pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {
+        self.state_machine
+            .insert_executor_running_task_count(executor_id, task_count)
+            .await;
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
