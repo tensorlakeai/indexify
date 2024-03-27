@@ -194,7 +194,7 @@ impl Scheduler {
                 input_params: extraction_policy.input_params.clone(),
                 outcome: internal_api::TaskOutcome::Unknown,
             };
-            info!("created task: {:?}", task);
+            info!("created task: {}", task);
             tasks.push(task);
 
             let mut time_of_policy_completion = HashMap::new();
@@ -204,10 +204,6 @@ impl Scheduler {
                 extraction_policy_ids: HashSet::from_iter(vec![extraction_policy.id.clone()]),
                 time_of_policy_completion,
             };
-            info!(
-                "created content extraction policy mapping: {:?}",
-                content_extraction_policy_mapping
-            );
             content_extraction_policy_mappings.push(content_extraction_policy_mapping);
         }
         Ok((tasks, content_extraction_policy_mappings))
