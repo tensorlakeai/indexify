@@ -170,7 +170,9 @@ impl MetadataReader for PostgresIndexManager {
             .bind(content_source.to_string())
             .fetch(&self.pool)
             .then(|row: Result<PgRow, sqlx::Error>| async move {
-                let row = row.unwrap();
+                let row = row.map_err(|e| {
+                    GlueStorageError(format!("error scanning metadata from postgres: {}", e))
+                })?;
                 let content_id: String = row.get(0);
                 let mut out_rows: Vec<Value> = Vec::new();
                 out_rows.push(Value::Str(content_id.clone()));
