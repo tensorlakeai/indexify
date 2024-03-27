@@ -1,22 +1,27 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use indexify_internal_api::{Content, ExtractResponse};
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::info;
 
 use super::prelude::*;
 use crate::{
     caching::{MokaAsyncCache, NoOpCache, RedisCache},
-    extractor_router::{ExtractContentCacheKey, ExtractContentCacheValue},
     server_config::{ServerCacheBackend, ServerCacheConfig},
 };
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExtractContentCacheKey {
+    content: Arc<Content>,
+    input_params: Arc<Option<serde_json::Value>>,
+}
 pub type CacheTS<K, V> = Arc<RwLock<Box<dyn Cache<K, V>>>>;
 
 #[derive(Clone)]
 pub struct Caches {
-    pub cache_extract_content:
-        Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractContentCacheValue>>>>,
+    pub cache_extract_content: Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractResponse>>>>,
 }
 
 impl Caches {

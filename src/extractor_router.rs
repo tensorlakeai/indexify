@@ -3,32 +3,14 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::GetExtractorCoordinatesRequest;
-use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-use tracing::error;
+use internal_api::ExtractResponse;
 
-use crate::{
-    api::Content,
-    caching::{Cache, NoOpCache},
-    coordinator_client::CoordinatorClient,
-};
+use crate::{api::Content, coordinator_client::CoordinatorClient};
 
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ExtractContentCacheKey {
-    content: Arc<Content>,
-    input_params: Arc<Option<serde_json::Value>>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ExtractContentCacheValue {
-    content: Arc<Vec<Content>>,
-}
-
 pub struct ExtractorRouter {
     coordinator_client: Arc<CoordinatorClient>,
-    cache: Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractContentCacheValue>>>>,
     client: reqwest::Client,
 }
 
@@ -40,17 +22,8 @@ impl ExtractorRouter {
             .map_err(|e| anyhow!("unable to create request client: {}", e))?;
         Ok(Self {
             coordinator_client,
-            cache: Arc::new(RwLock::new(Box::new(NoOpCache::new()))),
             client: request_client,
         })
-    }
-
-    pub fn with_cache(
-        mut self,
-        cache: Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractContentCacheValue>>>>,
-    ) -> Self {
-        self.cache = cache;
-        self
     }
 
     pub async fn extract_content(
@@ -58,29 +31,7 @@ impl ExtractorRouter {
         extractor_name: &str,
         content: Content,
         input_params: Option<serde_json::Value>,
-    ) -> Result<Vec<Content>, anyhow::Error> {
-        // check cache first
-        let cache_key = ExtractContentCacheKey {
-            content: content.clone().into(), /* TODO: maybe there's a better way where we don't
-                                              * need to clone the content? */
-            input_params: input_params.clone().into(),
-        };
-        match self.cache.read().await.get(&cache_key).await {
-            Ok(Some(cached)) => {
-                tracing::debug!("found in cache: {:?}", cache_key);
-                return Ok((*cached.content).clone());
-            }
-            Ok(None) => {
-                tracing::debug!("not found in cache: {:?}", cache_key);
-            }
-            Err(e) => {
-                // Still return OK to the caller, even if something went wrong with the cache
-                // It will show up in the logs
-                error!("unable to get from cache: {:?}. Error: {}", cache_key, e);
-            }
-        }
-
-        // not found in cache - proceed to extract
+    ) -> Result<ExtractResponse, anyhow::Error> {
         let request = internal_api::ExtractRequest {
             content: internal_api::Content {
                 content_type: content.content_type,
@@ -130,32 +81,6 @@ impl ExtractorRouter {
             serde_json::from_str(&response_body)
                 .map_err(|e| anyhow!("unable to extract response from json: {}", e))?;
 
-        let content_list: Vec<Content> = extractor_response
-            .content
-            .into_iter()
-            .map(|c| c.into())
-            .collect();
-
-        // cache the result
-        {
-            let cache_value = ExtractContentCacheValue {
-                content: content_list.clone().into(),
-            };
-            let mut cache = self.cache.write().await;
-            match cache.insert(cache_key.clone(), cache_value).await {
-                Ok(_) => {
-                    tracing::debug!("inserted into cache: {:?}", cache_key);
-                }
-                Err(e) => {
-                    // Still return OK to the caller, even if we can't cache the result
-                    // It will show up in the logs
-                    error!(
-                        "unable to insert into cache result for: {:?}. Error: {}",
-                        cache_key, e
-                    );
-                }
-            }
-        }
-        Ok(content_list)
+        Ok(extractor_response)
     }
 }
