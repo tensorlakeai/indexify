@@ -1,17 +1,18 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Context, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::{OutputSchema, StateChange, StructuredDataSchema};
+use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
 use tokio::sync::{
     mpsc::{self, Sender},
-    watch::Receiver,
+    watch::{self, Receiver},
+    Mutex,
 };
 use tracing::info;
 
@@ -28,6 +29,7 @@ pub struct Coordinator {
     scheduler: Scheduler,
     garbage_collector: GarbageCollector,
     gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
+    gc_task_allocation_event_rx: watch::Receiver<GarbageCollectionTask>,
 }
 
 impl Coordinator {
@@ -40,6 +42,9 @@ impl Coordinator {
         Arc::new(Self {
             shared_state,
             scheduler,
+            gc_task_allocation_event_rx: garbage_collector
+                .task_deletion_allocation_events_receiver
+                .clone(),
             garbage_collector,
             gc_tasks_tx: tx,
         })
@@ -193,7 +198,9 @@ impl Coordinator {
         addr: &str,
         ingestion_server_id: &str,
     ) -> Result<()> {
-        Ok(())
+        self.shared_state
+            .register_ingestion_server(addr, ingestion_server_id)
+            .await
     }
 
     pub async fn get_content_metadata(
@@ -320,13 +327,27 @@ impl Coordinator {
                     self.shared_state
                         .create_gc_tasks(vec![gc_task.clone()], &change.id)
                         .await?;
+                    //  TODO: Should we react to a state change event before sending the gc task to the garbage collector
                     self.gc_tasks_tx.send(gc_task).await?;
                 }
+                return Ok(());
+            } else if change
+                .change_type
+                .eq(&indexify_internal_api::ChangeType::IngestionServerAdded)
+            {
+                let _rx = self
+                    .garbage_collector
+                    .register_ingestion_server(change.object_id)
+                    .await?;
                 return Ok(());
             }
             self.scheduler.handle_change_event(change).await?;
         }
         Ok(())
+    }
+
+    pub fn get_gc_task_allocation_event_rx(&self) -> watch::Receiver<GarbageCollectionTask> {
+        self.gc_task_allocation_event_rx.clone()
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {

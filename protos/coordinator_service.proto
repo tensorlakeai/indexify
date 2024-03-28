@@ -28,6 +28,8 @@ service CoordinatorService {
 
     rpc RegisterIngestionServer(RegisterIngestionServerRequest) returns (RegisterIngestionServerResponse) {}
 
+    rpc GCTasksStream(stream GCTaskAcknowledgement) returns (stream GCTask) {}
+
     rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
 
     rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
@@ -181,6 +183,16 @@ message RegisterIngestionServerRequest {
 
 message RegisterIngestionServerResponse {
 
+}
+
+message GCTaskAcknowledgement {
+    string task_id = 1;
+    bool completed = 2;
+}
+
+message GCTask {
+    string task_id = 1;
+    repeated string output_index_table_mapping = 2;
 }
 
 message HeartbeatRequest {

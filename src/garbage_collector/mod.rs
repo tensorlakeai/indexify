@@ -1,19 +1,33 @@
 use std::collections::{HashMap, HashSet};
 
-use tokio::sync::{mpsc::Receiver, RwLock};
+use indexify_internal_api::GarbageCollectionTask;
+use tokio::sync::{mpsc::Receiver, watch, RwLock};
+
+use anyhow::Result;
 
 pub struct GarbageCollector {
     pub ingestion_servers: RwLock<HashSet<String>>,
-    pub assigned_gc_tasks: RwLock<HashMap<String, String>>,
-    pub gc_tasks: RwLock<HashMap<String, indexify_internal_api::GarbageCollectionTask>>,
+    pub assigned_gc_tasks: HashMap<String, String>,
+    pub gc_tasks: HashMap<String, indexify_internal_api::GarbageCollectionTask>,
+    pub task_deletion_allocation_events_sender:
+        watch::Sender<indexify_internal_api::GarbageCollectionTask>,
+    pub task_deletion_allocation_events_receiver:
+        watch::Receiver<indexify_internal_api::GarbageCollectionTask>,
 }
 
 impl GarbageCollector {
     pub fn new() -> Self {
+        let (tx, rx) = watch::channel(indexify_internal_api::GarbageCollectionTask {
+            id: "".to_string(),
+            output_index_table_mapping: HashSet::new(),
+            outcome: indexify_internal_api::TaskOutcome::Unknown,
+        });
         Self {
             ingestion_servers: RwLock::new(HashSet::new()),
-            assigned_gc_tasks: RwLock::new(HashMap::new()),
-            gc_tasks: RwLock::new(HashMap::new()),
+            assigned_gc_tasks: HashMap::new(),
+            gc_tasks: HashMap::new(),
+            task_deletion_allocation_events_sender: tx,
+            task_deletion_allocation_events_receiver: rx,
         }
     }
 
@@ -28,5 +42,13 @@ impl GarbageCollector {
                 //  Assign task to an ingestion server and store it
             }
         });
+    }
+
+    pub async fn register_ingestion_server(
+        &self,
+        node_id: String,
+    ) -> Result<watch::Receiver<GarbageCollectionTask>> {
+        self.ingestion_servers.write().await.insert(node_id);
+        Ok(self.task_deletion_allocation_events_receiver.clone())
     }
 }
