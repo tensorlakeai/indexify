@@ -53,9 +53,9 @@ Start the chunk extractor
 indexify-extractor join chunking.chunk_extractor:ChunkExtractor
 ```
 
-### Download the Video
+### Download the Libraries
 ```bash
-pip install pytube indexify
+pip install pytube indexify indexify-langchain
 ```
 
 ```python
