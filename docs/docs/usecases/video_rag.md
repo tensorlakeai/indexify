@@ -25,6 +25,7 @@ curl https://tensorlake.ai | sh
 pip install indexify-extractor-sdk
 indexify-extractor download hub://audio/whisper-asr
 indexify-extractor download hub://video/audio-extractor
+indexify-extractor download hub://tensorlake/chunk-extractor
 indexify-extractor download hub://embedding/minilm-l6
 ```
 
@@ -39,14 +40,17 @@ indexify-extractor join audio-extractor.audio_extractor:AudioExtractor
 ```
 Start the minilm embedding extractor
 ```bash
-cd indexify-extractor/minilm-l6/
 indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
 ```
 
 Start the whisper extractor
 ```bash
-cd indexify-extractor
 indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor
+```
+
+Start the chunk extractor
+```bash
+indexify-extractor join chunking.chunk_extractor:ChunkExtractor
 ```
 
 ### Download the Video
@@ -75,7 +79,8 @@ Third, we pass the transcripts though a `tensorlake/minilm-l6` extractor to extr
 ```python
 client.add_extraction_policy(extractor='tensorlake/audio-extractor', name="audio_clips_of_videos")
 client.add_extraction_policy(extractor='tensorlake/whisper-asr', name="audio-transcription", content_source='audio_clips_of_videos')
-client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source='audio-transcription', input_params={'chunk_size': 2000, 'overlap': 200})
+client.add_extraction_policy(extractor='tensorlake/chunk-extractor', name="transcription-chunks", content_source='audio-transcription', input_params={"chunk_size": 2000, "overlap":200})
+client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source='transcription-chunks')
 ```
 
 
