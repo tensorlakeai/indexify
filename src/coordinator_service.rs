@@ -22,7 +22,8 @@ use indexify_proto::indexify_coordinator::{
     ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
     ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
     ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
-    RegisterExecutorResponse, TaskAssignments, Uint64List, UpdateTaskRequest, UpdateTaskResponse,
+    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
+    TaskAssignments, Uint64List, UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
@@ -265,6 +266,15 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(RegisterExecutorResponse {
             executor_id: request.executor_id,
         }))
+    }
+
+    async fn register_ingestion_server(
+        &self,
+        request: tonic::Request<RegisterIngestionServerRequest>,
+    ) -> Result<tonic::Response<RegisterIngestionServerResponse>, tonic::Status> {
+        let request = request.into_inner();
+
+        Ok(tonic::Response::new(RegisterIngestionServerResponse {}))
     }
 
     async fn heartbeat(

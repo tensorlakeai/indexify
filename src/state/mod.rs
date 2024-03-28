@@ -817,6 +817,50 @@ impl App {
         Ok(state_change.id)
     }
 
+    pub async fn register_ingestion_server(
+        &self,
+        addr: &str,
+        ingestion_server_id: &str,
+    ) -> Result<()> {
+        let ts = timestamp_secs();
+        let state_change = StateChange::new(
+            ingestion_server_id.to_string(),
+            internal_api::ChangeType::IngestionServerAdded,
+            ts,
+        );
+        let ingestion_server_metadata = internal_api::IngestionServerMetadata {
+            id: ingestion_server_id.to_string(),
+            addr: addr.to_string(),
+            last_seen: ts,
+        };
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::RegisterIngestionServer {
+                ingestion_server_metadata,
+            },
+            new_state_changes: vec![state_change],
+            state_changes_processed: vec![],
+        };
+        let _resp = self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
+        let state_change = StateChange::new(
+            ingestion_server_id.to_string(),
+            internal_api::ChangeType::IngestionServerRemoved,
+            timestamp_secs(),
+        );
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::RemoveIngestionServer {
+                ingestion_server_id: ingestion_server_id.to_string(),
+            },
+            new_state_changes: vec![state_change],
+            state_changes_processed: vec![],
+        };
+        let _resp = self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
         let extractors: Vec<internal_api::ExtractorDescription> = self
             .state_machine
@@ -967,7 +1011,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_gc_task(
+    pub async fn create_gc_tasks(
         &self,
         gc_tasks: Vec<internal_api::GarbageCollectionTask>,
         processed_change_id: &str,

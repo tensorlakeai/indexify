@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use indexify_internal_api as internal_api;
-use internal_api::{ExtractorDescription, StateChange};
+use internal_api::{ExtractorDescription, IngestionServerMetadata, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -528,6 +528,24 @@ impl IndexifyState {
         Ok(())
     }
 
+    fn set_garbage_collection_tasks(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        garbage_collection_tasks: &Vec<internal_api::GarbageCollectionTask>,
+    ) -> Result<(), StateMachineError> {
+        for gc_task in garbage_collection_tasks {
+            let serialized_gc_task = JsonEncoder::encode(gc_task)?;
+            txn.put_cf(
+                StateMachineColumns::GarbageCollectionTasks.cf(db),
+                gc_task.id.clone(),
+                &serialized_gc_task,
+            )
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn get_task_assignments_for_executor(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -712,6 +730,46 @@ impl IndexifyState {
             serialized_extractor,
         )
         .map_err(|e| StateMachineError::DatabaseError(format!("Error writing extractor: {}", e)))?;
+        Ok(())
+    }
+
+    fn set_ingestion_server(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        ingestion_server_metadata: &IngestionServerMetadata,
+    ) -> Result<(), StateMachineError> {
+        let serialized_metadata = JsonEncoder::encode(ingestion_server_metadata)?;
+        txn.put_cf(
+            StateMachineColumns::IngestionServers.cf(db),
+            &ingestion_server_metadata.id,
+            serialized_metadata,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error writing ingestion server with id {}: {}",
+                ingestion_server_metadata.id, e
+            ))
+        })?;
+        Ok(())
+    }
+
+    fn remove_ingestion_server(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        ingestion_server_id: &str,
+    ) -> Result<(), StateMachineError> {
+        txn.delete_cf(
+            StateMachineColumns::IngestionServers.cf(db),
+            ingestion_server_id,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error deleting ingestion server with id {}: {}",
+                ingestion_server_id, e
+            ))
+        })?;
         Ok(())
     }
 
@@ -925,6 +983,9 @@ impl IndexifyState {
             RequestPayload::CreateTasks { tasks } => {
                 self.set_tasks(db, &txn, tasks)?;
             }
+            RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
+                self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
+            }
             RequestPayload::AssignTask { assignments } => {
                 let assignments: HashMap<&String, HashSet<TaskId>> =
                     assignments
@@ -984,6 +1045,17 @@ impl IndexifyState {
 
                 //  Insert the associated extractor
                 self.set_extractor(db, &txn, extractor)?;
+            }
+            RequestPayload::RegisterIngestionServer {
+                ingestion_server_metadata,
+            } => {
+                //  write the ingestion server metadata
+                self.set_ingestion_server(db, &txn, ingestion_server_metadata)?;
+            }
+            RequestPayload::RemoveIngestionServer {
+                ingestion_server_id,
+            } => {
+                self.remove_ingestion_server(db, &txn, ingestion_server_id)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 //  NOTE: Special case of a handler that also remove its own reverse indexes

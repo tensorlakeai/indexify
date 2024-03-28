@@ -9,11 +9,15 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
-use tokio::sync::watch::Receiver;
+use tokio::sync::{
+    mpsc::{self, Sender},
+    watch::Receiver,
+};
 use tracing::info;
 
 use crate::{
     coordinator_filters::*,
+    garbage_collector::GarbageCollector,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
@@ -22,15 +26,22 @@ use crate::{
 pub struct Coordinator {
     shared_state: SharedState,
     scheduler: Scheduler,
+    garbage_collector: GarbageCollector,
+    gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
 }
 
 impl Coordinator {
     pub fn new(shared_state: SharedState) -> Arc<Self> {
+        let (tx, rx) = mpsc::channel(8);
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
+        let garbage_collector = GarbageCollector::new();
+        garbage_collector.watch_deletion_events(rx);
         Arc::new(Self {
             shared_state,
             scheduler,
+            garbage_collector,
+            gc_tasks_tx: tx,
         })
     }
 
@@ -177,6 +188,14 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn register_ingestion_server(
+        &self,
+        addr: &str,
+        ingestion_server_id: &str,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     pub async fn get_content_metadata(
         &self,
         content_ids: Vec<String>,
@@ -299,8 +318,9 @@ impl Coordinator {
                         outcome: indexify_internal_api::TaskOutcome::Unknown,
                     };
                     self.shared_state
-                        .create_gc_task(vec![gc_task], &change.id)
+                        .create_gc_tasks(vec![gc_task.clone()], &change.id)
                         .await?;
+                    self.gc_tasks_tx.send(gc_task).await?;
                 }
                 return Ok(());
             }

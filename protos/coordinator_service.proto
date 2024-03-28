@@ -26,6 +26,8 @@ service CoordinatorService {
 
     rpc RegisterExecutor(RegisterExecutorRequest) returns (RegisterExecutorResponse) {}
 
+    rpc RegisterIngestionServer(RegisterIngestionServerRequest) returns (RegisterIngestionServerResponse) {}
+
     rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
 
     rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
@@ -170,6 +172,15 @@ message RegisterExecutorRequest {
 
 message RegisterExecutorResponse {
     string executor_id = 1;
+}
+
+message RegisterIngestionServerRequest {
+    string ingestion_server_id = 1;
+    string addr = 2;
+}
+
+message RegisterIngestionServerResponse {
+
 }
 
 message HeartbeatRequest {

@@ -36,6 +36,15 @@ pub enum RequestPayload {
         extractor: internal_api::ExtractorDescription,
         ts_secs: u64,
     },
+    RemoveExecutor {
+        executor_id: String,
+    },
+    RegisterIngestionServer {
+        ingestion_server_metadata: internal_api::IngestionServerMetadata,
+    },
+    RemoveIngestionServer {
+        ingestion_server_id: String,
+    },
     CreateNamespace {
         name: String,
         structured_data_schema: internal_api::StructuredDataSchema,
@@ -79,9 +88,6 @@ pub enum RequestPayload {
         mark_finished: bool,
         executor_id: Option<String>,
         content_metadata: Vec<internal_api::ContentMetadata>,
-    },
-    RemoveExecutor {
-        executor_id: String,
     },
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,

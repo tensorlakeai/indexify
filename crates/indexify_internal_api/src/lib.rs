@@ -126,6 +126,13 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IngestionServerMetadata {
+    pub id: String,
+    pub addr: String,
+    pub last_seen: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct OutputType {
     #[serde(rename = "type")]
@@ -570,6 +577,8 @@ pub enum ChangeType {
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
+    IngestionServerAdded,
+    IngestionServerRemoved,
     NewGargabeCollectionTask,
 }
 
@@ -581,6 +590,8 @@ impl fmt::Display for ChangeType {
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+            ChangeType::IngestionServerAdded => write!(f, "IngestionServerAdded"),
+            ChangeType::IngestionServerRemoved => write!(f, "IngestionServerRemoved"),
             ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
         }
     }

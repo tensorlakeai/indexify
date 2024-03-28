@@ -64,6 +64,7 @@ pub enum StateMachineError {
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
     Executors,                          //  ExecutorId -> Executor Metadata
+    IngestionServers,                   //  IngestionServerId -> Ingestion Server Metadata
     Tasks,                              //  TaskId -> Task
     GarbageCollectionTasks,             //  GCTaskId -> GCTask
     TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
