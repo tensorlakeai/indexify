@@ -55,10 +55,13 @@ indexify-extractor join chunking.chunk_extractor:ChunkExtractor
 
 ### Download the Video
 ```bash
-pip install pytube
+pip install pytube indexify
 ```
 
 ```python
+from pytube import YouTube
+import os
+
 yt = YouTube("https://www.youtube.com/watch?v=cplSUhU2avc")
 file_name = "state_of_the_union_2024.mp4"
 if not os.path.exists(file_name):
