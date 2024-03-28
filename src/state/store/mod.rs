@@ -14,21 +14,9 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -77,6 +65,7 @@ pub enum StateMachineError {
 pub enum StateMachineColumns {
     Executors,                          //  ExecutorId -> Executor Metadata
     Tasks,                              //  TaskId -> Task
+    GarbageCollectionTasks,             //  GCTaskId -> GCTask
     TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
     StateChanges,                       //  StateChangeId -> StateChange
     ContentTable,                       //  ContentId -> ContentMetadata
@@ -519,6 +508,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
             replies.push(Response { value: resp_value });
         }
         for change_event in change_events {
+            println!("New change event {:#?}", change_event);
             if let Err(err) = self.data.state_change_tx.send(change_event) {
                 tracing::error!("error sending state change event: {}", err);
             }

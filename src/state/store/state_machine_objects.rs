@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -634,8 +626,27 @@ impl IndexifyState {
                 &serialized_content,
             )
             .map_err(|e| {
-                StateMachineError::DatabaseError(format!("Error writing content: {}", e))
+                StateMachineError::DatabaseError(format!("error writing content: {}", e))
             })?;
+        }
+        Ok(())
+    }
+
+    fn delete_content(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        _namespace: &NamespaceName,
+        content_ids: HashSet<String>,
+    ) -> Result<(), StateMachineError> {
+        for content_id in content_ids {
+            txn.delete_cf(StateMachineColumns::ContentTable.cf(db), content_id)
+                .map_err(|e| {
+                    StateMachineError::TransactionError(format!(
+                        "error in txn while trying to delete content: {}",
+                        e
+                    ))
+                })?;
         }
         Ok(())
     }
@@ -1004,6 +1015,12 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
+            }
+            RequestPayload::DeleteContent {
+                namespace,
+                content_ids,
+            } => {
+                self.delete_content(db, &txn, namespace, content_ids.clone())?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,

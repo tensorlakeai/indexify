@@ -5,8 +5,7 @@ use opensearch::{
     cert::CertificateValidation,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
     indices::IndicesCreateParts,
-    BulkOperation,
-    OpenSearch,
+    BulkOperation, OpenSearch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -110,6 +109,28 @@ impl VectorDb for OpenSearchKnn {
             Err(e) => {
                 return Err(anyhow!("unable to add opensearch embeddings: '{}'", e));
             }
+        }
+    }
+
+    async fn remove_embedding(&self, index_name: &str, content_id: &str) -> Result<()> {
+        let query = json!({
+            "query": {
+                "match": {
+                    "_id": content_id
+                }
+            }
+        });
+
+        let response = self
+            .create_client()?
+            .delete_by_query(opensearch::DeleteByQueryParts::Index(&[index_name]))
+            .body(query)
+            .send()
+            .await?;
+
+        match response.error_for_status_code() {
+            Ok(_) => Ok(()),
+            Err(e) => return Err(anyhow!("unable to remove opensearch embeddings: '{}'", e)),
         }
     }
 

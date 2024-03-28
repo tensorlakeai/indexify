@@ -12,50 +12,22 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    TaskAssignments,
-    Uint64List,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
+    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, DeleteContentRequest,
+    DeleteContentResponse, ExtractionPolicyRequest, ExtractionPolicyResponse, GetAllSchemaRequest,
+    GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, TaskAssignments, Uint64List, UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -102,6 +74,20 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(CreateContentResponse { id }))
     }
 
+    async fn delete_content(
+        &self,
+        request: tonic::Request<DeleteContentRequest>,
+    ) -> Result<tonic::Response<DeleteContentResponse>, tonic::Status> {
+        let req = request.into_inner();
+        let namespace = req.namespace;
+        let content_ids = req.content_ids;
+        self.coordinator
+            .delete_content_metadatas(&namespace, &content_ids)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(DeleteContentResponse {}))
+    }
+
     async fn list_content(
         &self,
         request: tonic::Request<ListContentRequest>,
@@ -139,6 +125,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let mut index_name_table_mapping = HashMap::new();
         let mut output_index_name_mapping = HashMap::new();
+
+        //  TODO: Just create an output to table mapping here directly instead of 2 separate mappings
         for output_name in extractor.outputs.keys() {
             let index_name = format!("{}.{}", request.name, output_name);
             let index_table_name =
@@ -682,8 +670,9 @@ async fn run_scheduler(
     loop {
         tokio::select! {
             _ = state_watcher_rx.changed() => {
+                println!("Received change event in coordinator_service");
                 if is_leader.load(Ordering::Relaxed) {
-                    let _state_change = state_watcher_rx.borrow_and_update().clone();
+                   let _state_change = state_watcher_rx.borrow_and_update().clone();
                    if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }
