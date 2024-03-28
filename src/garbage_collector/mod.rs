@@ -10,18 +10,21 @@ pub struct GarbageCollector {
     pub assigned_gc_tasks: HashMap<String, String>,
     pub gc_tasks: HashMap<String, indexify_internal_api::GarbageCollectionTask>,
     pub task_deletion_allocation_events_sender:
-        watch::Sender<indexify_internal_api::GarbageCollectionTask>,
+        watch::Sender<(String, indexify_internal_api::GarbageCollectionTask)>,
     pub task_deletion_allocation_events_receiver:
-        watch::Receiver<indexify_internal_api::GarbageCollectionTask>,
+        watch::Receiver<(String, indexify_internal_api::GarbageCollectionTask)>,
 }
 
 impl GarbageCollector {
     pub fn new() -> Self {
-        let (tx, rx) = watch::channel(indexify_internal_api::GarbageCollectionTask {
-            id: "".to_string(),
-            output_index_table_mapping: HashSet::new(),
-            outcome: indexify_internal_api::TaskOutcome::Unknown,
-        });
+        let (tx, rx) = watch::channel((
+            "".to_string(),
+            indexify_internal_api::GarbageCollectionTask {
+                id: "".to_string(),
+                output_index_table_mapping: HashSet::new(),
+                outcome: indexify_internal_api::TaskOutcome::Unknown,
+            },
+        ));
         Self {
             ingestion_servers: RwLock::new(HashSet::new()),
             assigned_gc_tasks: HashMap::new(),
@@ -47,7 +50,7 @@ impl GarbageCollector {
     pub async fn register_ingestion_server(
         &self,
         node_id: String,
-    ) -> Result<watch::Receiver<GarbageCollectionTask>> {
+    ) -> Result<watch::Receiver<(String, GarbageCollectionTask)>> {
         self.ingestion_servers.write().await.insert(node_id);
         Ok(self.task_deletion_allocation_events_receiver.clone())
     }

@@ -300,12 +300,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         let mut gc_task_allocation_event_rx = self.coordinator.get_gc_task_allocation_event_rx();
         let (tx, rx) = mpsc::channel(4);
 
-        //  Add the transmitter to the state
-        {
-            let mut lock = self.gc_task_channels.lock().await;
-            lock.push(tx);
-        };
-
         let inbound = request.into_inner();
         tokio::spawn(async move {
             inbound
@@ -323,10 +317,22 @@ impl CoordinatorService for CoordinatorServiceServer {
 
         //  Spawn a new task that listens for new gc task allocation events
         tokio::spawn(async move {
-            while let Ok(task) = gc_task_allocation_event_rx.changed().await {
+            while let Ok(_) = gc_task_allocation_event_rx.changed().await {
                 let gc_task = gc_task_allocation_event_rx.borrow().clone();
 
                 //  filter the gc_task on the ingestion_server_id to determine whether it should be sent as part of this stream
+                if gc_task.0 == ingestion_server_id {
+                    //  pass the task along to the ingestion server
+                    let serialized_task = GcTask {
+                        task_id: gc_task.1.id,
+                        output_index_table_mapping: gc_task
+                            .1
+                            .output_index_table_mapping
+                            .into_iter()
+                            .collect::<Vec<String>>(),
+                    };
+                    tx.send(serialized_task).await.unwrap();
+                }
             }
         });
 

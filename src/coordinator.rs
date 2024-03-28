@@ -1,10 +1,10 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
-use anyhow::{anyhow, Context, Ok, Result};
+use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
@@ -12,7 +12,6 @@ use jsonschema::JSONSchema;
 use tokio::sync::{
     mpsc::{self, Sender},
     watch::{self, Receiver},
-    Mutex,
 };
 use tracing::info;
 
@@ -29,7 +28,7 @@ pub struct Coordinator {
     scheduler: Scheduler,
     garbage_collector: GarbageCollector,
     gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
-    gc_task_allocation_event_rx: watch::Receiver<GarbageCollectionTask>,
+    gc_task_allocation_event_rx: watch::Receiver<(String, GarbageCollectionTask)>,
 }
 
 impl Coordinator {
@@ -346,7 +345,9 @@ impl Coordinator {
         Ok(())
     }
 
-    pub fn get_gc_task_allocation_event_rx(&self) -> watch::Receiver<GarbageCollectionTask> {
+    pub fn get_gc_task_allocation_event_rx(
+        &self,
+    ) -> watch::Receiver<(String, GarbageCollectionTask)> {
         self.gc_task_allocation_event_rx.clone()
     }
 
