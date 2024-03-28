@@ -25,7 +25,7 @@ curl https://www.tensorlake.ai | sh
 pip install indexify-extractor-sdk
 indexify-extractor download hub://audio/whisper-asr
 indexify-extractor download hub://video/audio-extractor
-indexify-extractor download hub://tensorlake/chunk-extractor
+indexify-extractor download hub://text/chunking
 indexify-extractor download hub://embedding/minilm-l6
 ```
 
