@@ -126,6 +126,13 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IngestionServerMetadata {
+    pub id: String,
+    pub addr: String,
+    pub last_seen: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct OutputType {
     #[serde(rename = "type")]
@@ -340,6 +347,16 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         })
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[schema(as=internal_api::GarbageCollectionTask)]
+pub struct GarbageCollectionTask {
+    pub id: String,
+    pub output_index_table_mapping: HashSet<String>,
+    #[schema(value_type = internal_api::TaskOutcome)]
+    pub outcome: TaskOutcome,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct ExtractionPolicy {
     pub id: String,
@@ -556,18 +573,26 @@ impl From<Namespace> for indexify_coordinator::Namespace {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
+    DeleteContent,
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
+    IngestionServerAdded,
+    IngestionServerRemoved,
+    NewGargabeCollectionTask,
 }
 
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
+            ChangeType::DeleteContent => write!(f, "DeleteContent"),
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+            ChangeType::IngestionServerAdded => write!(f, "IngestionServerAdded"),
+            ChangeType::IngestionServerRemoved => write!(f, "IngestionServerRemoved"),
+            ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
         }
     }
 }

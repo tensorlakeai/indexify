@@ -157,6 +157,12 @@ pub struct TextAddRequest {
     pub sync: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteContentRequest {
+    namespace: String,
+    content_ids: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
 

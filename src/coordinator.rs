@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -7,13 +7,17 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::{OutputSchema, StateChange, StructuredDataSchema};
+use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
-use tokio::sync::watch::Receiver;
+use tokio::sync::{
+    mpsc::{self, Sender},
+    watch::{self, Receiver},
+};
 use tracing::info;
 
 use crate::{
     coordinator_filters::*,
+    garbage_collector::GarbageCollector,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
@@ -22,15 +26,26 @@ use crate::{
 pub struct Coordinator {
     shared_state: SharedState,
     scheduler: Scheduler,
+    garbage_collector: GarbageCollector,
+    gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
+    gc_task_allocation_event_rx: watch::Receiver<(String, GarbageCollectionTask)>,
 }
 
 impl Coordinator {
     pub fn new(shared_state: SharedState) -> Arc<Self> {
+        let (tx, rx) = mpsc::channel(8);
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
+        let garbage_collector = GarbageCollector::new();
+        garbage_collector.watch_deletion_events(rx);
         Arc::new(Self {
             shared_state,
             scheduler,
+            gc_task_allocation_event_rx: garbage_collector
+                .task_deletion_allocation_events_receiver
+                .clone(),
+            garbage_collector,
+            gc_tasks_tx: tx,
         })
     }
 
@@ -177,6 +192,16 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn register_ingestion_server(
+        &self,
+        addr: &str,
+        ingestion_server_id: &str,
+    ) -> Result<()> {
+        self.shared_state
+            .register_ingestion_server(addr, ingestion_server_id)
+            .await
+    }
+
     pub async fn get_content_metadata(
         &self,
         content_ids: Vec<String>,
@@ -244,14 +269,86 @@ impl Coordinator {
     #[tracing::instrument(skip(self))]
     pub async fn run_scheduler(&self) -> Result<(), anyhow::Error> {
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
+        println!(
+            "The unprocessed state change events are {:#?}",
+            state_changes
+        );
         for change in state_changes {
             info!(
                 "processing change event: {}, type: {}, id: {}",
                 change.id, change.change_type, change.object_id
             );
+            if change
+                .change_type
+                .eq(&indexify_internal_api::ChangeType::DeleteContent)
+            {
+                //  Get the extraction policy ids applied to a content id from the mappings and figure out the table name of the index where the data is written and needs to be deleted from
+                //  Then create a GCTask and notify the GarbageCollector of that
+                let content_extraction_policy_mappings = self
+                    .shared_state
+                    .get_content_extraction_policy_mappings_for_content_id(&change.object_id)
+                    .await?;
+                if let Some(mappings) = content_extraction_policy_mappings {
+                    //  fetch all the extraction policies that have been applied
+                    let applied_extraction_policy_ids: HashSet<String> =
+                        mappings.time_of_policy_completion.keys().cloned().collect();
+                    let applied_extraction_policies = self
+                        .shared_state
+                        .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+                        .await?;
+
+                    //  Get the table names from the extraction_policies
+                    let mut output_tables: Vec<String> = Vec::new();
+                    for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
+                        output_tables.extend(
+                            applied_extraction_policy
+                                .output_index_name_mapping
+                                .values()
+                                .cloned(),
+                        );
+                    }
+
+                    //  Create the garbage collection task and write it to Raft and send the gc task to the garbage collector
+                    let mut hasher = DefaultHasher::new();
+                    let policies = applied_extraction_policies.unwrap();
+                    let policy = policies.get(0).unwrap();
+
+                    policy.name.hash(&mut hasher);
+                    policy.namespace.hash(&mut hasher);
+                    change.object_id.hash(&mut hasher);
+                    let id = format!("{:x}", hasher.finish());
+
+                    let gc_task = indexify_internal_api::GarbageCollectionTask {
+                        id,
+                        output_index_table_mapping: output_tables.iter().cloned().collect(),
+                        outcome: indexify_internal_api::TaskOutcome::Unknown,
+                    };
+                    self.shared_state
+                        .create_gc_tasks(vec![gc_task.clone()], &change.id)
+                        .await?;
+                    //  TODO: Should we react to a state change event before sending the gc task to the garbage collector
+                    self.gc_tasks_tx.send(gc_task).await?;
+                }
+                return Ok(());
+            } else if change
+                .change_type
+                .eq(&indexify_internal_api::ChangeType::IngestionServerAdded)
+            {
+                let _rx = self
+                    .garbage_collector
+                    .register_ingestion_server(change.object_id)
+                    .await?;
+                return Ok(());
+            }
             self.scheduler.handle_change_event(change).await?;
         }
         Ok(())
+    }
+
+    pub fn get_gc_task_allocation_event_rx(
+        &self,
+    ) -> watch::Receiver<(String, GarbageCollectionTask)> {
+        self.gc_task_allocation_event_rx.clone()
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {
@@ -265,6 +362,17 @@ impl Coordinator {
         let content_meta_list = content_request_to_content_metadata(content_list)?;
         self.shared_state
             .create_content_batch(content_meta_list)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_content_metadatas(
+        &self,
+        namespace: &str,
+        content_ids: &[String],
+    ) -> Result<()> {
+        self.shared_state
+            .delete_content_batch(namespace, content_ids)
             .await?;
         Ok(())
     }

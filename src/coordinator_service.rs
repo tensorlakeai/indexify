@@ -10,58 +10,32 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use futures::{lock::Mutex, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    TaskAssignments,
-    Uint64List,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
+    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, DeleteContentRequest,
+    DeleteContentResponse, ExtractionPolicyRequest, ExtractionPolicyResponse, GcTask,
+    GcTaskAcknowledgement, GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest, GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
+    TaskAssignments, Uint64List, UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
     },
 };
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
@@ -74,15 +48,19 @@ use crate::{
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
+type GCTasksResponseStream =
+    Pin<Box<dyn tokio_stream::Stream<Item = Result<GcTask, Status>> + Send + Sync>>;
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
     shutdown_rx: Receiver<()>,
+    gc_task_channels: Arc<Mutex<Vec<tokio::sync::mpsc::Sender<GcTask>>>>,
 }
 
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
     type HeartbeatStream = HBResponseStream;
+    type GCTasksStreamStream = GCTasksResponseStream;
 
     async fn create_content(
         &self,
@@ -100,6 +78,20 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateContentResponse { id }))
+    }
+
+    async fn delete_content(
+        &self,
+        request: tonic::Request<DeleteContentRequest>,
+    ) -> Result<tonic::Response<DeleteContentResponse>, tonic::Status> {
+        let req = request.into_inner();
+        let namespace = req.namespace;
+        let content_ids = req.content_ids;
+        self.coordinator
+            .delete_content_metadatas(&namespace, &content_ids)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(DeleteContentResponse {}))
     }
 
     async fn list_content(
@@ -139,6 +131,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let mut index_name_table_mapping = HashMap::new();
         let mut output_index_name_mapping = HashMap::new();
+
+        //  TODO: Just create an output to table mapping here directly instead of 2 separate mappings
         for output_name in extractor.outputs.keys() {
             let index_name = format!("{}.{}", request.name, output_name);
             let index_table_name =
@@ -277,6 +271,75 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(RegisterExecutorResponse {
             executor_id: request.executor_id,
         }))
+    }
+
+    async fn register_ingestion_server(
+        &self,
+        request: tonic::Request<RegisterIngestionServerRequest>,
+    ) -> Result<tonic::Response<RegisterIngestionServerResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .register_ingestion_server(&request.addr, &request.ingestion_server_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        Ok(tonic::Response::new(RegisterIngestionServerResponse {}))
+    }
+
+    async fn gc_tasks_stream(
+        &self,
+        request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
+    ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
+        let ingestion_server_id = request
+            .metadata()
+            .get("ingestion-server-id")
+            .and_then(|val| val.to_str().ok())
+            .map(String::from)
+            .ok_or_else(|| tonic::Status::invalid_argument("Missing ingestion server id"))?;
+
+        let mut gc_task_allocation_event_rx = self.coordinator.get_gc_task_allocation_event_rx();
+        let (tx, rx) = mpsc::channel(4);
+
+        let inbound = request.into_inner();
+        tokio::spawn(async move {
+            inbound
+                .for_each(|task_ack| async {
+                    match task_ack {
+                        Ok(ack) => {
+                            tracing::debug!("Received task acknowledgement {:?}", ack);
+                            //  mark the gc task as complete
+                        }
+                        Err(e) => tracing::error!("Error receiving task acknowledgement {}", e),
+                    }
+                })
+                .await;
+        });
+
+        //  Spawn a new task that listens for new gc task allocation events
+        tokio::spawn(async move {
+            while let Ok(_) = gc_task_allocation_event_rx.changed().await {
+                let gc_task = gc_task_allocation_event_rx.borrow().clone();
+
+                //  filter the gc_task on the ingestion_server_id to determine whether it should be sent as part of this stream
+                if gc_task.0 == ingestion_server_id {
+                    //  pass the task along to the ingestion server
+                    let serialized_task = GcTask {
+                        task_id: gc_task.1.id,
+                        output_index_table_mapping: gc_task
+                            .1
+                            .output_index_table_mapping
+                            .into_iter()
+                            .collect::<Vec<String>>(),
+                    };
+                    tx.send(serialized_task).await.unwrap();
+                }
+            }
+        });
+
+        let response_stream = ReceiverStream::new(rx).map(Ok);
+        Ok(tonic::Response::new(
+            Box::pin(response_stream) as Self::GCTasksStreamStream
+        ))
     }
 
     async fn heartbeat(
@@ -630,6 +693,7 @@ impl CoordinatorServer {
         let svc = CoordinatorServiceServer {
             coordinator: self.coordinator.clone(),
             shutdown_rx: shutdown_rx.clone(),
+            gc_task_channels: Arc::new(Mutex::new(Vec::new())),
         };
         let srvr =
             indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);
@@ -682,8 +746,9 @@ async fn run_scheduler(
     loop {
         tokio::select! {
             _ = state_watcher_rx.changed() => {
+                println!("Received change event in coordinator_service");
                 if is_leader.load(Ordering::Relaxed) {
-                    let _state_change = state_watcher_rx.borrow_and_update().clone();
+                   let _state_change = state_watcher_rx.borrow_and_update().clone();
                    if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }

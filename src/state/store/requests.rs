@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::{HashMap, HashSet},
+    time::SystemTime,
+};
 
 use indexify_internal_api as internal_api;
 use internal_api::StateChange;
@@ -33,6 +36,15 @@ pub enum RequestPayload {
         extractor: internal_api::ExtractorDescription,
         ts_secs: u64,
     },
+    RemoveExecutor {
+        executor_id: String,
+    },
+    RegisterIngestionServer {
+        ingestion_server_metadata: internal_api::IngestionServerMetadata,
+    },
+    RemoveIngestionServer {
+        ingestion_server_id: String,
+    },
     CreateNamespace {
         name: String,
         structured_data_schema: internal_api::StructuredDataSchema,
@@ -43,8 +55,15 @@ pub enum RequestPayload {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
+    CreateGarbageCollectionTasks {
+        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+    },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
+    },
+    DeleteContent {
+        namespace: String,
+        content_ids: HashSet<String>,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,
@@ -69,9 +88,6 @@ pub enum RequestPayload {
         mark_finished: bool,
         executor_id: Option<String>,
         content_metadata: Vec<internal_api::ContentMetadata>,
-    },
-    RemoveExecutor {
-        executor_id: String,
     },
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,

@@ -6,13 +6,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use arrow_array::{
-    cast::as_string_array,
-    types::Float32Type,
-    FixedSizeListArray,
-    PrimitiveArray,
-    RecordBatch,
-    RecordBatchIterator,
-    StringArray,
+    cast::as_string_array, types::Float32Type, FixedSizeListArray, PrimitiveArray, RecordBatch,
+    RecordBatchIterator, StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
@@ -105,6 +100,28 @@ impl VectorDb for LanceDb {
             .execute(Box::new(batches))
             .await
             .map_err(|e| anyhow!("unable to add to table {}", e))
+    }
+
+    #[tracing::instrument]
+    #[tracing::instrument]
+    async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
+        // Open the table
+        let tbl = self
+            .conn
+            .open_table(index)
+            .await
+            .map_err(|e| anyhow!("unable to open table: {}", e))?;
+
+        // Delete the rows where content_id is the key
+        tbl.delete(&format!("id = {}", content_id))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to remove embeddings from lance db table for content_id {}: {}",
+                    content_id,
+                    e
+                )
+            })
     }
 
     #[tracing::instrument]

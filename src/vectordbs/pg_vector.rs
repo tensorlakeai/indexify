@@ -77,6 +77,17 @@ impl VectorDb for PgVector {
     }
 
     #[tracing::instrument]
+    async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
+        let index = PostgresIndexName::new(index);
+        let query = format!("DELETE FROM {} WHERE content_id = $1", index);
+        sqlx::query(&query)
+            .bind(content_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument]
     async fn search(
         &self,
         index: String,

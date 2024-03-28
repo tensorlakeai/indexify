@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -498,6 +496,40 @@ async fn list_content(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ListContentResponse { content_list }))
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    delete,
+    path = "/namespaces/{namespace}/content",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Deletes specified pieces of content", body = DeleteContentResponse),
+        (status = BAD_REQUEST, description = "Unable to find a piece of content to delete")
+    ),
+)]
+#[axum::debug_handler]
+async fn delete_content(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Json(body): Json<super::api::DeleteContentRequest>,
+) -> Result<Json<()>, IndexifyAPIError> {
+    // state.coordinator_client
+    // state
+    //     .data_manager
+    //     .delete_content(&namespace, &content_id)
+    //     .await
+    //     .map_err(|e| {
+    //         IndexifyAPIError::new(
+    //             StatusCode::INTERNAL_SERVER_ERROR,
+    //             format!(
+    //                 "failed to delete content with id {}: {}",
+    //                 content_id,
+    //                 e.to_string()
+    //             ),
+    //         )
+    //     })?;
+    Ok(Json(()))
 }
 
 #[tracing::instrument]
