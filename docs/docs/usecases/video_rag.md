@@ -20,7 +20,7 @@ The Q&A will be powered by Langchain and OpenAI. We will create a Indexify Retre
 
 ### Download Indexify and the necessary extractors
 ```bash
-curl https://tensorlake.ai | sh
+curl https://www.tensorlake.ai | sh
 
 pip install indexify-extractor-sdk
 indexify-extractor download hub://audio/whisper-asr
