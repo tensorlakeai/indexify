@@ -109,7 +109,7 @@ const ContentPage = () => {
         }
       });
     }
-  }, [client, contentId]);
+  }, [client, contentId, contentMetadata.mime_type]);
 
   const renderContent = () => {
     if (contentMetadata.mime_type.startsWith("application/pdf")) {
