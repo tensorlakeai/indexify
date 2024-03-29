@@ -704,6 +704,10 @@ impl App {
         Ok(())
     }
 
+    pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {
+        Ok(())
+    }
+
     pub async fn extractor_with_name(
         &self,
         extractor: &str,
@@ -1073,6 +1077,18 @@ impl App {
             .await?
             .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
         Ok(task)
+    }
+
+    pub async fn gc_task_with_id(
+        &self,
+        gc_task_id: &str,
+    ) -> Result<internal_api::GarbageCollectionTask> {
+        let gc_task = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)
+            .await?
+            .ok_or_else(|| anyhow!("Garbage collection task with id {} not found", gc_task_id))?;
+        Ok(gc_task)
     }
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {

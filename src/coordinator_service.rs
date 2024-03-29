@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use futures::{lock::Mutex, StreamExt};
+use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self, coordinator_service_server::CoordinatorService, CreateContentRequest,
@@ -54,7 +54,6 @@ type GCTasksResponseStream =
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
     shutdown_rx: Receiver<()>,
-    gc_task_channels: Arc<Mutex<Vec<tokio::sync::mpsc::Sender<GcTask>>>>,
 }
 
 #[tonic::async_trait]
@@ -693,7 +692,6 @@ impl CoordinatorServer {
         let svc = CoordinatorServiceServer {
             coordinator: self.coordinator.clone(),
             shutdown_rx: shutdown_rx.clone(),
-            gc_task_channels: Arc::new(Mutex::new(Vec::new())),
         };
         let srvr =
             indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);

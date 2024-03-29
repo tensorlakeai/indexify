@@ -546,6 +546,24 @@ impl IndexifyState {
         Ok(())
     }
 
+    fn update_garbage_collection_tasks(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        garbage_collection_tasks: &Vec<&internal_api::GarbageCollectionTask>,
+    ) -> Result<(), StateMachineError> {
+        for gc_task in garbage_collection_tasks {
+            let serialized_gc_task = JsonEncoder::encode(gc_task)?;
+            txn.put_cf(
+                StateMachineColumns::GarbageCollectionTasks.cf(db),
+                gc_task.id.clone(),
+                &serialized_gc_task,
+            )
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn get_task_assignments_for_executor(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -986,6 +1004,9 @@ impl IndexifyState {
             RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
                 self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
             }
+            RequestPayload::UpdateGarbageCollectionTask { gc_task } => {
+                self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
+            }
             RequestPayload::AssignTask { assignments } => {
                 let assignments: HashMap<&String, HashSet<TaskId>> =
                     assignments
@@ -1176,8 +1197,6 @@ impl IndexifyState {
                 };
                 // initialize executor load at 0
                 self.executor_running_task_count.insert(&executor_id, 0);
-                // self.executor_running_task_count
-                //     .insert(executor_id.clone(), 0);
             }
             RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
@@ -1185,10 +1204,6 @@ impl IndexifyState {
                     self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
-                    // self.unfinished_tasks_by_extractor
-                    //     .entry(task.extractor.clone())
-                    //     .or_default()
-                    //     .insert(task.id.clone());
                 }
             }
             RequestPayload::AssignTask { assignments } => {
@@ -1197,10 +1212,6 @@ impl IndexifyState {
 
                     self.executor_running_task_count
                         .increment_running_task_count(&executor_id);
-                    // increment_running_task_count(
-                    //     &mut self.executor_running_task_count,
-                    //     &executor_id,
-                    // );
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {

@@ -58,6 +58,9 @@ pub enum RequestPayload {
     CreateGarbageCollectionTasks {
         gc_tasks: Vec<internal_api::GarbageCollectionTask>,
     },
+    UpdateGarbageCollectionTask {
+        gc_task: internal_api::GarbageCollectionTask,
+    },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
