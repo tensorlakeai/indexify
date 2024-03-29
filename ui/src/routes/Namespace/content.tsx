@@ -19,6 +19,7 @@ import {
   formatBytes,
 } from "../../utils/helpers";
 import moment from "moment";
+import ReactJson from "@microlink/react-json-view";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const errors: string[] = [];
@@ -86,16 +87,28 @@ const ContentPage = () => {
     return (
       <Box display="flex">
         <Typography variant="label">{label}:</Typography>
-        <Typography sx={{ml:1}} variant="body1">{value}</Typography>
+        <Typography sx={{ ml: 1 }} variant="body1">
+          {value}
+        </Typography>
       </Box>
     );
   };
 
   const [textContent, setTextContent] = useState("");
+
   useEffect(() => {
-    client.downloadContent<string>(contentId).then((data) => {
-      setTextContent(data);
-    });
+    if (
+      contentMetadata.mime_type.startsWith("application/json") ||
+      contentMetadata.mime_type.startsWith("text")
+    ) {
+      client.downloadContent<string | object>(contentId).then((data) => {
+        if (typeof data === "object") {
+          setTextContent(JSON.stringify(data));
+        } else {
+          setTextContent(data);
+        }
+      });
+    }
   }, [client, contentId]);
 
   const renderContent = () => {
@@ -148,7 +161,9 @@ const ContentPage = () => {
             overflow: "scroll",
           }}
         >
-          <Typography variant="body2">{JSON.stringify(textContent)}</Typography>
+          {textContent && (
+            <ReactJson name={null} src={JSON.parse(textContent)}></ReactJson>
+          )}
         </Box>
       );
     }
@@ -193,9 +208,19 @@ const ContentPage = () => {
       {/* tasks */}
       {Object.keys(groupedExtractedMetadata).map((key) => {
         const extractedMetadata = groupedExtractedMetadata[key];
-        return <ExtractedMetadataTable key={key} extractedMetadata={extractedMetadata} />;
+        return (
+          <ExtractedMetadataTable
+            key={key}
+            extractedMetadata={extractedMetadata}
+          />
+        );
       })}
-      <TasksTable policies={client.extractionPolicies} namespace={namespace} tasks={tasks} hideContentId />
+      <TasksTable
+        policies={client.extractionPolicies}
+        namespace={namespace}
+        tasks={tasks}
+        hideContentId
+      />
     </Stack>
   );
 };
