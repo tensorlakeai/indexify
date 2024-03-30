@@ -127,15 +127,24 @@ impl DataManager {
     pub async fn create_extraction_policy(
         &self,
         namespace: &str,
-        extraction_policy: &api::ExtractionPolicy,
+        ep_req: &api::ExtractionPolicyRequest,
     ) -> Result<Vec<String>> {
         info!(
             "adding extractor bindings namespace: {}, extractor: {}, binding: {}",
-            namespace, extraction_policy.extractor, extraction_policy.name,
+            namespace, ep_req.extractor, ep_req.name,
         );
+        let input_params_serialized = serde_json::to_string(&ep_req.input_params)
+            .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
         let req = indexify_coordinator::ExtractionPolicyRequest {
             namespace: namespace.to_string(),
-            policy: Some(extraction_policy.clone().into()),
+            extractor: ep_req.extractor.clone(),
+            name: ep_req.name.clone(),
+            filters: ep_req.filters_eq.clone().unwrap_or_default(),
+            input_params: input_params_serialized,
+            content_source: ep_req
+                .content_source
+                .clone()
+                .unwrap_or("ingestion".to_string()),
             created_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs() as i64,
@@ -148,10 +157,9 @@ impl DataManager {
             .await?
             .into_inner();
         let mut index_names = Vec::new();
-        let extractor = response.extractor.ok_or(anyhow!(
-            "extractor {:?} not found",
-            extraction_policy.extractor
-        ))?;
+        let extractor = response
+            .extractor
+            .ok_or(anyhow!("extractor {:?} not found", ep_req.extractor))?;
         for (name, output_schema) in &extractor.embedding_schemas {
             let embedding_schema: internal_api::EmbeddingSchema =
                 serde_json::from_str(output_schema)?;
@@ -168,7 +176,7 @@ impl DataManager {
                 index_name,
                 table_name,
                 schema_json,
-                &extraction_policy.name,
+                &ep_req.name,
                 &extractor.name,
             )
             .await?;

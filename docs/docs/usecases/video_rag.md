@@ -20,11 +20,12 @@ The Q&A will be powered by Langchain and OpenAI. We will create a Indexify Retre
 
 ### Download Indexify and the necessary extractors
 ```bash
-curl https://tensorlake.ai/download | sh
+curl https://www.tensorlake.ai | sh
 
 pip install indexify-extractor-sdk
-indexify-extractor download hub://whisper-asr
+indexify-extractor download hub://audio/whisper-asr
 indexify-extractor download hub://video/audio-extractor
+indexify-extractor download hub://text/chunking
 indexify-extractor download hub://embedding/minilm-l6
 ```
 
@@ -35,27 +36,32 @@ indexify server -d
 ```
 Start the audio extractor
 ```bash
-cd indexify-extractor/audio-extractor/
-indexify-extractor join audio_extractor:AudioExtractor
+indexify-extractor join audio-extractor.audio_extractor:AudioExtractor
 ```
 Start the minilm embedding extractor
 ```bash
-cd indexify-extractor/minilm-l6/
-indexify-extractor join minilm_l6:MiniLML6Extractor
+indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
 ```
 
 Start the whisper extractor
 ```bash
-cd indexify-extractor
-indexify-extractor join whisper_extractor:WhisperExtractor
+indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor
 ```
 
-### Download the Video
+Start the chunk extractor
 ```bash
-pip install pytube
+indexify-extractor join chunking.chunk_extractor:ChunkExtractor
+```
+
+### Download the Libraries
+```bash
+pip install pytube indexify indexify-langchain
 ```
 
 ```python
+from pytube import YouTube
+import os
+
 yt = YouTube("https://www.youtube.com/watch?v=cplSUhU2avc")
 file_name = "state_of_the_union_2024.mp4"
 if not os.path.exists(file_name):
@@ -76,7 +82,8 @@ Third, we pass the transcripts though a `tensorlake/minilm-l6` extractor to extr
 ```python
 client.add_extraction_policy(extractor='tensorlake/audio-extractor', name="audio_clips_of_videos")
 client.add_extraction_policy(extractor='tensorlake/whisper-asr', name="audio-transcription", content_source='audio_clips_of_videos')
-client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source='audio-transcription', input_params={'chunk_size': 2000, 'overlap': 200})
+client.add_extraction_policy(extractor='tensorlake/chunk-extractor', name="transcription-chunks", content_source='audio-transcription', input_params={"chunk_size": 2000, "overlap":200})
+client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source='transcription-chunks')
 ```
 
 

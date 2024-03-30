@@ -221,7 +221,7 @@ impl Coordinator {
                 ));
             }
         }
-        let structued_data_schema = self
+        let structured_data_schema = self
             .shared_state
             .get_structured_data_schema(
                 &extraction_policy.namespace,
@@ -231,7 +231,7 @@ impl Coordinator {
         let mut updated_schema = None;
         for (_, output_schema) in extractor.outputs {
             if let OutputSchema::Attributes(columns) = output_schema {
-                let updated_structured_data_schema = structued_data_schema.merge(columns)?;
+                let updated_structured_data_schema = structured_data_schema.merge(columns)?;
                 updated_schema.replace(updated_structured_data_schema);
             }
         }
@@ -438,6 +438,241 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(0, tasks.clone().len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_create_multiple_extraction_policies_and_contents() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config, None).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  Create an extractor, executor and associated extraction policy
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .await?;
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_1".to_string(),
+            name: "extraction_policy_name_1".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: "ingestion".to_string(),
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .await?;
+
+        //  Create content metadata
+        let content_metadata_1 = indexify_coordinator::ContentMetadata {
+            id: "test_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![content_metadata_1])
+            .await?;
+
+        //  Assert that tasks are created
+        coordinator.run_scheduler().await?;
+        let tasks = shared_state
+            .tasks_for_executor("test_executor_id", None)
+            .await
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+
+        //  Create a different extractor, executor and associated extraction policy
+        let mut extractor_2 = mock_extractor();
+        let extractor_2_name = "MockExtractor2".to_string();
+        extractor_2.name = extractor_2_name.clone();
+        coordinator
+            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .await?;
+        let extraction_policy_2 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_2".to_string(),
+            extractor: extractor_2_name.clone(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: extraction_policy_1.name,
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_2, extractor_2)
+            .await?;
+
+        //  Create content metadata
+        let content_metadata_2 = indexify_coordinator::ContentMetadata {
+            id: "test_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id,
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![content_metadata_2])
+            .await?;
+
+        //  Run the scheduler
+        coordinator.run_scheduler().await?;
+        let tasks = shared_state
+            .tasks_for_executor("test_executor_id_2", None)
+            .await
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_create_multiple_contents_and_extraction_policies() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config, None).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        // Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  Create content metadata
+        let content_metadata_1 = indexify_coordinator::ContentMetadata {
+            id: "test_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![content_metadata_1])
+            .await?;
+
+        //  Create an extractor, executor and associated extraction policy
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .await?;
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_1".to_string(),
+            name: "extraction_policy_name_1".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: "ingestion".to_string(),
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .await?;
+
+        //  Assert that tasks are created
+        coordinator.run_scheduler().await?;
+        let tasks = shared_state
+            .tasks_for_executor("test_executor_id", None)
+            .await
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+
+        //  The second part of the test
+
+        //  Create content metadata
+        let content_metadata_2 = indexify_coordinator::ContentMetadata {
+            id: "test_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id,
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![content_metadata_2])
+            .await?;
+        coordinator.run_scheduler().await?;
+
+        //  Create a different extractor, executor and associated extraction policy
+        let mut extractor_2 = mock_extractor();
+        let extractor_2_name = "MockExtractor2".to_string();
+        extractor_2.name = extractor_2_name.clone();
+        coordinator
+            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .await?;
+        let extraction_policy_2 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_2".to_string(),
+            extractor: extractor_2_name.clone(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: extraction_policy_1.name,
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_2, extractor_2)
+            .await?;
+
+        //  Run the scheduler
+        coordinator.run_scheduler().await?;
+        let tasks = shared_state
+            .tasks_for_executor("test_executor_id_2", None)
+            .await
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+
         Ok(())
     }
 

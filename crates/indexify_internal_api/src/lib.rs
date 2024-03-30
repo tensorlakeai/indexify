@@ -181,9 +181,10 @@ pub struct ExtractRequest {
     pub input_params: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractResponse {
     pub content: Vec<Content>,
+    pub features: Vec<Feature>,
 }
 
 #[derive(
@@ -376,6 +377,7 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
         }
 
         Self {
+            id: value.id,
             extractor: value.extractor,
             name: value.name,
             filters,

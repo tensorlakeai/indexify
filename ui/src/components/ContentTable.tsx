@@ -178,11 +178,6 @@ const ContentTable = ({
       },
     },
     {
-      field: "name",
-      headerName: "Name",
-      width: 200,
-    },
-    {
       field: "source",
       headerName: "Source",
       width: 220,

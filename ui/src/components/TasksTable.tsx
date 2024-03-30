@@ -1,6 +1,6 @@
 import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { ITask } from "getindexify";
+import { IExtractionPolicy, ITask } from "getindexify";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import TaskIcon from '@mui/icons-material/Task';
@@ -9,11 +9,13 @@ import { Link } from "react-router-dom";
 
 const TasksTable = ({
   namespace,
+  policies,
   tasks,
   hideContentId,
   hideExtractionPolicy,
 }: {
   namespace: string;
+  policies: IExtractionPolicy[];
   tasks: ITask[];
   hideContentId?: boolean;
   hideExtractionPolicy?: boolean;
@@ -34,13 +36,14 @@ const TasksTable = ({
       ),
     },
     {
-      field: "extraction_policy",
+      field: "extraction_policy_id",
       headerName: "Extraction Policy",
-      renderCell: (params) => (
-        <Link to={`/${namespace}/extraction-policies/${params.value}`}>
-          {params.value}
-        </Link>
-      ),
+      renderCell: (params) => {
+        const policy = policies.find(policy => policy.id === params.value)
+        return policy ? <Link to={`/${namespace}/extraction-policies/${policy?.name}`}>
+          {policy?.name}
+        </Link> : null
+      },
       width: 200,
     },
     {
@@ -76,7 +79,7 @@ const TasksTable = ({
   columns = columns.filter((col) => {
     if (hideContentId && col.field === "content_metadata.id") {
       return false;
-    } else if (hideExtractionPolicy && col.field === "extraction_policy") {
+    } else if (hideExtractionPolicy && col.field === "extraction_policy_id") {
       return false;
     }
     return true;

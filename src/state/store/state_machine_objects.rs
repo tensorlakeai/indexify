@@ -1563,7 +1563,6 @@ impl IndexifyState {
         self.executor_running_task_count = snapshot.executor_running_task_count.into();
         self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
     }
-
     //  END SNAPSHOT METHODS
 }
 

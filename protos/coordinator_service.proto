@@ -254,6 +254,7 @@ message ListNamespaceResponse {
 }
 
 message ExtractionPolicy {
+    string id = 1;
     string extractor = 2;
     string name = 3;
     string input_params = 4;
@@ -263,13 +264,18 @@ message ExtractionPolicy {
 
 message ExtractionPolicyRequest {
     string namespace = 1;
-    ExtractionPolicy policy = 3;
-    int64 created_at = 2;
+    string extractor = 2;
+    string name = 3;
+    string input_params = 4;
+    map<string, string> filters = 5;
+    string content_source = 6;
+    int64 created_at = 7;
 }
 
 message ExtractionPolicyResponse {
-    int64 created_at = 3;
+    int64 created_at = 1;
     Extractor extractor = 2;
+    ExtractionPolicy extraction_policy = 3;
     map<string, string> index_name_table_mapping = 4;
     map<string, string> output_index_name_mapping = 5;
 }

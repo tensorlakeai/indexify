@@ -28,6 +28,7 @@ nav:
     - Indexify: index.md
     - Getting Started: 'getting_started.md'
     - Key Concepts: 'concepts.md'
+    - Comparisons: 'comparisons.md'
   - User Interface: 'ui.md'
   - Extractors:
     - Introduction: 'apis/extractors.md'
@@ -44,7 +45,7 @@ nav:
     - Content Ingestion: 'apis/content_ingestion.md'
     - Extraction Policies: 'apis/extraction_policies.md'
     - Retrieval: 'apis/retrieval.md'
-  - Usecases:
+  - Use Cases:
     - Basic RAG: 'usecases/rag.md'
     - Audio Extraction: 'usecases/audio_extraction.md'
     - PDF Extraction: 'usecases/pdf_extraction.md'

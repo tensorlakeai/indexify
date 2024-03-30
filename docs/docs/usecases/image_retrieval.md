@@ -15,7 +15,7 @@ In this tutorial we will show you how to do all three image retreival. We will u
 ### Download Indexify
 Download and start Indexify!
 ```
-curl https://tensorlake.ai/download
+curl https://tensorlake.ai | sh
 indexify server -d 
 ```
 
@@ -36,8 +36,7 @@ client.upload_file(path="../path/to/file")
 ### Download and Run Yolo Extractor
 ```
 indexify-extractor download hub://image/yolo
-cd indexify-extractor/yolo/
-indexify-extractor join yolo_extractor:YoloExtractor
+indexify-extractor join yolo.yolo_extractor:YoloExtractor
 ```
 
 ### Create an Extraction Policy
@@ -62,8 +61,7 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
 ### Download and start the Clip Embedding Extractor
 ```
 indexify-extractor download hub://embedding/clip
-cd embedding/clip/
-indexify-extractor join openai_clip_extractor:ClipEmbeddingExtractor
+indexify-extractor join clip.openai_clip_extractor:ClipEmbeddingExtractor
 ```
 
 ### Create an Extraction Policy 

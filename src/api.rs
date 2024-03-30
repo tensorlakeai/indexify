@@ -17,6 +17,7 @@ use crate::{api_utils, metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionPolicy {
+    pub id: String,
     pub extractor: String,
     pub name: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
@@ -28,6 +29,7 @@ pub struct ExtractionPolicy {
 impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     fn from(value: ExtractionPolicy) -> Self {
         Self {
+            id: value.id,
             extractor: value.extractor,
             name: value.name,
             filters: value.filters_eq.unwrap_or_default(),
@@ -53,6 +55,7 @@ impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
         let mut extraction_policies = Vec::new();
         for policy in value.policies {
             extraction_policies.push(ExtractionPolicy {
+                id: policy.id,
                 extractor: policy.extractor,
                 name: policy.name,
                 filters_eq: Some(policy.filters),
@@ -127,8 +130,12 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 /// Request payload for creating a new vector index.
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct ExtractionPolicyRequest {
-    #[serde(flatten)]
-    pub policy: ExtractionPolicy,
+    pub extractor: String,
+    pub name: String,
+    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
+    pub filters_eq: Option<HashMap<String, String>>,
+    pub input_params: Option<serde_json::Value>,
+    pub content_source: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]

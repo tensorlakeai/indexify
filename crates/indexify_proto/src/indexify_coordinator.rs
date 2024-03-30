@@ -320,6 +320,8 @@ pub struct ListNamespaceResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractionPolicy {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub extractor: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
@@ -339,18 +341,31 @@ pub struct ExtractionPolicy {
 pub struct ExtractionPolicyRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "3")]
-    pub policy: ::core::option::Option<ExtractionPolicy>,
-    #[prost(int64, tag = "2")]
+    #[prost(string, tag = "2")]
+    pub extractor: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub input_params: ::prost::alloc::string::String,
+    #[prost(map = "string, string", tag = "5")]
+    pub filters: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(string, tag = "6")]
+    pub content_source: ::prost::alloc::string::String,
+    #[prost(int64, tag = "7")]
     pub created_at: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractionPolicyResponse {
-    #[prost(int64, tag = "3")]
+    #[prost(int64, tag = "1")]
     pub created_at: i64,
     #[prost(message, optional, tag = "2")]
     pub extractor: ::core::option::Option<Extractor>,
+    #[prost(message, optional, tag = "3")]
+    pub extraction_policy: ::core::option::Option<ExtractionPolicy>,
     #[prost(map = "string, string", tag = "4")]
     pub index_name_table_mapping: ::std::collections::HashMap<
         ::prost::alloc::string::String,

@@ -6,6 +6,7 @@
   "dependencies": {
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
+    "@microlink/react-json-view": "^1.23.0",
     "@mui/icons-material": "^5.15.7",
     "@mui/material": "^5.15.7",
     "@mui/x-data-grid": "^6.19.3",
@@ -19,7 +20,7 @@
     "@types/react-router-dom": "^5.3.3",
     "axios": "^1.6.7",
     "crypto": "^1.0.1",
-    "getindexify": "^0.0.22",
+    "getindexify": "^0.0.24",
     "moment": "^2.30.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
