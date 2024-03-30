@@ -116,7 +116,7 @@ tar = "0.4"
 walkdir = { version = "2" }
 vectordb = {version = "0.4.10" }
 lance = {version = "^0"}
-gluesql = { git = "https://github.com/gluesql/gluesql.git", rev = "69309d2", default_features = false }
+gluesql = { git = "https://github.com/gluesql/gluesql.git", rev = "07dd839", default_features = false }
 
 [dependencies]
 anyerror = { workspace = true }

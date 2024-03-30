@@ -2822,7 +2822,7 @@ dependencies = [
 [[package]]
 name = "gluesql"
 version = "0.15.0"
-source = "git+https://github.com/gluesql/gluesql.git?rev=69309d2#69309d2f0755c8184392dfd2024b64bdc50a1f2f"
+source = "git+https://github.com/gluesql/gluesql.git?rev=07dd839#07dd83903eb548f5c4560cbbcfc1a0fa299d8bd1"
 dependencies = [
  "gluesql-core",
 ]
@@ -2830,7 +2830,7 @@ dependencies = [
 [[package]]
 name = "gluesql-core"
 version = "0.15.0"
-source = "git+https://github.com/gluesql/gluesql.git?rev=69309d2#69309d2f0755c8184392dfd2024b64bdc50a1f2f"
+source = "git+https://github.com/gluesql/gluesql.git?rev=07dd839#07dd83903eb548f5c4560cbbcfc1a0fa299d8bd1"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -2860,7 +2860,7 @@ dependencies = [
 [[package]]
 name = "gluesql-utils"
 version = "0.15.0"
-source = "git+https://github.com/gluesql/gluesql.git?rev=69309d2#69309d2f0755c8184392dfd2024b64bdc50a1f2f"
+source = "git+https://github.com/gluesql/gluesql.git?rev=07dd839#07dd83903eb548f5c4560cbbcfc1a0fa299d8bd1"
 dependencies = [
  "futures",
  "indexmap 1.9.3",
