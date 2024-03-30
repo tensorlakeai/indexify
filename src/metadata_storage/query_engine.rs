@@ -33,17 +33,6 @@ pub async fn run_query(
     schemas: Vec<StructuredDataSchema>,
     namespace: String,
 ) -> anyhow::Result<Vec<StructuredDataRow>> {
-    /*
-    let table_name = PostgresIndexName::new(&table_name(&namespace));
-    let scanning_query = format!(
-        "
-        SELECT content_id, data
-        FROM \"{table_name}\"
-        WHERE namespace = $1 AND content_source = $2
-    "
-    );
-    */
-
     let q_engine = QueryEngine::new(metadata_reader, schemas, &namespace);
     let mut glue_query = Glue::new(q_engine);
     let payloads = glue_query
