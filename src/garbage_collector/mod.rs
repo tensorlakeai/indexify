@@ -33,7 +33,7 @@ impl GCTaskInfo {
 
 pub struct GarbageCollector {
     pub ingestion_servers: RwLock<HashSet<String>>,
-    pub assigned_gc_tasks: RwLock<HashMap<String, String>>, // gc task id -> server d
+    pub assigned_gc_tasks: RwLock<HashMap<String, String>>, // gc task id -> ingestion server id
     pub gc_tasks: RwLock<HashMap<String, GCTaskInfo>>,      //  gc task id -> task info
     pub task_deletion_allocation_events_sender:
         Mutex<watch::Sender<(String, indexify_internal_api::GarbageCollectionTask)>>,
@@ -155,5 +155,82 @@ impl GarbageCollector {
                 error!("No server available to assign task to");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashSet, sync::Arc};
+
+    use indexify_internal_api::GarbageCollectionTask;
+    use tokio::sync::mpsc;
+
+    use crate::garbage_collector::{GarbageCollector, TaskStatus};
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_new_task_deletion_event_allocation() {
+        let gc = GarbageCollector::new();
+        let gc_clone = Arc::clone(&gc);
+        let server_id = "server1".to_string();
+        gc.register_ingestion_server(server_id.clone())
+            .await
+            .unwrap();
+
+        // Simulate receiving a new deletion event
+        let (tx, rx) = mpsc::channel(1);
+        let task = GarbageCollectionTask {
+            namespace: "default".to_string(),
+            id: "task1".to_string(),
+            parent_content_id: "".to_string(),
+            children_content_ids: Vec::new(),
+            output_index_table_mapping: HashSet::new(),
+            outcome: indexify_internal_api::TaskOutcome::Unknown,
+        };
+        tx.send(task.clone()).await.unwrap();
+        gc_clone.start_watching_deletion_events(rx);
+
+        // Allow some time for the task to be processed
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Verify the task has been assigned
+        let tasks_guard = gc.gc_tasks.read().await;
+        let task_info = tasks_guard.get(&task.id).unwrap();
+        matches!(task_info.status, TaskStatus::Assigned(ref id) if id == &server_id);
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_ingestion_server_removal_and_task_reassignment() {
+        let gc = GarbageCollector::new();
+        gc.register_ingestion_server("server1".to_string())
+            .await
+            .unwrap();
+        gc.register_ingestion_server("server2".to_string())
+            .await
+            .unwrap();
+
+        // Assign a task to server1
+        let task = GarbageCollectionTask {
+            namespace: "default".to_string(),
+            id: "task1".to_string(),
+            parent_content_id: "".to_string(),
+            children_content_ids: Vec::new(),
+            output_index_table_mapping: HashSet::new(),
+            outcome: indexify_internal_api::TaskOutcome::Unknown,
+        };
+        gc.assign_task_to_server(task.clone(), "server1".to_string())
+            .await;
+
+        // Remove server1 and expect reassignment
+        gc.remove_ingestion_server("server1").await;
+
+        // Allow some time for the reassignment to be processed
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Verify the task has been reassigned to server2
+        let tasks_guard = gc.gc_tasks.read().await;
+        let task_info = tasks_guard.get(&task.id).unwrap();
+        matches!(task_info.status, TaskStatus::Assigned(ref id) if id == "server2");
     }
 }

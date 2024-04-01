@@ -37,8 +37,8 @@ impl Coordinator {
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
         let garbage_collector = GarbageCollector::new();
-        let garbage_collector_arc = Arc::clone(&garbage_collector);
-        garbage_collector_arc.start_watching_deletion_events(rx);
+        let garbage_collector_clone = Arc::clone(&garbage_collector);
+        garbage_collector_clone.start_watching_deletion_events(rx);
         Arc::new(Self {
             shared_state,
             scheduler,
