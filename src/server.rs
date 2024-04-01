@@ -6,7 +6,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
@@ -15,9 +15,12 @@ use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_typed_websockets::{Message, WebSocket, WebSocketUpgrade};
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, ListStateChangesRequest, ListTasksRequest};
+use indexify_proto::indexify_coordinator::{
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
+};
+use nanoid::nanoid;
 use rust_embed::RustEmbed;
-use tokio::signal;
+use tokio::{signal, sync::mpsc};
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
@@ -132,6 +135,29 @@ impl Server {
             )
             .await?,
         );
+        let ingestion_server_id = nanoid!(16);
+        let req = indexify_coordinator::RegisterIngestionServerRequest {
+            ingestion_server_id: ingestion_server_id.clone(),
+            addr: format!("{}:{}", self.config.listen_if, self.config.listen_port),
+        };
+        coordinator_client
+            .get()
+            .await?
+            .register_ingestion_server(req)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to register ingestion server with coordinator: {}",
+                    e
+                )
+            })?;
+        println!("Calling start_gc_tasks_stream");
+        self.start_gc_tasks_stream(
+            coordinator_client.clone(),
+            &ingestion_server_id,
+            data_manager.clone(),
+        )
+        .await?;
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
@@ -185,6 +211,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/upload_file",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/content",
+                delete(delete_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/search",
@@ -271,23 +301,66 @@ impl Server {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
-        // TODO: Bring all this back once axum_server upgrades to rustls 0.22
-        // since our TLS code is based on that
-        //if let Some(tls_config) = self.config.tls.clone() {
-        //    let config: Arc<rustls::ServerConfig> =
-        // build_mtls_config(&tls_config).await?;    let rustls_config =
-        // RustlsConfig::from_config(config);    let handle = handle.clone();
-        //    axum_server::bind_rustls(self.addr, rustls_config)
-        //        .handle(handle)
-        //        .serve(app.into_make_service())
-        //        .await?;
-        //} else {
         let handle = handle.clone();
         axum_server::bind(self.addr)
             .handle(handle)
             .serve(app.into_make_service())
             .await?;
-        //}
+
+        Ok(())
+    }
+
+    async fn start_gc_tasks_stream(
+        &self,
+        coordinator_client: Arc<CoordinatorClient>,
+        ingestion_server_id: &str,
+        data_manager: Arc<DataManager>,
+    ) -> Result<()> {
+        println!("Starting gc tasks stream from ingestion server");
+        let mut client = coordinator_client.get().await.map_err(|e| {
+            anyhow!(
+                "unable to get coordinator client to start garbage collection task stream: {}",
+                e
+            )
+        })?;
+
+        let (ack_tx, mut ack_rx) = mpsc::channel(4);
+
+        let mut request = tonic::Request::new(async_stream::stream! {
+            while let Some(ack) = ack_rx.recv().await {
+                yield ack;
+            }
+        });
+
+        request
+            .metadata_mut()
+            .insert("ingestion-server-id", ingestion_server_id.parse()?);
+
+        let mut stream = client.gc_tasks_stream(request).await?.into_inner();
+
+        tokio::spawn(async move {
+            while let Ok(Some(message)) = stream.message().await {
+                let gc_task = message;
+                println!("Received GC task: {:?}", gc_task);
+
+                // Handle the GC task
+                if let Err(e) = data_manager.delete_content(&gc_task).await {
+                    tracing::error!("Failed to delete content for task {:#?}: {}", gc_task, e);
+                }
+
+                // After handling, acknowledge completion.
+                ack_tx
+                    .send(GcTaskAcknowledgement {
+                        task_id: gc_task.task_id.clone(),
+                        completed: true,
+                    })
+                    .await
+                    .expect("Failed to send ack");
+
+                println!("Acknowledged completion of task: {}", gc_task.task_id);
+                tracing::debug!("Acknowledged completion of task: {}", gc_task.task_id);
+            }
+        });
 
         Ok(())
     }
@@ -510,25 +583,38 @@ async fn list_content(
 )]
 #[axum::debug_handler]
 async fn delete_content(
-    Path((namespace, content_id)): Path<(String, String)>,
+    Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
     Json(body): Json<super::api::DeleteContentRequest>,
 ) -> Result<Json<()>, IndexifyAPIError> {
-    // state.coordinator_client
-    // state
-    //     .data_manager
-    //     .delete_content(&namespace, &content_id)
-    //     .await
-    //     .map_err(|e| {
-    //         IndexifyAPIError::new(
-    //             StatusCode::INTERNAL_SERVER_ERROR,
-    //             format!(
-    //                 "failed to delete content with id {}: {}",
-    //                 content_id,
-    //                 e.to_string()
-    //             ),
-    //         )
-    //     })?;
+    println!(
+        "Received request to delete content for namespace {} and content ids {:?}",
+        namespace, body.content_ids
+    );
+    let request = indexify_coordinator::DeleteContentRequest {
+        namespace: namespace.clone(),
+        content_ids: body.content_ids.clone(),
+    };
+
+    state
+        .coordinator_client
+        .get()
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get coordinator client: {}", e).as_str(),
+            )
+        })?
+        .delete_content(request)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to delete content: {}", e).as_str(),
+            )
+        })?;
+
     Ok(Json(()))
 }
 

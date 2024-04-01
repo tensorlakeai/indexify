@@ -28,6 +28,7 @@ impl Scheduler {
     }
 
     pub async fn handle_change_event(&self, state_change: StateChange) -> Result<()> {
+        println!("Received change events in scheduler");
         let mut state_change_processed = false;
         // Create new tasks
         let tuple_result = self.create_new_tasks(state_change.clone()).await?;

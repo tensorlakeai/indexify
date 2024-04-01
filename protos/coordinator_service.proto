@@ -192,7 +192,9 @@ message GCTaskAcknowledgement {
 
 message GCTask {
     string task_id = 1;
-    repeated string output_index_table_mapping = 2;
+    string parent_content_id = 2;
+    repeated string children_content_ids = 3;
+    repeated string output_index_table_mapping = 4;
 }
 
 message HeartbeatRequest {

@@ -1004,8 +1004,13 @@ impl IndexifyState {
             RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
                 self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
             }
-            RequestPayload::UpdateGarbageCollectionTask { gc_task } => {
-                self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
+            RequestPayload::UpdateGarbageCollectionTask {
+                gc_task,
+                mark_finished,
+            } => {
+                if *mark_finished {
+                    self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
+                }
             }
             RequestPayload::AssignTask { assignments } => {
                 let assignments: HashMap<&String, HashSet<TaskId>> =
@@ -1113,7 +1118,8 @@ impl IndexifyState {
                 namespace,
                 content_ids,
             } => {
-                self.delete_content(db, &txn, namespace, content_ids.clone())?;
+                //  TODO: This should only be deleted after the ingestion server has removed content on its side
+                // self.delete_content(db, &txn, namespace, content_ids.clone())?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
@@ -1442,6 +1448,37 @@ impl IndexifyState {
                     serde_json::from_slice(&content_bytes).map_err(StateMachineError::from)
                 })
                 .collect();
+        content
+    }
+
+    /// This method will fetch all pieces of content metadata where the parent_id field is set to the content_id passed in
+    pub fn get_content_children_metadata(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> = txn
+            .iterator_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                rocksdb::IteratorMode::Start,
+            )
+            .filter_map(|item| match item {
+                Ok((key, value)) => {
+                    match serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value) {
+                        Ok(content) => {
+                            if content.parent_id == content_id {
+                                Some(Ok(content))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(e) => Some(Err(StateMachineError::from(e))),
+                    }
+                }
+                Err(e) => Some(Err(StateMachineError::DatabaseError(e.to_string()))),
+            })
+            .collect();
         content
     }
 

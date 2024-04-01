@@ -159,8 +159,7 @@ pub struct TextAddRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeleteContentRequest {
-    namespace: String,
-    content_ids: Vec<String>,
+    pub content_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

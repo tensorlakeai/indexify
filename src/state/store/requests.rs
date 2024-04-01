@@ -60,6 +60,7 @@ pub enum RequestPayload {
     },
     UpdateGarbageCollectionTask {
         gc_task: internal_api::GarbageCollectionTask,
+        mark_finished: bool,
     },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,

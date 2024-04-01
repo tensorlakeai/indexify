@@ -346,6 +346,13 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
+    pub fn get_content_children_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_children_metadata(content_id, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     pub async fn get_namespace(
         &self,
         namespace: &str,

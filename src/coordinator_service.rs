@@ -299,38 +299,54 @@ impl CoordinatorService for CoordinatorServiceServer {
         let mut gc_task_allocation_event_rx = self.coordinator.get_gc_task_allocation_event_rx();
         let (tx, rx) = mpsc::channel(4);
 
-        let inbound = request.into_inner();
+        let mut inbound = request.into_inner();
+        let coordinator_clone = self.coordinator.clone();
+        let mut shutdown_rx = self.shutdown_rx.clone();
+
         tokio::spawn(async move {
-            inbound
-                .for_each(|task_ack| async {
-                    match task_ack {
-                        Ok(ack) => {
-                            tracing::debug!("Received task acknowledgement {:?}", ack);
-                            //  mark the gc task as complete
-                        }
-                        Err(e) => tracing::error!("Error receiving task acknowledgement {}", e),
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("Shutdown signal received, terminating gc_tasks_stream.");
+                        break;
                     }
-                })
-                .await;
-        });
-
-        //  Spawn a new task that listens for new gc task allocation events
-        tokio::spawn(async move {
-            while let Ok(_) = gc_task_allocation_event_rx.changed().await {
-                let gc_task = gc_task_allocation_event_rx.borrow().clone();
-
-                //  filter the gc_task on the ingestion_server_id to determine whether it should be sent as part of this stream
-                if gc_task.0 == ingestion_server_id {
-                    //  pass the task along to the ingestion server
-                    let serialized_task = GcTask {
-                        task_id: gc_task.1.id,
-                        output_index_table_mapping: gc_task
-                            .1
-                            .output_index_table_mapping
-                            .into_iter()
-                            .collect::<Vec<String>>(),
-                    };
-                    tx.send(serialized_task).await.unwrap();
+                    task_ack = inbound.next() => {
+                        if let Some(task_ack) = task_ack {
+                            if let Ok(task_ack) = task_ack {
+                                tracing::debug!(
+                                    "Received gc task acknowledgement {:?}, marking the gc task as complete",
+                                    task_ack
+                                );
+                                if let Err(e) = coordinator_clone
+                                    .update_gc_task(&task_ack.task_id, task_ack.completed.into())
+                                    .await
+                                {
+                                    tracing::error!(
+                                        "Error updating GC task with id {}: {}",
+                                        task_ack.task_id,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    _ = gc_task_allocation_event_rx.changed() => {
+                        let task = gc_task_allocation_event_rx.borrow().clone();
+                        if task.0 == ingestion_server_id {
+                            //  pass the task along to the ingestion server
+                            let serialized_task = GcTask {
+                                task_id: task.1.id,
+                                parent_content_id: task.1.parent_content_id,
+                                children_content_ids: task.1.children_content_ids,
+                                output_index_table_mapping: task
+                                    .1
+                                    .output_index_table_mapping
+                                    .into_iter()
+                                    .collect::<Vec<String>>(),
+                            };
+                            tx.send(serialized_task).await.unwrap();
+                        }
+                    }
                 }
             }
         });

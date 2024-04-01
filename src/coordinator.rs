@@ -26,7 +26,7 @@ use crate::{
 pub struct Coordinator {
     shared_state: SharedState,
     scheduler: Scheduler,
-    garbage_collector: GarbageCollector,
+    garbage_collector: Arc<GarbageCollector>,
     gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
     gc_task_allocation_event_rx: watch::Receiver<(String, GarbageCollectionTask)>,
 }
@@ -37,7 +37,8 @@ impl Coordinator {
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
         let garbage_collector = GarbageCollector::new();
-        garbage_collector.watch_deletion_events(rx);
+        let garbage_collector_arc = Arc::clone(&garbage_collector);
+        garbage_collector_arc.start_watching_deletion_events(rx);
         Arc::new(Self {
             shared_state,
             scheduler,
@@ -101,7 +102,7 @@ impl Coordinator {
     ) -> Result<()> {
         let mut gc_task = self.shared_state.gc_task_with_id(gc_task_id).await?;
         gc_task.outcome = outcome;
-
+        self.shared_state.update_gc_task(gc_task).await?;
         Ok(())
     }
 
@@ -293,6 +294,15 @@ impl Coordinator {
                 .change_type
                 .eq(&indexify_internal_api::ChangeType::DeleteContent)
             {
+                //  Get the metadata of the children of the content id
+                let content_children_metadata = self
+                    .shared_state
+                    .get_content_children_metadata(&change.object_id)?;
+                let content_children_ids = content_children_metadata
+                    .iter()
+                    .map(|c| c.id.clone())
+                    .collect::<Vec<String>>();
+
                 //  Get the extraction policy ids applied to a content id from the mappings and figure out the table name of the index where the data is written and needs to be deleted from
                 //  Then create a GCTask and notify the GarbageCollector of that
                 let content_extraction_policy_mappings = self
@@ -313,7 +323,7 @@ impl Coordinator {
                     for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
                         output_tables.extend(
                             applied_extraction_policy
-                                .output_index_name_mapping
+                                .index_name_table_mapping
                                 .values()
                                 .cloned(),
                         );
@@ -331,9 +341,12 @@ impl Coordinator {
 
                     let gc_task = indexify_internal_api::GarbageCollectionTask {
                         id,
+                        parent_content_id: change.object_id.clone(),
+                        children_content_ids: content_children_ids,
                         output_index_table_mapping: output_tables.iter().cloned().collect(),
                         outcome: indexify_internal_api::TaskOutcome::Unknown,
                     };
+                    info!("created gc task {:?}", gc_task);
                     self.shared_state
                         .create_gc_tasks(vec![gc_task.clone()], &change.id)
                         .await?;
@@ -345,9 +358,13 @@ impl Coordinator {
                 .change_type
                 .eq(&indexify_internal_api::ChangeType::IngestionServerAdded)
             {
+                println!("Ingestion server added change event received in coordinator");
                 let _rx = self
                     .garbage_collector
-                    .register_ingestion_server(change.object_id)
+                    .register_ingestion_server(change.object_id.clone())
+                    .await?;
+                self.shared_state
+                    .mark_change_events_as_processed(vec![change])
                     .await?;
                 return Ok(());
             }
@@ -370,7 +387,15 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
+        println!(
+            "Received request to create content metadata {:#?}",
+            content_list
+        );
         let content_meta_list = content_request_to_content_metadata(content_list)?;
+        println!(
+            "Transformed the content metadata to write {:#?}",
+            content_meta_list
+        );
         self.shared_state
             .create_content_batch(content_meta_list)
             .await?;

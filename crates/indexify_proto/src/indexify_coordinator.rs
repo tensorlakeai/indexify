@@ -201,7 +201,11 @@ pub struct GcTaskAcknowledgement {
 pub struct GcTask {
     #[prost(string, tag = "1")]
     pub task_id: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
+    #[prost(string, tag = "2")]
+    pub parent_content_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub children_content_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "4")]
     pub output_index_table_mapping: ::prost::alloc::vec::Vec<
         ::prost::alloc::string::String,
     >,

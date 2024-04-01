@@ -705,6 +705,16 @@ impl App {
     }
 
     pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {
+        let mark_finished = gc_task.outcome != internal_api::TaskOutcome::Unknown;
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::UpdateGarbageCollectionTask {
+                gc_task,
+                mark_finished,
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -996,6 +1006,13 @@ impl App {
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let content_ids: HashSet<String> = content_ids.into_iter().collect();
         self.state_machine.get_content_from_ids(content_ids).await
+    }
+
+    pub fn get_content_children_metadata(
+        &self,
+        content_id: &str,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.state_machine.get_content_children_metadata(content_id)
     }
 
     pub async fn create_tasks(

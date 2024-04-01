@@ -240,4 +240,56 @@ mod tests {
 
         assert_eq!(num_elements, 1);
     }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn setup_vector_db() {
+        let index_name = "index_default.minil6.embedding";
+        let hash_on = vec!["user_id".to_string(), "url".to_string()];
+
+        let database_url = "postgres://postgres:postgres@localhost/indexify";
+        let vector_db: VectorDBTS = Arc::new(
+            PgVector::new(PgVectorConfig {
+                addr: database_url.to_string(),
+                m: 16,
+                efconstruction: 64,
+                efsearch: 40,
+            })
+            .await
+            .unwrap(),
+        );
+
+        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db
+            .create_index(CreateIndexParams {
+                vectordb_index_name: index_name.into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: Some(hash_on.clone()),
+            })
+            .await
+            .unwrap();
+        let content_id = "0";
+        let chunk = VectorChunk {
+            content_id: content_id.into(),
+            embedding: vec![0., 2.],
+        };
+        vector_db
+            .add_embedding(index_name, vec![chunk.clone()])
+            .await
+            .unwrap();
+        vector_db
+            .add_embedding(index_name, vec![chunk])
+            .await
+            .unwrap();
+        let num_elements = vector_db.num_vectors(index_name).await.unwrap();
+        assert_eq!(num_elements, 1);
+
+        vector_db
+            .remove_embedding(index_name, content_id)
+            .await
+            .unwrap();
+        let num_elements = vector_db.num_vectors(index_name).await.unwrap();
+        assert_eq!(num_elements, 0);
+    }
 }

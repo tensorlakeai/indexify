@@ -24,9 +24,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -276,6 +274,39 @@ impl DataManager {
         Ok(())
     }
 
+    #[tracing::instrument]
+    pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
+        let content_metadata = self
+            .get_content_metadata("", vec![gc_task.parent_content_id.to_string()])
+            .await?;
+        let content_metadata = content_metadata
+            .get(0)
+            .ok_or(anyhow!("content not found"))?;
+
+        //  Remove from blob storage
+        self.blob_storage.delete(&content_metadata.name).await?;
+
+        let children_content_metadatas = self
+            .get_content_metadata("", gc_task.children_content_ids.clone())
+            .await?;
+
+        for content_metadata in children_content_metadatas {
+            println!(
+                "Running delete for content metadata {:#?}",
+                content_metadata
+            );
+            self.blob_storage.delete(&content_metadata.name).await?;
+
+            for table in &gc_task.output_index_table_mapping {
+                self.vector_index_manager
+                    .remove_embedding(&table, &content_metadata.id)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn ingest_remote_file(
         &self,
         namespace: &str,
@@ -463,6 +494,10 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: HashMap<String, String>,
     ) -> Result<()> {
+        println!(
+            "Writing features {:#?} for content metadata {:#?} to tables {:#?}",
+            features, content_meta, output_index_map
+        );
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
@@ -477,6 +512,10 @@ impl DataManager {
                     let index_table = output_index_map
                         .get(&feature.name)
                         .ok_or(anyhow!("index table not found"))?;
+                    println!(
+                        "Writing embedding to table {} where the embeddings have key {}",
+                        index_table, content_meta.id
+                    );
                     self.vector_index_manager
                         .add_embedding(index_table, vec![embeddings])
                         .await
@@ -509,6 +548,7 @@ impl DataManager {
         ingest_metadata: BeginExtractedContentIngest,
         extracted_content: api::ExtractedContent,
     ) -> Result<()> {
+        println!("Writing extracted content {:#?}", extracted_content);
         let namespace = ingest_metadata.namespace.clone();
         let mut new_content_metadata = Vec::new();
         let mut features = HashMap::new();
@@ -528,6 +568,11 @@ impl DataManager {
             features.insert(content_metadata.id.clone(), content.features);
             new_content_metadata.push(content_metadata.clone());
         }
+
+        println!(
+            "Writing content metadata for extracted content {:#?}",
+            new_content_metadata
+        );
         for content_meta in new_content_metadata {
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_meta.clone()),

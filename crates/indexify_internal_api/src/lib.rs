@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
@@ -288,6 +288,16 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
     }
 }
 
+impl From<bool> for TaskOutcome {
+    fn from(value: bool) -> Self {
+        if value {
+            TaskOutcome::Success
+        } else {
+            TaskOutcome::Failed
+        }
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::Task)]
 pub struct Task {
@@ -352,6 +362,8 @@ impl TryFrom<indexify_coordinator::Task> for Task {
 #[schema(as=internal_api::GarbageCollectionTask)]
 pub struct GarbageCollectionTask {
     pub id: String,
+    pub parent_content_id: String,
+    pub children_content_ids: Vec<String>,
     pub output_index_table_mapping: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
