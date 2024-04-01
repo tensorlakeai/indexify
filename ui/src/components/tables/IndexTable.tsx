@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { Extractor, IExtractionPolicy, IIndex } from "getindexify";
+import { IExtractionPolicy, IIndex } from "getindexify";
 import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
@@ -46,20 +46,6 @@ const IndexTable = ({
         );
       },
     },
-    // {
-    //   field: "extractor",
-    //   headerName: "Extractor",
-    //   width: 300,
-    //   renderCell: (params) => {
-    //     const policy = getPolicyFromIndexname(params.row.name)
-    //     if (!policy) {
-    //       return null
-    //     }
-    //     return (
-    //       policy.extractor
-    //     );
-    //   },
-    // },
   ];
 
   const getRowId = (row: IIndex) => {

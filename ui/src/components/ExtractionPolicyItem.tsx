@@ -53,6 +53,7 @@ const ExtractionPolicyItem = ({
           {(extractor.input_mime_types ?? []).map((val: string) => {
             return (
               <Chip
+                key={val}
                 label={val}
                 sx={{ backgroundColor: "#4AA4F4", color: "white" }}
               />

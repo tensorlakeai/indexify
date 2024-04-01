@@ -1,5 +1,5 @@
 import { IExtractionPolicy, IExtractor } from "getindexify";
-import { Alert, Chip, Typography } from "@mui/material";
+import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React, { ReactElement } from "react";
 import GavelIcon from "@mui/icons-material/Gavel";
