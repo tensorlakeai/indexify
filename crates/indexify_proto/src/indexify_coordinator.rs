@@ -453,7 +453,7 @@ pub struct CreateContentResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeleteContentRequest {
+pub struct TombstoneContentRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "2")]
@@ -461,7 +461,18 @@ pub struct DeleteContentRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeleteContentResponse {}
+pub struct TombstoneContentResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoveTombstonedContentRequest {
+    #[prost(string, tag = "1")]
+    pub parent_content_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub children_content_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoveTombstonedContentResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Namespace {
@@ -743,11 +754,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn delete_content(
+        pub async fn tombstone_content(
             &mut self,
-            request: impl tonic::IntoRequest<super::DeleteContentRequest>,
+            request: impl tonic::IntoRequest<super::TombstoneContentRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::DeleteContentResponse>,
+            tonic::Response<super::TombstoneContentResponse>,
             tonic::Status,
         > {
             self.inner
@@ -761,14 +772,44 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/DeleteContent",
+                "/indexify_coordinator.CoordinatorService/TombstoneContent",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "DeleteContent",
+                        "TombstoneContent",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn remove_tombstoned_content(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RemoveTombstonedContentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveTombstonedContentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_coordinator.CoordinatorService/RemoveTombstonedContent",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "RemoveTombstonedContent",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1475,11 +1516,18 @@ pub mod coordinator_service_server {
             tonic::Response<super::CreateContentResponse>,
             tonic::Status,
         >;
-        async fn delete_content(
+        async fn tombstone_content(
             &self,
-            request: tonic::Request<super::DeleteContentRequest>,
+            request: tonic::Request<super::TombstoneContentRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::DeleteContentResponse>,
+            tonic::Response<super::TombstoneContentResponse>,
+            tonic::Status,
+        >;
+        async fn remove_tombstoned_content(
+            &self,
+            request: tonic::Request<super::RemoveTombstonedContentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveTombstonedContentResponse>,
             tonic::Status,
         >;
         async fn get_content_metadata(
@@ -1776,25 +1824,28 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/DeleteContent" => {
+                "/indexify_coordinator.CoordinatorService/TombstoneContent" => {
                     #[allow(non_camel_case_types)]
-                    struct DeleteContentSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct TombstoneContentSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::DeleteContentRequest>
-                    for DeleteContentSvc<T> {
-                        type Response = super::DeleteContentResponse;
+                    > tonic::server::UnaryService<super::TombstoneContentRequest>
+                    for TombstoneContentSvc<T> {
+                        type Response = super::TombstoneContentResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::DeleteContentRequest>,
+                            request: tonic::Request<super::TombstoneContentRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::delete_content(&inner, request)
+                                <T as CoordinatorService>::tombstone_content(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1807,7 +1858,59 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = DeleteContentSvc(inner);
+                        let method = TombstoneContentSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_coordinator.CoordinatorService/RemoveTombstonedContent" => {
+                    #[allow(non_camel_case_types)]
+                    struct RemoveTombstonedContentSvc<T: CoordinatorService>(pub Arc<T>);
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::RemoveTombstonedContentRequest>
+                    for RemoveTombstonedContentSvc<T> {
+                        type Response = super::RemoveTombstonedContentResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::RemoveTombstonedContentRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as CoordinatorService>::remove_tombstoned_content(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = RemoveTombstonedContentSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

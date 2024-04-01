@@ -292,7 +292,7 @@ impl Coordinator {
             );
             if change
                 .change_type
-                .eq(&indexify_internal_api::ChangeType::DeleteContent)
+                .eq(&indexify_internal_api::ChangeType::TombstoneContent)
             {
                 //  Get the metadata of the children of the content id
                 let content_children_metadata = self
@@ -402,13 +402,24 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn delete_content_metadatas(
+    pub async fn tombstone_content_metdatas(
         &self,
         namespace: &str,
         content_ids: &[String],
     ) -> Result<()> {
         self.shared_state
-            .delete_content_batch(namespace, content_ids)
+            .tombstone_content_batch(namespace, content_ids)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_tombstoned_content(
+        &self,
+        parent_content_id: &str,
+        children_content_ids: &[String],
+    ) -> Result<()> {
+        self.shared_state
+            .remove_tombstoned_content(parent_content_id, children_content_ids)
             .await?;
         Ok(())
     }

@@ -672,7 +672,6 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        _namespace: &NamespaceName,
         content_ids: HashSet<String>,
     ) -> Result<(), StateMachineError> {
         for content_id in content_ids {
@@ -1114,12 +1113,19 @@ impl IndexifyState {
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
             }
-            RequestPayload::DeleteContent {
+            RequestPayload::TombstoneContent {
                 namespace,
                 content_ids,
             } => {
-                //  TODO: This should only be deleted after the ingestion server has removed content on its side
-                // self.delete_content(db, &txn, namespace, content_ids.clone())?;
+                //  TODO: This should only be deleted after the ingestion server has removed content on its side. Should we insert a marker here
+            }
+            RequestPayload::RemoveTombstonedContent {
+                parent_content_id,
+                children_content_ids,
+            } => {
+                let mut content_ids_to_delete = children_content_ids.clone();
+                content_ids_to_delete.insert(parent_content_id.clone());
+                self.delete_content(db, &txn, content_ids_to_delete)?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,

@@ -956,7 +956,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn delete_content_batch(
+    pub async fn tombstone_content_batch(
         &self,
         namespace: &str,
         content_ids: &[String],
@@ -965,12 +965,12 @@ impl App {
         for content_id in content_ids {
             state_changes.push(StateChange::new(
                 content_id.clone(),
-                internal_api::ChangeType::DeleteContent,
+                internal_api::ChangeType::TombstoneContent,
                 timestamp_secs(),
             ));
         }
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeleteContent {
+            payload: RequestPayload::TombstoneContent {
                 namespace: namespace.to_string(),
                 content_ids: content_ids.into_iter().cloned().collect(),
             },
@@ -981,7 +981,29 @@ impl App {
             .forwardable_raft
             .client_write(req)
             .await
-            .map_err(|e| anyhow!("Unable to delete content metadata: {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Unable to tombstone content metadata: {}", e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn remove_tombstoned_content(
+        &self,
+        parent_content_id: &str,
+        children_content_ids: &[String],
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::RemoveTombstonedContent {
+                parent_content_id: parent_content_id.to_string(),
+                children_content_ids: children_content_ids.iter().cloned().collect(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await.map_err(|e| {
+            anyhow!(
+                "Unable to remove tombstoned content metadata: {}",
+                e.to_string()
+            )
+        })?;
         Ok(())
     }
 

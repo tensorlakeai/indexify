@@ -591,7 +591,7 @@ async fn delete_content(
         "Received request to delete content for namespace {} and content ids {:?}",
         namespace, body.content_ids
     );
-    let request = indexify_coordinator::DeleteContentRequest {
+    let request = indexify_coordinator::TombstoneContentRequest {
         namespace: namespace.clone(),
         content_ids: body.content_ids.clone(),
     };
@@ -606,7 +606,7 @@ async fn delete_content(
                 format!("failed to get coordinator client: {}", e).as_str(),
             )
         })?
-        .delete_content(request)
+        .tombstone_content(request)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(

@@ -65,9 +65,13 @@ pub enum RequestPayload {
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    DeleteContent {
+    TombstoneContent {
         namespace: String,
         content_ids: HashSet<String>,
+    },
+    RemoveTombstonedContent {
+        parent_content_id: String,
+        children_content_ids: HashSet<String>,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,

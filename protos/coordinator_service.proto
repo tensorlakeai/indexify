@@ -6,7 +6,9 @@ package indexify_coordinator;
 service CoordinatorService {
     rpc CreateContent(CreateContentRequest) returns (CreateContentResponse) {}
 
-    rpc DeleteContent(DeleteContentRequest) returns (DeleteContentResponse) {}
+    rpc TombstoneContent(TombstoneContentRequest) returns (TombstoneContentResponse) {}
+
+    rpc RemoveTombstonedContent(RemoveTombstonedContentRequest) returns (RemoveTombstonedContentResponse) {}
 
     rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
 
@@ -328,12 +330,19 @@ message CreateContentResponse {
     string id = 1;
 }
 
-message DeleteContentRequest {
+message TombstoneContentRequest {
     string namespace = 1;
     repeated string content_ids = 2;
 }
 
-message DeleteContentResponse {}
+message TombstoneContentResponse {}
+
+message RemoveTombstonedContentRequest {
+    string parent_content_id = 1;
+    repeated string children_content_ids = 2;
+}
+
+message RemoveTombstonedContentResponse {}
 
 message Namespace {
     string name = 1;

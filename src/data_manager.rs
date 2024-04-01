@@ -255,10 +255,9 @@ impl DataManager {
                     "ingestion",
                 )
                 .await?;
-            let req: indexify_coordinator::CreateContentRequest =
-                indexify_coordinator::CreateContentRequest {
-                    content: Some(content_metadata),
-                };
+            let req = indexify_coordinator::CreateContentRequest {
+                content: Some(content_metadata),
+            };
             self.coordinator_client
                 .get()
                 .await?
@@ -283,13 +282,14 @@ impl DataManager {
             .get(0)
             .ok_or(anyhow!("content not found"))?;
 
-        //  Remove from blob storage
+        //  Remove parent from blob storage
         self.blob_storage.delete(&content_metadata.name).await?;
 
         let children_content_metadatas = self
             .get_content_metadata("", gc_task.children_content_ids.clone())
             .await?;
 
+        //  Remove children from blob storage and vector stores
         for content_metadata in children_content_metadatas {
             println!(
                 "Running delete for content metadata {:#?}",
@@ -303,6 +303,23 @@ impl DataManager {
                     .await?;
             }
         }
+
+        //  Remove the tombstoned content
+        let req = indexify_coordinator::RemoveTombstonedContentRequest {
+            parent_content_id: gc_task.parent_content_id.clone(),
+            children_content_ids: gc_task.children_content_ids.clone(),
+        };
+        self.coordinator_client
+            .get()
+            .await?
+            .remove_tombstoned_content(req)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to remove tombstoned content from coordinator {}",
+                    e.to_string()
+                )
+            })?;
 
         Ok(())
     }

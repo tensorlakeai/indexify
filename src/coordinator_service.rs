@@ -14,17 +14,19 @@ use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self, coordinator_service_server::CoordinatorService, CreateContentRequest,
-    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, DeleteContentRequest,
-    DeleteContentResponse, ExtractionPolicyRequest, ExtractionPolicyResponse, GcTask,
-    GcTaskAcknowledgement, GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest, GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
+    ExtractionPolicyResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest,
+    GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
     GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
     HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
     ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
     ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
     ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
     RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
-    TaskAssignments, Uint64List, UpdateTaskRequest, UpdateTaskResponse,
+    RemoveTombstonedContentRequest, RemoveTombstonedContentResponse, TaskAssignments,
+    TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateTaskRequest,
+    UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
@@ -79,18 +81,32 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(CreateContentResponse { id }))
     }
 
-    async fn delete_content(
+    async fn tombstone_content(
         &self,
-        request: tonic::Request<DeleteContentRequest>,
-    ) -> Result<tonic::Response<DeleteContentResponse>, tonic::Status> {
+        request: tonic::Request<TombstoneContentRequest>,
+    ) -> Result<tonic::Response<TombstoneContentResponse>, tonic::Status> {
         let req = request.into_inner();
         let namespace = req.namespace;
         let content_ids = req.content_ids;
         self.coordinator
-            .delete_content_metadatas(&namespace, &content_ids)
+            .tombstone_content_metdatas(&namespace, &content_ids)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(DeleteContentResponse {}))
+        Ok(tonic::Response::new(TombstoneContentResponse {}))
+    }
+
+    async fn remove_tombstoned_content(
+        &self,
+        request: Request<RemoveTombstonedContentRequest>,
+    ) -> Result<Response<RemoveTombstonedContentResponse>, Status> {
+        let req = request.into_inner();
+        let parent_content_id = req.parent_content_id;
+        let children_content_ids = req.children_content_ids;
+        self.coordinator
+            .remove_tombstoned_content(&parent_content_id, &children_content_ids)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(Response::new(RemoveTombstonedContentResponse {}))
     }
 
     async fn list_content(
