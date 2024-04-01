@@ -32,6 +32,7 @@ mod tonic_streamer;
 mod utils;
 mod vector_index;
 mod vectordbs;
+mod ingest_extracted_content;
 
 //  test modules
 #[cfg(test)]
