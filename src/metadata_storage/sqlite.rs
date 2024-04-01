@@ -1,25 +1,12 @@
-use std::{
-    collections::BTreeMap,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::sync::{atomic::AtomicBool, Arc};
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use gluesql::core::{
-    data::{Key, Value},
-    error::Error::StorageMsg as GlueStorageError,
-    store::DataRow,
-};
-use itertools::Itertools;
-use sqlx::{
-    sqlite::{SqlitePoolOptions, SqliteRow},
-    Pool,
-    Row,
-    Sqlite,
-};
+use gluesql::core::error::Error::StorageMsg as GlueStorageError;
+use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 
 use super::{
-    sqlx::row_to_extracted_metadata,
+    sqlx::{row_to_extracted_metadata, row_to_metadata_scan_item},
     table_name,
     ExtractedMetadata,
     MetadataReader,
@@ -199,32 +186,12 @@ impl MetadataReader for SqliteIndexManager {
             .bind(namespace.to_string())
             .bind(content_source.to_string())
             .fetch(&self.pool)
-            .then(|row: Result<SqliteRow, sqlx::Error>| async move {
+            .then(|row| async move {
                 let row = row.map_err(|e| {
                     GlueStorageError(format!("error scanning metadata from sqlite: {}", e))
                 })?;
-                let content_id: String = row.get(0);
-                let mut out_rows: Vec<Value> = Vec::new();
-                out_rows.push(Value::Str(content_id.clone()));
 
-                let data: serde_json::Value = row.get(1);
-                let data = match data {
-                    serde_json::Value::Object(json_map) => json_map
-                        .into_iter()
-                        .map(|(key, value)| {
-                            let value = Value::try_from(value)?;
-
-                            Ok((key, value))
-                        })
-                        .collect::<Result<BTreeMap<String, Value>, gluesql::prelude::Error>>()
-                        .map_err(|e| {
-                            GlueStorageError(format!("invalid metadata from sqlite: {}", e))
-                        })?,
-                    _ => return Err(GlueStorageError("expected JSON object".to_string())),
-                };
-                out_rows.extend(data.values().cloned().collect_vec());
-
-                Ok((Key::Str(content_id), DataRow::Vec(out_rows)))
+                row_to_metadata_scan_item(&row)
             });
 
         Ok(Box::pin(rows))
@@ -233,6 +200,8 @@ impl MetadataReader for SqliteIndexManager {
 
 #[cfg(test)]
 mod tests {
+    use sqlx::Row;
+
     use super::*;
     use crate::{metadata_storage::test_metadata_storage, utils::PostgresIndexName};
 

@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     fmt,
     sync::{atomic::AtomicBool, Arc},
 };
@@ -7,21 +6,11 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
-use gluesql::core::{
-    data::{Key, Value},
-    error::Error::StorageMsg as GlueStorageError,
-    store::DataRow,
-};
-use itertools::Itertools;
-use sqlx::{
-    postgres::{PgPoolOptions, PgRow},
-    Pool,
-    Postgres,
-    Row,
-};
+use gluesql::core::error::Error::StorageMsg as GlueStorageError;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
 use super::{
-    sqlx::row_to_extracted_metadata,
+    sqlx::{row_to_extracted_metadata, row_to_metadata_scan_item},
     table_name,
     ExtractedMetadata,
     MetadataReader,
@@ -190,32 +179,12 @@ impl MetadataReader for PostgresIndexManager {
             .bind(namespace.to_string())
             .bind(content_source.to_string())
             .fetch(&self.pool)
-            .then(|row: Result<PgRow, sqlx::Error>| async move {
+            .then(|row| async move {
                 let row = row.map_err(|e| {
                     GlueStorageError(format!("error scanning metadata from postgres: {}", e))
                 })?;
-                let content_id: String = row.get(0);
-                let mut out_rows: Vec<Value> = Vec::new();
-                out_rows.push(Value::Str(content_id.clone()));
 
-                let data: serde_json::Value = row.get(1);
-                let data = match data {
-                    serde_json::Value::Object(json_map) => json_map
-                        .into_iter()
-                        .map(|(key, value)| {
-                            let value = Value::try_from(value)?;
-
-                            Ok((key, value))
-                        })
-                        .collect::<Result<BTreeMap<String, Value>>>()
-                        .map_err(|e| {
-                            GlueStorageError(format!("invalid metadata from postgres: {}", e))
-                        })?,
-                    _ => return Err(GlueStorageError("expected JSON object".to_string())),
-                };
-                out_rows.extend(data.values().cloned().collect_vec());
-
-                Ok((Key::Str(content_id), DataRow::Vec(out_rows)))
+                row_to_metadata_scan_item(&row)
             });
 
         Ok(Box::pin(rows))
