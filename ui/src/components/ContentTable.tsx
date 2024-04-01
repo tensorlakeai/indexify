@@ -239,11 +239,11 @@ const ContentTable = ({
     return (
       <Box sx={{ width: "100%" }}>
         <DataGrid
-        initialState={{
-          sorting: {
-            sortModel: [{ field: 'created_at', sort: 'desc' }],
-          }
-        }}
+          initialState={{
+            sorting: {
+              sortModel: [{ field: "created_at", sort: "desc" }],
+            },
+          }}
           sx={{ backgroundColor: "white" }}
           autoHeight
           rows={filteredContent}
