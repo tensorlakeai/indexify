@@ -6,7 +6,7 @@ use std::{
 use tracing::error;
 
 use indexify_internal_api::GarbageCollectionTask;
-use tokio::sync::{mpsc::Receiver, watch, Mutex, RwLock};
+use tokio::sync::{mpsc::Receiver, watch, RwLock};
 
 use anyhow::Result;
 
@@ -36,7 +36,7 @@ pub struct GarbageCollector {
     pub assigned_gc_tasks: RwLock<HashMap<String, String>>, // gc task id -> ingestion server id
     pub gc_tasks: RwLock<HashMap<String, GCTaskInfo>>,      //  gc task id -> task info
     pub task_deletion_allocation_events_sender:
-        Mutex<watch::Sender<(String, indexify_internal_api::GarbageCollectionTask)>>,
+        watch::Sender<(String, indexify_internal_api::GarbageCollectionTask)>,
     pub task_deletion_allocation_events_receiver:
         watch::Receiver<(String, indexify_internal_api::GarbageCollectionTask)>,
 }
@@ -58,7 +58,7 @@ impl GarbageCollector {
             ingestion_servers: RwLock::new(HashSet::new()),
             assigned_gc_tasks: RwLock::new(HashMap::new()),
             gc_tasks: RwLock::new(HashMap::new()),
-            task_deletion_allocation_events_sender: Mutex::new(tx),
+            task_deletion_allocation_events_sender: tx,
             task_deletion_allocation_events_receiver: rx,
         })
     }
@@ -72,8 +72,6 @@ impl GarbageCollector {
 
         if let Err(e) = self
             .task_deletion_allocation_events_sender
-            .lock()
-            .await
             .send((server_id, task))
         {
             error!("Unable to send task allocation event: {}", e);
