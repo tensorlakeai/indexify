@@ -118,11 +118,6 @@ const ExtractionPolicyItem = ({
         <Box sx={{ minWidth: cols.inputParams.width }}>
           {renderInputParams()}
         </Box>
-        <Box sx={{ minWidth: cols.indexName.width }}>
-          {index && (
-            <Link to={`/${namespace}/indexes/${index.name}`}>{index.name}</Link>
-          )}
-        </Box>
       </Stack>
     </Box>
   );

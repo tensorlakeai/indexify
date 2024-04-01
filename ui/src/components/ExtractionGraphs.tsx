@@ -21,7 +21,6 @@ const ExtractionGraphs = ({
     extractor: { displayName: "Extractor", width: 250 },
     mimeTypes: { displayName: "Input MimeTypes", width: 250 },
     inputParams: { displayName: "Input Parameters", width: 250 },
-    indexName: { displayName: "Index", width: 250 },
   };
 
   const renderHeader = () => {

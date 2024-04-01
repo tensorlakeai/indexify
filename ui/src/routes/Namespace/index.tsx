@@ -48,7 +48,7 @@ const NamespacePage = () => {
         extractionPolicies={client.extractionPolicies}
         extractors={extractors}
       />
-      <IndexTable namespace={namespace} indexes={indexes} />
+      <IndexTable namespace={namespace} indexes={indexes} extractionPolicies={client.extractionPolicies}/>
       <SchemasTable schemas={schemas} />
       <ContentTable
         extractionPolicies={client.extractionPolicies}

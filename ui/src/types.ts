@@ -7,6 +7,5 @@ export interface IExtractionGraphColumns {
   name: IExtractionGraphCol;
   extractor: IExtractionGraphCol;
   inputParams: IExtractionGraphCol;
-  indexName: IExtractionGraphCol;
   mimeTypes: IExtractionGraphCol;
 }

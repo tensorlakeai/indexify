@@ -2,7 +2,7 @@ import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Alert, Chip, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
-import MemoryIcon from "@mui/icons-material/MemoryOutlined";
+import StorageIcon from "@mui/icons-material/Storage";
 import { ISchema } from "getindexify";
 
 const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
@@ -81,7 +81,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         alignItems={"center"}
         spacing={2}
       >
-        <MemoryIcon />
+        <StorageIcon />
         <Typography variant="h3">SQL Tables</Typography>
       </Stack>
       {renderContent()}
