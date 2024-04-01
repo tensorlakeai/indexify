@@ -1,5 +1,5 @@
 import { Box, Chip, Stack, Typography } from "@mui/material";
-import { IExtractionPolicy, IIndex } from "getindexify";
+import { IExtractionPolicy, IExtractor, IIndex } from "getindexify";
 import { IExtractionGraphColumns } from "../types";
 import { Link } from "react-router-dom";
 
@@ -10,6 +10,7 @@ const ExtractionPolicyItem = ({
   cols,
   depth,
   itemHeight,
+  extractors,
   index,
 }: {
   extractionPolicy: IExtractionPolicy;
@@ -18,6 +19,7 @@ const ExtractionPolicyItem = ({
   cols: IExtractionGraphColumns;
   depth: number;
   itemHeight: number;
+  extractors: IExtractor[];
   index?: IIndex;
 }) => {
   const renderInputParams = () => {
@@ -33,6 +35,28 @@ const ExtractionPolicyItem = ({
         <Stack gap={1} direction="row">
           {Object.keys(params).map((val: string) => {
             return <Chip key={val} label={`${val}:${params[val]}`} />;
+          })}
+        </Stack>
+      </Box>
+    );
+  };
+
+  const renderMimeTypes = () => {
+    const extractor = extractors.find(
+      (extractor) => extractor.name === extractionPolicy.extractor
+    );
+    if (!extractor) return null;
+
+    return (
+      <Box sx={{ overflowX: "scroll" }}>
+        <Stack gap={1} direction="row">
+          {(extractor.input_mime_types ?? []).map((val: string) => {
+            return (
+              <Chip
+                label={val}
+                sx={{ backgroundColor: "#4AA4F4", color: "white" }}
+              />
+            );
           })}
         </Stack>
       </Box>
@@ -81,19 +105,24 @@ const ExtractionPolicyItem = ({
           variant="body1"
         >
           {depth > 0 && <LShapedLine />}
-          <Link to={`/${namespace}/extraction-policies/${extractionPolicy.name}`}>{extractionPolicy.name}</Link>
+          <Link
+            to={`/${namespace}/extraction-policies/${extractionPolicy.name}`}
+          >
+            {extractionPolicy.name}
+          </Link>
         </Typography>
         <Typography variant="body1" sx={{ minWidth: cols.extractor.width }}>
           {extractionPolicy.extractor}
         </Typography>
+        <Box sx={{ minWidth: cols.mimeTypes.width }}>{renderMimeTypes()}</Box>
         <Box sx={{ minWidth: cols.inputParams.width }}>
           {renderInputParams()}
         </Box>
-        {index && (
-          <Box sx={{ minWidth: cols.indexName.width }}>
+        <Box sx={{ minWidth: cols.indexName.width }}>
+          {index && (
             <Link to={`/${namespace}/indexes/${index.name}`}>{index.name}</Link>
-          </Box>
-        )}
+          )}
+        </Box>
       </Stack>
     </Box>
   );

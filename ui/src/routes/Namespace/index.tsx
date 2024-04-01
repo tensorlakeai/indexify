@@ -7,11 +7,13 @@ import {
 } from "getindexify";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Stack } from "@mui/material";
-import ContentTable from "../../components/ContentTable";
+import ContentTable from "../../components/tables/ContentTable";
 import React from "react";
 import ExtractionGraphs from "../../components/ExtractionGraphs";
-import ExtractorsTable from "../../components/ExtractorsTable";
+import ExtractorsTable from "../../components/tables/ExtractorsTable";
 import { getIndexifyServiceURL } from "../../utils/helpers";
+import SchemasTable from "../../components/tables/SchemasTable";
+import IndexTable from "../../components/tables/IndexTable";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const { namespace } = params;
@@ -25,27 +27,29 @@ export async function loader({ params }: LoaderFunctionArgs) {
     client.getContent(),
     client.getSchemas(),
   ]);
-  return { client, extractors, indexes, contentList, schemas };
+  return { client, extractors, indexes, contentList, schemas, namespace };
 }
 
 const NamespacePage = () => {
-  const { client, extractors, indexes, contentList, schemas } =
+  const { client, extractors, indexes, contentList, schemas, namespace } =
     useLoaderData() as {
       client: IndexifyClient;
       extractors: Extractor[];
       indexes: IIndex[];
       contentList: IContentMetadata[];
       schemas: ISchema[];
+      namespace: string;
     };
 
   return (
     <Stack direction="column" spacing={3}>
       <ExtractionGraphs
-        indexes={indexes}
         namespace={client.namespace}
-        schemas={schemas}
         extractionPolicies={client.extractionPolicies}
+        extractors={extractors}
       />
+      <IndexTable namespace={namespace} indexes={indexes} />
+      <SchemasTable schemas={schemas} />
       <ContentTable
         extractionPolicies={client.extractionPolicies}
         content={contentList}
