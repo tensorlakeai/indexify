@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, RwLock},
     time::SystemTime,
 };
@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -1467,36 +1459,54 @@ impl IndexifyState {
         content
     }
 
-    /// This method will fetch all pieces of content metadata where the
-    /// parent_id field is set to the content_id passed in
-    pub fn get_content_children_metadata(
+    /// This method will fetch all pieces of content metadata for the tree rooted at content_id
+    pub fn get_content_tree_metadata(
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
-        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> = txn
-            .iterator_cf(
+        let mut collected_content_metadata = Vec::new();
+
+        //  Add the parent first
+        let parent_content_bytes = txn
+            .get_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                content_id.as_bytes(),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+            .ok_or_else(|| {
+                StateMachineError::DatabaseError(format!("Content {} not found", content_id))
+            })?;
+        let parent_content = serde_json::from_slice::<indexify_internal_api::ContentMetadata>(
+            &parent_content_bytes,
+        )?;
+        collected_content_metadata.push(parent_content);
+
+        let mut queue = VecDeque::new();
+        queue.push_back(content_id.to_string());
+
+        while let Some(curr_content_id) = queue.pop_front() {
+            let mut iterator = txn.iterator_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 rocksdb::IteratorMode::Start,
-            )
-            .filter_map(|item| match item {
-                Ok((_, value)) => {
-                    match serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value) {
-                        Ok(content) => {
-                            if content.parent_id == content_id {
-                                Some(Ok(content))
-                            } else {
-                                None
-                            }
-                        }
-                        Err(e) => Some(Err(StateMachineError::from(e))),
-                    }
+            );
+
+            while let Some(item) = iterator.next() {
+                let (_, value) =
+                    item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                let content_metadata =
+                    serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value)
+                        .map_err(StateMachineError::from)?;
+
+                //  if the current content is a child of the parent being processed, add it to queue for further processing
+                if content_metadata.parent_id == curr_content_id {
+                    queue.push_back(content_metadata.id.clone());
+                    collected_content_metadata.push(content_metadata);
                 }
-                Err(e) => Some(Err(StateMachineError::DatabaseError(e.to_string()))),
-            })
-            .collect();
-        content
+            }
+        }
+        Ok(collected_content_metadata)
     }
 
     /// This method tries to retrieve all policies based on id's. If it cannot

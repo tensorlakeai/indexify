@@ -14,21 +14,9 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -358,10 +346,10 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub fn get_content_children_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
+    pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
-            .get_content_children_metadata(content_id, &self.db)
+            .get_content_tree_metadata(content_id, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 

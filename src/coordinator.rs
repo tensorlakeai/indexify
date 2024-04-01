@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -284,8 +284,111 @@ impl Coordinator {
         Ok(())
     }
 
+    async fn create_gc_tasks(&self, content_id: String) -> Result<Vec<GarbageCollectionTask>> {
+        //  Get the metadata of the children of the content id
+        let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
+        println!("The content tree {:#?}", content_tree_metadata);
+        let mut content_to_children_map: HashMap<String, Vec<String>> = HashMap::new();
+        for content in &content_tree_metadata {
+            let parent_id = &content.parent_id;
+            let content_id = content.id.clone();
+
+            match content_to_children_map.get_mut(parent_id) {
+                Some(children) => {
+                    children.push(content_id);
+                }
+                None => {
+                    content_to_children_map.insert(parent_id.clone(), vec![content_id]);
+                }
+            }
+        }
+        println!(
+            "The content to children map: {:#?}",
+            content_to_children_map
+        );
+        let content_ids = content_tree_metadata
+            .iter()
+            .map(|c| c.id.clone())
+            .collect::<Vec<String>>();
+        println!("The content ids are {:?}", content_ids);
+        let namespace: String = content_tree_metadata[0].namespace.clone();
+
+        let mut gc_tasks_created = Vec::new();
+
+        //  Get the extraction policy ids applied to each content id
+        for content_id in content_ids {
+            let content_extraction_policy_mappings = self
+                .shared_state
+                .get_content_extraction_policy_mappings_for_content_id(&content_id)
+                .await?;
+
+            if let Some(mappings) = content_extraction_policy_mappings {
+                //  fetch all the extraction policies that have been applied
+                println!(
+                    "The content extraction policy mappings for {} are {:#?}",
+                    content_id, mappings
+                );
+                let applied_extraction_policy_ids: HashSet<String> =
+                    mappings.time_of_policy_completion.keys().cloned().collect();
+                let applied_extraction_policies = self
+                    .shared_state
+                    .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+                    .await?;
+
+                //  Get the table names from the extraction_policies
+                let mut output_tables: Vec<String> = Vec::new();
+                for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
+                    output_tables.extend(
+                        applied_extraction_policy
+                            .index_name_table_mapping
+                            .values()
+                            .cloned(),
+                    );
+                }
+
+                //  Create the garbage collection task and write it to Raft and send the gc task
+                // to the garbage collector
+                let mut hasher = DefaultHasher::new();
+                let policies = applied_extraction_policies.unwrap();
+                let policy = policies.first().unwrap();
+
+                policy.name.hash(&mut hasher);
+                policy.namespace.hash(&mut hasher);
+                content_id.hash(&mut hasher);
+                let id = format!("{:x}", hasher.finish());
+
+                let gc_task = indexify_internal_api::GarbageCollectionTask {
+                    namespace: namespace.clone(),
+                    id,
+                    parent_content_id: content_id.clone(),
+                    children_content_ids: content_to_children_map
+                        .get(&content_id)
+                        .unwrap_or(&Vec::new())
+                        .clone(),
+                    output_index_table_mapping: output_tables.iter().cloned().collect(),
+                    outcome: indexify_internal_api::TaskOutcome::Unknown,
+                };
+                println!("Created gc task {:?}", gc_task);
+                info!("created gc task {:?}", gc_task);
+                gc_tasks_created.push(gc_task);
+            }
+        }
+        Ok(gc_tasks_created)
+    }
+
+    async fn handle_tombstone_content(&self, change: StateChange) -> Result<()> {
+        let gc_tasks_created = self.create_gc_tasks(change.object_id).await?;
+        self.shared_state
+            .create_gc_tasks(gc_tasks_created.clone(), &change.id)
+            .await?;
+        for gc_task in gc_tasks_created {
+            self.gc_tasks_tx.send(gc_task).await?;
+        }
+        return Ok(());
+    }
+
     #[tracing::instrument(skip(self))]
-    pub async fn run_scheduler(&self) -> Result<(), anyhow::Error> {
+    pub async fn run_scheduler(&self) -> Result<()> {
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
         println!(
             "The unprocessed state change events are {:#?}",
@@ -296,91 +399,22 @@ impl Coordinator {
                 "processing change event: {}, type: {}, id: {}",
                 change.id, change.change_type, change.object_id
             );
-            if change
-                .change_type
-                .eq(&indexify_internal_api::ChangeType::TombstoneContent)
-            {
-                //  Get the metadata of the children of the content id
-                let content_children_metadata = self
-                    .shared_state
-                    .get_content_children_metadata(&change.object_id)?;
-                let content_children_ids = content_children_metadata
-                    .iter()
-                    .map(|c| c.id.clone())
-                    .collect::<Vec<String>>();
-                let namespace: String = content_children_metadata[0].namespace.clone();
 
-                //  Get the extraction policy ids applied to a content id from the mappings and
-                // figure out the table name of the index where the data is written and needs to
-                // be deleted from  Then create a GCTask and notify the
-                // GarbageCollector of that
-                let content_extraction_policy_mappings = self
-                    .shared_state
-                    .get_content_extraction_policy_mappings_for_content_id(&change.object_id)
-                    .await?;
-                if let Some(mappings) = content_extraction_policy_mappings {
-                    //  fetch all the extraction policies that have been applied
-                    let applied_extraction_policy_ids: HashSet<String> =
-                        mappings.time_of_policy_completion.keys().cloned().collect();
-                    let applied_extraction_policies = self
-                        .shared_state
-                        .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+            match change.change_type {
+                indexify_internal_api::ChangeType::IngestionServerAdded => {
+                    let _rx = self
+                        .garbage_collector
+                        .register_ingestion_server(change.object_id.clone())
                         .await?;
-
-                    //  Get the table names from the extraction_policies
-                    let mut output_tables: Vec<String> = Vec::new();
-                    for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
-                        output_tables.extend(
-                            applied_extraction_policy
-                                .index_name_table_mapping
-                                .values()
-                                .cloned(),
-                        );
-                    }
-
-                    //  Create the garbage collection task and write it to Raft and send the gc task
-                    // to the garbage collector
-                    let mut hasher = DefaultHasher::new();
-                    let policies = applied_extraction_policies.unwrap();
-                    let policy = policies.first().unwrap();
-
-                    policy.name.hash(&mut hasher);
-                    policy.namespace.hash(&mut hasher);
-                    change.object_id.hash(&mut hasher);
-                    let id = format!("{:x}", hasher.finish());
-
-                    let gc_task = indexify_internal_api::GarbageCollectionTask {
-                        namespace,
-                        id,
-                        parent_content_id: change.object_id.clone(),
-                        children_content_ids: content_children_ids,
-                        output_index_table_mapping: output_tables.iter().cloned().collect(),
-                        outcome: indexify_internal_api::TaskOutcome::Unknown,
-                    };
-                    info!("created gc task {:?}", gc_task);
                     self.shared_state
-                        .create_gc_tasks(vec![gc_task.clone()], &change.id)
-                        .await?;
-                    //  TODO: Should we react to a state change event before sending the gc task to
-                    // the garbage collector
-                    self.gc_tasks_tx.send(gc_task).await?;
+                        .mark_change_events_as_processed(vec![change])
+                        .await?
                 }
-                return Ok(());
-            } else if change
-                .change_type
-                .eq(&indexify_internal_api::ChangeType::IngestionServerAdded)
-            {
-                println!("Ingestion server added change event received in coordinator");
-                let _rx = self
-                    .garbage_collector
-                    .register_ingestion_server(change.object_id.clone())
-                    .await?;
-                self.shared_state
-                    .mark_change_events_as_processed(vec![change])
-                    .await?;
-                return Ok(());
+                indexify_internal_api::ChangeType::TombstoneContent => {
+                    self.handle_tombstone_content(change).await?
+                }
+                _ => self.scheduler.handle_change_event(change).await?,
             }
-            self.scheduler.handle_change_event(change).await?;
         }
         Ok(())
     }
@@ -472,7 +506,12 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fs, sync::Arc, time::Duration};
+    use std::{
+        collections::{HashMap, HashSet},
+        fs,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
@@ -870,6 +909,171 @@ mod tests {
         let alt_node = cluster.get_node(1)?;
         let response = alt_node.check_cluster_membership().await?;
         assert_eq!(response.handled_by, new_leader_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_handle_tombstoned_content() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config, None).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        //  Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  Create an extractor, executor and associated extraction policy
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .await?;
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_1".to_string(),
+            name: "extraction_policy_name_1".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: "ingestion".to_string(),
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .await?;
+
+        //  Create a different extractor, executor and associated extraction policy
+        let mut extractor_2 = mock_extractor();
+        let extractor_2_name = "MockExtractor2".to_string();
+        extractor_2.name = extractor_2_name.clone();
+        coordinator
+            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .await?;
+        let extraction_policy_2 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_2".to_string(),
+            extractor: extractor_2_name.clone(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: extraction_policy_1.name,
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_2, extractor_2)
+            .await?;
+
+        //  Build a content tree where the parent content id is the pointer
+        let parent_content = indexify_coordinator::ContentMetadata {
+            id: "test_parent_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_content_1 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_content_2 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_2".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_child_content_1 = indexify_coordinator::ContentMetadata {
+            id: "test_child_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_child_id_1".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![
+                parent_content.clone(),
+                child_content_1.clone(),
+                child_content_2.clone(),
+                child_child_content_1.clone(),
+            ])
+            .await?;
+
+        //  Create mappings of the extraction policies applied to each piece of content
+        let content_extraction_policy_mappings_parent_content =
+            internal_api::ContentExtractionPolicyMapping {
+                content_id: parent_content.id.clone(),
+                extraction_policy_ids: HashSet::from([extraction_policy_1.id.clone()]),
+                time_of_policy_completion: HashMap::from([(
+                    extraction_policy_1.id.clone(),
+                    SystemTime::now(),
+                )]),
+            };
+        let content_extraction_policy_mappings_child_content_1 =
+            internal_api::ContentExtractionPolicyMapping {
+                content_id: child_content_1.id.clone(),
+                extraction_policy_ids: HashSet::from([extraction_policy_1.id.clone()]),
+                time_of_policy_completion: HashMap::from([(
+                    extraction_policy_1.id.clone(),
+                    SystemTime::now(),
+                )]),
+            };
+
+        coordinator
+            .shared_state
+            .set_content_extraction_policy_mappings(vec![
+                content_extraction_policy_mappings_parent_content,
+                content_extraction_policy_mappings_child_content_1,
+            ])
+            .await?;
+
+        let content_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id)?;
+        assert_eq!(content_tree.len(), 4);
+
+        let state_change = internal_api::StateChange {
+            object_id: parent_content.id.clone(),
+            ..Default::default()
+        };
+        let tasks = coordinator.create_gc_tasks(state_change.object_id).await?;
+        println!("The tasks created are {:#?}", tasks);
+        assert_eq!(tasks.len(), 2);
+
         Ok(())
     }
 }
