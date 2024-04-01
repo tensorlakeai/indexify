@@ -64,8 +64,8 @@ pub trait MetadataStorage {
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>>;
 
-    //  TODO: Create function to delete content from here using namespace and
-    // content id
+    async fn delete_metadata_for_content(&self, namespace: &str, content_id: &str) -> Result<()>;
+
     #[cfg(test)]
     async fn drop_metadata_table(&self, namespace: &str) -> Result<()>;
 }
@@ -114,4 +114,48 @@ pub fn from_config_reader(config: &MetadataStoreConfig) -> Result<MetadataReader
         MetadataStoreKind::Postgres => Ok(PostgresIndexManager::new(&config.conn_url)?),
         MetadataStoreKind::Sqlite => Ok(SqliteIndexManager::new(&config.conn_url)?),
     }
+}
+
+#[cfg(test)]
+async fn test_metadata_storage(index_manager: MetadataStorageTS) {
+    let namespace = "test_namespace";
+    index_manager
+        .create_metadata_table(namespace)
+        .await
+        .unwrap();
+    let metadata = ExtractedMetadata {
+        id: "test_id".into(),
+        content_id: "test_content_id".into(),
+        parent_content_id: "test_parent_content_id".into(),
+        content_source: "test_content_source".into(),
+        metadata: serde_json::json!({"test": "test"}),
+        extractor_name: "test_extractor".into(),
+        extraction_policy: "test_extractor_policy".into(),
+    };
+    index_manager
+        .add_metadata(namespace, metadata.clone())
+        .await
+        .unwrap();
+
+    // Retrieve the metadata from the database
+    let metadata_out = index_manager
+        .get_metadata_for_content(namespace, "test_content_id")
+        .await
+        .unwrap();
+
+    assert_eq!(metadata_out.len(), 1);
+    assert_eq!(metadata_out[0], metadata);
+
+    // Delete the metadata from the database
+    index_manager
+        .delete_metadata_for_content(namespace, "test_content_id")
+        .await
+        .unwrap();
+
+    let metadata_out = index_manager
+        .get_metadata_for_content(namespace, "test_content_id")
+        .await
+        .unwrap();
+
+    assert_eq!(metadata_out.len(), 0);
 }

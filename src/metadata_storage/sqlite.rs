@@ -130,6 +130,20 @@ impl MetadataStorage for SqliteIndexManager {
         }
         Ok(extracted_attributes)
     }
+
+    async fn delete_metadata_for_content(
+        &self,
+        namespace: &str,
+        content_id: &str,
+    ) -> anyhow::Result<()> {
+        let index_table_name = PostgresIndexName::new(&table_name(namespace));
+        let query =
+            format!("DELETE FROM {index_table_name} WHERE namespace = $1 and content_id = $2");
+        let conn = self.conn.lock().await;
+        let _ = conn.execute(&query, params![namespace, content_id])?;
+
+        Ok(())
+    }
 }
 
 #[async_trait(?Send)]
@@ -251,7 +265,7 @@ mod tests {
     use rusqlite::params;
 
     use super::*;
-    use crate::utils::PostgresIndexName;
+    use crate::{metadata_storage::test_metadata_storage, utils::PostgresIndexName};
 
     #[tokio::test]
     async fn test_create_index() {
@@ -276,39 +290,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_metadata() {
+    async fn test_sqlite_metadata_storage() {
         let conn = Connection::open_in_memory().unwrap();
         let conn = Arc::new(Mutex::new(conn));
         let index_manager = SqliteIndexManager {
             conn,
             default_table_created: AtomicBool::new(false),
         };
-        let namespace = "test_namespace";
-        index_manager
-            .create_metadata_table(namespace)
-            .await
-            .unwrap();
-        let metadata = ExtractedMetadata {
-            id: "test_id".into(),
-            content_id: "test_content_id".into(),
-            parent_content_id: "test_parent_content_id".into(),
-            content_source: "test_content_source".into(),
-            metadata: serde_json::json!({"test": "test"}),
-            extractor_name: "test_extractor".into(),
-            extraction_policy: "test_extractor_policy".into(),
-        };
-        index_manager
-            .add_metadata(namespace, metadata.clone())
-            .await
-            .unwrap();
+        let index_manager = Arc::new(index_manager);
 
-        // Retrieve the metadata from the database
-        let metadata_out = index_manager
-            .get_metadata_for_content(namespace, "test_content_id")
-            .await
-            .unwrap();
-
-        assert_eq!(metadata_out.len(), 1);
-        assert_eq!(metadata_out[0], metadata);
+        test_metadata_storage(index_manager).await;
     }
 }

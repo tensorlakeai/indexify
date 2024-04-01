@@ -123,6 +123,20 @@ impl MetadataStorage for PostgresIndexManager {
 
         Ok(extracted_attributes)
     }
+
+    async fn delete_metadata_for_content(&self, namespace: &str, content_id: &str) -> Result<()> {
+        let index_table_name = PostgresIndexName::new(&table_name(namespace));
+        let query =
+            format!("DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2");
+
+        sqlx::query(&query)
+            .bind(namespace)
+            .bind(content_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait(?Send)]
@@ -223,38 +237,14 @@ fn row_to_extracted_metadata(row: &PgRow) -> ExtractedMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_storage::test_metadata_storage;
 
     #[tokio::test]
-    async fn test_add_metadata() {
+    async fn test_postgres_metadata_storage() {
         let index_manager =
             PostgresIndexManager::new("postgres://postgres:postgres@localhost:5432/indexify")
                 .unwrap();
-        let namespace = "test_namespace";
-        index_manager
-            .create_metadata_table(namespace)
-            .await
-            .unwrap();
-        let metadata = ExtractedMetadata {
-            id: "test_id".into(),
-            content_id: "test_content_id".into(),
-            parent_content_id: "test_parent_content_id".into(),
-            content_source: "test_content_source".into(),
-            metadata: serde_json::json!({"test": "test"}),
-            extractor_name: "test_extractor".into(),
-            extraction_policy: "test_extractor_policy".into(),
-        };
-        index_manager
-            .add_metadata(namespace, metadata.clone())
-            .await
-            .unwrap();
 
-        // Retreive the metadata from the database
-        let metadata_out = index_manager
-            .get_metadata_for_content(namespace, "test_content_id")
-            .await
-            .unwrap();
-
-        assert_eq!(metadata_out.len(), 1);
-        assert_eq!(metadata_out[0], metadata);
+        test_metadata_storage(index_manager).await;
     }
 }
