@@ -167,7 +167,8 @@ impl Scheduler {
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
 
-        //  TODO: This will be done in create_extraction_policy in coordinator_service. Just store the mapping
+        //  TODO: This will be done in create_extraction_policy in coordinator_service.
+        // Just store the mapping
         for name in extractor.outputs.keys() {
             let index_name = extraction_policy
                 .output_index_name_mapping

@@ -15,7 +15,9 @@ use gluesql::core::{
 use itertools::Itertools;
 use sqlx::{
     postgres::{PgPoolOptions, PgRow},
-    Pool, Postgres, Row,
+    Pool,
+    Postgres,
+    Row,
 };
 
 use super::{table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage};

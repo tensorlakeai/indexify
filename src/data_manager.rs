@@ -24,7 +24,9 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -279,7 +281,7 @@ impl DataManager {
             .get_content_metadata("", vec![gc_task.parent_content_id.to_string()])
             .await?;
         let content_metadata = content_metadata
-            .get(0)
+            .first()
             .ok_or(anyhow!("content not found"))?;
 
         //  Remove parent from blob storage
@@ -299,7 +301,7 @@ impl DataManager {
 
             for table in &gc_task.output_index_table_mapping {
                 self.vector_index_manager
-                    .remove_embedding(&table, &content_metadata.id)
+                    .remove_embedding(table, &content_metadata.id)
                     .await?;
             }
 

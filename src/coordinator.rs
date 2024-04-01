@@ -310,8 +310,10 @@ impl Coordinator {
                     .collect::<Vec<String>>();
                 let namespace: String = content_children_metadata[0].namespace.clone();
 
-                //  Get the extraction policy ids applied to a content id from the mappings and figure out the table name of the index where the data is written and needs to be deleted from
-                //  Then create a GCTask and notify the GarbageCollector of that
+                //  Get the extraction policy ids applied to a content id from the mappings and
+                // figure out the table name of the index where the data is written and needs to
+                // be deleted from  Then create a GCTask and notify the
+                // GarbageCollector of that
                 let content_extraction_policy_mappings = self
                     .shared_state
                     .get_content_extraction_policy_mappings_for_content_id(&change.object_id)
@@ -336,10 +338,11 @@ impl Coordinator {
                         );
                     }
 
-                    //  Create the garbage collection task and write it to Raft and send the gc task to the garbage collector
+                    //  Create the garbage collection task and write it to Raft and send the gc task
+                    // to the garbage collector
                     let mut hasher = DefaultHasher::new();
                     let policies = applied_extraction_policies.unwrap();
-                    let policy = policies.get(0).unwrap();
+                    let policy = policies.first().unwrap();
 
                     policy.name.hash(&mut hasher);
                     policy.namespace.hash(&mut hasher);
@@ -358,7 +361,8 @@ impl Coordinator {
                     self.shared_state
                         .create_gc_tasks(vec![gc_task.clone()], &change.id)
                         .await?;
-                    //  TODO: Should we react to a state change event before sending the gc task to the garbage collector
+                    //  TODO: Should we react to a state change event before sending the gc task to
+                    // the garbage collector
                     self.gc_tasks_tx.send(gc_task).await?;
                 }
                 return Ok(());

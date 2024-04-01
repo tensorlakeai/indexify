@@ -16,8 +16,16 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -1117,7 +1125,9 @@ impl IndexifyState {
                 namespace: _,
                 content_ids: _,
             } => {
-                //  TODO: This should only be deleted after the ingestion server has removed content on its side. Should we insert a marker here
+                //  TODO: This should only be deleted after the ingestion server
+                // has removed content on its side. Should we insert a marker
+                // here
             }
             RequestPayload::RemoveTombstonedContent {
                 parent_content_id,
@@ -1457,7 +1467,8 @@ impl IndexifyState {
         content
     }
 
-    /// This method will fetch all pieces of content metadata where the parent_id field is set to the content_id passed in
+    /// This method will fetch all pieces of content metadata where the
+    /// parent_id field is set to the content_id passed in
     pub fn get_content_children_metadata(
         &self,
         content_id: &str,

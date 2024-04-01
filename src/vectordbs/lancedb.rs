@@ -6,8 +6,13 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use arrow_array::{
-    cast::as_string_array, types::Float32Type, FixedSizeListArray, PrimitiveArray, RecordBatch,
-    RecordBatchIterator, StringArray,
+    cast::as_string_array,
+    types::Float32Type,
+    FixedSizeListArray,
+    PrimitiveArray,
+    RecordBatch,
+    RecordBatchIterator,
+    StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;

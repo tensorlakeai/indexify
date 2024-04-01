@@ -1,14 +1,13 @@
-use rand::seq::IteratorRandom;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tracing::error;
-
-use indexify_internal_api::GarbageCollectionTask;
-use tokio::sync::{mpsc::Receiver, watch, RwLock};
 
 use anyhow::Result;
+use indexify_internal_api::GarbageCollectionTask;
+use rand::seq::IteratorRandom;
+use tokio::sync::{mpsc::Receiver, watch, RwLock};
+use tracing::error;
 
 #[derive(Debug, Clone)]
 pub enum TaskStatus {

@@ -113,7 +113,7 @@ impl MetadataStorage for SqliteIndexManager {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!("DELETE FROM {table_name} WHERE id = $1");
         let conn = self.conn.lock().await;
-        let _ = conn.execute(&query, &[id])?;
+        let _ = conn.execute(&query, [id])?;
         Ok(())
     }
 

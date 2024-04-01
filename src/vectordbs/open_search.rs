@@ -5,7 +5,8 @@ use opensearch::{
     cert::CertificateValidation,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
     indices::IndicesCreateParts,
-    BulkOperation, OpenSearch,
+    BulkOperation,
+    OpenSearch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};

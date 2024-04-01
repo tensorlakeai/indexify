@@ -5,8 +5,15 @@ use async_trait::async_trait;
 use qdrant_client::{
     client::{Payload, QdrantClient, QdrantClientConfig},
     qdrant::{
-        vectors_config::Config, with_payload_selector::SelectorOptions, CreateCollection, Distance,
-        PointStruct, SearchPoints, VectorParams, VectorsConfig, WithPayloadSelector,
+        vectors_config::Config,
+        with_payload_selector::SelectorOptions,
+        CreateCollection,
+        Distance,
+        PointStruct,
+        SearchPoints,
+        VectorParams,
+        VectorsConfig,
+        WithPayloadSelector,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -122,7 +129,8 @@ impl VectorDb for QdrantDb {
 
     #[tracing::instrument]
     async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
-        //  TODO: Complete this implementaiton for Qdrant to delete rows based on the content_id
+        //  TODO: Complete this implementaiton for Qdrant to delete rows based on the
+        // content_id
         Ok(())
     }
 
