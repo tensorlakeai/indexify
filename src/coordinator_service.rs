@@ -327,15 +327,15 @@ impl CoordinatorService for CoordinatorServiceServer {
                         break;
                     }
                     task_ack = inbound.next() => {
-                        if let Some(task_ack) = task_ack {
-                            if let Ok(task_ack) = task_ack {
+                        match task_ack {
+                            Some(Ok(task_ack)) => {
                                 tracing::debug!(
                                     "Received gc task acknowledgement {:?}, marking the gc task as complete",
                                     task_ack
                                 );
                                 if let Err(e) = coordinator_clone
-                                    .update_gc_task(&task_ack.task_id, task_ack.completed.into())
-                                    .await
+                                .update_gc_task(&task_ack.task_id, task_ack.completed.into())
+                                .await
                                 {
                                     tracing::error!(
                                         "Error updating GC task with id {}: {}",
@@ -344,14 +344,22 @@ impl CoordinatorService for CoordinatorServiceServer {
                                     );
                                 }
                             }
+                            Some(Err(e)) => {
+                                tracing::error!("Stream error, likely disconnection: {}", e);
+                                break;
+                            }
+                            None => {
+                                tracing::info!("GC tasks stream ended, client disconnected.");
+                                break;
+                            }
                         }
                     }
                     _ = gc_task_allocation_event_rx.changed() => {
                         let task = gc_task_allocation_event_rx.borrow().clone();
                         if task.0 == ingestion_server_id {
-                            //  pass the task along to the ingestion server
                             let serialized_task = GcTask {
                                 task_id: task.1.id,
+                                namespace: task.1.namespace,
                                 parent_content_id: task.1.parent_content_id,
                                 children_content_ids: task.1.children_content_ids,
                                 output_index_table_mapping: task
@@ -365,6 +373,11 @@ impl CoordinatorService for CoordinatorServiceServer {
                     }
                 }
             }
+
+            //  Notify the garbage collector that the ingestion server has disconnected
+            coordinator_clone
+                .remove_ingestion_server_from_garbage_collector(&ingestion_server_id)
+                .await;
         });
 
         let response_stream = ReceiverStream::new(rx).map(Ok);

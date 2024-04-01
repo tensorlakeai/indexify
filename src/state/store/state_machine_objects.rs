@@ -1114,8 +1114,8 @@ impl IndexifyState {
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::TombstoneContent {
-                namespace,
-                content_ids,
+                namespace: _,
+                content_ids: _,
             } => {
                 //  TODO: This should only be deleted after the ingestion server has removed content on its side. Should we insert a marker here
             }
@@ -1470,7 +1470,7 @@ impl IndexifyState {
                 rocksdb::IteratorMode::Start,
             )
             .filter_map(|item| match item {
-                Ok((key, value)) => {
+                Ok((_, value)) => {
                     match serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value) {
                         Ok(content) => {
                             if content.parent_id == content_id {

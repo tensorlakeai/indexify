@@ -58,14 +58,13 @@ pub trait MetadataStorage {
 
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()>;
 
+    async fn remove_metadata(&self, namespace: &str, id: &str) -> Result<()>;
+
     async fn get_metadata_for_content(
         &self,
         namespace: &str,
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>>;
-
-    //  TODO: Create function to delete content from here using namespace and
-    // content id
     #[cfg(test)]
     async fn drop_metadata_table(&self, namespace: &str) -> Result<()>;
 }

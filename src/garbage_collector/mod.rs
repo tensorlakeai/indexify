@@ -46,6 +46,7 @@ impl GarbageCollector {
         let (tx, rx) = watch::channel((
             "".to_string(),
             indexify_internal_api::GarbageCollectionTask {
+                namespace: "".to_string(),
                 id: "".to_string(),
                 parent_content_id: "".to_string(),
                 children_content_ids: Vec::new(),
@@ -119,7 +120,7 @@ impl GarbageCollector {
         Ok(self.task_deletion_allocation_events_receiver.clone())
     }
 
-    async fn remove_ingestion_server(&self, server_id: &str) {
+    pub async fn remove_ingestion_server(&self, server_id: &str) {
         self.ingestion_servers.write().await.remove(server_id);
 
         //  Get the tasks that need to be re-assigned

@@ -106,6 +106,12 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn remove_ingestion_server_from_garbage_collector(&self, ingestion_server_id: &str) {
+        self.garbage_collector
+            .remove_ingestion_server(ingestion_server_id)
+            .await;
+    }
+
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
         match self.shared_state.namespace(namespace).await {
             Result::Ok(Some(_)) => {
@@ -302,6 +308,7 @@ impl Coordinator {
                     .iter()
                     .map(|c| c.id.clone())
                     .collect::<Vec<String>>();
+                let namespace: String = content_children_metadata[0].namespace.clone();
 
                 //  Get the extraction policy ids applied to a content id from the mappings and figure out the table name of the index where the data is written and needs to be deleted from
                 //  Then create a GCTask and notify the GarbageCollector of that
@@ -340,6 +347,7 @@ impl Coordinator {
                     let id = format!("{:x}", hasher.finish());
 
                     let gc_task = indexify_internal_api::GarbageCollectionTask {
+                        namespace,
                         id,
                         parent_content_id: change.object_id.clone(),
                         children_content_ids: content_children_ids,

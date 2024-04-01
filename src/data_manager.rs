@@ -286,10 +286,10 @@ impl DataManager {
         self.blob_storage.delete(&content_metadata.name).await?;
 
         let children_content_metadatas = self
-            .get_content_metadata("", gc_task.children_content_ids.clone())
+            .get_content_metadata(&gc_task.namespace, gc_task.children_content_ids.clone())
             .await?;
 
-        //  Remove children from blob storage and vector stores
+        //  Remove children from blob storage, vector stores and metadata stores
         for content_metadata in children_content_metadatas {
             println!(
                 "Running delete for content metadata {:#?}",
@@ -302,6 +302,10 @@ impl DataManager {
                     .remove_embedding(&table, &content_metadata.id)
                     .await?;
             }
+
+            self.metadata_index_manager
+                .remove_metadata(&gc_task.namespace, &content_metadata.id)
+                .await?;
         }
 
         //  Remove the tombstoned content

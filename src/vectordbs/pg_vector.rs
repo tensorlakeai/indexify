@@ -80,10 +80,14 @@ impl VectorDb for PgVector {
     async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
         let index = PostgresIndexName::new(index);
         let query = format!("DELETE FROM {} WHERE content_id = $1", index);
-        sqlx::query(&query)
+        let rows_affected = sqlx::query(&query)
             .bind(content_id)
             .execute(&self.pool)
             .await?;
+        println!(
+            "The number of rows affected {}",
+            rows_affected.rows_affected()
+        );
         Ok(())
     }
 

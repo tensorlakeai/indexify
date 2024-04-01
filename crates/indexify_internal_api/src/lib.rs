@@ -361,6 +361,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[schema(as=internal_api::GarbageCollectionTask)]
 pub struct GarbageCollectionTask {
+    pub namespace: String,
     pub id: String,
     pub parent_content_id: String,
     pub children_content_ids: Vec<String>,
