@@ -11,6 +11,7 @@ use crate::server_config::{MetadataStoreConfig, MetadataStoreKind};
 pub mod postgres;
 pub mod query_engine;
 pub mod sqlite;
+mod sqlx;
 
 fn table_name(namespace: &str) -> String {
     format!("metadata_{}", namespace)
