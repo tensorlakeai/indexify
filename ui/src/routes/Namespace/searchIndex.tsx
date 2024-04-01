@@ -7,12 +7,14 @@ import {
   TextField,
   Button,
   Alert,
+  CircularProgress,
 } from "@mui/material";
 import { IIndex, IndexifyClient, ISearchIndexResponse } from "getindexify";
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import SearchResultCard from "../../components/SearchResultCard";
 import { getIndexifyServiceURL } from "../../utils/helpers";
+import { AxiosError, isAxiosError } from "axios";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace;
@@ -43,17 +45,29 @@ const ExtractionPolicyPage = () => {
     query: "",
     topK: 3,
   });
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<AxiosError | null>(null);
+
   const [searchResults, setSearchResults] = useState<
     null | ISearchIndexResponse[]
   >(null);
 
   const onClickSearch = async () => {
-    const results = await client.searchIndex(
-      index.name,
-      formData.query,
-      formData.topK
-    );
-    setSearchResults(results);
+    setLoading(true);
+    await client
+      .searchIndex(index.name, formData.query, formData.topK)
+      .then((results) => {
+        setError(null);
+        setSearchResults(results);
+      })
+      .catch((e) => {
+        if (isAxiosError(e)) {
+          setError(e);
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   return (
@@ -101,7 +115,7 @@ const ExtractionPolicyPage = () => {
             }}
           />
           <Button
-            disabled={formData.query.length === 0}
+            disabled={loading || formData.query.length === 0}
             onClick={onClickSearch}
             variant="contained"
           >
@@ -109,7 +123,12 @@ const ExtractionPolicyPage = () => {
           </Button>
         </Stack>
       </Box>
-
+      {loading && (
+        <Box sx={{ display: "flex" }}>
+          <CircularProgress />
+        </Box>
+      )}
+      {error && <Alert severity="error">Error: {error.message} - {String(error.response?.data || "unknown")}</Alert>}
       {searchResults !== null && (
         <Box>
           <Typography pb={2} variant="h3">
@@ -122,7 +141,7 @@ const ExtractionPolicyPage = () => {
               </Alert>
             ) : (
               searchResults.map((result) => {
-                return <SearchResultCard namespace={namespace} data={result} />;
+                return <SearchResultCard key={result.content_id} namespace={namespace} data={result} />;
               })
             )}
           </Stack>

@@ -2,7 +2,7 @@ Indexify offers a versatile platform for developing Generative AI applications, 
 
 ## Indexify vs LlamaIndex
 
-Indexify is the distributed data framework and compute engine. Your extraction and data processing workflows will run asynchronously and reliably in Indexify. LlamaIndex is an application framework for querying data from vector stores and for response synthesis with LLMs. It doesn't include a fault tolerant and reliable distributed orchestration engine in the open source library. LlamaIndex doesn't include a deletion framework and a robust incremental compute engine, when data source are updated or deleted. 
+Indexify is the distributed data framework and compute engine. Your extraction and data processing workflows will run asynchronously and reliably in Indexify. LlamaIndex is an LLM application framework for querying data from vector stores and for response synthesis with LLMs. It doesn't include a fault tolerant and reliable distributed orchestration engine in the open source library. LlamaIndex doesn't include a deletion framework and a robust incremental compute engine, when data source are updated or deleted. 
 
 LlamaIndex and Indexify are complementary, you can use LlamaIndex's query engine and other components such as data loaders to ingest content for transformation and extraction using Indexify. 
 
