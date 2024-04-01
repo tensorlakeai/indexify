@@ -9,6 +9,28 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const columns: GridColDef[] = [
     { field: "name", headerName: "Name", width: 300 },
     { field: "description", headerName: "Description", width: 300 },
+    // {
+    //   field: "input_mime_types",
+    //   headerName: "Input MimeTypes",
+    //   width: 300,
+    //   renderCell: (params) => {
+    //     return (
+    //       <Box sx={{ overflowX: "scroll" }}>
+    //         <Stack gap={1} direction="row">
+    //           {(params.value ?? []).map((val: string) => {
+    //             return (
+    //               <Chip
+    //                 key={val}
+    //                 label={val}
+    //                 sx={{ backgroundColor: "#4AA4F4", color: "white" }}
+    //               />
+    //             );
+    //           })}
+    //         </Stack>
+    //       </Box>
+    //     );
+    //   },
+    // },
     {
       field: "input_params",
       headerName: "Input Parameters",

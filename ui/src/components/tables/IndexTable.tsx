@@ -1,6 +1,6 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { IIndex } from "getindexify";
-import { Alert, Chip, Typography } from "@mui/material";
+import { IExtractionPolicy, IIndex } from "getindexify";
+import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import React from "react";
@@ -9,10 +9,16 @@ import { Link } from "react-router-dom";
 const IndexTable = ({
   indexes,
   namespace,
+  extractionPolicies
 }: {
   indexes: IIndex[];
   namespace: string;
+  extractionPolicies: IExtractionPolicy[]
 }) => {
+  const getPolicyFromIndexname = (indexName:string):IExtractionPolicy | undefined => {
+    return extractionPolicies.find(policy => String(indexName).startsWith(policy.name))
+  }
+
   const columns: GridColDef[] = [
     {
       field: "name",
@@ -27,21 +33,16 @@ const IndexTable = ({
       },
     },
     {
-      field: "schema",
-      headerName: "Schema",
+      field: "policy_name",
+      headerName: "Policy Name",
       width: 300,
       renderCell: (params) => {
-        if (!params.value) {
-          return <Typography variant="body1">None</Typography>;
+        const policy = getPolicyFromIndexname(params.row.name)
+        if (!policy) {
+          return null
         }
         return (
-          <Box sx={{ overflowX: "scroll" }}>
-            <Stack gap={1} direction="row">
-              {Object.keys(params.value).map((val: string) => {
-                return <Chip key={val} label={`${val}:${params.value[val]}`} />;
-              })}
-            </Stack>
-          </Box>
+          <Link to={`/${namespace}/extraction-policies/${policy.name}`}>{policy.name}</Link>
         );
       },
     },

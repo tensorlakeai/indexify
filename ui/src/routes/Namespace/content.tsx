@@ -9,7 +9,7 @@ import {
 import React, { ReactElement, useEffect, useState } from "react";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
-import ExtractedMetadataTable from "../../components/ExtractedMetaDataTable";
+import ExtractedMetadataTable from "../../components/tables/ExtractedMetaDataTable";
 import { isAxiosError } from "axios";
 import Errors from "../../components/Errors";
 import PdfDisplay from "../../components/PdfViewer";
