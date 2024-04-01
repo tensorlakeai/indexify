@@ -65,6 +65,7 @@ pub struct QueryEngine {
     storage: MetadataReaderTS,
     schemas: Vec<StructuredDataSchema>,
     namespace: String,
+    metadata_scan_query: String,
 }
 
 impl QueryEngine {
@@ -73,10 +74,13 @@ impl QueryEngine {
         schemas: Vec<StructuredDataSchema>,
         namespace: &str,
     ) -> Self {
+        let metadata_scan_query = storage.get_metadata_scan_query(namespace);
+
         Self {
             storage,
             schemas,
             namespace: namespace.to_string(),
+            metadata_scan_query,
         }
     }
 
@@ -155,7 +159,7 @@ impl Store for QueryEngine {
         )))
     }
 
-    async fn scan_data(&self, table_name: &str) -> Result<RowIter> {
+    async fn scan_data(&self, table_name: &str) -> Result<RowIter<'_>> {
         let _ = self
             .schemas
             .iter()
@@ -166,7 +170,7 @@ impl Store for QueryEngine {
 
         return self
             .storage
-            .scan_metadata(&self.namespace, table_name)
+            .scan_metadata(&self.metadata_scan_query, &self.namespace, table_name)
             .await;
     }
 }

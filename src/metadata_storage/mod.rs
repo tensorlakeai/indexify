@@ -70,15 +70,15 @@ pub trait MetadataStorage {
     async fn drop_metadata_table(&self, namespace: &str) -> Result<()>;
 }
 
-pub type MetadataScanStream = std::result::Result<
+pub type MetadataScanStream<'a> = std::result::Result<
     Pin<
         Box<
             dyn tokio_stream::Stream<
-                Item = std::result::Result<
-                    (gluesql::prelude::Key, DataRow),
-                    gluesql::prelude::Error,
-                >,
-            >,
+                    Item = std::result::Result<
+                        (gluesql::prelude::Key, DataRow),
+                        gluesql::prelude::Error,
+                    >,
+                > + 'a,
         >,
     >,
     gluesql::prelude::Error,
@@ -92,7 +92,14 @@ pub trait MetadataReader {
         id: &str,
     ) -> Result<Option<ExtractedMetadata>>;
 
-    async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream;
+    fn get_metadata_scan_query(&self, namespace: &str) -> String;
+
+    async fn scan_metadata<'a>(
+        &self,
+        query: &'a str,
+        namespace: &str,
+        content_source: &str,
+    ) -> MetadataScanStream<'a>;
 }
 
 pub fn from_config(config: &MetadataStoreConfig) -> Result<MetadataStorageTS> {
