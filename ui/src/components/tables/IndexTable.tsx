@@ -1,6 +1,6 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IExtractionPolicy, IIndex } from "getindexify";
-import { Alert, Chip, Typography } from "@mui/material";
+import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import React from "react";
