@@ -11,7 +11,7 @@ use object_store::{
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use super::{BlobStorageReader, BlobStorageWriter};
+use super::{BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, StoragePartWriter};
 use crate::blob_storage::PutResult;
 
 pub struct S3Storage {
@@ -65,6 +65,17 @@ impl BlobStorageWriter for S3Storage {
             .await
             .map_err(|e| anyhow!("Failed to delete key: {}, error: {}", key, e.to_string()))?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl BlobStoragePartWriter for S3Storage {
+    async fn writer(&self, key: &str) -> Result<StoragePartWriter> {
+        let (_, writer) = self.client.put_multipart(&key.into()).await?;
+        Ok(StoragePartWriter {
+            writer,
+            url: format!("s3://{}/{}", self.bucket, key),
+        })
     }
 }
 
