@@ -1,12 +1,15 @@
-use axum_typed_websockets::{Message, WebSocket};
-use crate::blob_storage::StoragePartWriter;
-use crate::api::{*};
-use indexify_proto::indexify_coordinator;
-use crate::server::NamespaceEndpointState;
-use tracing::info;
 use anyhow::{anyhow, Result};
-use crate::data_manager::DataManager;
+use axum_typed_websockets::{Message, WebSocket};
+use indexify_proto::indexify_coordinator;
 use tokio::io::AsyncWriteExt;
+use tracing::info;
+
+use crate::{
+    api::*,
+    blob_storage::StoragePartWriter,
+    data_manager::DataManager,
+    server::NamespaceEndpointState,
+};
 
 #[derive(Debug)]
 struct Writing {
@@ -337,5 +340,138 @@ impl IngestExtractedContentState {
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::{collections::HashMap, sync::Arc};
+
+    use indexify_internal_api::TaskOutcome;
+
+    use super::*;
+    use crate::{
+        blob_storage::{BlobStorage, ContentReader},
+        coordinator_client::CoordinatorClient,
+        data_manager::DataManager,
+        metadata_storage,
+        metadata_storage::{MetadataReaderTS, MetadataStorageTS},
+        server::NamespaceEndpointState,
+        server_config::ServerConfig,
+        vector_index::VectorIndexManager,
+        vectordbs,
+    };
+
+    async fn new_endpoint_state() -> Result<NamespaceEndpointState> {
+        let config = ServerConfig::default();
+        let vector_db = vectordbs::create_vectordb(config.index_config.clone()).await?;
+        let coordinator_client = Arc::new(CoordinatorClient::new(&config.coordinator_addr));
+        let vector_index_manager = Arc::new(
+            VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
+                .map_err(|e| anyhow!("unable to create vector index {}", e))?,
+        );
+        let metadata_index_manager: MetadataStorageTS =
+            metadata_storage::from_config(&config.metadata_storage)?;
+        let metadata_reader: MetadataReaderTS =
+            metadata_storage::from_config_reader(&config.metadata_storage)?;
+        let blob_storage = Arc::new(BlobStorage::new_with_config(config.blob_storage.clone()));
+        let data_manager = Arc::new(DataManager::new(
+            vector_index_manager,
+            metadata_index_manager,
+            metadata_reader,
+            blob_storage,
+            coordinator_client.clone(),
+        ));
+        let namespace_endpoint_state = NamespaceEndpointState {
+            data_manager: data_manager.clone(),
+            coordinator_client: coordinator_client.clone(),
+            content_reader: Arc::new(ContentReader::new()),
+        };
+        Ok(namespace_endpoint_state)
+    }
+
+    #[tokio::test]
+    async fn test_new() {
+        let state = new_endpoint_state().await.unwrap();
+        let ingest_state = IngestExtractedContentState::new(state);
+        assert!(ingest_state.ingest_metadata.is_none());
+        assert!(ingest_state.content_metadata.is_none());
+        match ingest_state.frame_state {
+            FrameState::New => (),
+            _ => panic!("frame_state should be New"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_begin() {
+        let state = new_endpoint_state().await.unwrap();
+        let mut ingest_state = IngestExtractedContentState::new(state);
+        let payload = BeginExtractedContentIngest {
+            task_id: "test".to_string(),
+            namespace: "test".to_string(),
+            parent_content_id: "parent".to_string(),
+            extraction_policy: "test".to_string(),
+            extractor: "test".to_string(),
+            output_to_index_table_mapping: HashMap::new(),
+            executor_id: "test".to_string(),
+            task_outcome: TaskOutcome::Success,
+        };
+        ingest_state.begin(payload.clone());
+        let new_payload = ingest_state.ingest_metadata.clone().unwrap();
+        assert_eq!(new_payload.task_id, payload.task_id);
+        assert_eq!(new_payload.namespace, payload.namespace);
+        assert_eq!(new_payload.parent_content_id, payload.parent_content_id);
+        assert_eq!(new_payload.extraction_policy, payload.extraction_policy);
+        assert_eq!(new_payload.extractor, payload.extractor);
+        assert_eq!(
+            new_payload.output_to_index_table_mapping,
+            payload.output_to_index_table_mapping
+        );
+        assert_eq!(new_payload.executor_id, payload.executor_id);
+        assert_eq!(new_payload.task_outcome, payload.task_outcome);
+
+        ingest_state.begin_multipart_content().await.unwrap();
+
+        let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
+            println!("{:?}", s.writer.url);
+            s.writer.url.clone()
+        } else {
+            panic!("frame_state should be Writing");
+        };
+
+        let payload = ContentFrame {
+            bytes: vec![1, 2, 3],
+        };
+        ingest_state.write_content_frame(payload).await.unwrap();
+        let payload = ContentFrame {
+            bytes: vec![4, 5, 6],
+        };
+        ingest_state.write_content_frame(payload).await.unwrap();
+        let payload = ContentFrame {
+            bytes: vec![7, 8, 9],
+        };
+        ingest_state.write_content_frame(payload).await.unwrap();
+
+        if let FrameState::Writing(s) = &ingest_state.frame_state {
+            assert_eq!(s.file_size, 9);
+        } else {
+            panic!("frame_state should be Writing");
+        }
+
+        let payload = FinishContent {
+            content_type: "test".to_string(),
+            features: Vec::new(),
+            labels: HashMap::new(),
+        };
+
+        ingest_state.finish_content(payload).await.unwrap();
+        if let FrameState::Writing(_) = ingest_state.frame_state {
+            panic!("frame_state should be New");
+        }
+
+        // compare file content with written content
+        let content = ingest_state.state.content_reader.bytes(&url).await.unwrap();
+        assert_eq!(content, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 }

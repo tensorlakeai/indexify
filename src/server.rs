@@ -27,7 +27,6 @@ use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
-use crate::ingest_extracted_content::IngestExtractedContentState; 
 
 use crate::{
     api::{self, *},
@@ -36,6 +35,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
     extractor_router::ExtractorRouter,
+    ingest_extracted_content::IngestExtractedContentState,
     metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
     server_config::ServerConfig,
     vector_index::VectorIndexManager,
@@ -125,16 +125,14 @@ impl Server {
         let blob_storage = Arc::new(BlobStorage::new_with_config(
             self.config.blob_storage.clone(),
         ));
-        let data_manager = Arc::new(
-            DataManager::new(
-                vector_index_manager,
-                metadata_index_manager,
-                metadata_reader,
-                blob_storage.clone(),
-                coordinator_client.clone(),
-            )
-            .await?,
-        );
+
+        let data_manager = Arc::new(DataManager::new(
+            vector_index_manager,
+            metadata_index_manager,
+            metadata_reader,
+            blob_storage.clone(),
+            coordinator_client.clone(),
+        ));
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
