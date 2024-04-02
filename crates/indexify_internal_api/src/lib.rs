@@ -363,11 +363,24 @@ impl TryFrom<indexify_coordinator::Task> for Task {
 pub struct GarbageCollectionTask {
     pub namespace: String,
     pub id: String,
-    pub parent_content_id: String,
-    pub children_content_ids: Vec<String>,
-    pub output_index_table_mapping: HashSet<String>,
+    pub content_id: String,
+    pub output_tables: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
+    pub blob_store_path: String,
+}
+
+impl Default for GarbageCollectionTask {
+    fn default() -> Self {
+        Self {
+            namespace: "test_namespace".to_string(),
+            id: "test_id".to_string(),
+            content_id: "test_content_id".to_string(),
+            output_tables: HashSet::new(),
+            outcome: TaskOutcome::Unknown,
+            blob_store_path: "test_blob_store_path".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]

@@ -13,58 +13,25 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    RemoveTombstonedContentRequest,
-    RemoveTombstonedContentResponse,
-    TaskAssignments,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateTaskRequest,
+    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
+    ExtractionPolicyResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest,
+    GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
+    RemoveTombstonedContentRequest, RemoveTombstonedContentResponse, TaskAssignments,
+    TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateTaskRequest,
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -394,13 +361,13 @@ impl CoordinatorService for CoordinatorServiceServer {
                             let serialized_task = GcTask {
                                 task_id: task.1.id,
                                 namespace: task.1.namespace,
-                                parent_content_id: task.1.parent_content_id,
-                                children_content_ids: task.1.children_content_ids,
-                                output_index_table_mapping: task
+                                content_id: task.1.content_id,
+                                output_tables: task
                                     .1
-                                    .output_index_table_mapping
+                                    .output_tables
                                     .into_iter()
                                     .collect::<Vec<String>>(),
+                                blob_store_path: task.1.blob_store_path,
                             };
                             tx.send(serialized_task).await.unwrap();
                         }

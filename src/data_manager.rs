@@ -24,9 +24,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -277,55 +275,67 @@ impl DataManager {
 
     #[tracing::instrument]
     pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
-        let content_metadata = self
-            .get_content_metadata("", vec![gc_task.parent_content_id.to_string()])
-            .await?;
-        let content_metadata = content_metadata
-            .first()
-            .ok_or(anyhow!("content not found"))?;
+        // let content_metadata = self
+        //     .get_content_metadata("", vec![gc_task.parent_content_id.to_string()])
+        //     .await?;
+        // let content_metadata = content_metadata
+        //     .first()
+        //     .ok_or(anyhow!("content not found"))?;
 
-        //  Remove parent from blob storage
-        self.blob_storage.delete(&content_metadata.name).await?;
+        //  Remove content from blob storage
+        self.blob_storage.delete(&gc_task.blob_store_path).await?;
 
-        let children_content_metadatas = self
-            .get_content_metadata(&gc_task.namespace, gc_task.children_content_ids.clone())
-            .await?;
-
-        //  Remove children from blob storage, vector stores and metadata stores
-        for content_metadata in children_content_metadatas {
-            println!(
-                "Running delete for content metadata {:#?}",
-                content_metadata
-            );
-            self.blob_storage.delete(&content_metadata.name).await?;
-
-            for table in &gc_task.output_index_table_mapping {
-                self.vector_index_manager
-                    .remove_embedding(table, &content_metadata.id)
-                    .await?;
-            }
-
-            self.metadata_index_manager
-                .remove_metadata(&gc_task.namespace, &content_metadata.id)
+        //  Removes features and embeddings from vector stores
+        for table in &gc_task.output_tables {
+            self.vector_index_manager
+                .remove_embedding(table, &gc_task.content_id)
                 .await?;
         }
 
+        //  Remove any metadata
+        self.metadata_index_manager
+            .remove_metadata(&gc_task.namespace, &gc_task.content_id)
+            .await?;
+
+        // let children_content_metadatas = self
+        //     .get_content_metadata(&gc_task.namespace, gc_task.children_content_ids.clone())
+        //     .await?;
+
+        //  Remove children from blob storage, vector stores and metadata stores
+        // for content_metadata in children_content_metadatas {
+        //     println!(
+        //         "Running delete for content metadata {:#?}",
+        //         content_metadata
+        //     );
+        //     self.blob_storage.delete(&content_metadata.name).await?;
+
+        //     for table in &gc_task.output_index_table_mapping {
+        //         self.vector_index_manager
+        //             .remove_embedding(table, &content_metadata.id)
+        //             .await?;
+        //     }
+
+        //     self.metadata_index_manager
+        //         .remove_metadata(&gc_task.namespace, &content_metadata.id)
+        //         .await?;
+        // }
+
         //  Remove the tombstoned content
-        let req = indexify_coordinator::RemoveTombstonedContentRequest {
-            parent_content_id: gc_task.parent_content_id.clone(),
-            children_content_ids: gc_task.children_content_ids.clone(),
-        };
-        self.coordinator_client
-            .get()
-            .await?
-            .remove_tombstoned_content(req)
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to remove tombstoned content from coordinator {}",
-                    e.to_string()
-                )
-            })?;
+        // let req = indexify_coordinator::RemoveTombstonedContentRequest {
+        //     parent_content_id: gc_task.parent_content_id.clone(),
+        //     children_content_ids: gc_task.children_content_ids.clone(),
+        // };
+        // self.coordinator_client
+        //     .get()
+        //     .await?
+        //     .remove_tombstoned_content(req)
+        //     .await
+        //     .map_err(|e| {
+        //         anyhow!(
+        //             "unable to remove tombstoned content from coordinator {}",
+        //             e.to_string()
+        //         )
+        //     })?;
 
         Ok(())
     }

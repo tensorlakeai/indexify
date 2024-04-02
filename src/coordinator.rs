@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -315,64 +315,138 @@ impl Coordinator {
 
         let mut gc_tasks_created = Vec::new();
 
-        //  Get the extraction policy ids applied to each content id
-        for content_id in content_ids {
+        //  Iterate over the content tree and create a gc task per node
+        for content_metadata in content_tree_metadata {
             let content_extraction_policy_mappings = self
                 .shared_state
-                .get_content_extraction_policy_mappings_for_content_id(&content_id)
+                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.parent_id)
                 .await?;
 
-            if let Some(mappings) = content_extraction_policy_mappings {
-                //  fetch all the extraction policies that have been applied
-                println!(
-                    "The content extraction policy mappings for {} are {:#?}",
-                    content_id, mappings
-                );
-                let applied_extraction_policy_ids: HashSet<String> =
-                    mappings.time_of_policy_completion.keys().cloned().collect();
-                let applied_extraction_policies = self
-                    .shared_state
-                    .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-                    .await?;
-
-                //  Get the table names from the extraction_policies
-                let mut output_tables: Vec<String> = Vec::new();
-                for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
-                    output_tables.extend(
-                        applied_extraction_policy
-                            .index_name_table_mapping
-                            .values()
-                            .cloned(),
-                    );
-                }
-
-                //  Create the garbage collection task and write it to Raft and send the gc task
-                // to the garbage collector
+            //  If no extraction policies have been applied to the parent of this node, then it cannot have output features and embeddings
+            if content_extraction_policy_mappings.is_none() {
                 let mut hasher = DefaultHasher::new();
-                let policies = applied_extraction_policies.unwrap();
-                let policy = policies.first().unwrap();
-
-                policy.name.hash(&mut hasher);
-                policy.namespace.hash(&mut hasher);
-                content_id.hash(&mut hasher);
+                content_metadata.id.hash(&mut hasher);
                 let id = format!("{:x}", hasher.finish());
 
                 let gc_task = indexify_internal_api::GarbageCollectionTask {
                     namespace: namespace.clone(),
                     id,
-                    parent_content_id: content_id.clone(),
-                    children_content_ids: content_to_children_map
-                        .get(&content_id)
-                        .unwrap_or(&Vec::new())
-                        .clone(),
-                    output_index_table_mapping: output_tables.iter().cloned().collect(),
+                    content_id: content_metadata.id,
+                    output_tables: HashSet::new(),
                     outcome: indexify_internal_api::TaskOutcome::Unknown,
+                    blob_store_path: content_metadata.name,
                 };
                 println!("Created gc task {:?}", gc_task);
                 info!("created gc task {:?}", gc_task);
                 gc_tasks_created.push(gc_task);
+                continue;
             }
+
+            let mappings = content_extraction_policy_mappings.unwrap();
+            println!(
+                "The content extraction policy mappings for {} are {:#?}",
+                content_id, mappings
+            );
+            let applied_extraction_policy_ids: HashSet<String> =
+                mappings.time_of_policy_completion.keys().cloned().collect();
+            let applied_extraction_policies = self
+                .shared_state
+                .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+                .await?;
+
+            //  Get the table names from the extraction_policies
+            let mut output_tables: Vec<String> = Vec::new();
+            for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
+                output_tables.extend(
+                    applied_extraction_policy
+                        .index_name_table_mapping
+                        .values()
+                        .cloned(),
+                );
+            }
+
+            //  Create the garbage collection task and write it to Raft and send the gc task
+            // to the garbage collector
+            let mut hasher = DefaultHasher::new();
+            let policies = applied_extraction_policies.unwrap();
+            let policy = policies.first().unwrap();
+
+            policy.name.hash(&mut hasher);
+            policy.namespace.hash(&mut hasher);
+            content_id.hash(&mut hasher);
+            let id = format!("{:x}", hasher.finish());
+
+            let gc_task = indexify_internal_api::GarbageCollectionTask {
+                namespace: namespace.clone(),
+                id,
+                content_id: content_metadata.id,
+                output_tables: output_tables.iter().cloned().collect(),
+                outcome: indexify_internal_api::TaskOutcome::Unknown,
+                blob_store_path: content_metadata.name,
+            };
+            println!("Created gc task {:?}", gc_task);
+            info!("created gc task {:?}", gc_task);
+            gc_tasks_created.push(gc_task);
         }
+
+        //  Get the extraction policy ids applied to each content id
+        // for content_id in content_ids {
+        //     let content_extraction_policy_mappings = self
+        //         .shared_state
+        //         .get_content_extraction_policy_mappings_for_content_id(&content_id)
+        //         .await?;
+
+        //     if let Some(mappings) = content_extraction_policy_mappings {
+        //         //  fetch all the extraction policies that have been applied
+        //         println!(
+        //             "The content extraction policy mappings for {} are {:#?}",
+        //             content_id, mappings
+        //         );
+        //         let applied_extraction_policy_ids: HashSet<String> =
+        //             mappings.time_of_policy_completion.keys().cloned().collect();
+        //         let applied_extraction_policies = self
+        //             .shared_state
+        //             .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+        //             .await?;
+
+        //         //  Get the table names from the extraction_policies
+        //         let mut output_tables: Vec<String> = Vec::new();
+        //         for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
+        //             output_tables.extend(
+        //                 applied_extraction_policy
+        //                     .index_name_table_mapping
+        //                     .values()
+        //                     .cloned(),
+        //             );
+        //         }
+
+        //         //  Create the garbage collection task and write it to Raft and send the gc task
+        //         // to the garbage collector
+        //         let mut hasher = DefaultHasher::new();
+        //         let policies = applied_extraction_policies.unwrap();
+        //         let policy = policies.first().unwrap();
+
+        //         policy.name.hash(&mut hasher);
+        //         policy.namespace.hash(&mut hasher);
+        //         content_id.hash(&mut hasher);
+        //         let id = format!("{:x}", hasher.finish());
+
+        //         let gc_task = indexify_internal_api::GarbageCollectionTask {
+        //             namespace: namespace.clone(),
+        //             id,
+        //             parent_content_id: content_id.clone(),
+        //             children_content_ids: content_to_children_map
+        //                 .get(&content_id)
+        //                 .unwrap_or(&Vec::new())
+        //                 .clone(),
+        //             output_index_table_mapping: output_tables.iter().cloned().collect(),
+        //             outcome: indexify_internal_api::TaskOutcome::Unknown,
+        //         };
+        //         println!("Created gc task {:?}", gc_task);
+        //         info!("created gc task {:?}", gc_task);
+        //         gc_tasks_created.push(gc_task);
+        //     }
+        // }
         Ok(gc_tasks_created)
     }
 
@@ -914,7 +988,7 @@ mod tests {
 
     #[tokio::test]
     // #[tracing_test::traced_test]
-    async fn test_handle_tombstoned_content() -> Result<(), anyhow::Error> {
+    async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
         let shared_state = App::new(config, None).await.unwrap();
@@ -972,7 +1046,7 @@ mod tests {
             ..Default::default()
         };
         coordinator
-            .create_policy(extraction_policy_2, extractor_2)
+            .create_policy(extraction_policy_2.clone(), extractor_2)
             .await?;
 
         //  Build a content tree where the parent content id is the pointer
@@ -997,7 +1071,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: "ingestion".to_string(),
+            source: extraction_policy_1.id.clone(),
             size_bytes: 100,
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
@@ -1009,10 +1083,10 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: "ingestion".to_string(),
+            source: extraction_policy_2.id.clone(),
             size_bytes: 100,
         };
-        let child_child_content_1 = indexify_coordinator::ContentMetadata {
+        let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "test_child_id_1".to_string(),
@@ -1021,7 +1095,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: "ingestion".to_string(),
+            source: extraction_policy_1.id.clone(),
             size_bytes: 100,
         };
         coordinator
@@ -1029,7 +1103,7 @@ mod tests {
                 parent_content.clone(),
                 child_content_1.clone(),
                 child_content_2.clone(),
-                child_child_content_1.clone(),
+                child_content_1_child.clone(),
             ])
             .await?;
 

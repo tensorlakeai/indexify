@@ -5,13 +5,7 @@ use anyhow;
 use super::{
     network::Network,
     typ::{CheckIsLeaderError, ForwardToLeader, InitializeError, RaftError},
-    BasicNode,
-    NodeId,
-    Raft,
-    Response,
-    SnapshotData,
-    StateMachineUpdateRequest,
-    TokioRuntime,
+    BasicNode, NodeId, Raft, Response, SnapshotData, StateMachineUpdateRequest, TokioRuntime,
 };
 use crate::state::store::requests::StateMachineUpdateResponse;
 

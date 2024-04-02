@@ -44,14 +44,7 @@ impl GarbageCollector {
     pub fn new() -> Arc<Self> {
         let (tx, rx) = watch::channel((
             "".to_string(),
-            indexify_internal_api::GarbageCollectionTask {
-                namespace: "".to_string(),
-                id: "".to_string(),
-                parent_content_id: "".to_string(),
-                children_content_ids: Vec::new(),
-                output_index_table_mapping: HashSet::new(),
-                outcome: indexify_internal_api::TaskOutcome::Unknown,
-            },
+            indexify_internal_api::GarbageCollectionTask::default(),
         ));
         Arc::new(Self {
             ingestion_servers: RwLock::new(HashSet::new()),
@@ -157,7 +150,7 @@ impl GarbageCollector {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, sync::Arc};
+    use std::sync::Arc;
 
     use indexify_internal_api::GarbageCollectionTask;
     use tokio::sync::mpsc;
@@ -176,14 +169,7 @@ mod tests {
 
         // Simulate receiving a new deletion event
         let (tx, rx) = mpsc::channel(1);
-        let task = GarbageCollectionTask {
-            namespace: "default".to_string(),
-            id: "task1".to_string(),
-            parent_content_id: "".to_string(),
-            children_content_ids: Vec::new(),
-            output_index_table_mapping: HashSet::new(),
-            outcome: indexify_internal_api::TaskOutcome::Unknown,
-        };
+        let task = GarbageCollectionTask::default();
         tx.send(task.clone()).await.unwrap();
         gc_clone.start_watching_deletion_events(rx);
 
@@ -208,14 +194,7 @@ mod tests {
             .unwrap();
 
         // Assign a task to server1
-        let task = GarbageCollectionTask {
-            namespace: "default".to_string(),
-            id: "task1".to_string(),
-            parent_content_id: "".to_string(),
-            children_content_ids: Vec::new(),
-            output_index_table_mapping: HashSet::new(),
-            outcome: indexify_internal_api::TaskOutcome::Unknown,
-        };
+        let task = GarbageCollectionTask::default();
         gc.assign_task_to_server(task.clone(), "server1".to_string())
             .await;
 

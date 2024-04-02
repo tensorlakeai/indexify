@@ -195,9 +195,9 @@ message GCTaskAcknowledgement {
 message GCTask {
     string task_id = 1;
     string namespace = 2;
-    string parent_content_id = 3;
-    repeated string children_content_ids = 4;
-    repeated string output_index_table_mapping = 5;
+    string content_id = 3;
+    repeated string output_tables = 5;
+    string blob_store_path = 6;
 }
 
 message HeartbeatRequest {

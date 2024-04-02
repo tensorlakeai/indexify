@@ -204,13 +204,11 @@ pub struct GcTask {
     #[prost(string, tag = "2")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
-    pub parent_content_id: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "4")]
-    pub children_content_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub content_id: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "5")]
-    pub output_index_table_mapping: ::prost::alloc::vec::Vec<
-        ::prost::alloc::string::String,
-    >,
+    pub output_tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "6")]
+    pub blob_store_path: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
