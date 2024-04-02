@@ -1,26 +1,22 @@
 use std::{
-    collections::BTreeMap,
     fmt,
     sync::{atomic::AtomicBool, Arc},
 };
 
 use anyhow::Result;
 use async_trait::async_trait;
-use futures::stream;
-use gluesql::core::{
-    data::{Key, Value},
-    error::Error::StorageMsg as GlueStorageError,
-    store::DataRow,
-};
-use itertools::Itertools;
-use sqlx::{
-    postgres::{PgPoolOptions, PgRow},
-    Pool,
-    Postgres,
-    Row,
-};
+use futures::StreamExt;
+use gluesql::core::error::Error::StorageMsg as GlueStorageError;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
-use super::{table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage};
+use super::{
+    sqlx::{row_to_extracted_metadata, row_to_metadata_scan_item},
+    table_name,
+    ExtractedMetadata,
+    MetadataReader,
+    MetadataScanStream,
+    MetadataStorage,
+};
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
 pub struct PostgresIndexManager {
@@ -130,6 +126,20 @@ impl MetadataStorage for PostgresIndexManager {
 
         Ok(extracted_attributes)
     }
+
+    async fn delete_metadata_for_content(&self, namespace: &str, content_id: &str) -> Result<()> {
+        let index_table_name = PostgresIndexName::new(&table_name(namespace));
+        let query =
+            format!("DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2");
+
+        sqlx::query(&query)
+            .bind(namespace)
+            .bind(content_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait(?Send)]
@@ -153,7 +163,7 @@ impl MetadataReader for PostgresIndexManager {
         Ok(metadata)
     }
 
-    async fn scan_metadata(&self, namespace: &str, content_source: &str) -> MetadataScanStream {
+    fn get_metadata_scan_query(&self, namespace: &str) -> String {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!(
             "
@@ -162,98 +172,43 @@ impl MetadataReader for PostgresIndexManager {
             WHERE namespace = $1 AND content_source = $2
         "
         );
-        let rows = sqlx::query(&query)
-            .bind(namespace)
-            .bind(content_source)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| {
-                GlueStorageError(format!("unable to query metadata from postgres: {}", e))
-            })?
-            .into_iter()
-            .map(|row: PgRow| {
-                let content_id: String = row.get(0);
-                let mut out_rows: Vec<Value> = Vec::new();
-                out_rows.push(Value::Str(content_id.clone()));
 
-                let data: serde_json::Value = row.get(1);
-                let data = match data {
-                    serde_json::Value::Object(json_map) => json_map
-                        .into_iter()
-                        .map(|(key, value)| {
-                            let value = Value::try_from(value)?;
+        query
+    }
 
-                            Ok((key, value))
-                        })
-                        .collect::<Result<BTreeMap<String, Value>>>()
-                        .map_err(|e| {
-                            GlueStorageError(format!("invalid metadata from postgres: {}", e))
-                        })?,
-                    _ => return Err(GlueStorageError("expected JSON object".to_string())),
-                };
-                out_rows.extend(data.values().cloned().collect_vec());
+    async fn scan_metadata<'a>(
+        &self,
+        query: &'a str,
+        namespace: &str,
+        content_source: &str,
+    ) -> MetadataScanStream<'a> {
+        let rows = sqlx::query(query)
+            .bind(namespace.to_string())
+            .bind(content_source.to_string())
+            .fetch(&self.pool)
+            .then(|row| async move {
+                let row = row.map_err(|e| {
+                    GlueStorageError(format!("error scanning metadata from postgres: {}", e))
+                })?;
 
-                Ok((Key::Str(content_id), DataRow::Vec(out_rows)))
+                row_to_metadata_scan_item(&row)
             });
 
-        Ok(Box::pin(stream::iter(rows)))
-    }
-}
-
-fn row_to_extracted_metadata(row: &PgRow) -> ExtractedMetadata {
-    let id: String = row.get(0);
-    let extractor: String = row.get(2);
-    let extraction_policy: String = row.get(3);
-    let content_source: String = row.get(4);
-    let data: serde_json::Value = row.get(6);
-    let content_id: String = row.get(7);
-    let parent_content_id: String = row.get(8);
-    ExtractedMetadata {
-        id,
-        content_id,
-        parent_content_id,
-        content_source,
-        metadata: data,
-        extractor_name: extractor,
-        extraction_policy,
+        Ok(Box::pin(rows))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_storage::test_metadata_storage;
 
     #[tokio::test]
-    async fn test_add_metadata() {
+    async fn test_postgres_metadata_storage() {
         let index_manager =
             PostgresIndexManager::new("postgres://postgres:postgres@localhost:5432/indexify")
                 .unwrap();
-        let namespace = "test_namespace";
-        index_manager
-            .create_metadata_table(namespace)
-            .await
-            .unwrap();
-        let metadata = ExtractedMetadata {
-            id: "test_id".into(),
-            content_id: "test_content_id".into(),
-            parent_content_id: "test_parent_content_id".into(),
-            content_source: "test_content_source".into(),
-            metadata: serde_json::json!({"test": "test"}),
-            extractor_name: "test_extractor".into(),
-            extraction_policy: "test_extractor_policy".into(),
-        };
-        index_manager
-            .add_metadata(namespace, metadata.clone())
-            .await
-            .unwrap();
 
-        // Retreive the metadata from the database
-        let metadata_out = index_manager
-            .get_metadata_for_content(namespace, "test_content_id")
-            .await
-            .unwrap();
-
-        assert_eq!(metadata_out.len(), 1);
-        assert_eq!(metadata_out[0], metadata);
+        test_metadata_storage(index_manager).await;
     }
 }
