@@ -32,11 +32,10 @@ pub struct Coordinator {
 }
 
 impl Coordinator {
-    pub fn new(shared_state: SharedState) -> Arc<Self> {
+    pub fn new(shared_state: SharedState, garbage_collector: Arc<GarbageCollector>) -> Arc<Self> {
         let (tx, rx) = mpsc::channel(8);
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
-        let garbage_collector = GarbageCollector::new();
         let garbage_collector_clone = Arc::clone(&garbage_collector);
         garbage_collector_clone.start_watching_deletion_events(rx);
         Arc::new(Self {
@@ -524,20 +523,32 @@ mod tests {
     use indexify_proto::indexify_coordinator;
 
     use crate::{
+        garbage_collector::GarbageCollector,
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
         test_utils::RaftTestCluster,
     };
 
+    use super::Coordinator;
+
+    async fn setup_coordinator() -> (Arc<Coordinator>, Arc<App>) {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let garbage_collector = GarbageCollector::new();
+        let shared_state = App::new(config, None, garbage_collector.clone())
+            .await
+            .unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator =
+            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
+        (coordinator, shared_state)
+    }
+
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, shared_state) = setup_coordinator().await;
 
         // Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
@@ -657,11 +668,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_multiple_extraction_policies_and_contents() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, shared_state) = setup_coordinator().await;
 
         // Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
@@ -773,11 +780,7 @@ mod tests {
     #[tokio::test]
     // #[tracing_test::traced_test]
     async fn test_create_multiple_contents_and_extraction_policies() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, shared_state) = setup_coordinator().await;
 
         // Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
@@ -922,11 +925,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_and_read_content_tree() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, _) = setup_coordinator().await;
 
         //  Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
@@ -1051,11 +1050,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_tombstone_content_tree() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, _) = setup_coordinator().await;
 
         //  Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
@@ -1230,11 +1225,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_match_tombstoned_content() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, _) = setup_coordinator().await;
 
         //  Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
@@ -1342,13 +1333,9 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
-        let config = Arc::new(ServerConfig::default());
-        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-        let shared_state = App::new(config, None).await.unwrap();
-        shared_state.initialize_raft().await.unwrap();
-        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+        let (coordinator, _) = setup_coordinator().await;
 
         //  Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;

@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use indexify_internal_api as internal_api;
-use internal_api::{ExtractorDescription, IngestionServerMetadata, StateChange};
+use internal_api::{ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -786,46 +786,6 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn set_ingestion_server(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        ingestion_server_metadata: &IngestionServerMetadata,
-    ) -> Result<(), StateMachineError> {
-        let serialized_metadata = JsonEncoder::encode(ingestion_server_metadata)?;
-        txn.put_cf(
-            StateMachineColumns::IngestionServers.cf(db),
-            &ingestion_server_metadata.id,
-            serialized_metadata,
-        )
-        .map_err(|e| {
-            StateMachineError::DatabaseError(format!(
-                "Error writing ingestion server with id {}: {}",
-                ingestion_server_metadata.id, e
-            ))
-        })?;
-        Ok(())
-    }
-
-    fn remove_ingestion_server(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        ingestion_server_id: &str,
-    ) -> Result<(), StateMachineError> {
-        txn.delete_cf(
-            StateMachineColumns::IngestionServers.cf(db),
-            ingestion_server_id,
-        )
-        .map_err(|e| {
-            StateMachineError::DatabaseError(format!(
-                "Error deleting ingestion server with id {}: {}",
-                ingestion_server_id, e
-            ))
-        })?;
-        Ok(())
-    }
-
     fn set_extraction_policy(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -1106,17 +1066,6 @@ impl IndexifyState {
 
                 //  Insert the associated extractor
                 self.set_extractor(db, &txn, extractor)?;
-            }
-            RequestPayload::RegisterIngestionServer {
-                ingestion_server_metadata,
-            } => {
-                //  write the ingestion server metadata
-                self.set_ingestion_server(db, &txn, ingestion_server_metadata)?;
-            }
-            RequestPayload::RemoveIngestionServer {
-                ingestion_server_id,
-            } => {
-                self.remove_ingestion_server(db, &txn, ingestion_server_id)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 //  NOTE: Special case of a handler that also remove its own reverse indexes

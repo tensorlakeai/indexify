@@ -8,12 +8,11 @@ use std::{
 use futures::Future;
 
 use crate::{
+    garbage_collector::GarbageCollector,
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App,
-        NodeId,
-        RaftConfigOverrides,
+        App, NodeId, RaftConfigOverrides,
     },
 };
 
@@ -164,10 +163,16 @@ impl RaftTestCluster {
     ) -> anyhow::Result<Self> {
         let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
         let seed_node_id = server_configs.first().unwrap().node_id; //  the seed node will always be the first node in the list
+        let garbage_collector = GarbageCollector::new();
         let mut nodes = BTreeMap::new();
         for config in server_configs {
             let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
-            let shared_state = App::new(config.clone(), overrides.clone()).await?;
+            let shared_state = App::new(
+                config.clone(),
+                overrides.clone(),
+                Arc::clone(&garbage_collector),
+            )
+            .await?;
             nodes.insert(config.node_id, shared_state);
         }
         Ok(Self {

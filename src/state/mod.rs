@@ -41,6 +41,7 @@ use self::{
 };
 use crate::{
     coordinator_filters::matches_mime_type,
+    garbage_collector::GarbageCollector,
     metrics::raft_metrics::{self, network::MetricsSnapshot},
     server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
@@ -125,6 +126,7 @@ impl App {
     pub async fn new(
         server_config: Arc<ServerConfig>,
         overrides: Option<RaftConfigOverrides>,
+        garbage_collector: Arc<GarbageCollector>,
     ) -> Result<Arc<Self>> {
         let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
@@ -173,8 +175,12 @@ impl App {
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
-        let forwardable_raft =
-            ForwardableRaft::new(server_config.node_id, raft.clone(), network.clone());
+        let forwardable_raft = ForwardableRaft::new(
+            server_config.node_id,
+            raft.clone(),
+            network.clone(),
+            Arc::clone(&garbage_collector),
+        );
 
         let mut nodes = BTreeMap::new();
         nodes.insert(
@@ -194,6 +200,7 @@ impl App {
             server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
+            Arc::clone(&garbage_collector),
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
@@ -844,25 +851,9 @@ impl App {
         addr: &str,
         ingestion_server_id: &str,
     ) -> Result<()> {
-        let ts = timestamp_secs();
-        let state_change = StateChange::new(
-            ingestion_server_id.to_string(),
-            internal_api::ChangeType::IngestionServerAdded,
-            ts,
-        );
-        let ingestion_server_metadata = internal_api::IngestionServerMetadata {
-            id: ingestion_server_id.to_string(),
-            addr: addr.to_string(),
-            last_seen: ts,
-        };
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::RegisterIngestionServer {
-                ingestion_server_metadata,
-            },
-            new_state_changes: vec![state_change],
-            state_changes_processed: vec![],
-        };
-        let _resp = self.forwardable_raft.client_write(req).await?;
+        self.forwardable_raft
+            .register_ingestion_server(ingestion_server_id, addr)
+            .await?;
         Ok(())
     }
 
@@ -1841,7 +1832,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_mark_and_read_content_extraction_policy_mappings(
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;

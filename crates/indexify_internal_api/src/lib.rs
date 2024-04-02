@@ -437,9 +437,7 @@ pub struct ContentExtractionPolicyMapping {
                                                  * extraction policy should only be applied to
                                                  * a piece of content once */
     pub time_of_policy_completion: HashMap<String, SystemTime>, /* policy name -> time instant.
-                                                                 * This will be written to in
-                                                                 * the server.rs file when a
-                                                                 * task is completed */
+                                                                 * This will be written to when a task is updated/completed */
 }
 
 impl Default for ContentExtractionPolicyMapping {

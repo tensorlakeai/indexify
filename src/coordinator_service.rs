@@ -42,11 +42,8 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator,
-    server_config::ServerConfig,
-    state::{self},
-    tonic_streamer::DropReceiver,
-    utils::timestamp_secs,
+    coordinator::Coordinator, garbage_collector::GarbageCollector, server_config::ServerConfig,
+    state, tonic_streamer::DropReceiver, utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -720,9 +717,11 @@ pub struct CoordinatorServer {
 impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
-        let shared_state = state::App::new(config.clone(), None).await?;
+        let garbage_collector = GarbageCollector::new();
+        let shared_state =
+            state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
 
-        let coordinator = Coordinator::new(shared_state.clone());
+        let coordinator = Coordinator::new(shared_state.clone(), garbage_collector);
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,

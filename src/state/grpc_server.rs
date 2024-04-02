@@ -12,6 +12,7 @@ use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
 use crate::{
+    garbage_collector::GarbageCollector,
     grpc_helper::GrpcHelper,
     metrics::{raft_metrics, CounterGuard},
     state::{store::requests, Raft},
@@ -21,14 +22,21 @@ pub struct RaftGrpcServer {
     id: NodeId,
     raft: Arc<Raft>,
     raft_client: Arc<RaftClient>,
+    garbage_collector: Arc<GarbageCollector>,
 }
 
 impl RaftGrpcServer {
-    pub fn new(id: NodeId, raft: Arc<Raft>, raft_client: Arc<RaftClient>) -> Self {
+    pub fn new(
+        id: NodeId,
+        raft: Arc<Raft>,
+        raft_client: Arc<RaftClient>,
+        garbage_collector: Arc<GarbageCollector>,
+    ) -> Self {
         Self {
             id,
             raft,
             raft_client,
+            garbage_collector,
         }
     }
 
@@ -99,6 +107,20 @@ impl RaftGrpcServer {
         GrpcHelper::ok_response(response)
     }
 
+    async fn register_ingestion_server(
+        &self,
+        ingestion_server_id: &str,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        self.garbage_collector
+            .register_ingestion_server(ingestion_server_id.to_string())
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+        let response = StateMachineUpdateResponse {
+            handled_by: self.id,
+        };
+        GrpcHelper::ok_response(response)
+    }
+
     /// Helper function to detect whether the current node is the leader
     async fn ensure_leader(&self) -> Result<Option<ForwardToLeader<NodeId, BasicNode>>, Status> {
         let result = self.raft.ensure_linearizable().await;
@@ -142,6 +164,13 @@ impl RaftApi for RaftGrpcServer {
 
         if let RequestPayload::JoinCluster { node_id, address } = req.payload {
             return self.add_node_to_cluster_if_absent(node_id, &address).await;
+        } else if let RequestPayload::RegisterIngestionServer {
+            ingestion_server_metadata,
+        } = req.payload
+        {
+            return self
+                .register_ingestion_server(&ingestion_server_metadata.id)
+                .await;
         }
 
         self.handle_client_write(req).await
