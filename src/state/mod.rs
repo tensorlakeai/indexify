@@ -1305,7 +1305,11 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use std::{
+        collections::HashMap,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use indexify_internal_api::{ContentExtractionPolicyMapping, Index, TaskOutcome};
 
@@ -1837,7 +1841,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_create_mark_and_read_content_extraction_policy_mappings(
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
@@ -1847,10 +1851,11 @@ mod tests {
         //  Create a mapping of content -> extraction policies, insert it, mark it as
         // read and read it back to assert
         let mapping = ContentExtractionPolicyMapping::default();
+        let current_sys_time = SystemTime::now();
         let initial_time = mapping
             .time_of_policy_completion
             .get("extraction_policy_id")
-            .unwrap();
+            .unwrap_or_else(|| &current_sys_time);
         node.set_content_extraction_policy_mappings(vec![mapping.clone()])
             .await?;
         node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")

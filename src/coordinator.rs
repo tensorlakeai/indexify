@@ -302,6 +302,7 @@ impl Coordinator {
             //  If no extraction policies have been applied to the parent of this node, then it cannot have output features and embeddings
             if content_extraction_policy_mappings.is_none() {
                 let mut hasher = DefaultHasher::new();
+                namespace.hash(&mut hasher);
                 content_metadata.id.hash(&mut hasher);
                 let id = format!("{:x}", hasher.finish());
 
@@ -333,6 +334,25 @@ impl Coordinator {
 
             //  Get the table names from the extraction_policies
             let mut output_tables: Vec<String> = Vec::new();
+            if applied_extraction_policies.is_none() {
+                let mut hasher = DefaultHasher::new();
+                namespace.hash(&mut hasher);
+                content_metadata.id.hash(&mut hasher);
+                let id = format!("{:x}", hasher.finish());
+                let gc_task = indexify_internal_api::GarbageCollectionTask {
+                    namespace: namespace.clone(),
+                    id,
+                    content_id: content_metadata.id,
+                    output_tables: HashSet::new(),
+                    outcome: indexify_internal_api::TaskOutcome::Unknown,
+                    blob_store_path: content_metadata.name,
+                };
+                println!("Created gc task {:?}", gc_task);
+                info!("created gc task {:?}", gc_task);
+                gc_tasks_created.push(gc_task);
+                continue;
+            }
+
             for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
                 output_tables.extend(
                     applied_extraction_policy
@@ -497,7 +517,7 @@ mod tests {
         collections::{HashMap, HashSet},
         fs,
         sync::Arc,
-        time::{Duration, SystemTime},
+        time::Duration,
     };
 
     use indexify_internal_api as internal_api;
@@ -1322,7 +1342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
@@ -1442,24 +1462,18 @@ mod tests {
             ])
             .await?;
 
-        //  Create mappings of the extraction policies applied to first two pieces of content
+        //  Create mappings of the extraction policies applied to first two pieces of content and mark them complete
         let content_extraction_policy_mappings_parent_content =
             internal_api::ContentExtractionPolicyMapping {
                 content_id: parent_content.id.clone(),
                 extraction_policy_ids: HashSet::from([extraction_policy_1.id.clone()]),
-                time_of_policy_completion: HashMap::from([(
-                    extraction_policy_1.id.clone(),
-                    SystemTime::now(),
-                )]),
+                time_of_policy_completion: HashMap::new(),
             };
         let content_extraction_policy_mappings_child_content_1 =
             internal_api::ContentExtractionPolicyMapping {
                 content_id: child_content_1.id.clone(),
                 extraction_policy_ids: HashSet::from([extraction_policy_1.id.clone()]),
-                time_of_policy_completion: HashMap::from([(
-                    extraction_policy_1.id.clone(),
-                    SystemTime::now(),
-                )]),
+                time_of_policy_completion: HashMap::new(),
             };
 
         coordinator
@@ -1468,6 +1482,15 @@ mod tests {
                 content_extraction_policy_mappings_parent_content,
                 content_extraction_policy_mappings_child_content_1,
             ])
+            .await?;
+
+        coordinator
+            .shared_state
+            .mark_extraction_policy_applied_on_content(&parent_content.id, &extraction_policy_1.id)
+            .await?;
+        coordinator
+            .shared_state
+            .mark_extraction_policy_applied_on_content(&child_content_1.id, &extraction_policy_1.id)
             .await?;
 
         let state_change = internal_api::StateChange {
