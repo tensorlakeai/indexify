@@ -16,8 +16,16 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -674,33 +682,65 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_ids: &HashSet<String>,
     ) -> Result<(), StateMachineError> {
+        let mut children_map: HashMap<String, Vec<internal_api::ContentMetadata>> = HashMap::new();
+
+        let iterator = txn.iterator_cf(
+            StateMachineColumns::ContentTable.cf(db),
+            rocksdb::IteratorMode::Start,
+        );
+
+        for item in iterator {
+            let (_, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let content_metadata = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+
+            children_map
+                .entry(content_metadata.parent_id.clone())
+                .or_default()
+                .push(content_metadata);
+        }
+
+        //  Mark the roots
+        if let Some(root_contents) = children_map.get_mut("") {
+            for root_content in root_contents {
+                root_content.tombstoned = true;
+                let serialized_content = JsonEncoder::encode(&root_content)?;
+                txn.put_cf(StateMachineColumns::ContentTable.cf(db), root_content.id.clone(), &serialized_content)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error writing content back after setting tombstone flag on it for content {}: {}",
+                            root_content.id, e
+                        ))
+                    })?;
+            }
+        }
+
+        //  Perform BFS
         for root_content_id in content_ids {
             let mut queue = VecDeque::new();
             queue.push_back(root_content_id.clone());
-            while let Some(curr_content_id) = queue.pop_front() {
-                let mut iterator = txn.iterator_cf(
-                    StateMachineColumns::ContentTable.cf(db),
-                    rocksdb::IteratorMode::Start,
-                );
 
-                while let Some(item) = iterator.next() {
-                    let (_, value) =
-                        item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                    let mut content_metadata =
-                        JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
-                    if content_metadata.parent_id == curr_content_id {
-                        content_metadata.tombstoned = true;
-                        let serialized_content = JsonEncoder::encode(&content_metadata)?;
-                        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_metadata.id.clone(), &serialized_content).map_err(|e| StateMachineError::DatabaseError(format!("Error writing content back after setting tombstone flag on it for content {}: {}", content_metadata.id, e)))?;
-                        queue.push_back(content_metadata.id.clone());
-                    } else if &content_metadata.id == root_content_id {
-                        content_metadata.tombstoned = true;
-                        let serialized_content = JsonEncoder::encode(&content_metadata)?;
-                        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_metadata.id.clone(), &serialized_content).map_err(|e| StateMachineError::DatabaseError(format!("Error writing content back after setting tombstone flag on it for content {}: {}", content_metadata.id, e)))?;
+            while let Some(curr_content_id) = queue.pop_front() {
+                if let Some(children) = children_map.get_mut(&curr_content_id) {
+                    for child in children {
+                        child.tombstoned = true;
+                        let serialized_content = JsonEncoder::encode(child)?;
+                        txn.put_cf(
+                        StateMachineColumns::ContentTable.cf(db),
+                        child.id.clone(),
+                        &serialized_content,
+                    )
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error writing content back after setting tombstone flag on it for content {}: {}",
+                            child.id, e
+                        ))
+                    })?;
+                        queue.push_back(child.id.clone());
                     }
                 }
             }
         }
+
         Ok(())
     }
 
@@ -1438,7 +1478,8 @@ impl IndexifyState {
         content
     }
 
-    /// This method will fetch all pieces of content metadata for the tree rooted at content_id
+    /// This method will fetch all pieces of content metadata for the tree
+    /// rooted at content_id
     pub fn get_content_tree_metadata(
         &self,
         content_id: &str,
@@ -1447,41 +1488,44 @@ impl IndexifyState {
         let txn = db.transaction();
         let mut collected_content_metadata = Vec::new();
 
-        //  Add the parent first
-        let parent_content_bytes = txn
-            .get_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                content_id.as_bytes(),
-            )
+        let root_content_bytes = txn
+            .get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
             .ok_or_else(|| {
                 StateMachineError::DatabaseError(format!("Content {} not found", content_id))
             })?;
-        let parent_content = serde_json::from_slice::<indexify_internal_api::ContentMetadata>(
-            &parent_content_bytes,
-        )?;
-        collected_content_metadata.push(parent_content);
+        let root_content =
+            JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&root_content_bytes)?;
+        collected_content_metadata.push(root_content);
+
+        let mut children_map: HashMap<String, Vec<indexify_internal_api::ContentMetadata>> =
+            HashMap::new();
+
+        let iterator = txn.iterator_cf(
+            StateMachineColumns::ContentTable.cf(db),
+            rocksdb::IteratorMode::Start,
+        );
+
+        for item in iterator {
+            let (_, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let content_metadata =
+                serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value)
+                    .map_err(StateMachineError::from)?;
+
+            children_map
+                .entry(content_metadata.parent_id.clone())
+                .or_default()
+                .push(content_metadata);
+        }
 
         let mut queue = VecDeque::new();
         queue.push_back(content_id.to_string());
 
         while let Some(curr_content_id) = queue.pop_front() {
-            let mut iterator = txn.iterator_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                rocksdb::IteratorMode::Start,
-            );
-
-            while let Some(item) = iterator.next() {
-                let (_, value) =
-                    item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                let content_metadata =
-                    serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value)
-                        .map_err(StateMachineError::from)?;
-
-                //  if the current content is a child of the parent being processed, add it to queue for further processing
-                if content_metadata.parent_id == curr_content_id {
-                    queue.push_back(content_metadata.id.clone());
-                    collected_content_metadata.push(content_metadata);
+            if let Some(children) = children_map.remove(&curr_content_id) {
+                for child in children {
+                    queue.push_back(child.id.clone());
+                    collected_content_metadata.push(child);
                 }
             }
         }

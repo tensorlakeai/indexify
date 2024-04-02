@@ -743,15 +743,10 @@ mod tests {
         let start = Instant::now();
         let result = distributor.plan_allocations(task_ids).await?;
         // stop the timer
-        let duration = start.elapsed();
+        let _duration = start.elapsed();
 
         // Verify that the tasks are allocated
         assert_eq!(result.clone().0.len(), total_tasks);
-
-        println!(
-            "Time elapsed in round_robin_distribution() is: {:?}",
-            duration
-        );
 
         Ok(())
     }

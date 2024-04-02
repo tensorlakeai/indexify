@@ -13,25 +13,58 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
-    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
-    ExtractionPolicyResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest,
-    GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
-    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
-    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
-    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
-    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
-    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
-    RemoveTombstonedContentRequest, RemoveTombstonedContentResponse, TaskAssignments,
-    TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateTaskRequest,
+    self,
+    coordinator_service_server::CoordinatorService,
+    CreateContentRequest,
+    CreateContentResponse,
+    CreateIndexRequest,
+    CreateIndexResponse,
+    ExtractionPolicyRequest,
+    ExtractionPolicyResponse,
+    GcTask,
+    GcTaskAcknowledgement,
+    GetAllSchemaRequest,
+    GetAllSchemaResponse,
+    GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest,
+    GetIndexRequest,
+    GetIndexResponse,
+    GetRaftMetricsSnapshotRequest,
+    GetSchemaRequest,
+    GetSchemaResponse,
+    HeartbeatRequest,
+    HeartbeatResponse,
+    ListContentRequest,
+    ListContentResponse,
+    ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse,
+    ListExtractorsRequest,
+    ListExtractorsResponse,
+    ListIndexesRequest,
+    ListIndexesResponse,
+    ListStateChangesRequest,
+    ListTasksRequest,
+    ListTasksResponse,
+    RaftMetricsSnapshotResponse,
+    RegisterExecutorRequest,
+    RegisterExecutorResponse,
+    RegisterIngestionServerRequest,
+    RegisterIngestionServerResponse,
+    RemoveTombstonedContentRequest,
+    RemoveTombstonedContentResponse,
+    TaskAssignments,
+    TombstoneContentRequest,
+    TombstoneContentResponse,
+    Uint64List,
+    UpdateTaskRequest,
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select, signal,
+    select,
+    signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -42,8 +75,12 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator, garbage_collector::GarbageCollector, server_config::ServerConfig,
-    state, tonic_streamer::DropReceiver, utils::timestamp_secs,
+    coordinator::Coordinator,
+    garbage_collector::GarbageCollector,
+    server_config::ServerConfig,
+    state,
+    tonic_streamer::DropReceiver,
+    utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -351,7 +388,6 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                     }
                     Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
-                        println!("Received task assignment in stream {:#?}", task_allocation);
                         let (assigned_ingestion_server, task) = task_allocation;
                         if assigned_ingestion_server == ingestion_server_id {
                             let serialized_task = GcTask {
@@ -787,7 +823,6 @@ async fn run_scheduler(
     loop {
         tokio::select! {
             _ = state_watcher_rx.changed() => {
-                println!("Received change event in coordinator_service");
                 if is_leader.load(Ordering::Relaxed) {
                    let _state_change = state_watcher_rx.borrow_and_update().clone();
                    if let Err(err) = coordinator.run_scheduler().await {

@@ -56,14 +56,12 @@ impl GarbageCollector {
     }
 
     async fn assign_task_to_server(&self, task: GarbageCollectionTask, server_id: String) {
-        println!("Assigning task {:#?} to server {}", task, server_id);
         let mut tasks_guard = self.gc_tasks.write().await;
         let task_info = tasks_guard
             .entry(task.id.clone())
             .or_insert_with(|| GCTaskInfo::new(task.clone()));
         task_info.status = TaskStatus::Assigned(server_id.clone());
 
-        println!("Sending task {:#?} to server {}", task, server_id);
         if let Err(e) = self
             .task_deletion_allocation_events_sender
             .send((server_id, task))
@@ -83,9 +81,8 @@ impl GarbageCollector {
         mut rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
     ) {
         while let Some(task) = rx.recv().await {
-            println!("Received new deletion event {:#?}", task);
             let server = self.choose_server().await;
-            println!("Assigning to server {:#?}", server);
+
             if let Some(server) = server {
                 self.assign_task_to_server(task.clone(), server).await;
             } else {
@@ -105,7 +102,6 @@ impl GarbageCollector {
     }
 
     pub async fn register_ingestion_server(&self, server_id: String) {
-        println!("Registering new ingestion server with id {}", server_id);
         self.ingestion_servers.write().await.insert(server_id);
     }
 

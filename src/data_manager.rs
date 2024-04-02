@@ -24,7 +24,9 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -276,10 +278,6 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
         //  Remove content from blob storage
-        println!(
-            "Deleting content on ingestion server for gc task {:#?}",
-            gc_task
-        );
         self.blob_storage.delete(&gc_task.blob_store_path).await?;
 
         //  Remove features and embeddings from vector stores
@@ -500,10 +498,6 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: HashMap<String, String>,
     ) -> Result<()> {
-        println!(
-            "Writing features {:#?} for content metadata {:#?} to tables {:#?}",
-            features, content_meta, output_index_map
-        );
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
@@ -518,10 +512,6 @@ impl DataManager {
                     let index_table = output_index_map
                         .get(&feature.name)
                         .ok_or(anyhow!("index table not found"))?;
-                    println!(
-                        "Writing embedding to table {} where the embeddings have key {}",
-                        index_table, content_meta.id
-                    );
                     self.vector_index_manager
                         .add_embedding(index_table, vec![embeddings])
                         .await
@@ -554,7 +544,6 @@ impl DataManager {
         ingest_metadata: BeginExtractedContentIngest,
         extracted_content: api::ExtractedContent,
     ) -> Result<()> {
-        println!("Writing extracted content {:#?}", extracted_content);
         let namespace = ingest_metadata.namespace.clone();
         let mut new_content_metadata = Vec::new();
         let mut features = HashMap::new();
@@ -574,11 +563,6 @@ impl DataManager {
             features.insert(content_metadata.id.clone(), content.features);
             new_content_metadata.push(content_metadata.clone());
         }
-
-        println!(
-            "Writing content metadata for extracted content {:#?}",
-            new_content_metadata
-        );
         for content_meta in new_content_metadata {
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_meta.clone()),

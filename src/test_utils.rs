@@ -12,7 +12,9 @@ use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App, NodeId, RaftConfigOverrides,
+        App,
+        NodeId,
+        RaftConfigOverrides,
     },
 };
 

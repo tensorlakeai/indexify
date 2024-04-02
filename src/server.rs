@@ -156,7 +156,6 @@ impl Server {
                     e
                 )
             })?;
-        println!("Calling start_gc_tasks_stream");
         self.start_gc_tasks_stream(
             coordinator_client.clone(),
             &ingestion_server_id,
@@ -321,7 +320,6 @@ impl Server {
         ingestion_server_id: &str,
         data_manager: Arc<DataManager>,
     ) -> Result<()> {
-        println!("Starting gc tasks stream from ingestion server");
         let mut client = coordinator_client.get().await.map_err(|e| {
             anyhow!(
                 "unable to get coordinator client to start garbage collection task stream: {}",
@@ -346,7 +344,6 @@ impl Server {
         tokio::spawn(async move {
             while let Ok(Some(message)) = stream.message().await {
                 let gc_task = message;
-                println!("Received GC task: {:?}", gc_task);
 
                 // Handle the GC task
                 if let Err(e) = data_manager.delete_content(&gc_task).await {
@@ -362,7 +359,6 @@ impl Server {
                     .await
                     .expect("Failed to send ack");
 
-                println!("Acknowledged completion of task: {}", gc_task.task_id);
                 tracing::debug!("Acknowledged completion of task: {}", gc_task.task_id);
             }
         });
@@ -592,10 +588,6 @@ async fn delete_content(
     State(state): State<NamespaceEndpointState>,
     Json(body): Json<super::api::DeleteContentRequest>,
 ) -> Result<Json<()>, IndexifyAPIError> {
-    println!(
-        "Received request to delete content for namespace {} and content ids {:?}",
-        namespace, body.content_ids
-    );
     let request = indexify_coordinator::TombstoneContentRequest {
         namespace: namespace.clone(),
         content_ids: body.content_ids.clone(),

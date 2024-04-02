@@ -6,10 +6,17 @@ use super::{
     network::Network,
     store::requests::RequestPayload,
     typ::{CheckIsLeaderError, ForwardToLeader, InitializeError, RaftError},
-    BasicNode, NodeId, Raft, Response, SnapshotData, StateMachineUpdateRequest, TokioRuntime,
+    BasicNode,
+    NodeId,
+    Raft,
+    Response,
+    SnapshotData,
+    StateMachineUpdateRequest,
+    TokioRuntime,
 };
 use crate::{
-    garbage_collector::GarbageCollector, state::store::requests::StateMachineUpdateResponse,
+    garbage_collector::GarbageCollector,
+    state::store::requests::StateMachineUpdateResponse,
     utils::timestamp_secs,
 };
 

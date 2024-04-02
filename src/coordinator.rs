@@ -283,7 +283,6 @@ impl Coordinator {
     async fn create_gc_tasks(&self, content_id: String) -> Result<Vec<GarbageCollectionTask>> {
         //  Get the metadata of the children of the content id
         let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
-        println!("The content tree {:#?}", content_tree_metadata);
         let namespace: String = content_tree_metadata[0].namespace.clone();
 
         let mut gc_tasks_created = Vec::new();
@@ -295,7 +294,8 @@ impl Coordinator {
                 .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
                 .await?;
 
-            //  If no extraction policies have been applied to the parent of this node, then it cannot have output features and embeddings
+            //  If no extraction policies have been applied to the parent of this node, then
+            // it cannot have output features and embeddings
             if content_extraction_policy_mappings.is_none() {
                 let mut hasher = DefaultHasher::new();
                 namespace.hash(&mut hasher);
@@ -310,17 +310,12 @@ impl Coordinator {
                     outcome: indexify_internal_api::TaskOutcome::Unknown,
                     blob_store_path: content_metadata.name,
                 };
-                println!("Created gc task {:?}", gc_task);
                 info!("created gc task {:?}", gc_task);
                 gc_tasks_created.push(gc_task);
                 continue;
             }
 
             let mappings = content_extraction_policy_mappings.unwrap();
-            println!(
-                "The content extraction policy mappings for {} are {:#?}",
-                content_id, mappings
-            );
             let applied_extraction_policy_ids: HashSet<String> =
                 mappings.time_of_policy_completion.keys().cloned().collect();
             let applied_extraction_policies = self
@@ -343,7 +338,6 @@ impl Coordinator {
                     outcome: indexify_internal_api::TaskOutcome::Unknown,
                     blob_store_path: content_metadata.name,
                 };
-                println!("Created gc task {:?}", gc_task);
                 info!("created gc task {:?}", gc_task);
                 gc_tasks_created.push(gc_task);
                 continue;
@@ -376,7 +370,6 @@ impl Coordinator {
                 outcome: indexify_internal_api::TaskOutcome::Unknown,
                 blob_store_path: content_metadata.name,
             };
-            println!("Created gc task {:?}", gc_task);
             info!("created gc task {:?}", gc_task);
             gc_tasks_created.push(gc_task);
         }
@@ -391,16 +384,12 @@ impl Coordinator {
         for gc_task in gc_tasks_created {
             self.gc_tasks_tx.send(gc_task).await?;
         }
-        return Ok(());
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn run_scheduler(&self) -> Result<()> {
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
-        println!(
-            "The unprocessed state change events are {:#?}",
-            state_changes
-        );
         for change in state_changes {
             info!(
                 "processing change event: {}, type: {}, id: {}",
@@ -437,15 +426,7 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
-        println!(
-            "Received request to create content metadata {:#?}",
-            content_list
-        );
         let content_meta_list = content_request_to_content_metadata(content_list)?;
-        println!(
-            "Transformed the content metadata to write {:#?}",
-            content_meta_list
-        );
         self.shared_state
             .create_content_batch(content_meta_list)
             .await?;
@@ -516,6 +497,7 @@ mod tests {
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
 
+    use super::Coordinator;
     use crate::{
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
@@ -523,8 +505,6 @@ mod tests {
         test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
         test_utils::RaftTestCluster,
     };
-
-    use super::Coordinator;
 
     async fn setup_coordinator() -> (Arc<Coordinator>, Arc<App>) {
         let config = Arc::new(ServerConfig::default());
@@ -1190,7 +1170,7 @@ mod tests {
         coordinator
             .tombstone_content_metadatas(
                 DEFAULT_TEST_NAMESPACE,
-                &vec![parent_content.id.clone(), parent_content_2.id.clone()],
+                &[parent_content.id.clone(), parent_content_2.id.clone()],
             )
             .await?;
         let content_tree = coordinator
@@ -1308,7 +1288,7 @@ mod tests {
 
         coordinator
             .shared_state
-            .tombstone_content_batch(DEFAULT_TEST_NAMESPACE, &vec![parent_content.id.clone()])
+            .tombstone_content_batch(DEFAULT_TEST_NAMESPACE, &[parent_content.id.clone()])
             .await?;
 
         //  after tombstone
@@ -1443,7 +1423,8 @@ mod tests {
             ])
             .await?;
 
-        //  Create mappings of the extraction policies applied to first two pieces of content and mark them complete
+        //  Create mappings of the extraction policies applied to first two pieces of
+        // content and mark them complete
         let content_extraction_policy_mappings_parent_content =
             internal_api::ContentExtractionPolicyMapping {
                 content_id: parent_content.id.clone(),
@@ -1479,9 +1460,8 @@ mod tests {
             ..Default::default()
         };
         let tasks = coordinator.create_gc_tasks(state_change.object_id).await?;
-        println!("The tasks created are {:#?}", tasks);
         assert_eq!(tasks.len(), 4);
-        assert!(!tasks.get(0).unwrap().output_tables.is_empty());
+        assert!(!tasks.first().unwrap().output_tables.is_empty());
         assert!(!tasks.get(1).unwrap().output_tables.is_empty());
         assert!(tasks.get(2).unwrap().output_tables.is_empty());
         assert!(tasks.get(3).unwrap().output_tables.is_empty());
