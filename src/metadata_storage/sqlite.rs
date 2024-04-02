@@ -7,11 +7,7 @@ use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 
 use super::{
     sqlx::{row_to_extracted_metadata, row_to_metadata_scan_item},
-    table_name,
-    ExtractedMetadata,
-    MetadataReader,
-    MetadataScanStream,
-    MetadataStorage,
+    table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage,
 };
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
@@ -105,8 +101,7 @@ impl MetadataStorage for SqliteIndexManager {
     async fn remove_metadata(&self, namespace: &str, id: &str) -> anyhow::Result<()> {
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!("DELETE FROM {table_name} WHERE id = $1");
-        let conn = self.conn.lock().await;
-        let _ = conn.execute(&query, [id])?;
+        let _ = sqlx::query(&query).bind(id).execute(&self.pool).await?;
         Ok(())
     }
 
