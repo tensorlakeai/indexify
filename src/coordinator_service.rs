@@ -308,7 +308,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map(String::from)
             .ok_or_else(|| tonic::Status::invalid_argument("Missing ingestion server id"))?;
 
-        let mut gc_task_allocation_event_rx = self.coordinator.get_gc_task_allocation_event_rx();
+        let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events();
         let (tx, rx) = mpsc::channel(4);
 
         let mut inbound = request.into_inner();
@@ -350,19 +350,19 @@ impl CoordinatorService for CoordinatorServiceServer {
                             }
                         }
                     }
-                    _ = gc_task_allocation_event_rx.changed() => {
-                        let task = gc_task_allocation_event_rx.borrow().clone();
-                        if task.0 == ingestion_server_id {
+                    Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
+                        println!("Received task assignment in stream {:#?}", task_allocation);
+                        let (assigned_ingestion_server, task) = task_allocation;
+                        if assigned_ingestion_server == ingestion_server_id {
                             let serialized_task = GcTask {
-                                task_id: task.1.id,
-                                namespace: task.1.namespace,
-                                content_id: task.1.content_id,
+                                task_id: task.id,
+                                namespace: task.namespace,
+                                content_id: task.content_id,
                                 output_tables: task
-                                    .1
                                     .output_tables
                                     .into_iter()
                                     .collect::<Vec<String>>(),
-                                blob_store_path: task.1.blob_store_path,
+                                blob_store_path: task.blob_store_path,
                             };
                             tx.send(serialized_task).await.unwrap();
                         }

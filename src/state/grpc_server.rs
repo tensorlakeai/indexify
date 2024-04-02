@@ -113,8 +113,7 @@ impl RaftGrpcServer {
     ) -> Result<tonic::Response<RaftReply>, Status> {
         self.garbage_collector
             .register_ingestion_server(ingestion_server_id.to_string())
-            .await
-            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+            .await;
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
         };

@@ -107,7 +107,7 @@ impl ForwardableRaft {
         //  this node is the leader, perform the action
         self.garbage_collector
             .register_ingestion_server(ingestion_server_id.to_string())
-            .await?;
+            .await;
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
         };

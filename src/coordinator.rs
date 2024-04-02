@@ -10,8 +10,9 @@ use indexify_proto::indexify_coordinator;
 use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
 use tokio::sync::{
+    broadcast,
     mpsc::{self, Sender},
-    watch::{self, Receiver},
+    watch::Receiver,
 };
 use tracing::info;
 
@@ -28,7 +29,6 @@ pub struct Coordinator {
     scheduler: Scheduler,
     garbage_collector: Arc<GarbageCollector>,
     gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
-    gc_task_allocation_event_rx: watch::Receiver<(String, GarbageCollectionTask)>,
 }
 
 impl Coordinator {
@@ -41,9 +41,6 @@ impl Coordinator {
         Arc::new(Self {
             shared_state,
             scheduler,
-            gc_task_allocation_event_rx: garbage_collector
-                .task_deletion_allocation_events_receiver
-                .clone(),
             garbage_collector,
             gc_tasks_tx: tx,
         })
@@ -412,10 +409,9 @@ impl Coordinator {
 
             match change.change_type {
                 indexify_internal_api::ChangeType::IngestionServerAdded => {
-                    let _rx = self
-                        .garbage_collector
+                    self.garbage_collector
                         .register_ingestion_server(change.object_id.clone())
-                        .await?;
+                        .await;
                     self.shared_state
                         .mark_change_events_as_processed(vec![change])
                         .await?
@@ -429,10 +425,8 @@ impl Coordinator {
         Ok(())
     }
 
-    pub fn get_gc_task_allocation_event_rx(
-        &self,
-    ) -> watch::Receiver<(String, GarbageCollectionTask)> {
-        self.gc_task_allocation_event_rx.clone()
+    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<(String, GarbageCollectionTask)> {
+        self.garbage_collector.subscribe_to_events()
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {
