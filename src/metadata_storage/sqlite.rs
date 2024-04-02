@@ -7,7 +7,11 @@ use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 
 use super::{
     sqlx::{row_to_extracted_metadata, row_to_metadata_scan_item},
-    table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage,
+    table_name,
+    ExtractedMetadata,
+    MetadataReader,
+    MetadataScanStream,
+    MetadataStorage,
 };
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
