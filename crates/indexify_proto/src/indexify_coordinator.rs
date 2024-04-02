@@ -466,9 +466,7 @@ pub struct TombstoneContentResponse {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoveTombstonedContentRequest {
     #[prost(string, tag = "1")]
-    pub parent_content_id: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
-    pub children_content_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub content_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

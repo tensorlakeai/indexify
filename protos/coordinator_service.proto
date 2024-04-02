@@ -339,8 +339,7 @@ message TombstoneContentRequest {
 message TombstoneContentResponse {}
 
 message RemoveTombstonedContentRequest {
-    string parent_content_id = 1;
-    repeated string children_content_ids = 2;
+    string content_id = 1;
 }
 
 message RemoveTombstonedContentResponse {}

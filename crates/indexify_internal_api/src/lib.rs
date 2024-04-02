@@ -470,6 +470,7 @@ pub struct ContentMetadata {
     pub created_at: i64,
     pub source: String,
     pub size_bytes: u64,
+    pub tombstoned: bool,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -507,6 +508,7 @@ impl Default for ContentMetadata {
             created_at: 1234567890, // example timestamp
             source: "test_source".to_string(),
             size_bytes: 1234567890,
+            tombstoned: false,
         }
     }
 }
@@ -526,6 +528,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             namespace: value.namespace,
             source: value.source,
             size_bytes: value.size_bytes,
+            tombstoned: false,
         })
     }
 }

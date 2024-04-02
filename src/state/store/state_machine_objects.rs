@@ -668,11 +668,47 @@ impl IndexifyState {
         Ok(())
     }
 
+    fn tombstone_content(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        content_ids: &HashSet<String>,
+    ) -> Result<(), StateMachineError> {
+        for root_content_id in content_ids {
+            let mut queue = VecDeque::new();
+            queue.push_back(root_content_id.clone());
+            while let Some(curr_content_id) = queue.pop_front() {
+                let mut iterator = txn.iterator_cf(
+                    StateMachineColumns::ContentTable.cf(db),
+                    rocksdb::IteratorMode::Start,
+                );
+
+                while let Some(item) = iterator.next() {
+                    let (_, value) =
+                        item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                    let mut content_metadata =
+                        JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+                    if content_metadata.parent_id == curr_content_id {
+                        content_metadata.tombstoned = true;
+                        let serialized_content = JsonEncoder::encode(&content_metadata)?;
+                        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_metadata.id.clone(), &serialized_content).map_err(|e| StateMachineError::DatabaseError(format!("Error writing content back after setting tombstone flag on it for content {}: {}", content_metadata.id, e)))?;
+                        queue.push_back(content_metadata.id.clone());
+                    } else if &content_metadata.id == root_content_id {
+                        content_metadata.tombstoned = true;
+                        let serialized_content = JsonEncoder::encode(&content_metadata)?;
+                        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_metadata.id.clone(), &serialized_content).map_err(|e| StateMachineError::DatabaseError(format!("Error writing content back after setting tombstone flag on it for content {}: {}", content_metadata.id, e)))?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn delete_content(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: HashSet<String>,
+        content_ids: Vec<String>,
     ) -> Result<(), StateMachineError> {
         for content_id in content_ids {
             txn.delete_cf(StateMachineColumns::ContentTable.cf(db), content_id)
@@ -1115,19 +1151,13 @@ impl IndexifyState {
             }
             RequestPayload::TombstoneContent {
                 namespace: _,
-                content_ids: _,
+                content_ids,
             } => {
-                //  TODO: This should only be deleted after the ingestion server
-                // has removed content on its side. Should we insert a marker
-                // here
+                //  TODO: Insert tombstone marker on content here
+                self.tombstone_content(db, &txn, content_ids)?;
             }
-            RequestPayload::RemoveTombstonedContent {
-                parent_content_id,
-                children_content_ids,
-            } => {
-                let mut content_ids_to_delete = children_content_ids.clone();
-                content_ids_to_delete.insert(parent_content_id.clone());
-                self.delete_content(db, &txn, content_ids_to_delete)?;
+            RequestPayload::RemoveTombstonedContent { content_id } => {
+                self.delete_content(db, &txn, vec![content_id.to_string()])?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,

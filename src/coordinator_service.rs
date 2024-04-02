@@ -89,7 +89,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let namespace = req.namespace;
         let content_ids = req.content_ids;
         self.coordinator
-            .tombstone_content_metdatas(&namespace, &content_ids)
+            .tombstone_content_metadatas(&namespace, &content_ids)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(TombstoneContentResponse {}))
@@ -100,10 +100,8 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: Request<RemoveTombstonedContentRequest>,
     ) -> Result<Response<RemoveTombstonedContentResponse>, Status> {
         let req = request.into_inner();
-        let parent_content_id = req.parent_content_id;
-        let children_content_ids = req.children_content_ids;
         self.coordinator
-            .remove_tombstoned_content(&parent_content_id, &children_content_ids)
+            .remove_tombstoned_content(&req.content_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(RemoveTombstonedContentResponse {}))

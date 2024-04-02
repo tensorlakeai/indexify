@@ -350,6 +350,9 @@ impl App {
         content_id: &str,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
+        if content_metadata.tombstoned {
+            return Ok(vec![]);
+        }
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -454,6 +457,7 @@ impl App {
                     )
                     .await?;
                 // if the content metadata mimetype does not match the extractor, skip it
+                //  if the content metadata is tombstoned, skip it
                 if let Some(content_metadata) = content_metadata {
                     if !matches_mime_type(
                         &extractor.input_mime_types,
@@ -461,11 +465,15 @@ impl App {
                     ) {
                         continue;
                     }
+                    if content_metadata.tombstoned == true {
+                        continue;
+                    }
                     content_meta_list.push(content_metadata);
                 }
             }
             content_meta_list
         };
+
         let mut matched_content_list = Vec::new();
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
@@ -985,15 +993,10 @@ impl App {
         Ok(())
     }
 
-    pub async fn remove_tombstoned_content(
-        &self,
-        parent_content_id: &str,
-        children_content_ids: &[String],
-    ) -> Result<()> {
+    pub async fn remove_tombstoned_content(&self, content_id: &str) -> Result<()> {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::RemoveTombstonedContent {
-                parent_content_id: parent_content_id.to_string(),
-                children_content_ids: children_content_ids.iter().cloned().collect(),
+                content_id: content_id.to_string(),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],

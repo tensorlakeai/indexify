@@ -288,29 +288,6 @@ impl Coordinator {
         //  Get the metadata of the children of the content id
         let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
         println!("The content tree {:#?}", content_tree_metadata);
-        let mut content_to_children_map: HashMap<String, Vec<String>> = HashMap::new();
-        for content in &content_tree_metadata {
-            let parent_id = &content.parent_id;
-            let content_id = content.id.clone();
-
-            match content_to_children_map.get_mut(parent_id) {
-                Some(children) => {
-                    children.push(content_id);
-                }
-                None => {
-                    content_to_children_map.insert(parent_id.clone(), vec![content_id]);
-                }
-            }
-        }
-        println!(
-            "The content to children map: {:#?}",
-            content_to_children_map
-        );
-        let content_ids = content_tree_metadata
-            .iter()
-            .map(|c| c.id.clone())
-            .collect::<Vec<String>>();
-        println!("The content ids are {:?}", content_ids);
         let namespace: String = content_tree_metadata[0].namespace.clone();
 
         let mut gc_tasks_created = Vec::new();
@@ -319,7 +296,7 @@ impl Coordinator {
         for content_metadata in content_tree_metadata {
             let content_extraction_policy_mappings = self
                 .shared_state
-                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.parent_id)
+                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
                 .await?;
 
             //  If no extraction policies have been applied to the parent of this node, then it cannot have output features and embeddings
@@ -365,15 +342,14 @@ impl Coordinator {
                 );
             }
 
-            //  Create the garbage collection task and write it to Raft and send the gc task
-            // to the garbage collector
+            //  Create the garbage collection task
             let mut hasher = DefaultHasher::new();
             let policies = applied_extraction_policies.unwrap();
             let policy = policies.first().unwrap();
 
             policy.name.hash(&mut hasher);
             policy.namespace.hash(&mut hasher);
-            content_id.hash(&mut hasher);
+            content_metadata.id.hash(&mut hasher);
             let id = format!("{:x}", hasher.finish());
 
             let gc_task = indexify_internal_api::GarbageCollectionTask {
@@ -388,65 +364,6 @@ impl Coordinator {
             info!("created gc task {:?}", gc_task);
             gc_tasks_created.push(gc_task);
         }
-
-        //  Get the extraction policy ids applied to each content id
-        // for content_id in content_ids {
-        //     let content_extraction_policy_mappings = self
-        //         .shared_state
-        //         .get_content_extraction_policy_mappings_for_content_id(&content_id)
-        //         .await?;
-
-        //     if let Some(mappings) = content_extraction_policy_mappings {
-        //         //  fetch all the extraction policies that have been applied
-        //         println!(
-        //             "The content extraction policy mappings for {} are {:#?}",
-        //             content_id, mappings
-        //         );
-        //         let applied_extraction_policy_ids: HashSet<String> =
-        //             mappings.time_of_policy_completion.keys().cloned().collect();
-        //         let applied_extraction_policies = self
-        //             .shared_state
-        //             .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-        //             .await?;
-
-        //         //  Get the table names from the extraction_policies
-        //         let mut output_tables: Vec<String> = Vec::new();
-        //         for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
-        //             output_tables.extend(
-        //                 applied_extraction_policy
-        //                     .index_name_table_mapping
-        //                     .values()
-        //                     .cloned(),
-        //             );
-        //         }
-
-        //         //  Create the garbage collection task and write it to Raft and send the gc task
-        //         // to the garbage collector
-        //         let mut hasher = DefaultHasher::new();
-        //         let policies = applied_extraction_policies.unwrap();
-        //         let policy = policies.first().unwrap();
-
-        //         policy.name.hash(&mut hasher);
-        //         policy.namespace.hash(&mut hasher);
-        //         content_id.hash(&mut hasher);
-        //         let id = format!("{:x}", hasher.finish());
-
-        //         let gc_task = indexify_internal_api::GarbageCollectionTask {
-        //             namespace: namespace.clone(),
-        //             id,
-        //             parent_content_id: content_id.clone(),
-        //             children_content_ids: content_to_children_map
-        //                 .get(&content_id)
-        //                 .unwrap_or(&Vec::new())
-        //                 .clone(),
-        //             output_index_table_mapping: output_tables.iter().cloned().collect(),
-        //             outcome: indexify_internal_api::TaskOutcome::Unknown,
-        //         };
-        //         println!("Created gc task {:?}", gc_task);
-        //         info!("created gc task {:?}", gc_task);
-        //         gc_tasks_created.push(gc_task);
-        //     }
-        // }
         Ok(gc_tasks_created)
     }
 
@@ -522,7 +439,7 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn tombstone_content_metdatas(
+    pub async fn tombstone_content_metadatas(
         &self,
         namespace: &str,
         content_ids: &[String],
@@ -533,13 +450,9 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn remove_tombstoned_content(
-        &self,
-        parent_content_id: &str,
-        children_content_ids: &[String],
-    ) -> Result<()> {
+    pub async fn remove_tombstoned_content(&self, content_id: &str) -> Result<()> {
         self.shared_state
-            .remove_tombstoned_content(parent_content_id, children_content_ids)
+            .remove_tombstoned_content(content_id)
             .await?;
         Ok(())
     }
@@ -987,7 +900,429 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
+    async fn test_create_and_read_content_tree() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config, None).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        //  Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  Create an extractor, executor and associated extraction policy
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .await?;
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_1".to_string(),
+            name: "extraction_policy_name_1".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: "ingestion".to_string(),
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .await?;
+
+        //  Create a different extractor, executor and associated extraction policy
+        let mut extractor_2 = mock_extractor();
+        let extractor_2_name = "MockExtractor2".to_string();
+        extractor_2.name = extractor_2_name.clone();
+        coordinator
+            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .await?;
+        let extraction_policy_2 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_2".to_string(),
+            extractor: extractor_2_name.clone(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: extraction_policy_1.name,
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_2.clone(), extractor_2)
+            .await?;
+
+        //  Build a content tree where the parent content id is the pointer
+        let parent_content = indexify_coordinator::ContentMetadata {
+            id: "test_parent_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_content_1 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+        let child_content_2 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_2".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_2.id.clone(),
+            size_bytes: 100,
+        };
+        let child_content_1_child = indexify_coordinator::ContentMetadata {
+            id: "test_child_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_child_id_1".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![
+                parent_content.clone(),
+                child_content_1.clone(),
+                child_content_2.clone(),
+                child_content_1_child.clone(),
+            ])
+            .await?;
+
+        let content_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id)?;
+        assert_eq!(content_tree.len(), 4);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_tombstone_content_tree() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config, None).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        //  Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  Create an extractor, executor and associated extraction policy
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .await?;
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_1".to_string(),
+            name: "extraction_policy_name_1".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: "ingestion".to_string(),
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .await?;
+
+        //  Create a different extractor, executor and associated extraction policy
+        let mut extractor_2 = mock_extractor();
+        let extractor_2_name = "MockExtractor2".to_string();
+        extractor_2.name = extractor_2_name.clone();
+        coordinator
+            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .await?;
+        let extraction_policy_2 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_2".to_string(),
+            extractor: extractor_2_name.clone(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: extraction_policy_1.name,
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_2.clone(), extractor_2)
+            .await?;
+
+        //  Build a content tree where the parent_content is the root
+        let parent_content = indexify_coordinator::ContentMetadata {
+            id: "test_parent_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_content_1 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+        let child_content_2 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_2".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_2.id.clone(),
+            size_bytes: 100,
+        };
+        let child_content_1_child = indexify_coordinator::ContentMetadata {
+            id: "test_child_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_child_id_1".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+
+        //  Build a separate content tree where parent_content_2 is the root
+        let parent_content_2 = indexify_coordinator::ContentMetadata {
+            id: "test_parent_id_2".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_content_2_1 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_2_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id_2".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+
+        coordinator
+            .create_content_metadata(vec![
+                parent_content.clone(),
+                child_content_1.clone(),
+                child_content_2.clone(),
+                child_content_1_child.clone(),
+                parent_content_2.clone(),
+                child_content_2_1.clone(),
+            ])
+            .await?;
+
+        coordinator
+            .tombstone_content_metadatas(
+                DEFAULT_TEST_NAMESPACE,
+                &vec![parent_content.id.clone(), parent_content_2.id.clone()],
+            )
+            .await?;
+        let content_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id)?;
+        let content_tree_2 = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content_2.id)?;
+        for content in &content_tree {
+            assert!(
+                content.tombstoned,
+                "Content {} is not tombstoned",
+                content.id
+            );
+        }
+        for content in content_tree_2 {
+            assert!(
+                content.tombstoned,
+                "Content {} is not tombstoned",
+                content.id
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_match_tombstoned_content() -> Result<(), anyhow::Error> {
+        let config = Arc::new(ServerConfig::default());
+        let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
+        let shared_state = App::new(config, None).await.unwrap();
+        shared_state.initialize_raft().await.unwrap();
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
+
+        //  Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  Create an extractor, executor and associated extraction policy
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .await?;
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: "extraction_policy_id_1".to_string(),
+            name: "extraction_policy_name_1".to_string(),
+            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            output_index_name_mapping: HashMap::from([(
+                "test_output".to_string(),
+                "test.test_output".to_string(),
+            )]),
+            index_name_table_mapping: HashMap::from([(
+                "test.test_output".to_string(),
+                "test_namespace.test.test_output".to_string(),
+            )]),
+            content_source: "ingestion".to_string(),
+            ..Default::default()
+        };
+        coordinator
+            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .await?;
+
+        //  Build a content tree where the parent_content is the root
+        let parent_content = indexify_coordinator::ContentMetadata {
+            id: "test_parent_id".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+        };
+        let child_content_1 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_1".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+        let child_content_2 = indexify_coordinator::ContentMetadata {
+            id: "test_child_id_2".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            parent_id: "test_parent_id".to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: extraction_policy_1.id.clone(),
+            size_bytes: 100,
+        };
+        coordinator
+            .create_content_metadata(vec![
+                parent_content.clone(),
+                child_content_1.clone(),
+                child_content_2.clone(),
+            ])
+            .await?;
+
+        //  before tombstone
+        let content_matching_policy = coordinator
+            .shared_state
+            .content_matching_policy(&extraction_policy_1.id)
+            .await?;
+        assert_eq!(content_matching_policy.len(), 1);
+        let policies_matching_content = coordinator
+            .shared_state
+            .filter_extraction_policy_for_content(&parent_content.id)
+            .await?;
+        assert_eq!(policies_matching_content.len(), 1);
+
+        coordinator
+            .shared_state
+            .tombstone_content_batch(DEFAULT_TEST_NAMESPACE, &vec![parent_content.id.clone()])
+            .await?;
+
+        //  after tombstone
+        let content_matching_policy = coordinator
+            .shared_state
+            .content_matching_policy(&extraction_policy_1.id)
+            .await?;
+        assert_eq!(content_matching_policy.len(), 0);
+        let policies_matching_content = coordinator
+            .shared_state
+            .filter_extraction_policy_for_content(&parent_content.id)
+            .await?;
+        assert_eq!(policies_matching_content.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let config = Arc::new(ServerConfig::default());
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
@@ -1107,7 +1442,7 @@ mod tests {
             ])
             .await?;
 
-        //  Create mappings of the extraction policies applied to each piece of content
+        //  Create mappings of the extraction policies applied to first two pieces of content
         let content_extraction_policy_mappings_parent_content =
             internal_api::ContentExtractionPolicyMapping {
                 content_id: parent_content.id.clone(),
@@ -1135,18 +1470,17 @@ mod tests {
             ])
             .await?;
 
-        let content_tree = coordinator
-            .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
-        assert_eq!(content_tree.len(), 4);
-
         let state_change = internal_api::StateChange {
             object_id: parent_content.id.clone(),
             ..Default::default()
         };
         let tasks = coordinator.create_gc_tasks(state_change.object_id).await?;
         println!("The tasks created are {:#?}", tasks);
-        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks.len(), 4);
+        assert!(!tasks.get(0).unwrap().output_tables.is_empty());
+        assert!(!tasks.get(1).unwrap().output_tables.is_empty());
+        assert!(tasks.get(2).unwrap().output_tables.is_empty());
+        assert!(tasks.get(3).unwrap().output_tables.is_empty());
 
         Ok(())
     }

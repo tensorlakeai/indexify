@@ -70,8 +70,7 @@ pub enum RequestPayload {
         content_ids: HashSet<String>,
     },
     RemoveTombstonedContent {
-        parent_content_id: String,
-        children_content_ids: HashSet<String>,
+        content_id: String,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,
