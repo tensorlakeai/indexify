@@ -108,6 +108,13 @@ impl MetadataStorage for SqliteIndexManager {
         Ok(())
     }
 
+    async fn remove_metadata(&self, namespace: &str, id: &str) -> anyhow::Result<()> {
+        let table_name = PostgresIndexName::new(&table_name(namespace));
+        let query = format!("DELETE FROM {table_name} WHERE id = $1");
+        let _ = sqlx::query(&query).bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn get_metadata_for_content(
         &self,
         namespace: &str,

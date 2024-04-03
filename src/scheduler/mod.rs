@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
-    time::SystemTime,
 };
 
 use anyhow::{anyhow, Ok, Result};
@@ -165,6 +164,9 @@ impl Scheduler {
             .extractor_with_name(&extraction_policy.extractor)
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
+
+        //  TODO: This will be done in create_extraction_policy in coordinator_service.
+        // Just store the mapping
         for name in extractor.outputs.keys() {
             let index_name = extraction_policy
                 .output_index_name_mapping
@@ -197,12 +199,10 @@ impl Scheduler {
             info!("created task: {:?}", task);
             tasks.push(task);
 
-            let mut time_of_policy_completion = HashMap::new();
-            time_of_policy_completion.insert(extraction_policy.id.clone(), SystemTime::now());
             let content_extraction_policy_mapping = internal_api::ContentExtractionPolicyMapping {
                 content_id: content.id,
                 extraction_policy_ids: HashSet::from_iter(vec![extraction_policy.id.clone()]),
-                time_of_policy_completion,
+                time_of_policy_completion: HashMap::new(),
             };
             content_extraction_policy_mappings.push(content_extraction_policy_mapping);
         }

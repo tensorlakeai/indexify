@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
@@ -124,6 +124,13 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
             metadata_schemas,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IngestionServerMetadata {
+    pub id: String,
+    pub addr: String,
+    pub last_seen: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -281,6 +288,16 @@ impl From<TaskOutcome> for indexify_coordinator::TaskOutcome {
     }
 }
 
+impl From<bool> for TaskOutcome {
+    fn from(value: bool) -> Self {
+        if value {
+            TaskOutcome::Success
+        } else {
+            TaskOutcome::Failed
+        }
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
 #[schema(as = internal_api::Task)]
 pub struct Task {
@@ -340,6 +357,34 @@ impl TryFrom<indexify_coordinator::Task> for Task {
         })
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[schema(as=internal_api::GarbageCollectionTask)]
+pub struct GarbageCollectionTask {
+    pub namespace: String,
+    pub id: String,
+    pub content_id: String,
+    pub parent_content_id: String,
+    pub output_tables: HashSet<String>,
+    #[schema(value_type = internal_api::TaskOutcome)]
+    pub outcome: TaskOutcome,
+    pub blob_store_path: String,
+}
+
+impl Default for GarbageCollectionTask {
+    fn default() -> Self {
+        Self {
+            namespace: "test_namespace".to_string(),
+            id: "test_id".to_string(),
+            content_id: "test_content_id".to_string(),
+            parent_content_id: "test_parent_content_id".to_string(),
+            output_tables: HashSet::new(),
+            outcome: TaskOutcome::Unknown,
+            blob_store_path: "test_blob_store_path".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct ExtractionPolicy {
     pub id: String,
@@ -394,17 +439,14 @@ pub struct ContentExtractionPolicyMapping {
                                                  * extraction policy should only be applied to
                                                  * a piece of content once */
     pub time_of_policy_completion: HashMap<String, SystemTime>, /* policy name -> time instant.
-                                                                 * This will be written to in
-                                                                 * the server.rs file when a
-                                                                 * task is completed */
+                                                                 * This will be written to when a task is updated/completed */
 }
 
 impl Default for ContentExtractionPolicyMapping {
     fn default() -> Self {
         let mut extraction_policy_ids = HashSet::new();
         extraction_policy_ids.insert("extraction_policy_id".to_string());
-        let mut time_of_policy_completion = HashMap::new();
-        time_of_policy_completion.insert("extraction_policy_id".to_string(), SystemTime::now());
+        let time_of_policy_completion = HashMap::new();
 
         Self {
             content_id: "content_id".to_string(),
@@ -427,6 +469,7 @@ pub struct ContentMetadata {
     pub created_at: i64,
     pub source: String,
     pub size_bytes: u64,
+    pub tombstoned: bool,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -464,6 +507,7 @@ impl Default for ContentMetadata {
             created_at: 1234567890, // example timestamp
             source: "test_source".to_string(),
             size_bytes: 1234567890,
+            tombstoned: false,
         }
     }
 }
@@ -483,6 +527,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             namespace: value.namespace,
             source: value.source,
             size_bytes: value.size_bytes,
+            tombstoned: false,
         })
     }
 }
@@ -556,18 +601,26 @@ impl From<Namespace> for indexify_coordinator::Namespace {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
+    TombstoneContent,
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
+    IngestionServerAdded,
+    IngestionServerRemoved,
+    NewGargabeCollectionTask,
 }
 
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
+            ChangeType::TombstoneContent => write!(f, "TombstoneContent"),
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+            ChangeType::IngestionServerAdded => write!(f, "IngestionServerAdded"),
+            ChangeType::IngestionServerRemoved => write!(f, "IngestionServerRemoved"),
+            ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
         }
     }
 }

@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
@@ -20,6 +21,8 @@ use indexify_proto::indexify_coordinator::{
     CreateIndexResponse,
     ExtractionPolicyRequest,
     ExtractionPolicyResponse,
+    GcTask,
+    GcTaskAcknowledgement,
     GetAllSchemaRequest,
     GetAllSchemaResponse,
     GetAllTaskAssignmentRequest,
@@ -46,7 +49,11 @@ use indexify_proto::indexify_coordinator::{
     RaftMetricsSnapshotResponse,
     RegisterExecutorRequest,
     RegisterExecutorResponse,
+    RegisterIngestionServerRequest,
+    RegisterIngestionServerResponse,
     TaskAssignments,
+    TombstoneContentRequest,
+    TombstoneContentResponse,
     Uint64List,
     UpdateTaskRequest,
     UpdateTaskResponse,
@@ -61,19 +68,22 @@ use tokio::{
         watch::{self, Receiver, Sender},
     },
 };
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
     coordinator::Coordinator,
+    garbage_collector::GarbageCollector,
     server_config::ServerConfig,
-    state::{self},
+    state,
     tonic_streamer::DropReceiver,
     utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
+type GCTasksResponseStream =
+    Pin<Box<dyn tokio_stream::Stream<Item = Result<GcTask, Status>> + Send + Sync>>;
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
@@ -82,6 +92,7 @@ pub struct CoordinatorServiceServer {
 
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
+    type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
 
     async fn create_content(
@@ -100,6 +111,20 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateContentResponse { id }))
+    }
+
+    async fn tombstone_content(
+        &self,
+        request: tonic::Request<TombstoneContentRequest>,
+    ) -> Result<tonic::Response<TombstoneContentResponse>, tonic::Status> {
+        let req = request.into_inner();
+        let namespace = req.namespace;
+        let content_ids = req.content_ids;
+        self.coordinator
+            .tombstone_content_metadatas(&namespace, &content_ids)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(TombstoneContentResponse {}))
     }
 
     async fn list_content(
@@ -139,6 +164,9 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let mut index_name_table_mapping = HashMap::new();
         let mut output_index_name_mapping = HashMap::new();
+
+        //  TODO: Just create an output to table mapping here directly instead of 2
+        // separate mappings
         for output_name in extractor.outputs.keys() {
             let index_name = format!("{}.{}", request.name, output_name);
             let index_table_name =
@@ -277,6 +305,109 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(RegisterExecutorResponse {
             executor_id: request.executor_id,
         }))
+    }
+
+    async fn register_ingestion_server(
+        &self,
+        request: tonic::Request<RegisterIngestionServerRequest>,
+    ) -> Result<tonic::Response<RegisterIngestionServerResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .register_ingestion_server(&request.addr, &request.ingestion_server_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        Ok(tonic::Response::new(RegisterIngestionServerResponse {}))
+    }
+
+    async fn gc_tasks_stream(
+        &self,
+        request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
+    ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
+        let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events();
+        let (tx, rx) = mpsc::channel(4);
+
+        let mut inbound = request.into_inner();
+        let coordinator_clone = self.coordinator.clone();
+        let mut shutdown_rx = self.shutdown_rx.clone();
+
+        let mut ingestion_server_id: Option<String> = None;
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        info!("Shutdown signal received, terminating gc_tasks_stream.");
+                        break;
+                    }
+                    task_ack = inbound.next() => {
+                        match task_ack {
+                            Some(Ok(task_ack)) => {
+                                //  check for initial handshake message
+                                if task_ack.task_id.is_empty() {
+                                    ingestion_server_id.replace(task_ack.ingestion_server_id);
+                                    tracing::debug!("Received handshake, ingestion server ID set to: {:?}", ingestion_server_id);
+                                    continue;
+                                }
+
+                                tracing::info!(
+                                    "Received gc task acknowledgement {:?}, marking the gc task as complete",
+                                    task_ack
+                                );
+                                if let Err(e) = coordinator_clone
+                                .update_gc_task(&task_ack.task_id, task_ack.completed.into())
+                                .await
+                                {
+                                    tracing::error!(
+                                        "Error updating GC task with id {}: {}",
+                                        task_ack.task_id,
+                                        e
+                                    );
+                                }
+                            }
+                            Some(Err(e)) => {
+                                tracing::error!("Stream error, likely disconnection: {}", e);
+                                break;
+                            }
+                            None => {
+                                tracing::info!("GC tasks stream ended, client disconnected.");
+                                break;
+                            }
+                        }
+                    }
+                    Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
+                        let (assigned_ingestion_server, task) = task_allocation;
+                        if let Some(ref server_id) = ingestion_server_id {
+                            if &assigned_ingestion_server == server_id {
+                                let serialized_task = GcTask {
+                                    task_id: task.id,
+                                    namespace: task.namespace,
+                                    content_id: task.content_id,
+                                    output_tables: task
+                                        .output_tables
+                                        .into_iter()
+                                        .collect::<Vec<String>>(),
+                                    blob_store_path: task.blob_store_path,
+                                };
+                                tx.send(serialized_task).await.unwrap();
+                            }
+                        }
+                    }
+                }
+            }
+
+            //  Notify the garbage collector that the ingestion server has disconnected
+            if let Some(server_id) = ingestion_server_id {
+                coordinator_clone
+                    .remove_ingestion_server_from_garbage_collector(&server_id)
+                    .await;
+            }
+        });
+
+        let response_stream = ReceiverStream::new(rx).map(Ok);
+        Ok(tonic::Response::new(
+            Box::pin(response_stream) as Self::GCTasksStreamStream
+        ))
     }
 
     async fn heartbeat(
@@ -614,9 +745,11 @@ pub struct CoordinatorServer {
 impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
-        let shared_state = state::App::new(config.clone(), None).await?;
+        let garbage_collector = GarbageCollector::new();
+        let shared_state =
+            state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
 
-        let coordinator = Coordinator::new(shared_state.clone());
+        let coordinator = Coordinator::new(shared_state.clone(), garbage_collector);
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,
@@ -683,7 +816,7 @@ async fn run_scheduler(
         tokio::select! {
             _ = state_watcher_rx.changed() => {
                 if is_leader.load(Ordering::Relaxed) {
-                    let _state_change = state_watcher_rx.borrow_and_update().clone();
+                   let _state_change = state_watcher_rx.borrow_and_update().clone();
                    if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }

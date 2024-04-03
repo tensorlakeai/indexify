@@ -81,6 +81,13 @@ impl VectorIndexManager {
         Ok(())
     }
 
+    pub async fn remove_embedding(&self, vector_index_name: &str, content_id: &str) -> Result<()> {
+        self.vector_db
+            .remove_embedding(vector_index_name, content_id)
+            .await?;
+        Ok(())
+    }
+
     pub async fn search(&self, index: Index, query: &str, k: usize) -> Result<Vec<ScoredText>> {
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),

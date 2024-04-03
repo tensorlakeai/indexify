@@ -251,10 +251,9 @@ impl DataManager {
                     "ingestion",
                 )
                 .await?;
-            let req: indexify_coordinator::CreateContentRequest =
-                indexify_coordinator::CreateContentRequest {
-                    content: Some(content_metadata),
-                };
+            let req = indexify_coordinator::CreateContentRequest {
+                content: Some(content_metadata),
+            };
             self.coordinator_client
                 .get()
                 .await?
@@ -267,6 +266,26 @@ impl DataManager {
                     )
                 })?;
         }
+        Ok(())
+    }
+
+    #[tracing::instrument]
+    pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
+        //  Remove content from blob storage
+        self.blob_storage.delete(&gc_task.blob_store_path).await?;
+
+        //  Remove features and embeddings from vector stores
+        for table in &gc_task.output_tables {
+            self.vector_index_manager
+                .remove_embedding(table, &gc_task.content_id)
+                .await?;
+        }
+
+        //  Remove any metadata
+        self.metadata_index_manager
+            .remove_metadata(&gc_task.namespace, &gc_task.content_id)
+            .await?;
+
         Ok(())
     }
 

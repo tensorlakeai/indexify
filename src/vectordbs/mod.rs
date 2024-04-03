@@ -75,6 +75,10 @@ pub trait VectorDb {
     /// attributes.
     async fn add_embedding(&self, index: &str, chunks: Vec<VectorChunk>) -> Result<()>;
 
+    /// Removes a vector embedding from the specified index based on the
+    /// content_id key
+    async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()>;
+
     /// Searches for the nearest neighbors of a query vector in the specified
     /// index.
     async fn search(

@@ -23,6 +23,7 @@ mod coordinator;
 mod coordinator_client;
 mod data_manager;
 mod extractor_router;
+mod garbage_collector;
 mod grpc_helper;
 mod metadata_storage;
 mod scheduler;

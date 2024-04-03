@@ -45,6 +45,7 @@ use self::{
 };
 use crate::{
     coordinator_filters::matches_mime_type,
+    garbage_collector::GarbageCollector,
     metrics::raft_metrics::{self, network::MetricsSnapshot},
     server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
@@ -129,6 +130,7 @@ impl App {
     pub async fn new(
         server_config: Arc<ServerConfig>,
         overrides: Option<RaftConfigOverrides>,
+        garbage_collector: Arc<GarbageCollector>,
     ) -> Result<Arc<Self>> {
         let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
@@ -177,8 +179,12 @@ impl App {
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
-        let forwardable_raft =
-            ForwardableRaft::new(server_config.node_id, raft.clone(), network.clone());
+        let forwardable_raft = ForwardableRaft::new(
+            server_config.node_id,
+            raft.clone(),
+            network.clone(),
+            Arc::clone(&garbage_collector),
+        );
 
         let mut nodes = BTreeMap::new();
         nodes.insert(
@@ -198,6 +204,7 @@ impl App {
             server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
+            Arc::clone(&garbage_collector),
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
@@ -354,6 +361,9 @@ impl App {
         content_id: &str,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_conent_metadata(content_id).await?;
+        if content_metadata.tombstoned {
+            return Ok(vec![]);
+        }
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -417,6 +427,15 @@ impl App {
         Ok(extraction_policy)
     }
 
+    pub async fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+    ) -> Result<Option<Vec<ExtractionPolicy>>> {
+        self.state_machine
+            .get_extraction_policies_from_ids(extraction_policy_ids)
+            .await
+    }
+
     /// Returns the extractor bindings that match the content metadata
     /// If the content metadata does not match any extractor bindings, returns
     /// an empty list Any filtration of extractor bindings based on content
@@ -448,6 +467,7 @@ impl App {
                     )
                     .await?;
                 // if the content metadata mimetype does not match the extractor, skip it
+                //  if the content metadata is tombstoned, skip it
                 if let Some(content_metadata) = content_metadata {
                     if !matches_mime_type(
                         &extractor.input_mime_types,
@@ -455,11 +475,15 @@ impl App {
                     ) {
                         continue;
                     }
+                    if content_metadata.tombstoned {
+                        continue;
+                    }
                     content_meta_list.push(content_metadata);
                 }
             }
             content_meta_list
         };
+
         let mut matched_content_list = Vec::new();
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
@@ -698,6 +722,20 @@ impl App {
         Ok(())
     }
 
+    pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {
+        let mark_finished = gc_task.outcome != internal_api::TaskOutcome::Unknown;
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::UpdateGarbageCollectionTask {
+                gc_task,
+                mark_finished,
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     pub async fn extractor_with_name(
         &self,
         extractor: &str,
@@ -811,6 +849,34 @@ impl App {
         Ok(state_change.id)
     }
 
+    pub async fn register_ingestion_server(
+        &self,
+        addr: &str,
+        ingestion_server_id: &str,
+    ) -> Result<()> {
+        self.forwardable_raft
+            .register_ingestion_server(ingestion_server_id, addr)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
+        let state_change = StateChange::new(
+            ingestion_server_id.to_string(),
+            internal_api::ChangeType::IngestionServerRemoved,
+            timestamp_secs(),
+        );
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::RemoveIngestionServer {
+                ingestion_server_id: ingestion_server_id.to_string(),
+            },
+            new_state_changes: vec![state_change],
+            state_changes_processed: vec![],
+        };
+        let _resp = self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
         let extractors: Vec<internal_api::ExtractorDescription> = self
             .state_machine
@@ -892,6 +958,35 @@ impl App {
         Ok(())
     }
 
+    pub async fn tombstone_content_batch(
+        &self,
+        namespace: &str,
+        content_ids: &[String],
+    ) -> Result<()> {
+        let mut state_changes = vec![];
+        for content_id in content_ids {
+            state_changes.push(StateChange::new(
+                content_id.clone(),
+                internal_api::ChangeType::TombstoneContent,
+                timestamp_secs(),
+            ));
+        }
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::TombstoneContent {
+                namespace: namespace.to_string(),
+                content_ids: content_ids.iter().cloned().collect(),
+            },
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
+        };
+        let _ = self
+            .forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("Unable to tombstone content metadata: {}", e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn get_conent_metadata(
         &self,
         content_id: &str,
@@ -915,6 +1010,13 @@ impl App {
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
+    pub fn get_content_tree_metadata(
+        &self,
+        content_id: &str,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.state_machine.get_content_tree_metadata(content_id)
+    }
+
     pub async fn create_tasks(
         &self,
         tasks: Vec<internal_api::Task>,
@@ -925,6 +1027,23 @@ impl App {
             new_state_changes: vec![],
             state_changes_processed: vec![StateChangeProcessed {
                 state_change_id: state_change_id.to_string(),
+                processed_at: timestamp_secs(),
+            }],
+        };
+        let _resp = self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn create_gc_tasks(
+        &self,
+        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+        processed_change_id: &str,
+    ) -> Result<()> {
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateGarbageCollectionTasks { gc_tasks },
+            new_state_changes: vec![],
+            state_changes_processed: vec![StateChangeProcessed {
+                state_change_id: processed_change_id.to_string(),
                 processed_at: timestamp_secs(),
             }],
         };
@@ -977,6 +1096,18 @@ impl App {
             .await?
             .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
         Ok(task)
+    }
+
+    pub async fn gc_task_with_id(
+        &self,
+        gc_task_id: &str,
+    ) -> Result<internal_api::GarbageCollectionTask> {
+        let gc_task = self
+            .state_machine
+            .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)
+            .await?
+            .ok_or_else(|| anyhow!("Garbage collection task with id {} not found", gc_task_id))?;
+        Ok(gc_task)
     }
 
     pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
@@ -1151,7 +1282,11 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use std::{
+        collections::HashMap,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use indexify_internal_api::{ContentExtractionPolicyMapping, Index, TaskOutcome};
 
@@ -1694,10 +1829,11 @@ mod tests {
         //  Create a mapping of content -> extraction policies, insert it, mark it as
         // read and read it back to assert
         let mapping = ContentExtractionPolicyMapping::default();
+        let current_sys_time = SystemTime::now();
         let initial_time = mapping
             .time_of_policy_completion
             .get("extraction_policy_id")
-            .unwrap();
+            .unwrap_or(&current_sys_time);
         node.set_content_extraction_policy_mappings(vec![mapping.clone()])
             .await?;
         node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")

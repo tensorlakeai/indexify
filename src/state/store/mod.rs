@@ -77,6 +77,7 @@ pub enum StateMachineError {
 pub enum StateMachineColumns {
     Executors,                          //  ExecutorId -> Executor Metadata
     Tasks,                              //  TaskId -> Task
+    GarbageCollectionTasks,             //  GCTaskId -> GCTask
     TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
     StateChanges,                       //  StateChangeId -> StateChange
     ContentTable,                       //  ContentId -> ContentMetadata
@@ -353,6 +354,13 @@ impl StateMachineStore {
         self.data
             .indexify_state
             .get_content_from_ids(content_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_tree_metadata(content_id, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 

@@ -59,6 +59,8 @@ pub trait MetadataStorage {
 
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()>;
 
+    async fn remove_metadata(&self, namespace: &str, id: &str) -> Result<()>;
+
     async fn get_metadata_for_content(
         &self,
         namespace: &str,
