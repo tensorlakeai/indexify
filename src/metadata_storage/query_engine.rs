@@ -203,7 +203,7 @@ mod tests {
 
     async fn create_sqlite_metadata_store() -> Arc<SqliteIndexManager> {
         std::fs::remove_file("/tmp/foo").unwrap_or(());
-        SqliteIndexManager::new("sqlite:///tmp/foo?mode=rwc").unwrap()
+        SqliteIndexManager::new("/tmp/foo?mode=rwc").unwrap()
     }
 
     async fn create_postgres_metadata_store() -> Arc<PostgresIndexManager> {

@@ -26,3 +26,4 @@ indexify-extractor/**/*
 rag/**/*
 *.mp4
 *.mp3
+sqlite*
