@@ -115,11 +115,9 @@ impl IngestExtractedContentState {
             ));
         }
         match &mut self.frame_state {
-            FrameState::New => {
-                Err(anyhow!(
-                    "received content frame without starting multipart content"
-                ))
-            }
+            FrameState::New => Err(anyhow!(
+                "received content frame without starting multipart content"
+            )),
             FrameState::Writing(frame_state) => {
                 frame_state.file_size += payload.bytes.len() as u64;
                 frame_state
@@ -148,11 +146,9 @@ impl IngestExtractedContentState {
             self.ingest_metadata.as_ref().unwrap().task_id
         );
         match &self.frame_state {
-            FrameState::New => {
-                Err(anyhow!(
-                    "received content feature without starting multipart content"
-                ))
-            }
+            FrameState::New => Err(anyhow!(
+                "received content feature without starting multipart content"
+            )),
             FrameState::Writing(frame_state) => {
                 self.state
                     .data_manager
