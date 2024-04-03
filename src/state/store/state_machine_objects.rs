@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -372,6 +364,48 @@ impl From<HashMap<NamespaceName, HashSet<SchemaId>>> for SchemasByNamespace {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ContentChildrenTable {
+    content_children: Arc<RwLock<HashMap<ContentId, HashSet<ContentId>>>>,
+}
+
+impl ContentChildrenTable {
+    pub fn insert(&self, parent_id: &ContentId, child_id: &ContentId) {
+        let mut guard = self.content_children.write().unwrap();
+        guard
+            .entry(parent_id.clone())
+            .or_default()
+            .insert(child_id.clone());
+    }
+
+    pub fn remove(&self, parent_id: &ContentId, child_id: &ContentId) {
+        let mut guard = self.content_children.write().unwrap();
+        if let Some(children) = guard.get_mut(parent_id) {
+            children.remove(child_id);
+            if children.is_empty() {
+                guard.remove(parent_id);
+            }
+        }
+    }
+
+    pub fn get_children(&self, parent_id: &ContentId) -> HashSet<ContentId> {
+        let guard = self.content_children.read().unwrap();
+        guard.get(parent_id).cloned().unwrap_or_default()
+    }
+
+    pub fn inner(&self) -> HashMap<ContentId, HashSet<ContentId>> {
+        let guard = self.content_children.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<ContentId, HashSet<ContentId>>> for ContentChildrenTable {
+    fn from(content_children: HashMap<ContentId, HashSet<ContentId>>) -> Self {
+        let content_children = Arc::new(RwLock::new(content_children));
+        Self { content_children }
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -404,13 +438,16 @@ pub struct IndexifyState {
 
     /// Namespace -> Schemas
     schemas_by_namespace: SchemasByNamespace,
+
+    /// Parent content id -> children content id's
+    content_children_table: ContentChildrenTable,
 }
 
 impl fmt::Display for IndexifyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}",
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
             self.content_namespace_table,
@@ -419,7 +456,8 @@ impl fmt::Display for IndexifyState {
             self.namespace_index_table,
             self.unfinished_tasks_by_extractor,
             self.executor_running_task_count,
-            self.schemas_by_namespace
+            self.schemas_by_namespace,
+            self.content_children_table
         )
     }
 }
@@ -682,63 +720,39 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_ids: &HashSet<String>,
     ) -> Result<(), StateMachineError> {
-        let mut children_map: HashMap<String, Vec<internal_api::ContentMetadata>> = HashMap::new();
-
-        let iterator = txn.iterator_cf(
-            StateMachineColumns::ContentTable.cf(db),
-            rocksdb::IteratorMode::Start,
-        );
-
-        for item in iterator {
-            let (_, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            let content_metadata = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
-
-            children_map
-                .entry(content_metadata.parent_id.clone())
-                .or_default()
-                .push(content_metadata);
-        }
-
-        //  Mark the roots
-        if let Some(root_contents) = children_map.get_mut("") {
-            for root_content in root_contents {
-                root_content.tombstoned = true;
-                let serialized_content = JsonEncoder::encode(&root_content)?;
-                txn.put_cf(StateMachineColumns::ContentTable.cf(db), root_content.id.clone(), &serialized_content)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!(
-                            "Error writing content back after setting tombstone flag on it for content {}: {}",
-                            root_content.id, e
-                        ))
-                    })?;
-            }
-        }
-
-        //  Perform BFS
+        let mut queue = VecDeque::new();
         for root_content_id in content_ids {
-            let mut queue = VecDeque::new();
             queue.push_back(root_content_id.clone());
+        }
 
-            while let Some(curr_content_id) = queue.pop_front() {
-                if let Some(children) = children_map.get_mut(&curr_content_id) {
-                    for child in children {
-                        child.tombstoned = true;
-                        let serialized_content = JsonEncoder::encode(child)?;
-                        txn.put_cf(
-                        StateMachineColumns::ContentTable.cf(db),
-                        child.id.clone(),
-                        &serialized_content,
-                    )
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!(
-                            "Error writing content back after setting tombstone flag on it for content {}: {}",
-                            child.id, e
-                        ))
-                    })?;
-                        queue.push_back(child.id.clone());
-                    }
-                }
-            }
+        while let Some(current_root) = queue.pop_front() {
+            let serialized_content_metadata = txn
+                .get_cf(StateMachineColumns::ContentTable.cf(db), &current_root)
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| {
+                    StateMachineError::DatabaseError(format!(
+                        "Content {} not found while tombstoning",
+                        current_root
+                    ))
+                })?;
+            let mut content_metadata =
+                JsonEncoder::decode::<internal_api::ContentMetadata>(&serialized_content_metadata)?;
+            content_metadata.tombstoned = true;
+            let serialized_content_metadata = JsonEncoder::encode(&content_metadata)?;
+            txn.put_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                &current_root,
+                &serialized_content_metadata,
+            )
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error writing content back after setting tombstone flag on it for content {}: {}",
+                    &current_root, e
+                ))
+            })?;
+
+            let children = self.content_children_table.get_children(&current_root);
+            queue.extend(children);
         }
 
         Ok(())
@@ -1204,8 +1218,7 @@ impl IndexifyState {
     }
 
     /// This method handles all reverse index writes. All reverse indexes are
-    /// written in memory This will only run after the RocksDB transaction
-    /// to commit the forward index writes is done
+    /// written in memory
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
@@ -1247,10 +1260,21 @@ impl IndexifyState {
                         .increment_running_task_count(&executor_id);
                 }
             }
+            RequestPayload::UpdateGarbageCollectionTask {
+                gc_task,
+                mark_finished,
+            } => {
+                if mark_finished {
+                    self.content_children_table
+                        .remove(&gc_task.parent_content_id, &gc_task.content_id);
+                }
+            }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
+                    self.content_children_table
+                        .insert(&content.parent_id, &content.id);
                 }
             }
             RequestPayload::CreateExtractionPolicy {
@@ -1488,46 +1512,24 @@ impl IndexifyState {
         let txn = db.transaction();
         let mut collected_content_metadata = Vec::new();
 
-        let root_content_bytes = txn
-            .get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!("Content {} not found", content_id))
-            })?;
-        let root_content =
-            JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&root_content_bytes)?;
-        collected_content_metadata.push(root_content);
-
-        let mut children_map: HashMap<String, Vec<indexify_internal_api::ContentMetadata>> =
-            HashMap::new();
-
-        let iterator = txn.iterator_cf(
-            StateMachineColumns::ContentTable.cf(db),
-            rocksdb::IteratorMode::Start,
-        );
-
-        for item in iterator {
-            let (_, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            let content_metadata =
-                serde_json::from_slice::<indexify_internal_api::ContentMetadata>(&value)
-                    .map_err(StateMachineError::from)?;
-
-            children_map
-                .entry(content_metadata.parent_id.clone())
-                .or_default()
-                .push(content_metadata);
-        }
-
         let mut queue = VecDeque::new();
         queue.push_back(content_id.to_string());
 
-        while let Some(curr_content_id) = queue.pop_front() {
-            if let Some(children) = children_map.remove(&curr_content_id) {
-                for child in children {
-                    queue.push_back(child.id.clone());
-                    collected_content_metadata.push(child);
-                }
-            }
+        while let Some(current_root) = queue.pop_front() {
+            let content_bytes = txn
+                .get_cf(StateMachineColumns::ContentTable.cf(db), &current_root)
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                .ok_or_else(|| {
+                    StateMachineError::DatabaseError(format!(
+                        "Content {} not found while tombstoning",
+                        &current_root
+                    ))
+                })?;
+            let content =
+                JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
+            collected_content_metadata.push(content);
+            let children = self.content_children_table.get_children(&current_root);
+            queue.extend(children);
         }
         Ok(collected_content_metadata)
     }
@@ -1714,6 +1716,10 @@ impl IndexifyState {
         self.schemas_by_namespace.inner()
     }
 
+    pub fn get_content_children_table(&self) -> HashMap<ContentId, HashSet<ContentId>> {
+        self.content_children_table.inner()
+    }
+
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
@@ -1736,6 +1742,7 @@ impl IndexifyState {
             unfinished_tasks_by_extractor: self.get_unfinished_tasks_by_extractor(),
             executor_running_task_count: self.get_executor_running_task_count(),
             schemas_by_namespace: self.get_schemas_by_namespace(),
+            content_children_table: self.get_content_children_table(),
         }
     }
 
@@ -1749,6 +1756,7 @@ impl IndexifyState {
         self.unfinished_tasks_by_extractor = snapshot.unfinished_tasks_by_extractor.into();
         self.executor_running_task_count = snapshot.executor_running_task_count.into();
         self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
+        self.content_children_table = snapshot.content_children_table.into();
     }
     //  END SNAPSHOT METHODS
 }
@@ -1764,6 +1772,7 @@ pub struct IndexifyStateSnapshot {
     unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
     executor_running_task_count: HashMap<ExecutorId, usize>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
+    content_children_table: HashMap<ContentId, HashSet<ContentId>>,
 }
 
 #[cfg(test)]

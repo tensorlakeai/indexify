@@ -364,6 +364,7 @@ pub struct GarbageCollectionTask {
     pub namespace: String,
     pub id: String,
     pub content_id: String,
+    pub parent_content_id: String,
     pub output_tables: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
@@ -376,6 +377,7 @@ impl Default for GarbageCollectionTask {
             namespace: "test_namespace".to_string(),
             id: "test_id".to_string(),
             content_id: "test_content_id".to_string(),
+            parent_content_id: "test_parent_content_id".to_string(),
             output_tables: HashSet::new(),
             outcome: TaskOutcome::Unknown,
             blob_store_path: "test_blob_store_path".to_string(),
