@@ -25,7 +25,7 @@ On another terminal start the embedding extractor which we will use to index tex
 === "Docker"
 
     ```shell
-    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
     ```
 
 ### Download a Speech To Text Extractor
@@ -49,7 +49,7 @@ On another terminal start a Whisper based Speech To Text Extractor
 === "Docker"
 
     ```shell
-    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
     ```
 
 
