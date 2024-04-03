@@ -5,11 +5,14 @@ use async_trait::async_trait;
 use qdrant_client::{
     client::{Payload, QdrantClient, QdrantClientConfig},
     qdrant::{
+        points_selector::PointsSelectorOneOf,
         vectors_config::Config,
         with_payload_selector::SelectorOptions,
         CreateCollection,
         Distance,
         PointStruct,
+        PointsIdsList,
+        PointsSelector,
         SearchPoints,
         VectorParams,
         VectorsConfig,
@@ -129,8 +132,23 @@ impl VectorDb for QdrantDb {
 
     #[tracing::instrument]
     async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
-        //  TODO: Complete this implementaiton for Qdrant to delete rows based on the
-        // content_id
+        let points_selector: PointsSelector = PointsSelector {
+            points_selector_one_of: Some(PointsSelectorOneOf::Points(PointsIdsList {
+                ids: vec![hex_to_u64(content_id).unwrap().into()],
+            })),
+        };
+        self.create_client()?
+            .delete_points_blocking(index, None, &points_selector, None)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to remove embedding: {} for index: {}: {}",
+                    content_id,
+                    index,
+                    e.to_string()
+                )
+            })?;
+
         Ok(())
     }
 
@@ -269,5 +287,45 @@ mod tests {
         let num_elements = qdrant.num_vectors(index_name).await.unwrap();
 
         assert_eq!(num_elements, 1);
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_deletion() {
+        let index_name = "idempotent-index";
+        let hash_on = vec!["user_id".to_string(), "url".to_string()];
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
+            addr: "http://localhost:6334".into(),
+        }));
+        qdrant.drop_index(index_name.into()).await.unwrap();
+        qdrant
+            .create_index(CreateIndexParams {
+                vectordb_index_name: index_name.into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: Some(hash_on.clone()),
+            })
+            .await
+            .unwrap();
+        let content_id = "0";
+        let chunk = VectorChunk {
+            content_id: content_id.into(),
+            embedding: vec![0., 2.],
+        };
+        qdrant
+            .add_embedding(index_name, vec![chunk.clone()])
+            .await
+            .unwrap();
+        qdrant.add_embedding(index_name, vec![chunk]).await.unwrap();
+        let num_elements = qdrant.num_vectors(index_name).await.unwrap();
+
+        assert_eq!(num_elements, 1);
+
+        qdrant
+            .remove_embedding(index_name, content_id)
+            .await
+            .unwrap();
+        let num_elements = qdrant.num_vectors(index_name).await.unwrap();
+        assert_eq!(num_elements, 0);
     }
 }

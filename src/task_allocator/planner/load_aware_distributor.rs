@@ -445,8 +445,6 @@ mod tests {
             .await
             .unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let _coordinator =
-            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
 
         let text_extractor = {
             let mut extractor = mock_extractor();
@@ -743,10 +741,14 @@ mod tests {
         let start = Instant::now();
         let result = distributor.plan_allocations(task_ids).await?;
         // stop the timer
-        let _duration = start.elapsed();
+        let duration = start.elapsed();
 
         // Verify that the tasks are allocated
         assert_eq!(result.clone().0.len(), total_tasks);
+        println!(
+            "Time elapsed in round_robin_distribution() is: {:?}",
+            duration
+        );
 
         Ok(())
     }

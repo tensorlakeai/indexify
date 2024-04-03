@@ -118,7 +118,7 @@ impl VectorDb for LanceDb {
             .map_err(|e| anyhow!("unable to open table: {}", e))?;
 
         // Delete the rows where content_id is the key
-        tbl.delete(&format!("id = {}", content_id))
+        tbl.delete(&format!("id = '{}'", content_id))
             .await
             .map_err(|e| {
                 anyhow!(
@@ -273,5 +273,41 @@ mod tests {
         let num_elements = lance.num_vectors(index_name).await.unwrap();
 
         assert_eq!(num_elements, 1);
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_deletion() {
+        let index_name = "delete-index";
+        let _ = std::fs::remove_dir_all("/tmp/lance.db/");
+        let lance: VectorDBTS = Arc::new(
+            LanceDb::new(&LancedbConfig {
+                path: "/tmp/lance.db".to_string(),
+            })
+            .await
+            .unwrap(),
+        );
+        lance
+            .create_index(CreateIndexParams {
+                vectordb_index_name: index_name.into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+        let chunk = VectorChunk {
+            content_id: "0".into(),
+            embedding: vec![0., 2.],
+        };
+        lance
+            .add_embedding(index_name, vec![chunk.clone()])
+            .await
+            .unwrap();
+        let num_elements = lance.num_vectors(index_name).await.unwrap();
+        assert_eq!(num_elements, 1);
+        lance.remove_embedding(index_name, "0").await.unwrap();
+        let num_elements = lance.num_vectors(index_name).await.unwrap();
+        assert_eq!(num_elements, 0);
     }
 }

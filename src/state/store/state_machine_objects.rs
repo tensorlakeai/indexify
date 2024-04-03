@@ -1142,7 +1142,6 @@ impl IndexifyState {
                 namespace: _,
                 content_ids,
             } => {
-                //  TODO: Insert tombstone marker on content here
                 self.tombstone_content(db, &txn, content_ids)?;
             }
             RequestPayload::RemoveTombstonedContent { content_id } => {
