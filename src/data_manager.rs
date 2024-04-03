@@ -24,9 +24,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -285,22 +283,6 @@ impl DataManager {
         self.metadata_index_manager
             .remove_metadata(&gc_task.namespace, &gc_task.content_id)
             .await?;
-
-        //  Remove the tombstoned content
-        let req = indexify_coordinator::RemoveTombstonedContentRequest {
-            content_id: gc_task.content_id.clone(),
-        };
-        self.coordinator_client
-            .get()
-            .await?
-            .remove_tombstoned_content(req)
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to remove tombstoned content from coordinator {}",
-                    e.to_string()
-                )
-            })?;
 
         Ok(())
     }

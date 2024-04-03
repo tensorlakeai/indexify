@@ -8,8 +8,6 @@ service CoordinatorService {
 
     rpc TombstoneContent(TombstoneContentRequest) returns (TombstoneContentResponse) {}
 
-    rpc RemoveTombstonedContent(RemoveTombstonedContentRequest) returns (RemoveTombstonedContentResponse) {}
-
     rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
 
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
@@ -337,12 +335,6 @@ message TombstoneContentRequest {
 }
 
 message TombstoneContentResponse {}
-
-message RemoveTombstonedContentRequest {
-    string content_id = 1;
-}
-
-message RemoveTombstonedContentResponse {}
 
 message Namespace {
     string name = 1;

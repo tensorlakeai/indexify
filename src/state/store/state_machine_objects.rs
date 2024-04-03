@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -1045,6 +1037,7 @@ impl IndexifyState {
             } => {
                 if *mark_finished {
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
+                    self.delete_content(db, &txn, vec![gc_task.content_id.clone()])?;
                 }
             }
             RequestPayload::AssignTask { assignments } => {

@@ -444,13 +444,6 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn remove_tombstoned_content(&self, content_id: &str) -> Result<()> {
-        self.shared_state
-            .remove_tombstoned_content(content_id)
-            .await?;
-        Ok(())
-    }
-
     pub async fn get_schema(
         &self,
         namespace: &str,
