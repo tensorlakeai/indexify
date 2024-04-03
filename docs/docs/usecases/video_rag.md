@@ -35,23 +35,53 @@ Start Indexify Server in the local dev mode.
 indexify server -d
 ```
 Start the audio extractor
-```bash
-indexify-extractor join audio-extractor.audio_extractor:AudioExtractor
-```
+=== "Shell"
+
+    ```bash
+    indexify-extractor join-server audio-extractor.audio_extractor:AudioExtractor
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/audio-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
+
 Start the minilm embedding extractor
-```bash
-indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
-```
+=== "Shell"
+
+    ```shell
+    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
 
 Start the whisper extractor
-```bash
-indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor
-```
+=== "Shell"
+
+    ```bash
+    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor 
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
 
 Start the chunk extractor
-```bash
-indexify-extractor join chunking.chunk_extractor:ChunkExtractor
-```
+=== "Shell"
+
+    ```bash
+    indexify-extractor join-server chunking.chunk_extractor:ChunkExtractor
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/chunk-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
+
 
 ### Download the Libraries
 ```bash
