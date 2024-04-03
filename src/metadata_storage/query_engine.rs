@@ -7,17 +7,8 @@ use gluesql::{
         data::{HashMapJsonExt, Key, Schema, ValueError},
         error::Result,
         store::{
-            AlterTable,
-            CustomFunction,
-            CustomFunctionMut,
-            DataRow,
-            Index,
-            IndexMut,
-            Metadata,
-            RowIter,
-            Store,
-            StoreMut,
-            Transaction,
+            AlterTable, CustomFunction, CustomFunctionMut, DataRow, Index, IndexMut, Metadata,
+            RowIter, Store, StoreMut, Transaction,
         },
     },
     prelude::Glue,
@@ -194,16 +185,13 @@ mod tests {
 
     use super::*;
     use crate::metadata_storage::{
-        postgres::PostgresIndexManager,
-        sqlite::SqliteIndexManager,
-        ExtractedMetadata,
-        MetadataReader,
-        MetadataStorage,
+        postgres::PostgresIndexManager, sqlite::SqliteIndexManager, ExtractedMetadata,
+        MetadataReader, MetadataStorage,
     };
 
     async fn create_sqlite_metadata_store() -> Arc<SqliteIndexManager> {
         std::fs::remove_file("/tmp/foo").unwrap_or(());
-        SqliteIndexManager::new("sqlite:///tmp/foo?mode=rwc").unwrap()
+        SqliteIndexManager::new("/tmp/foo?mode=rwc").unwrap()
     }
 
     async fn create_postgres_metadata_store() -> Arc<PostgresIndexManager> {

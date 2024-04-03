@@ -1,4 +1,7 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::{
+    fs::OpenOptions,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -7,11 +10,7 @@ use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 
 use super::{
     sqlx::{row_to_extracted_metadata, row_to_metadata_scan_item},
-    table_name,
-    ExtractedMetadata,
-    MetadataReader,
-    MetadataScanStream,
-    MetadataStorage,
+    table_name, ExtractedMetadata, MetadataReader, MetadataScanStream, MetadataStorage,
 };
 use crate::utils::{timestamp_secs, PostgresIndexName};
 
@@ -22,9 +21,12 @@ pub struct SqliteIndexManager {
 
 impl SqliteIndexManager {
     pub fn new(conn_url: &str) -> anyhow::Result<Arc<Self>> {
+        //  Create the file if it does not exist
+        let _ = OpenOptions::new().write(true).create(true).open(conn_url)?;
+        let conn_url = format!("sqlite://{}", conn_url);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect_lazy(conn_url)?;
+            .connect_lazy(&conn_url)?;
         Ok(Arc::new(Self {
             pool,
             default_table_created: AtomicBool::new(false),
