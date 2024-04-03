@@ -485,6 +485,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             namespace: value.namespace,
             source: value.source,
             size_bytes: value.size_bytes,
+            hash: "".into(),
         }
     }
 }

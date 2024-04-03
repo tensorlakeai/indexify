@@ -320,6 +320,7 @@ message ContentMetadata {
     string namespace = 8;
     string source = 9;
     uint64 size_bytes = 10;
+    string hash = 11;
 }
 
 message CreateContentRequest {

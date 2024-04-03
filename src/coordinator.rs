@@ -536,6 +536,7 @@ mod tests {
                 labels: HashMap::new(),
                 source: "ingestion".to_string(),
                 size_bytes: 100,
+                hash: "".to_string(),
             }])
             .await?;
 
@@ -607,6 +608,7 @@ mod tests {
                 labels: HashMap::new(),
                 source: "some_extractor_produced_this".to_string(),
                 size_bytes: 100,
+                hash: "".to_string(),
             }])
             .await?;
         coordinator.run_scheduler().await?;
@@ -680,6 +682,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".to_string(),
         };
         coordinator
             .create_content_metadata(vec![content_metadata_1])
@@ -731,6 +734,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id,
             size_bytes: 100,
+            hash: "".into(),
         };
         coordinator
             .create_content_metadata(vec![content_metadata_2])
@@ -767,6 +771,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".into(),
         };
         coordinator
             .create_content_metadata(vec![content_metadata_1])
@@ -819,6 +824,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id,
             size_bytes: 100,
+            hash: "".into(),
         };
         coordinator
             .create_content_metadata(vec![content_metadata_2])
@@ -963,6 +969,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
@@ -975,6 +982,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -987,6 +995,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
@@ -999,6 +1008,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         coordinator
             .create_content_metadata(vec![
@@ -1088,6 +1098,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
@@ -1100,6 +1111,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1112,6 +1124,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
@@ -1124,6 +1137,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
 
         //  Build a separate content tree where parent_content_2 is the root
@@ -1138,6 +1152,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_2_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2_1".to_string(),
@@ -1150,6 +1165,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
 
         coordinator
@@ -1237,6 +1253,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
@@ -1249,6 +1266,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1261,6 +1279,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         coordinator
             .create_content_metadata(vec![
@@ -1373,6 +1392,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
@@ -1385,6 +1405,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1397,6 +1418,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
@@ -1409,6 +1431,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
+            hash: "".into(),
         };
         coordinator
             .create_content_metadata(vec![

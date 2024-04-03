@@ -1,3 +1,5 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use anyhow::{anyhow, Result};
 use axum_typed_websockets::{Message, WebSocket};
 use indexify_proto::indexify_coordinator;
@@ -5,9 +7,7 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
-    blob_storage::StoragePartWriter,
-    data_manager::DataManager,
+    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -18,6 +18,7 @@ struct Writing {
     file_size: u64,
     id: String, // DataManager ID
     writer: StoragePartWriter,
+    hasher: DefaultHasher,
 }
 
 #[derive(Debug)]
@@ -83,6 +84,7 @@ impl IngestExtractedContentState {
             file_size: 0,
             id,
             writer,
+            hasher: DefaultHasher::new(),
         });
         Ok(())
     }
@@ -120,6 +122,7 @@ impl IngestExtractedContentState {
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.file_size += payload.bytes.len() as u64;
+                payload.bytes.hash(&mut frame_state.hasher);
                 frame_state
                     .writer
                     .writer
@@ -187,6 +190,8 @@ impl IngestExtractedContentState {
                 frame_state.writer.writer.shutdown().await?;
 
                 let metadata = self.ingest_metadata.as_ref().unwrap();
+                let hash_result = frame_state.hasher.finish();
+                let hash = format!("{:x}", hash_result);
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: frame_state.id.clone(),
                     file_name: frame_state.file_name.clone(),
@@ -198,6 +203,7 @@ impl IngestExtractedContentState {
                     labels: payload.labels,
                     source: metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
+                    hash,
                 };
                 self.state
                     .data_manager

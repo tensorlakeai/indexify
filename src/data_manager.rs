@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self};
 use itertools::Itertools;
@@ -24,9 +24,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -238,12 +236,21 @@ impl DataManager {
 
     #[tracing::instrument]
     pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
+        println!("The content list being added {:?}", content_list);
         for text in content_list {
+            let mut hasher = DefaultHasher::new();
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
+            let hashed_stream = stream.map(|item| match item {
+                Ok(bytes) => {
+                    bytes.hash(&mut hasher);
+                    Ok(bytes)
+                }
+                Err(e) => Err(e),
+            });
             let content_metadata = self
                 .write_content_bytes(
                     namespace,
-                    Box::pin(stream),
+                    Box::pin(hashed_stream),
                     &text.labels,
                     text.content_type,
                     None,
@@ -251,6 +258,9 @@ impl DataManager {
                     "ingestion",
                 )
                 .await?;
+            let hash_result = hasher.finish();
+            let hash = format!("{:x}", hash_result);
+            println!("The hash is {}", hash);
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
@@ -318,6 +328,7 @@ impl DataManager {
             labels,
             source: "ingestion".to_string(),
             size_bytes: 0,
+            hash: "".to_string(),
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -427,6 +438,7 @@ impl DataManager {
         parent_id: Option<String>,
         source: &str,
     ) -> Result<indexify_coordinator::ContentMetadata> {
+        println!("Writing content bytes");
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
@@ -434,10 +446,23 @@ impl DataManager {
 
         let id = DataManager::make_id(namespace, &file_name, &parent_id);
 
+        let mut hasher = DefaultHasher::new();
+        let hashed_stream = data.map(|item| match item {
+            Ok(bytes) => {
+                bytes.hash(&mut hasher);
+                Ok(bytes)
+            }
+            Err(e) => Err(e),
+        });
+
         let res = self
-            .write_to_blob_store(namespace, &file_name, data)
+            .write_to_blob_store(namespace, &file_name, hashed_stream)
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
+
+        let hash_result = hasher.finish();
+        let hash = format!("{:x}", hash_result);
+        println!("The hash is {}", hash);
 
         let labels = labels
             .clone()
@@ -455,6 +480,7 @@ impl DataManager {
             labels,
             source: source.to_string(),
             size_bytes: res.size_bytes,
+            hash,
         })
     }
 
@@ -712,6 +738,7 @@ impl DataManager {
         name: &str,
         file: impl Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult> {
+        println!("writing to blob store");
         self.blob_storage.put_stream(name, file).await
     }
 

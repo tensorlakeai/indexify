@@ -171,6 +171,7 @@ impl BlobStorageWriter for BlobStorage {
         key: &str,
         data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult, anyhow::Error> {
+        println!("in put_stream in blob store");
         if key.starts_with("s3://") {
             let (bucket, key) = parse_s3_url(key)
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
