@@ -14,10 +14,19 @@ indexify server -d
 
 ### Download an Embedding Extractor
 On another terminal start the embedding extractor which we will use to index text from the wikiepdia page.
-```bash
-indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
-```
+
+=== "Shell"
+
+    ```shell
+    indexify-extractor download hub://embedding/minilm-l6
+    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
+
 
 ### Upload Content
 We will use the lanchain wikipedia loader to download content from wikipedia and upload to Indexify. We will also use langchain to prompt OpenAI for the RAG application.

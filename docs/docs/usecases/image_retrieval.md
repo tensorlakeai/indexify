@@ -34,10 +34,19 @@ client.upload_file(path="../path/to/file")
 
 ## SQL Based Retreival 
 ### Download and Run Yolo Extractor
-```
-indexify-extractor download hub://image/yolo
-indexify-extractor join yolo.yolo_extractor:YoloExtractor
-```
+=== "Shell"
+
+    ```shell
+    indexify-extractor download hub://image/yolo
+    indexify-extractor join-server yolo.yolo_extractor:YoloExtractor
+    ```
+
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/yolo-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
+
 
 ### Create an Extraction Policy
 ```
@@ -59,10 +68,19 @@ chain.invoke("Find the photos with a skateboard?")
 OpenAI's CLIP embedding model allows searching images with semantically similar description of images. 
 
 ### Download and start the Clip Embedding Extractor
-```
-indexify-extractor download hub://embedding/clip
-indexify-extractor join clip.openai_clip_extractor:ClipEmbeddingExtractor
-```
+
+=== "Shell"
+
+    ```bash
+    indexify-extractor download hub://embedding/clip
+    indexify-extractor join-server clip.openai_clip_extractor:ClipEmbeddingExtractor
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/clip-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
+
 
 ### Create an Extraction Policy 
 ```

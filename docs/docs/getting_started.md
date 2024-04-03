@@ -96,9 +96,19 @@ indexify-extractor download hub://embedding/minilm-l6
 ```
 
 Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane.
-```shell
-indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
-```
+
+=== "Shell"
+
+    ```shell
+    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    ```
+
+=== "Docker"
+
+    ```shell
+    docker run -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    ```
+  
 The extractor is now ready to receive content you upload and extract embedding using the MiniLML6Extractor
 
 #### Set up some Extraction Policies
