@@ -6,7 +6,13 @@ use object_store::{local::LocalFileSystem, ObjectStore};
 use tokio::{fs::File, io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use super::{BlobStorageReader, BlobStorageWriter, DiskStorageConfig};
+use super::{
+    BlobStoragePartWriter,
+    BlobStorageReader,
+    BlobStorageWriter,
+    DiskStorageConfig,
+    StoragePartWriter,
+};
 use crate::blob_storage::PutResult;
 
 #[derive(Debug)]
@@ -65,6 +71,18 @@ impl BlobStorageWriter for DiskStorage {
         let path = format!("{}/{}", self.config.path, key);
         std::fs::remove_file(path)?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl BlobStoragePartWriter for DiskStorage {
+    async fn writer(&self, key: &str) -> Result<StoragePartWriter> {
+        let path = format!("{}/{}", self.config.path, key);
+        let file = File::create(&path).await?;
+        Ok(StoragePartWriter {
+            writer: Box::new(file),
+            url: format!("file://{}", path),
+        })
     }
 }
 

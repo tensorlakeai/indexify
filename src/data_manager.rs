@@ -12,14 +12,14 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::Stream;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self};
 use itertools::Itertools;
 use nanoid::nanoid;
 use tracing::{error, info};
 
 use crate::{
     api::{self, BeginExtractedContentIngest},
-    blob_storage::{BlobStorage, BlobStorageWriter, PutResult},
+    blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
     metadata_storage::{
@@ -37,7 +37,6 @@ pub struct DataManager {
     metadata_reader: MetadataReaderTS,
     blob_storage: Arc<BlobStorage>,
     coordinator_client: Arc<CoordinatorClient>,
-    rt: tokio::runtime::Runtime,
 }
 
 impl fmt::Debug for DataManager {
@@ -47,25 +46,20 @@ impl fmt::Debug for DataManager {
 }
 
 impl DataManager {
-    pub async fn new(
+    pub fn new(
         vector_index_manager: Arc<VectorIndexManager>,
         metadata_index_manager: MetadataStorageTS,
         metadata_reader: MetadataReaderTS,
         blob_storage: Arc<BlobStorage>,
         coordinator_client: Arc<CoordinatorClient>,
-    ) -> Result<Self> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(4)
-            .enable_all()
-            .build()?;
-        Ok(Self {
+    ) -> Self {
+        DataManager {
             vector_index_manager,
             metadata_index_manager,
             metadata_reader,
             blob_storage,
             coordinator_client,
-            rt,
-        })
+        }
     }
 
     #[tracing::instrument]
@@ -425,6 +419,20 @@ impl DataManager {
         Ok(())
     }
 
+    pub fn make_file_name(file_name: Option<&str>) -> String {
+        return file_name.map(|f| f.to_string()).unwrap_or(nanoid!());
+    }
+
+    pub fn make_id(namespace: &str, file_name: &str, parent_id: &Option<String>) -> String {
+        let mut s = DefaultHasher::new();
+        namespace.hash(&mut s);
+        file_name.hash(&mut s);
+        if let Some(parent_id) = &parent_id {
+            parent_id.hash(&mut s);
+        }
+        format!("{:x}", s.finish())
+    }
+
     async fn write_content_bytes(
         &self,
         namespace: &str,
@@ -438,18 +446,15 @@ impl DataManager {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
-        let mut s = DefaultHasher::new();
-        namespace.hash(&mut s);
-        let file_name = file_name.map(|f| f.to_string()).unwrap_or(nanoid!());
-        file_name.hash(&mut s);
-        if let Some(parent_id) = &parent_id {
-            parent_id.hash(&mut s);
-        }
-        let id = format!("{:x}", s.finish());
+        let file_name = DataManager::make_file_name(file_name);
+
+        let id = DataManager::make_id(namespace, &file_name, &parent_id);
+
         let res = self
             .write_to_blob_store(namespace, &file_name, data)
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
+
         let labels = labels
             .clone()
             .into_iter()
@@ -490,32 +495,49 @@ impl DataManager {
         Ok(())
     }
 
+    pub async fn write_extracted_embedding(
+        &self,
+        name: &str,
+        embedding: &[f32],
+        content_id: &str,
+        output_index_map: &HashMap<String, String>,
+    ) -> Result<()> {
+        let embeddings = internal_api::ExtractedEmbeddings {
+            content_id: content_id.to_string(),
+            embedding: embedding.to_vec(),
+        };
+        let index_table = output_index_map
+            .get(name)
+            .ok_or(anyhow!("index table not found"))?;
+        self.vector_index_manager
+            .add_embedding(index_table, vec![embeddings])
+            .await
+            .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
+        Ok(())
+    }
+
     pub async fn write_extracted_features(
         &self,
         extractor_name: &str,
         extraction_policy: &str,
         content_meta: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
-        output_index_map: HashMap<String, String>,
+        output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
                     let embedding_payload: internal_api::Embedding =
-                        serde_json::from_value(feature.data).map_err(|e| {
+                        serde_json::from_value(feature.data.clone()).map_err(|e| {
                             anyhow!("unable to get embedding from extracted data {}", e)
                         })?;
-                    let embeddings = internal_api::ExtractedEmbeddings {
-                        content_id: content_meta.id.to_string(),
-                        embedding: embedding_payload.values,
-                    };
-                    let index_table = output_index_map
-                        .get(&feature.name)
-                        .ok_or(anyhow!("index table not found"))?;
-                    self.vector_index_manager
-                        .add_embedding(index_table, vec![embeddings])
-                        .await
-                        .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
+                    self.write_extracted_embedding(
+                        &feature.name,
+                        &embedding_payload.values,
+                        &content_meta.id,
+                        &output_index_map,
+                    )
+                    .await?;
                 }
                 api::FeatureType::Metadata => {
                     let extracted_attributes = ExtractedMetadata::new(
@@ -537,6 +559,36 @@ impl DataManager {
             }
         }
         Ok(())
+    }
+
+    pub async fn create_content_and_write_features(
+        &self,
+        content_meta: &indexify_coordinator::ContentMetadata,
+        ingest_metadata: &BeginExtractedContentIngest,
+        features: Vec<api::Feature>,
+    ) -> Result<()> {
+        let req = indexify_coordinator::CreateContentRequest {
+            content: Some(content_meta.clone()),
+        };
+        self.coordinator_client
+            .get()
+            .await?
+            .create_content(GrpcHelper::into_req(req))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "unable to write content metadata to coordinator {}",
+                    e.to_string()
+                )
+            })?;
+        self.write_extracted_features(
+            &ingest_metadata.extractor,
+            &ingest_metadata.extraction_policy,
+            &content_meta,
+            features,
+            &ingest_metadata.output_to_index_table_mapping,
+        )
+        .await
     }
 
     pub async fn write_extracted_content(
@@ -564,28 +616,12 @@ impl DataManager {
             new_content_metadata.push(content_metadata.clone());
         }
         for content_meta in new_content_metadata {
-            let req = indexify_coordinator::CreateContentRequest {
-                content: Some(content_meta.clone()),
-            };
-            self.coordinator_client
-                .get()
-                .await?
-                .create_content(GrpcHelper::into_req(req))
-                .await
-                .map_err(|e| {
-                    anyhow!(
-                        "unable to write content metadata to coordinator {}",
-                        e.to_string()
-                    )
-                })?;
-            self.write_extracted_features(
-                &ingest_metadata.extractor,
-                &ingest_metadata.extraction_policy,
+            self.create_content_and_write_features(
                 &content_meta,
+                &ingest_metadata,
                 features.get(&content_meta.id).unwrap().clone(),
-                ingest_metadata.output_to_index_table_mapping.clone(),
             )
-            .await?;
+            .await?
         }
         Ok(())
     }
@@ -602,15 +638,8 @@ impl DataManager {
         let metadata_reader = self.metadata_reader.clone();
         let namespace = namespace.to_string();
         let query = query.to_string();
-        let handle = self.rt.handle().clone();
-
         tokio::task::spawn_blocking(move || {
-            let namespace = namespace.to_string();
-            let query = query.to_string();
-
-            handle.block_on(async move {
-                let namespace = namespace.to_string();
-                let query = query.to_string();
+            futures::executor::block_on(async move {
                 run_query(query, metadata_reader, schemas, namespace).await
             })
         })
@@ -693,12 +722,16 @@ impl DataManager {
     }
 
     #[tracing::instrument(skip(file))]
-    async fn write_to_blob_store(
+    pub async fn write_to_blob_store(
         &self,
         namespace: &str,
         name: &str,
         file: impl Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult> {
         self.blob_storage.put_stream(name, file).await
+    }
+
+    pub async fn blob_store_writer(&self, namespace: &str, key: &str) -> Result<StoragePartWriter> {
+        self.blob_storage.writer(namespace, key).await
     }
 }
