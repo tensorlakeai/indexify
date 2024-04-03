@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use nanoid::nanoid;
 use rust_embed::RustEmbed;
@@ -327,15 +322,20 @@ impl Server {
 
         let (ack_tx, mut ack_rx) = mpsc::channel(4);
 
-        let mut request = tonic::Request::new(async_stream::stream! {
+        // Create the initial handshake message
+        let ingestion_server_id = ingestion_server_id.to_string();
+        let initial_handshake = GcTaskAcknowledgement {
+            task_id: "".to_string(),
+            completed: false,
+            ingestion_server_id: ingestion_server_id.clone(),
+        };
+
+        let request = tonic::Request::new(async_stream::stream! {
+            yield initial_handshake;
             while let Some(ack) = ack_rx.recv().await {
                 yield ack;
             }
         });
-
-        request
-            .metadata_mut()
-            .insert("ingestion-server-id", ingestion_server_id.parse()?);
 
         let mut stream = client.gc_tasks_stream(request).await?.into_inner();
 
@@ -353,6 +353,7 @@ impl Server {
                     .send(GcTaskAcknowledgement {
                         task_id: gc_task.task_id.clone(),
                         completed: true,
+                        ingestion_server_id: ingestion_server_id.clone(),
                     })
                     .await
                     .expect("Failed to send ack");

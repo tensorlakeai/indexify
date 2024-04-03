@@ -288,19 +288,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
     ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
-        let ingestion_server_id = request
-            .metadata()
-            .get("ingestion-server-id")
-            .and_then(|val| val.to_str().ok())
-            .map(String::from)
-            .ok_or_else(|| tonic::Status::invalid_argument("Missing ingestion server id"))?;
-
         let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events();
         let (tx, rx) = mpsc::channel(4);
 
         let mut inbound = request.into_inner();
         let coordinator_clone = self.coordinator.clone();
         let mut shutdown_rx = self.shutdown_rx.clone();
+
+        let mut ingestion_server_id: Option<String> = None;
 
         tokio::spawn(async move {
             loop {
@@ -312,7 +307,14 @@ impl CoordinatorService for CoordinatorServiceServer {
                     task_ack = inbound.next() => {
                         match task_ack {
                             Some(Ok(task_ack)) => {
-                                tracing::debug!(
+                                //  check for initial handshake message
+                                if task_ack.task_id.is_empty() {
+                                    ingestion_server_id.replace(task_ack.ingestion_server_id);
+                                    tracing::debug!("Received handshake, ingestion server ID set to: {:?}", ingestion_server_id);
+                                    continue;
+                                }
+
+                                tracing::info!(
                                     "Received gc task acknowledgement {:?}, marking the gc task as complete",
                                     task_ack
                                 );
@@ -339,27 +341,31 @@ impl CoordinatorService for CoordinatorServiceServer {
                     }
                     Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
                         let (assigned_ingestion_server, task) = task_allocation;
-                        if assigned_ingestion_server == ingestion_server_id {
-                            let serialized_task = GcTask {
-                                task_id: task.id,
-                                namespace: task.namespace,
-                                content_id: task.content_id,
-                                output_tables: task
-                                    .output_tables
-                                    .into_iter()
-                                    .collect::<Vec<String>>(),
-                                blob_store_path: task.blob_store_path,
-                            };
-                            tx.send(serialized_task).await.unwrap();
+                        if let Some(ref server_id) = ingestion_server_id {
+                            if &assigned_ingestion_server == server_id {
+                                let serialized_task = GcTask {
+                                    task_id: task.id,
+                                    namespace: task.namespace,
+                                    content_id: task.content_id,
+                                    output_tables: task
+                                        .output_tables
+                                        .into_iter()
+                                        .collect::<Vec<String>>(),
+                                    blob_store_path: task.blob_store_path,
+                                };
+                                tx.send(serialized_task).await.unwrap();
+                            }
                         }
                     }
                 }
             }
 
             //  Notify the garbage collector that the ingestion server has disconnected
-            coordinator_clone
-                .remove_ingestion_server_from_garbage_collector(&ingestion_server_id)
-                .await;
+            if let Some(server_id) = ingestion_server_id {
+                coordinator_clone
+                    .remove_ingestion_server_from_garbage_collector(&server_id)
+                    .await;
+            }
         });
 
         let response_stream = ReceiverStream::new(rx).map(Ok);

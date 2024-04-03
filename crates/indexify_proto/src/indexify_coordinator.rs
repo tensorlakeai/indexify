@@ -195,6 +195,8 @@ pub struct GcTaskAcknowledgement {
     pub task_id: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub completed: bool,
+    #[prost(string, tag = "3")]
+    pub ingestion_server_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
