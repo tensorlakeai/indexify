@@ -1451,18 +1451,21 @@ mod tests {
             .mark_extraction_policy_applied_on_content(&child_content_1.id, &extraction_policy_1.id)
             .await?;
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
         let state_change = internal_api::StateChange {
             object_id: parent_content.id.clone(),
             ..Default::default()
         };
         let tasks = coordinator.create_gc_tasks(state_change.object_id).await?;
         assert_eq!(tasks.len(), 4);
-        assert!(!tasks.first().unwrap().output_tables.is_empty());
-        assert!(!tasks.get(1).unwrap().output_tables.is_empty());
-        assert!(tasks.get(2).unwrap().output_tables.is_empty());
-        assert!(tasks.get(3).unwrap().output_tables.is_empty());
+        for task in &tasks {
+            match task.content_id.as_str() {
+                "test_parent_id" | "test_child_id_1" => assert!(!task.output_tables.is_empty()),
+                "test_child_id_2" | "test_child_child_id_1" => {
+                    assert!(task.output_tables.is_empty())
+                }
+                _ => panic!("Unexpected content_id"),
+            }
+        }
 
         Ok(())
     }
