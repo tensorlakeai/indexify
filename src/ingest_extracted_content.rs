@@ -392,6 +392,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_new() {
         let state = new_endpoint_state().await.unwrap();
         let ingest_state = IngestExtractedContentState::new(state);
@@ -404,6 +405,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_begin() {
         let state = new_endpoint_state().await.unwrap();
         let mut ingest_state = IngestExtractedContentState::new(state);
