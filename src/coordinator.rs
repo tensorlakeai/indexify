@@ -1451,6 +1451,8 @@ mod tests {
             .mark_extraction_policy_applied_on_content(&child_content_1.id, &extraction_policy_1.id)
             .await?;
 
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         let state_change = internal_api::StateChange {
             object_id: parent_content.id.clone(),
             ..Default::default()
