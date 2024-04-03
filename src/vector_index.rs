@@ -71,8 +71,11 @@ impl VectorIndexManager {
     ) -> Result<()> {
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
-            let vector_chunk =
-                VectorChunk::new(embedding.content_id.clone(), embedding.embedding.clone());
+            let vector_chunk = VectorChunk::new(
+                embedding.content_id.clone(),
+                embedding.embedding.clone(),
+                embedding.metadata.clone(),
+            );
             vector_chunks.push(vector_chunk);
         });
         self.vector_db
@@ -86,6 +89,25 @@ impl VectorIndexManager {
             .remove_embedding(vector_index_name, content_id)
             .await?;
         Ok(())
+    }
+
+    pub async fn get_points(
+        &self,
+        index: &str,
+        content_ids: Vec<String>,
+    ) -> Result<Vec<VectorChunk>> {
+        self.vector_db.get_points(index, content_ids).await
+    }
+
+    pub async fn update_metadata(
+        &self,
+        index: &str,
+        content_id: String,
+        metadata: serde_json::Value,
+    ) -> Result<()> {
+        self.vector_db
+            .update_metadata(index, content_id, metadata)
+            .await
     }
 
     pub async fn search(&self, index: Index, query: &str, k: usize) -> Result<Vec<ScoredText>> {

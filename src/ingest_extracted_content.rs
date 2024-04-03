@@ -135,38 +135,6 @@ impl IngestExtractedContentState {
         }
     }
 
-    async fn add_content_feature(&mut self, payload: AddContentFeature) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!(
-                "received finished extraction ingest without header metadata"
-            ));
-        }
-        info!(
-            "received content feature for task: {}",
-            self.ingest_metadata.as_ref().unwrap().task_id
-        );
-        match &self.frame_state {
-            FrameState::New => Err(anyhow!(
-                "received content feature without starting multipart content"
-            )),
-            FrameState::Writing(frame_state) => {
-                self.state
-                    .data_manager
-                    .write_extracted_embedding(
-                        &payload.name,
-                        &payload.values,
-                        &frame_state.id,
-                        &self
-                            .ingest_metadata
-                            .as_ref()
-                            .unwrap()
-                            .output_to_index_table_mapping,
-                    )
-                    .await
-            }
-        }
-    }
-
     async fn finish_content(&mut self, payload: FinishContent) -> Result<()> {
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
@@ -248,7 +216,7 @@ impl IngestExtractedContentState {
             .await?;
         self.state
             .data_manager
-            .write_extracted_features(
+            .write_existing_content_features(
                 &self.ingest_metadata.clone().unwrap().extractor,
                 &self.ingest_metadata.clone().unwrap().extraction_policy,
                 &content_meta,
@@ -306,12 +274,6 @@ impl IngestExtractedContentState {
                     IngestExtractedContent::MultipartContentFrame(payload) => {
                         if let Err(e) = self.write_content_frame(payload).await {
                             tracing::error!("Error handling content frame: {}", e);
-                            return;
-                        }
-                    }
-                    IngestExtractedContent::MultipartContentFeature(payload) => {
-                        if let Err(e) = self.add_content_feature(payload).await {
-                            tracing::error!("Error handling content feature: {}", e);
                             return;
                         }
                     }

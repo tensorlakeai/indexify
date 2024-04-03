@@ -485,10 +485,12 @@ impl DataManager {
         embedding: &[f32],
         content_id: &str,
         output_index_map: &HashMap<String, String>,
+        metadata: serde_json::Value,
     ) -> Result<()> {
         let embeddings = internal_api::ExtractedEmbeddings {
             content_id: content_id.to_string(),
             embedding: embedding.to_vec(),
+            metadata,
         };
         let index_table = output_index_map
             .get(name)
@@ -500,7 +502,34 @@ impl DataManager {
         Ok(())
     }
 
-    pub async fn write_extracted_features(
+    fn combine_metadata(
+        metadata: serde_json::Value,
+        features: &[api::Feature],
+    ) -> serde_json::Value {
+        let mut metadata = if let serde_json::Value::Object(map) = metadata {
+            map
+        } else {
+            serde_json::Map::new()
+        };
+        for feature in features {
+            if let api::FeatureType::Metadata = feature.feature_type {
+                if let serde_json::Value::Object(data) = &feature.data {
+                    for (k, v) in data {
+                        metadata.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        serde_json::Value::Object(metadata)
+    }
+
+    fn has_embeddings(features: &[api::Feature]) -> bool {
+        features
+            .iter()
+            .any(|f| matches!(f.feature_type, api::FeatureType::Embedding))
+    }
+
+    pub async fn write_existing_content_features(
         &self,
         extractor_name: &str,
         extraction_policy: &str,
@@ -508,7 +537,48 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
-        for feature in features {
+        let result = self
+            .vector_index_manager
+            .get_points(&content_meta.namespace, vec![content_meta.id.clone()])
+            .await?;
+        let metadata = if result.is_empty() {
+            serde_json::Value::Null
+        } else {
+            result[0].metadata.clone()
+        };
+        self.write_extracted_features(
+            extractor_name,
+            extraction_policy,
+            content_meta,
+            features.clone(),
+            metadata.clone(),
+            output_index_map,
+        )
+        .await?;
+        // If no embeddings were found in this feature list but vector already exists,
+        // update its metadata.
+        if !result.is_empty() && !Self::has_embeddings(&features) {
+            self.vector_index_manager
+                .update_metadata(
+                    &content_meta.namespace,
+                    content_meta.id.clone(),
+                    Self::combine_metadata(metadata, &features),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn write_extracted_features(
+        &self,
+        extractor_name: &str,
+        extraction_policy: &str,
+        content_meta: &indexify_coordinator::ContentMetadata,
+        features: Vec<api::Feature>,
+        metadata: serde_json::Value,
+        output_index_map: &HashMap<String, String>,
+    ) -> Result<()> {
+        for feature in &features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
                     let embedding_payload: internal_api::Embedding =
@@ -519,7 +589,8 @@ impl DataManager {
                         &feature.name,
                         &embedding_payload.values,
                         &content_meta.id,
-                        output_index_map,
+                        &output_index_map,
+                        Self::combine_metadata(metadata.clone(), &features),
                     )
                     .await?;
                 }
@@ -570,6 +641,7 @@ impl DataManager {
             &ingest_metadata.extraction_policy,
             content_meta,
             features,
+            serde_json::Value::Null, // new context, no existing metadata
             &ingest_metadata.output_to_index_table_mapping,
         )
         .await
@@ -717,5 +789,47 @@ impl DataManager {
 
     pub async fn blob_store_writer(&self, namespace: &str, key: &str) -> Result<StoragePartWriter> {
         self.blob_storage.writer(namespace, key).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_combine_metadata() {
+        let features = vec![
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Metadata,
+                data: json!({"key1": "value1"}),
+            },
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Metadata,
+                data: json!({"key2": "value2"}),
+            },
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Embedding,
+                data: json!({"values": "[0.1, 0.2, 0.3]"}),
+            },
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Metadata,
+                data: json!({"key3": "value3"}),
+            },
+        ];
+
+        let combined = DataManager::combine_metadata(serde_json::Value::Null, &features);
+        let expected = json!({
+            "key1": "value1",
+            "key2": "value2",
+            "key3": "value3",
+        });
+
+        assert_eq!(combined, expected);
     }
 }

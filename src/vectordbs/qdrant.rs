@@ -1,15 +1,16 @@
-use std::collections::HashMap;
-
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use qdrant_client::{
     client::{Payload, QdrantClient, QdrantClientConfig},
     qdrant::{
+        point_id::PointIdOptions::Num,
         points_selector::PointsSelectorOneOf,
+        vectors::VectorsOptions,
         vectors_config::Config,
         with_payload_selector::SelectorOptions,
         CreateCollection,
         Distance,
+        PointId,
         PointStruct,
         PointsIdsList,
         PointsSelector,
@@ -112,7 +113,7 @@ impl VectorDb for QdrantDb {
             let chunk_id = chunk.content_id.clone();
             let payload: Payload = json!(QdrantPayload {
                 chunk_id: chunk_id.clone(),
-                metadata: json!(HashMap::<String, String>::new()),
+                metadata: chunk.metadata.clone(),
             })
             .try_into()
             .unwrap();
@@ -127,6 +128,62 @@ impl VectorDb for QdrantDb {
             .upsert_points(&index, None, points, None)
             .await
             .map_err(|e| anyhow!("unable to add embedding: {}", e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_points(&self, index: &str, ids: Vec<String>) -> Result<Vec<VectorChunk>> {
+        let mut points = Vec::<PointId>::new();
+        for id in ids {
+            let point_id = hex_to_u64(&id).unwrap();
+            points.push(PointId {
+                point_id_options: Some(Num(point_id)),
+            });
+        }
+        let client = self.create_client()?;
+
+        let result = client
+            .get_points(&index, None, &points, Some(true), Some(true), None)
+            .await
+            .map_err(|e| anyhow!("unable to read index: {}", e.to_string()))?;
+        let mut documents: Vec<VectorChunk> = Vec::new();
+        for point in result.result {
+            let json_value = serde_json::to_value(point.payload)
+                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
+            let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
+                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
+            let vector = point.vectors.unwrap().vectors_options.unwrap(); // Unwrap the Option<VectorsOptions>
+            let embedding = match vector {
+                VectorsOptions::Vector(vector) => vector,
+                _ => return Err(anyhow!("Invalid vector type")),
+            };
+            documents.push(VectorChunk {
+                content_id: qdrant_payload.chunk_id,
+                embedding: embedding.data,
+                metadata: qdrant_payload.metadata,
+            });
+        }
+        Ok(documents)
+    }
+
+    async fn update_metadata(
+        &self,
+        index: &str,
+        content_id: String,
+        metadata: serde_json::Value,
+    ) -> Result<()> {
+        let payload: Payload = json!(QdrantPayload {
+            chunk_id: content_id.clone(),
+            metadata: metadata.clone(),
+        })
+        .try_into()
+        .unwrap();
+        let point_id = hex_to_u64(&content_id).unwrap();
+        let points: Vec<PointId> = vec![point_id.into()];
+        let _result = self
+            .create_client()?
+            .overwrite_payload(&index, None, &points.into(), payload, None)
+            .await
+            .map_err(|e| anyhow!("unable to update metadata: {}", e.to_string()))?;
         Ok(())
     }
 
@@ -219,8 +276,11 @@ impl VectorDb for QdrantDb {
 mod tests {
     use std::sync::Arc;
 
+    use serde_json::json;
+
     use super::{CreateIndexParams, QdrantDb};
     use crate::{
+        data_manager::DataManager,
         server_config::QdrantConfig,
         vectordbs::{IndexDistance, VectorChunk, VectorDBTS},
     };
@@ -241,9 +301,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1.clone(),
         };
         qdrant
             .add_embedding("hello-index", vec![chunk])
@@ -255,6 +317,79 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
+    }
+
+    fn make_id() -> String {
+        DataManager::make_id("namespace", &nanoid::nanoid!(), &None)
+    }
+
+    #[tokio::test]
+    async fn test_store_metadata() {
+        let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
+            addr: "http://localhost:6334".into(),
+        }));
+        qdrant.drop_index("metadata-index".into()).await.unwrap();
+        qdrant
+            .create_index(CreateIndexParams {
+                vectordb_index_name: "metadata-index".into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+        let content_ids = vec![make_id(), make_id()];
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
+        let chunk1 = VectorChunk {
+            content_id: content_ids[0].clone(),
+            embedding: vec![0.1, 0.2],
+            metadata: metadata1.clone(),
+        };
+        qdrant
+            .add_embedding("metadata-index", vec![chunk1])
+            .await
+            .unwrap();
+        let metadata2 = json!({"key1": "value3", "key2": "value4"});
+        let chunk2 = VectorChunk {
+            content_id: content_ids[1].clone(),
+            embedding: vec![0.3, 0.4],
+            metadata: metadata2.clone(),
+        };
+        qdrant
+            .add_embedding("metadata-index", vec![chunk2])
+            .await
+            .unwrap();
+
+        let result = qdrant
+            .get_points("metadata-index", content_ids.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 2);
+        for chunk in result {
+            if chunk.content_id == content_ids[0] {
+                assert_eq!(chunk.metadata, metadata1);
+            } else if chunk.content_id == content_ids[1] {
+                assert_eq!(chunk.metadata, metadata2);
+            } else {
+                panic!("unexpected content_id: {}", chunk.content_id);
+            }
+        }
+
+        let new_metadata = json!({"key1": "value5", "key2": "value6"});
+        qdrant
+            .update_metadata(
+                "metadata-index",
+                content_ids[0].clone(),
+                new_metadata.clone(),
+            )
+            .await
+            .unwrap();
+        let result = qdrant
+            .get_points("metadata-index", vec![content_ids[0].clone()])
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].metadata, new_metadata);
     }
 
     #[tokio::test]
@@ -275,9 +410,12 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1",
+    "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1.clone(),
         };
         qdrant
             .add_embedding(index_name, vec![chunk.clone()])
@@ -311,6 +449,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: content_id.into(),
             embedding: vec![0., 2.],
+            metadata: json!({"key1": "value1", "key2": "value2"}),
         };
         qdrant
             .add_embedding(index_name, vec![chunk.clone()])

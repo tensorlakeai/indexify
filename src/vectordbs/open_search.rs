@@ -135,6 +135,21 @@ impl VectorDb for OpenSearchKnn {
         }
     }
 
+    async fn get_points(&self, _index: &str, _ids: Vec<String>) -> Result<Vec<VectorChunk>> {
+        // TODO: return empty vector for now
+        Ok(vec![])
+    }
+
+    // TODO: implementation of update_metadata
+    async fn update_metadata(
+        &self,
+        _index: &str,
+        _content_id: String,
+        _metadata: serde_json::Value,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn search(
         &self,
         index_name: String,
@@ -285,6 +300,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: serde_json::Value::Null,
         };
         opensearch
             .add_embedding(TEST_INDEX_NAME, vec![chunk])

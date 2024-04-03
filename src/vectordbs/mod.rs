@@ -53,12 +53,14 @@ pub type VectorDBTS = Arc<dyn VectorDb + Sync + Send>;
 pub struct VectorChunk {
     pub content_id: String,
     pub embedding: Vec<f32>,
+    pub metadata: serde_json::Value,
 }
 impl VectorChunk {
-    pub fn new(content_id: String, embedding: Vec<f32>) -> Self {
+    pub fn new(content_id: String, embedding: Vec<f32>, metadata: serde_json::Value) -> Self {
         Self {
             content_id,
             embedding,
+            metadata,
         }
     }
 }
@@ -78,6 +80,17 @@ pub trait VectorDb {
     /// Removes a vector embedding from the specified index based on the
     /// content_id key
     async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()>;
+
+    /// Retrieves the vector embeddings for the specified content IDs
+    async fn get_points(&self, index: &str, content_ids: Vec<String>) -> Result<Vec<VectorChunk>>;
+
+    /// Update metadata for the specified content ID
+    async fn update_metadata(
+        &self,
+        index: &str,
+        content_id: String,
+        metadata: serde_json::Value,
+    ) -> Result<()>;
 
     /// Searches for the nearest neighbors of a query vector in the specified
     /// index.

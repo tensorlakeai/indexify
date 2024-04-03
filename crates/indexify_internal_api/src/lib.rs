@@ -695,6 +695,7 @@ impl From<StateChange> for indexify_coordinator::StateChange {
 pub struct ExtractedEmbeddings {
     pub content_id: String,
     pub embedding: Vec<f32>,
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

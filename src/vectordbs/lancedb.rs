@@ -107,6 +107,21 @@ impl VectorDb for LanceDb {
             .map_err(|e| anyhow!("unable to add to table {}", e))
     }
 
+    async fn get_points(&self, _index: &str, _ids: Vec<String>) -> Result<Vec<VectorChunk>> {
+        // TODO: return empty vector for now
+        Ok(vec![])
+    }
+
+    // TODO: implementation of update_metadata
+    async fn update_metadata(
+        &self,
+        _index: &str,
+        _content_id: String,
+        _metadata: serde_json::Value,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     #[tracing::instrument]
     #[tracing::instrument]
     async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
@@ -192,6 +207,8 @@ impl VectorDb for LanceDb {
 mod tests {
     use std::sync::Arc;
 
+    use serde_json::json;
+
     use super::*;
     use crate::vectordbs::{IndexDistance, VectorDBTS};
 
@@ -215,13 +232,17 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "id1".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1,
         };
+        let metadata2 = json!({"key1": "value3", "key2": "value4"});
         let chunk1 = VectorChunk {
             content_id: "id2".into(),
             embedding: vec![0., 3.],
+            metadata: metadata2,
         };
         lance
             .add_embedding("hello-index", vec![chunk, chunk1])
@@ -261,9 +282,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1,
         };
         lance
             .add_embedding(index_name, vec![chunk.clone()])
@@ -299,6 +322,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: json!({"key1": "value1", "key2": "value2"}),
         };
         lance
             .add_embedding(index_name, vec![chunk.clone()])

@@ -76,6 +76,21 @@ impl VectorDb for PgVector {
         Ok(())
     }
 
+    async fn get_points(&self, _index: &str, _ids: Vec<String>) -> Result<Vec<VectorChunk>> {
+        // TODO: return empty vector for now
+        Ok(vec![])
+    }
+
+    // TODO: implementation of update_metadata
+    async fn update_metadata(
+        &self,
+        _index: &str,
+        _content_id: String,
+        _metadata: serde_json::Value,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     #[tracing::instrument]
     async fn remove_embedding(&self, index: &str, content_id: &str) -> Result<()> {
         let index = PostgresIndexName::new(index);
@@ -146,6 +161,8 @@ impl VectorDb for PgVector {
 mod tests {
     use std::sync::Arc;
 
+    use serde_json::json;
+
     use super::CreateIndexParams;
     use crate::{
         server_config::PgVectorConfig,
@@ -180,9 +197,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1.clone(),
         };
         vector_db
             .add_embedding(index_name, vec![chunk])
@@ -224,9 +243,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1.clone(),
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])
@@ -273,6 +294,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: content_id.into(),
             embedding: vec![0., 2.],
+            metadata: json!({"key1": "value1", "key2": "value2"}),
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])
