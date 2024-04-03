@@ -235,22 +235,19 @@ impl DataManager {
     }
 
     #[tracing::instrument]
-    pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
+    pub async fn add_texts(
+        &self,
+        namespace: &str,
+        content_list: Vec<api::Content>,
+        content_id: Option<&str>,
+    ) -> Result<()> {
         println!("The content list being added {:?}", content_list);
         for text in content_list {
-            let mut hasher = DefaultHasher::new();
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
-            let hashed_stream = stream.map(|item| match item {
-                Ok(bytes) => {
-                    bytes.hash(&mut hasher);
-                    Ok(bytes)
-                }
-                Err(e) => Err(e),
-            });
             let content_metadata = self
                 .write_content_bytes(
                     namespace,
-                    Box::pin(hashed_stream),
+                    Box::pin(stream),
                     &text.labels,
                     text.content_type,
                     None,
@@ -258,9 +255,28 @@ impl DataManager {
                     "ingestion",
                 )
                 .await?;
-            let hash_result = hasher.finish();
-            let hash = format!("{:x}", hash_result);
-            println!("The hash is {}", hash);
+
+            //  Check if the content id with the hash already exists, if it does don't create metadata and remove the written file
+            if !content_id.is_none() {
+                let retrieved_content_metadata = self
+                    .get_content_metadata(namespace, vec![content_id.unwrap().into()])
+                    .await?;
+                if let Some(retrieved_content_metadata) = retrieved_content_metadata.get(0) {
+                    if retrieved_content_metadata.hash == content_metadata.hash {
+                        self.blob_storage
+                            .delete(&content_metadata.file_name)
+                            .await?;
+                        return Ok(());
+                    }
+                } else {
+                    self.blob_storage
+                        .delete(&content_metadata.file_name)
+                        .await?;
+                    return Err(anyhow::anyhow!("Failed to retrieve content metadata with id {} when trying to compare hashes", content_id.unwrap()));
+                }
+            }
+
+            //  Content id either does not exist or hash is different
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };

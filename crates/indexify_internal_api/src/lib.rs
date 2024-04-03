@@ -470,6 +470,7 @@ pub struct ContentMetadata {
     pub source: String,
     pub size_bytes: u64,
     pub tombstoned: bool,
+    pub hash: String,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -485,7 +486,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             namespace: value.namespace,
             source: value.source,
             size_bytes: value.size_bytes,
-            hash: "".into(),
+            hash: value.hash,
         }
     }
 }
@@ -509,6 +510,7 @@ impl Default for ContentMetadata {
             source: "test_source".to_string(),
             size_bytes: 1234567890,
             tombstoned: false,
+            hash: "test_hash".to_string(),
         }
     }
 }
@@ -529,6 +531,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             source: value.source,
             size_bytes: value.size_bytes,
             tombstoned: false,
+            hash: value.hash,
         })
     }
 }

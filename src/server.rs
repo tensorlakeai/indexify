@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use nanoid::nanoid;
 use rust_embed::RustEmbed;
@@ -213,6 +208,12 @@ impl Server {
             .route(
                 "/namespaces/:namespace/upload_file",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/content/:content_id",
+                post(update_content)
+                    .with_state(namespace_endpoint_state.clone())
+                    .clone(),
             )
             .route(
                 "/namespaces/:namespace/content",
@@ -517,7 +518,7 @@ async fn add_texts(
         .collect();
     state
         .data_manager
-        .add_texts(&namespace, content)
+        .add_texts(&namespace, content, None)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -574,6 +575,68 @@ async fn list_content(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ListContentResponse { content_list }))
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/content/:content_id",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
+        (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
+    ),
+)]
+#[axum::debug_handler]
+async fn update_content(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Json(body): Json<super::api::UpdateContentRequest>,
+) -> Result<Json<UpdateContentResponse>, IndexifyAPIError> {
+    //  First, check if the content to update exists
+    let content_metadata = state
+        .data_manager
+        .get_content_metadata(&namespace, vec![content_id])
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    if content_metadata.len() == 0 {
+        return Err(IndexifyAPIError::not_found("content not found"));
+    }
+
+    //  write the content to storage and create content metadata
+    let content: Vec<api::Content> = body
+        .content
+        .iter()
+        .map(|chunk| api::Content {
+            content_type: mime::TEXT_PLAIN.to_string(),
+            bytes: chunk.text.as_bytes().to_vec(),
+            labels: chunk.labels.clone(),
+            features: vec![],
+        })
+        .collect();
+    // let content = payload
+    //     .documents
+    //     .iter()
+    //     .map(|d| api::Content {
+    //         content_type: mime::TEXT_PLAIN.to_string(),
+    //         bytes: d.text.as_bytes().to_vec(),
+    //         labels: d.labels.clone(),
+    //         features: vec![],
+    //     })
+    //     .collect();
+    // state
+    //     .data_manager
+    //     .add_texts(&namespace, content)
+    //     .await
+    //     .map_err(|e| {
+    //         IndexifyAPIError::new(
+    //             StatusCode::BAD_REQUEST,
+    //             &format!("failed to add text: {}", e),
+    //         )
+    //     })?;
+
+    Ok(Json(UpdateContentResponse {}))
 }
 
 #[tracing::instrument]

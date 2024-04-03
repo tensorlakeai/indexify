@@ -158,6 +158,15 @@ pub struct TextAddRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateContentRequest {
+    pub content_id: String,
+    pub content: Vec<Text>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateContentResponse {}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DeleteContentRequest {
     pub content_ids: Vec<String>,
 }
@@ -375,6 +384,7 @@ pub struct ContentMetadata {
     pub created_at: i64,
     pub source: String,
     pub size: u64,
+    pub hash: String,
 }
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
@@ -390,6 +400,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             created_at: value.created_at,
             source: value.source,
             size: value.size_bytes,
+            hash: value.hash,
         }
     }
 }
