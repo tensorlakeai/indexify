@@ -596,7 +596,7 @@ async fn update_content(
     //  First, check if the content to update exists
     let content_metadata = state
         .data_manager
-        .get_content_metadata(&namespace, vec![content_id])
+        .get_content_metadata(&namespace, vec![content_id.clone()])
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -615,26 +615,16 @@ async fn update_content(
             features: vec![],
         })
         .collect();
-    // let content = payload
-    //     .documents
-    //     .iter()
-    //     .map(|d| api::Content {
-    //         content_type: mime::TEXT_PLAIN.to_string(),
-    //         bytes: d.text.as_bytes().to_vec(),
-    //         labels: d.labels.clone(),
-    //         features: vec![],
-    //     })
-    //     .collect();
-    // state
-    //     .data_manager
-    //     .add_texts(&namespace, content)
-    //     .await
-    //     .map_err(|e| {
-    //         IndexifyAPIError::new(
-    //             StatusCode::BAD_REQUEST,
-    //             &format!("failed to add text: {}", e),
-    //         )
-    //     })?;
+    state
+        .data_manager
+        .add_texts(&namespace, content, Some(&content_id))
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                &format!("failed to add text: {}", e),
+            )
+        })?;
 
     Ok(Json(UpdateContentResponse {}))
 }
