@@ -260,6 +260,12 @@ fn parse_s3_url(s3_url: &str) -> Result<(&str, &str), &str> {
 #[derive(Debug)]
 pub struct ContentReader {}
 
+impl Default for ContentReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ContentReader {
     pub fn new() -> Self {
         Self {}

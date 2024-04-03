@@ -385,7 +385,7 @@ impl DataManager {
     }
 
     pub fn make_file_name(file_name: Option<&str>) -> String {
-        return file_name.map(|f| f.to_string()).unwrap_or(nanoid!());
+        file_name.map(|f| f.to_string()).unwrap_or(nanoid!())
     }
 
     pub fn make_id(namespace: &str, file_name: &str, parent_id: &Option<String>) -> String {
@@ -500,7 +500,7 @@ impl DataManager {
                         &feature.name,
                         &embedding_payload.values,
                         &content_meta.id,
-                        &output_index_map,
+                        output_index_map,
                     )
                     .await?;
                 }
@@ -549,7 +549,7 @@ impl DataManager {
         self.write_extracted_features(
             &ingest_metadata.extractor,
             &ingest_metadata.extraction_policy,
-            &content_meta,
+            content_meta,
             features,
             &ingest_metadata.output_to_index_table_mapping,
         )
