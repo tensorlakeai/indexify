@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use qdrant_client::{
-    client::{Payload, QdrantClient, QdrantClientConfig},
+    client::{QdrantClient, QdrantClientConfig},
     qdrant::{
         point_id::PointIdOptions::Num,
         points_selector::PointsSelectorOneOf,
@@ -20,8 +20,6 @@ use qdrant_client::{
         WithPayloadSelector,
     },
 };
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::{CreateIndexParams, VectorDb};
 use crate::{
@@ -41,12 +39,6 @@ fn u64_to_hex(number: u64) -> String {
 #[derive(Debug)]
 pub struct QdrantDb {
     qdrant_config: QdrantConfig,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct QdrantPayload {
-    pub chunk_id: String,
-    pub metadata: serde_json::Value,
 }
 
 impl QdrantDb {
@@ -69,6 +61,17 @@ impl QdrantDb {
             IndexDistance::Dot => Distance::Dot,
             IndexDistance::Euclidean => Distance::Euclid,
         }
+    }
+}
+
+fn content_id_from_point_id(point_id: Option<PointId>) -> Result<String> {
+    if let Some(PointId {
+        point_id_options: Some(Num(id)),
+    }) = point_id
+    {
+        Ok(format!("{:x}", id))
+    } else {
+        Err(anyhow!("Invalid point id"))
     }
 }
 
@@ -111,16 +114,12 @@ impl VectorDb for QdrantDb {
         let mut points = Vec::<PointStruct>::new();
         for chunk in chunks {
             let chunk_id = chunk.content_id.clone();
-            let payload: Payload = json!(QdrantPayload {
-                chunk_id: chunk_id.clone(),
-                metadata: chunk.metadata.clone(),
-            })
-            .try_into()
-            .unwrap();
+            let metadata = serde_json::from_value(chunk.metadata.clone())
+                .map_err(|e| anyhow!("unable to read metadata: {}", e.to_string()))?;
             points.push(PointStruct::new(
                 hex_to_u64(&chunk_id).unwrap(),
                 chunk.embedding.clone(),
-                payload,
+                metadata,
             ));
         }
         let _result = self
@@ -147,19 +146,17 @@ impl VectorDb for QdrantDb {
             .map_err(|e| anyhow!("unable to read index: {}", e.to_string()))?;
         let mut documents: Vec<VectorChunk> = Vec::new();
         for point in result.result {
-            let json_value = serde_json::to_value(point.payload)
-                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
-            let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
-                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
+            let metadata = serde_json::to_value(point.payload)
+                .map_err(|e| anyhow!("unable to read metadata: {}", e.to_string()))?;
             let vector = point.vectors.unwrap().vectors_options.unwrap(); // Unwrap the Option<VectorsOptions>
             let embedding = match vector {
                 VectorsOptions::Vector(vector) => vector,
                 _ => return Err(anyhow!("Invalid vector type")),
             };
             documents.push(VectorChunk {
-                content_id: qdrant_payload.chunk_id,
+                content_id: content_id_from_point_id(point.id)?,
                 embedding: embedding.data,
-                metadata: qdrant_payload.metadata,
+                metadata,
             });
         }
         Ok(documents)
@@ -171,17 +168,13 @@ impl VectorDb for QdrantDb {
         content_id: String,
         metadata: serde_json::Value,
     ) -> Result<()> {
-        let payload: Payload = json!(QdrantPayload {
-            chunk_id: content_id.clone(),
-            metadata: metadata.clone(),
-        })
-        .try_into()
-        .unwrap();
+        let metadata = serde_json::from_value(metadata)
+            .map_err(|e| anyhow!("unable to read metadata: {}", e.to_string()))?;
         let point_id = hex_to_u64(&content_id).unwrap();
         let points: Vec<PointId> = vec![point_id.into()];
         let _result = self
             .create_client()?
-            .overwrite_payload(&index, None, &points.into(), payload, None)
+            .overwrite_payload(&index, None, &points.into(), metadata, None)
             .await
             .map_err(|e| anyhow!("unable to update metadata: {}", e.to_string()))?;
         Ok(())
@@ -231,14 +224,10 @@ impl VectorDb for QdrantDb {
             .map_err(|e| anyhow!("unable to read index: {}", e.to_string()))?;
         let mut documents: Vec<SearchResult> = Vec::new();
         for point in result.result {
-            let json_value = serde_json::to_value(point.payload)
-                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
-            let qdrant_payload: QdrantPayload = serde_json::from_value(json_value)
-                .map_err(|e| anyhow!("unable to read embedding: {}", e.to_string()))?;
             // TODO similarity score
             documents.push(SearchResult {
                 confidence_score: point.score,
-                content_id: qdrant_payload.chunk_id,
+                content_id: content_id_from_point_id(point.id)?,
             });
         }
         Ok(documents)
