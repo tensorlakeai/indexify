@@ -21,5 +21,6 @@ service RaftApi {
     rpc JoinCluster(RaftRequest) returns (RaftReply);
     rpc RegisterIngestionServer(RaftRequest) returns (RaftReply);
     rpc RemoveIngestionServer(RaftRequest) returns (RaftReply);
+    rpc CreateGcTasks(RaftRequest) returns (RaftReply);
 }
 

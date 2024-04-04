@@ -18,7 +18,7 @@ use tracing::info;
 
 use crate::{
     coordinator_filters::*,
-    garbage_collector::{start_watching_deletion_events, GarbageCollector},
+    garbage_collector::GarbageCollector,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
@@ -28,20 +28,18 @@ pub struct Coordinator {
     shared_state: SharedState,
     scheduler: Scheduler,
     garbage_collector: Arc<GarbageCollector>,
-    gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
 }
 
 impl Coordinator {
     pub fn new(shared_state: SharedState, garbage_collector: Arc<GarbageCollector>) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel(8);
+        // let (tx, rx) = mpsc::channel(8);
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
-        start_watching_deletion_events(garbage_collector.clone(), rx);
+        // start_watching_deletion_events(garbage_collector.clone(), rx);
         Arc::new(Self {
             shared_state,
             scheduler,
             garbage_collector,
-            gc_tasks_tx: tx,
         })
     }
 
@@ -277,114 +275,12 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn create_gc_tasks(&self, content_id: String) -> Result<Vec<GarbageCollectionTask>> {
-        //  Get the metadata of the children of the content id
-        let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
-        let namespace: String = content_tree_metadata[0].namespace.clone();
-
-        let mut gc_tasks_created = Vec::new();
-
-        //  Iterate over the content tree and create a gc task per node
-        for content_metadata in content_tree_metadata {
-            let content_extraction_policy_mappings = self
-                .shared_state
-                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
-                .await?;
-
-            //  If no extraction policies have been applied to the parent of this node, then
-            // it cannot have output features and embeddings
-            if content_extraction_policy_mappings.is_none() {
-                let mut hasher = DefaultHasher::new();
-                namespace.hash(&mut hasher);
-                content_metadata.id.hash(&mut hasher);
-                let id = format!("{:x}", hasher.finish());
-
-                let gc_task = indexify_internal_api::GarbageCollectionTask {
-                    namespace: namespace.clone(),
-                    id,
-                    content_id: content_metadata.id,
-                    parent_content_id: content_metadata.parent_id,
-                    output_tables: HashSet::new(),
-                    outcome: indexify_internal_api::TaskOutcome::Unknown,
-                    blob_store_path: content_metadata.name,
-                };
-                info!("created gc task {:?}", gc_task);
-                gc_tasks_created.push(gc_task);
-                continue;
-            }
-
-            let mappings = content_extraction_policy_mappings.unwrap();
-            let applied_extraction_policy_ids: HashSet<String> =
-                mappings.time_of_policy_completion.keys().cloned().collect();
-            let applied_extraction_policies = self
-                .shared_state
-                .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-                .await?;
-
-            //  Get the table names from the extraction_policies
-            let mut output_tables: Vec<String> = Vec::new();
-            if applied_extraction_policies.is_none() {
-                let mut hasher = DefaultHasher::new();
-                namespace.hash(&mut hasher);
-                content_metadata.id.hash(&mut hasher);
-                let id = format!("{:x}", hasher.finish());
-                let gc_task = indexify_internal_api::GarbageCollectionTask {
-                    namespace: namespace.clone(),
-                    id,
-                    content_id: content_metadata.id,
-                    parent_content_id: content_metadata.parent_id,
-                    output_tables: HashSet::new(),
-                    outcome: indexify_internal_api::TaskOutcome::Unknown,
-                    blob_store_path: content_metadata.name,
-                };
-                info!("created gc task {:?}", gc_task);
-                gc_tasks_created.push(gc_task);
-                continue;
-            }
-
-            for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
-                output_tables.extend(
-                    applied_extraction_policy
-                        .index_name_table_mapping
-                        .values()
-                        .cloned(),
-                );
-            }
-
-            //  Create the garbage collection task
-            let mut hasher = DefaultHasher::new();
-            let policies = applied_extraction_policies.unwrap();
-            let policy = policies.first().unwrap();
-
-            policy.name.hash(&mut hasher);
-            policy.namespace.hash(&mut hasher);
-            content_metadata.id.hash(&mut hasher);
-            let id = format!("{:x}", hasher.finish());
-
-            let gc_task = indexify_internal_api::GarbageCollectionTask {
-                namespace: namespace.clone(),
-                id,
-                content_id: content_metadata.id,
-                parent_content_id: content_metadata.parent_id,
-                output_tables: output_tables.iter().cloned().collect(),
-                outcome: indexify_internal_api::TaskOutcome::Unknown,
-                blob_store_path: content_metadata.name,
-            };
-            info!("created gc task {:?}", gc_task);
-            gc_tasks_created.push(gc_task);
-        }
-        Ok(gc_tasks_created)
-    }
-
-    async fn handle_tombstone_content(&self, change: StateChange) -> Result<()> {
-        let gc_tasks_created = self.create_gc_tasks(change.object_id).await?;
-        self.shared_state
-            .create_gc_tasks(gc_tasks_created.clone(), &change.id)
-            .await?;
-        for gc_task in gc_tasks_created {
-            self.gc_tasks_tx.send(gc_task).await?;
-        }
-        Ok(())
+    async fn handle_tombstone_content(
+        &self,
+        change: StateChange,
+    ) -> Result<Vec<GarbageCollectionTask>> {
+        let tasks = self.shared_state.create_gc_tasks(&change.object_id).await?;
+        Ok(tasks)
     }
 
     #[tracing::instrument(skip(self))]
@@ -397,16 +293,8 @@ impl Coordinator {
             );
 
             match change.change_type {
-                // indexify_internal_api::ChangeType::IngestionServerAdded => {
-                //     self.garbage_collector
-                //         .register_ingestion_server(change.object_id.clone())
-                //         .await;
-                //     self.shared_state
-                //         .mark_change_events_as_processed(vec![change])
-                //         .await?
-                // }
                 indexify_internal_api::ChangeType::TombstoneContent => {
-                    self.handle_tombstone_content(change).await?
+                    let _ = self.handle_tombstone_content(change).await?;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
             }
@@ -1452,7 +1340,7 @@ mod tests {
             object_id: parent_content.id.clone(),
             ..Default::default()
         };
-        let tasks = coordinator.create_gc_tasks(state_change.object_id).await?;
+        let tasks = coordinator.handle_tombstone_content(state_change).await?;
         assert_eq!(tasks.len(), 4);
         for task in &tasks {
             match task.content_id.as_str() {

@@ -1,6 +1,12 @@
-use std::{error::Error, fmt::Display, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fmt::Display,
+    sync::Arc,
+};
 
 use anyerror::AnyError;
+use indexify_internal_api::ContentMetadata;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
@@ -184,6 +190,39 @@ impl Network {
 
         client
             .remove_ingestion_server(request)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn create_gc_tasks(
+        &self,
+        content_tree_metadata: Vec<ContentMetadata>,
+        output_tables: HashMap<String, HashSet<String>>,
+        policy_ids: HashMap<String, String>,
+        target_addr: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut client = self
+            .raft_client
+            .get(target_addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
+
+        let request = ForwardableRequest {
+            message: ForwardableMessage::CreateGCTasks {
+                content_tree_metadata,
+                output_tables,
+                policy_ids,
+            },
+        };
+        let request = GrpcHelper::encode_raft_request(&request)?.into_request();
+
+        let bytes_sent = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_sent_bytes(target_addr, bytes_sent);
+
+        client
+            .create_gc_tasks(request)
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 

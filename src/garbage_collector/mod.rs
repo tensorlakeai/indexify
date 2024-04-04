@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use indexify_internal_api::GarbageCollectionTask;
+use indexify_internal_api::{ContentMetadata, GarbageCollectionTask};
 use rand::seq::IteratorRandom;
 use tokio::sync::{broadcast, mpsc::Receiver, RwLock};
 use tracing::error;
@@ -211,6 +211,46 @@ impl GarbageCollector {
         &self,
     ) -> broadcast::Receiver<(String, indexify_internal_api::GarbageCollectionTask)> {
         self.task_deletion_allocation_events_sender.subscribe()
+    }
+
+    pub async fn create_gc_tasks(
+        &self,
+        content_metadata: Vec<ContentMetadata>,
+        outputs: HashMap<String, HashSet<String>>,
+        policy_ids: HashMap<String, String>,
+    ) -> Result<Vec<GarbageCollectionTask>, anyhow::Error> {
+        let mut created_gc_tasks = Vec::new();
+        let namespace = content_metadata[0].namespace.clone();
+        for content in content_metadata {
+            let output_tables = outputs.get(&content.id).cloned().unwrap_or_default();
+            let policy_id = policy_ids.get(&content.id).cloned().unwrap_or_default();
+            let mut gc_task = indexify_internal_api::GarbageCollectionTask::new(
+                &namespace,
+                content,
+                output_tables,
+                &policy_id,
+            );
+            tracing::info!("created gc task {:?}", gc_task);
+
+            //  add the task
+            {
+                let mut tasks_guard = self.gc_tasks.write().await;
+                tasks_guard
+                    .entry(gc_task.id.clone())
+                    .or_insert_with(|| GCTaskInfo::new(gc_task.clone()));
+            }
+            let server = self.choose_server().await;
+
+            //  set the server
+            if let Some(server) = server {
+                gc_task.assigned_to = Some(server.clone());
+                self.assign_task_to_server(gc_task.clone(), server).await;
+            } else {
+                error!("No server available to assign task to");
+            }
+            created_gc_tasks.push(gc_task.clone());
+        }
+        Ok(created_gc_tasks)
     }
 }
 

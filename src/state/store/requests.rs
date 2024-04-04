@@ -17,8 +17,17 @@ pub struct ForwardableRequest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ForwardableMessage {
-    RegisterIngestionServer { id: String },
-    RemoveIngestionServer { id: String },
+    RegisterIngestionServer {
+        id: String,
+    },
+    RemoveIngestionServer {
+        id: String,
+    },
+    CreateGCTasks {
+        content_tree_metadata: Vec<internal_api::ContentMetadata>,
+        output_tables: HashMap<String, HashSet<String>>,
+        policy_ids: HashMap<String, String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -60,9 +69,12 @@ pub enum RequestPayload {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
-    CreateGarbageCollectionTasks {
+    CreateOrAssignGarbageCollectionTask {
         gc_tasks: Vec<internal_api::GarbageCollectionTask>,
     },
+    // CreateGarbageCollectionTasks {
+    //     gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+    // },
     UpdateGarbageCollectionTask {
         gc_task: internal_api::GarbageCollectionTask,
         mark_finished: bool,

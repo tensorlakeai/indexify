@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -1058,7 +1050,7 @@ impl IndexifyState {
             RequestPayload::CreateTasks { tasks } => {
                 self.set_tasks(db, &txn, tasks)?;
             }
-            RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
+            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
                 self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
             }
             RequestPayload::UpdateGarbageCollectionTask {

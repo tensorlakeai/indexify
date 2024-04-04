@@ -310,4 +310,46 @@ impl RaftApi for RaftGrpcServer {
 
         GrpcHelper::ok_response(())
     }
+
+    async fn create_gc_tasks(
+        &self,
+        request: Request<RaftRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        self.incr_recv_bytes(&request);
+
+        if (self.ensure_leader().await?).is_some() {
+            return Err(GrpcHelper::internal_err(
+                "The node we thought was the leader is not the leader for creating GC tasks",
+            ));
+        }
+
+        let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
+
+        let ForwardableMessage::CreateGCTasks {
+            content_tree_metadata,
+            output_tables,
+            policy_ids,
+        } = req.message
+        else {
+            return Err(GrpcHelper::internal_err("Invalid request"));
+        };
+        let gc_tasks = self
+            .garbage_collector
+            .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        //  TODO: Write the tasks to Raft
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.raft
+            .client_write(request)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        GrpcHelper::ok_response(())
+    }
 }

@@ -255,6 +255,28 @@ pub mod raft_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn create_gc_tasks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RaftRequest>,
+        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_raft.RaftApi/CreateGcTasks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("indexify_raft.RaftApi", "CreateGcTasks"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -289,6 +311,10 @@ pub mod raft_api_server {
             request: tonic::Request<super::RaftRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
         async fn remove_ingestion_server(
+            &self,
+            request: tonic::Request<super::RaftRequest>,
+        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
+        async fn create_gc_tasks(
             &self,
             request: tonic::Request<super::RaftRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
@@ -667,6 +693,50 @@ pub mod raft_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = RemoveIngestionServerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_raft.RaftApi/CreateGcTasks" => {
+                    #[allow(non_camel_case_types)]
+                    struct CreateGcTasksSvc<T: RaftApi>(pub Arc<T>);
+                    impl<T: RaftApi> tonic::server::UnaryService<super::RaftRequest>
+                    for CreateGcTasksSvc<T> {
+                        type Response = super::RaftReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RaftRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as RaftApi>::create_gc_tasks(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = CreateGcTasksSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
