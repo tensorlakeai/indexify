@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -9,11 +9,7 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
-use tokio::sync::{
-    broadcast,
-    mpsc::{self, Sender},
-    watch::Receiver,
-};
+use tokio::sync::{broadcast, watch::Receiver};
 use tracing::info;
 
 use crate::{
@@ -302,8 +298,8 @@ impl Coordinator {
         Ok(())
     }
 
-    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<(String, GarbageCollectionTask)> {
-        self.garbage_collector.subscribe_to_events()
+    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
+        self.shared_state.subscribe_to_gc_task_events()
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {

@@ -14,26 +14,15 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
+use tokio::sync::broadcast;
 use tracing::debug;
 
 type Node = BasicNode;
@@ -268,6 +257,13 @@ impl StateMachineStore {
         debug!("Compressed by: {:.2}%", compression_percentage);
 
         Ok(())
+    }
+
+    /// Register to task deletion events
+    pub fn subscribe_to_gc_task_events(
+        &self,
+    ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
+        self.data.indexify_state.subscribe_to_gc_task_events()
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES

@@ -28,6 +28,7 @@ use store::{
 };
 use tokio::{
     sync::{
+        broadcast,
         watch::{self, Receiver, Sender},
         Mutex,
     },
@@ -1124,23 +1125,6 @@ impl App {
         Ok(())
     }
 
-    // pub async fn create_gc_tasks(
-    //     &self,
-    //     gc_tasks: Vec<internal_api::GarbageCollectionTask>,
-    //     processed_change_id: &str,
-    // ) -> Result<()> {
-    //     let req = StateMachineUpdateRequest {
-    //         payload: RequestPayload::CreateGarbageCollectionTasks { gc_tasks },
-    //         new_state_changes: vec![],
-    //         state_changes_processed: vec![StateChangeProcessed {
-    //             state_change_id: processed_change_id.to_string(),
-    //             processed_at: timestamp_secs(),
-    //         }],
-    //     };
-    //     let _resp = self.forwardable_raft.client_write(req).await?;
-    //     Ok(())
-    // }
-
     pub async fn list_tasks(
         &self,
         namespace: &str,
@@ -1333,6 +1317,12 @@ impl App {
             openraft_metrics,
             raft_metrics,
         }
+    }
+
+    pub fn subscribe_to_gc_task_events(
+        &self,
+    ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
+        self.state_machine.subscribe_to_gc_task_events()
     }
 }
 

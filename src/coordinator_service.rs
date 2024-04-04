@@ -343,9 +343,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                     }
                     Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
-                        let (assigned_ingestion_server, task) = task_allocation;
+                        let task = task_allocation;
                         if let Some(ref server_id) = ingestion_server_id {
-                            if &assigned_ingestion_server == server_id {
+                            if task.assigned_to.is_some() && &task.assigned_to.unwrap() == server_id {
                                 let serialized_task = GcTask {
                                     task_id: task.id,
                                     namespace: task.namespace,

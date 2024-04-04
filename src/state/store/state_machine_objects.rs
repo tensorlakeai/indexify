@@ -11,6 +11,7 @@ use internal_api::{ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
+use tokio::sync::broadcast;
 use tracing::{error, warn};
 
 use super::{
@@ -407,7 +408,7 @@ impl From<HashMap<ContentId, HashSet<ContentId>>> for ContentChildrenTable {
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-pub struct IndexifyState {
+pub struct IndexifyData {
     // Reverse Indexes
     /// The tasks that are currently unassigned
     unassigned_tasks: UnassignedTasks,
@@ -443,11 +444,11 @@ pub struct IndexifyState {
     content_children_table: ContentChildrenTable,
 }
 
-impl fmt::Display for IndexifyState {
+impl fmt::Display for IndexifyData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
+            "IndexifyData {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
             self.content_namespace_table,
@@ -462,7 +463,49 @@ impl fmt::Display for IndexifyState {
     }
 }
 
+#[derive(Clone)]
+pub struct IndexifyState {
+    data: IndexifyData,
+
+    gc_tasks_tx: broadcast::Sender<internal_api::GarbageCollectionTask>,
+}
+
+impl Default for IndexifyState {
+    fn default() -> Self {
+        let (gc_tasks_tx, _) = broadcast::channel(100);
+        Self {
+            data: IndexifyData::default(),
+            gc_tasks_tx,
+        }
+    }
+}
+
+impl fmt::Display for IndexifyState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
+            self.data.unassigned_tasks,
+            self.data.unprocessed_state_changes,
+            self.data.content_namespace_table,
+            self.data.extraction_policies_table,
+            self.data.extractor_executors_table,
+            self.data.namespace_index_table,
+            self.data.unfinished_tasks_by_extractor,
+            self.data.executor_running_task_count,
+            self.data.schemas_by_namespace,
+            self.data.content_children_table
+        )
+    }
+}
+
 impl IndexifyState {
+    pub fn subscribe_to_gc_task_events(
+        &self,
+    ) -> broadcast::Receiver<internal_api::GarbageCollectionTask> {
+        self.gc_tasks_tx.subscribe()
+    }
+
     fn set_new_state_changes(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -751,7 +794,7 @@ impl IndexifyState {
                 ))
             })?;
 
-            let children = self.content_children_table.get_children(&current_root);
+            let children = self.data.content_children_table.get_children(&current_root);
             queue.extend(children);
         }
 
@@ -1019,12 +1062,14 @@ impl IndexifyState {
         state_change: &StateChangeProcessed,
         _processed_at: u64,
     ) {
-        self.unprocessed_state_changes
+        self.data
+            .unprocessed_state_changes
             .remove(&state_change.state_change_id);
     }
 
     fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
-        self.schemas_by_namespace
+        self.data
+            .schemas_by_namespace
             .insert(&schema.namespace, &schema.id);
     }
 
@@ -1052,6 +1097,11 @@ impl IndexifyState {
             }
             RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
                 self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
+                for gc_task in gc_tasks {
+                    if let Err(e) = self.gc_tasks_tx.send(gc_task.clone()) {
+                        tracing::error!("Error sending garbage collection task: {}", e);
+                    }
+                }
             }
             RequestPayload::UpdateGarbageCollectionTask {
                 gc_task,
@@ -1102,7 +1152,8 @@ impl IndexifyState {
                         new_task_assignment.insert(executor_id.to_string(), existing_tasks);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
 
-                        self.executor_running_task_count
+                        self.data
+                            .executor_running_task_count
                             .decrement_running_task_count(executor_id);
                     }
                 }
@@ -1137,16 +1188,17 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
                 //  Remove the the extractor from the executor -> extractor mapping table
-                self.extractor_executors_table
+                self.data
+                    .extractor_executors_table
                     .remove(&executor_meta.extractor.name, &executor_meta.id);
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
-                    self.unassigned_tasks.insert(&task_id);
+                    self.data.unassigned_tasks.insert(&task_id);
                 }
 
                 // Remove from the executor load table
-                self.executor_running_task_count.remove(executor_id);
+                self.data.executor_running_task_count.remove(executor_id);
 
                 return Ok(());
             }
@@ -1221,7 +1273,9 @@ impl IndexifyState {
     /// written in memory
     pub fn apply(&mut self, request: StateMachineUpdateRequest) {
         for change in request.new_state_changes {
-            self.unprocessed_state_changes.insert(change.id.clone());
+            self.data
+                .unprocessed_state_changes
+                .insert(change.id.clone());
         }
         for change in request.state_changes_processed {
             self.mark_state_changes_processed(&change, change.processed_at);
@@ -1233,7 +1287,8 @@ impl IndexifyState {
                 extractor,
                 ts_secs,
             } => {
-                self.extractor_executors_table
+                self.data
+                    .extractor_executors_table
                     .insert(&extractor.name, &executor_id);
                 let _executor_info = internal_api::ExecutorMetadata {
                     id: executor_id.clone(),
@@ -1242,21 +1297,25 @@ impl IndexifyState {
                     extractor: extractor.clone(),
                 };
                 // initialize executor load at 0
-                self.executor_running_task_count.insert(&executor_id, 0);
+                self.data
+                    .executor_running_task_count
+                    .insert(&executor_id, 0);
             }
             RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
-                    self.unassigned_tasks.insert(&task.id);
-                    self.unfinished_tasks_by_extractor
+                    self.data.unassigned_tasks.insert(&task.id);
+                    self.data
+                        .unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
                 }
             }
             RequestPayload::AssignTask { assignments } => {
                 for (task_id, executor_id) in assignments {
-                    self.unassigned_tasks.remove(&task_id);
+                    self.data.unassigned_tasks.remove(&task_id);
 
-                    self.executor_running_task_count
+                    self.data
+                        .executor_running_task_count
                         .increment_running_task_count(&executor_id);
                 }
             }
@@ -1265,15 +1324,18 @@ impl IndexifyState {
                 mark_finished,
             } => {
                 if mark_finished {
-                    self.content_children_table
+                    self.data
+                        .content_children_table
                         .remove(&gc_task.parent_content_id, &gc_task.content_id);
                 }
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
-                    self.content_namespace_table
+                    self.data
+                        .content_namespace_table
                         .insert(&content.namespace, &content.id);
-                    self.content_children_table
+                    self.data
+                        .content_children_table
                         .insert(&content.parent_id, &content.id);
                 }
             }
@@ -1282,7 +1344,8 @@ impl IndexifyState {
                 updated_structured_data_schema,
                 new_structured_data_schema,
             } => {
-                self.extraction_policies_table
+                self.data
+                    .extraction_policies_table
                     .insert(&extraction_policy.namespace, &extraction_policy.id);
                 if let Some(schema) = updated_structured_data_schema {
                     self.update_schema_reverse_idx(schema);
@@ -1300,7 +1363,7 @@ impl IndexifyState {
                 namespace,
                 id,
             } => {
-                self.namespace_index_table.insert(&namespace, &id);
+                self.data.namespace_index_table.insert(&namespace, &id);
             }
             RequestPayload::UpdateTask {
                 task,
@@ -1309,16 +1372,19 @@ impl IndexifyState {
                 content_metadata,
             } => {
                 if mark_finished {
-                    self.unassigned_tasks.remove(&task.id);
-                    self.unfinished_tasks_by_extractor
+                    self.data.unassigned_tasks.remove(&task.id);
+                    self.data
+                        .unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
                     if let Some(executor_id) = executor_id {
-                        self.executor_running_task_count
+                        self.data
+                            .executor_running_task_count
                             .decrement_running_task_count(&executor_id);
                     }
                 }
                 for content in content_metadata {
-                    self.content_namespace_table
+                    self.data
+                        .content_namespace_table
                         .insert(&content.namespace, &content.id);
                 }
             }
@@ -1528,7 +1594,7 @@ impl IndexifyState {
             let content =
                 JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
             collected_content_metadata.push(content);
-            let children = self.content_children_table.get_children(&current_root);
+            let children = self.data.content_children_table.get_children(&current_root);
             queue.extend(children);
         }
         Ok(collected_content_metadata)
@@ -1616,7 +1682,10 @@ impl IndexifyState {
             None => return Ok(None),
         };
 
-        let extraction_policy_ids = self.extraction_policies_table.get(&namespace.to_string());
+        let extraction_policy_ids = self
+            .data
+            .extraction_policies_table
+            .get(&namespace.to_string());
         let extraction_policies = self
             .get_extraction_policies_from_ids(extraction_policy_ids, db)?
             .unwrap_or_else(Vec::new);
@@ -1681,50 +1750,51 @@ impl IndexifyState {
 
     //  START READER METHODS FOR REVERSE INDEXES
     pub fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
-        self.unassigned_tasks.inner()
+        self.data.unassigned_tasks.inner()
     }
 
     pub fn get_unprocessed_state_changes(&self) -> HashSet<StateChangeId> {
-        self.unprocessed_state_changes.inner()
+        self.data.unprocessed_state_changes.inner()
     }
 
     pub fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
-        self.content_namespace_table.inner()
+        self.data.content_namespace_table.inner()
     }
 
     pub fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.extraction_policies_table.inner()
+        self.data.extraction_policies_table.inner()
     }
 
     pub fn get_extractor_executors_table(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
-        self.extractor_executors_table.inner()
+        self.data.extractor_executors_table.inner()
     }
 
     pub fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.namespace_index_table.inner()
+        self.data.namespace_index_table.inner()
     }
 
     pub fn get_unfinished_tasks_by_extractor(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        self.unfinished_tasks_by_extractor.inner()
+        self.data.unfinished_tasks_by_extractor.inner()
     }
 
     pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
-        self.executor_running_task_count.inner()
+        self.data.executor_running_task_count.inner()
     }
 
     pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
-        self.schemas_by_namespace.inner()
+        self.data.schemas_by_namespace.inner()
     }
 
     pub fn get_content_children_table(&self) -> HashMap<ContentId, HashSet<ContentId>> {
-        self.content_children_table.inner()
+        self.data.content_children_table.inner()
     }
 
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
     pub fn insert_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
-        self.executor_running_task_count
+        self.data
+            .executor_running_task_count
             .insert(&executor_id.to_string(), tasks as usize);
     }
 
@@ -1747,16 +1817,16 @@ impl IndexifyState {
     }
 
     pub fn install_snapshot(&mut self, snapshot: IndexifyStateSnapshot) {
-        self.unassigned_tasks = snapshot.unassigned_tasks.into();
-        self.unprocessed_state_changes = snapshot.unprocessed_state_changes.into();
-        self.content_namespace_table = snapshot.content_namespace_table.into();
-        self.extraction_policies_table = snapshot.extraction_policies_table.into();
-        self.extractor_executors_table = snapshot.extractor_executors_table.into();
-        self.namespace_index_table = snapshot.namespace_index_table.into();
-        self.unfinished_tasks_by_extractor = snapshot.unfinished_tasks_by_extractor.into();
-        self.executor_running_task_count = snapshot.executor_running_task_count.into();
-        self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
-        self.content_children_table = snapshot.content_children_table.into();
+        self.data.unassigned_tasks = snapshot.unassigned_tasks.into();
+        self.data.unprocessed_state_changes = snapshot.unprocessed_state_changes.into();
+        self.data.content_namespace_table = snapshot.content_namespace_table.into();
+        self.data.extraction_policies_table = snapshot.extraction_policies_table.into();
+        self.data.extractor_executors_table = snapshot.extractor_executors_table.into();
+        self.data.namespace_index_table = snapshot.namespace_index_table.into();
+        self.data.unfinished_tasks_by_extractor = snapshot.unfinished_tasks_by_extractor.into();
+        self.data.executor_running_task_count = snapshot.executor_running_task_count.into();
+        self.data.schemas_by_namespace = snapshot.schemas_by_namespace.into();
+        self.data.content_children_table = snapshot.content_children_table.into();
     }
     //  END SNAPSHOT METHODS
 }
