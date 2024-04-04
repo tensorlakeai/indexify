@@ -64,6 +64,10 @@ impl VectorIndexManager {
         Ok(index_name.to_string())
     }
 
+    pub async fn drop_index(&self, index_name: &str) -> Result<()> {
+        self.vector_db.drop_index(index_name).await
+    }
+
     pub async fn add_embedding(
         &self,
         vector_index_name: &str,

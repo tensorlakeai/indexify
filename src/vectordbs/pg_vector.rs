@@ -136,7 +136,7 @@ impl VectorDb for PgVector {
 
     // TODO: Should change index to &str to keep things uniform across functions
     #[tracing::instrument]
-    async fn drop_index(&self, index: String) -> Result<()> {
+    async fn drop_index(&self, index: &str) -> Result<()> {
         let index = PostgresIndexName::new(&index);
         let query = format!("DROP TABLE IF EXISTS \"{index}\";");
         let _ = sqlx::query(&query).execute(&self.pool).await?;

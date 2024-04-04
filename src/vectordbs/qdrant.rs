@@ -234,8 +234,8 @@ impl VectorDb for QdrantDb {
     }
 
     #[tracing::instrument]
-    async fn drop_index(&self, index: String) -> Result<()> {
-        let result = self.create_client()?.delete_collection(index.clone()).await;
+    async fn drop_index(&self, index: &str) -> Result<()> {
+        let result = self.create_client()?.delete_collection(index).await;
         if let Err(err) = result {
             if err.to_string().contains("doesn't exist") {
                 return Ok(());

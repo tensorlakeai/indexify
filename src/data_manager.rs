@@ -32,7 +32,7 @@ use crate::{
 };
 
 pub struct DataManager {
-    vector_index_manager: Arc<VectorIndexManager>,
+    pub vector_index_manager: Arc<VectorIndexManager>,
     metadata_index_manager: MetadataStorageTS,
     metadata_reader: MetadataReaderTS,
     blob_storage: Arc<BlobStorage>,
@@ -502,6 +502,18 @@ impl DataManager {
         Ok(())
     }
 
+    fn combine_extracted_metadata(
+        metadata: &[ExtractedMetadata]
+    ) -> serde_json::Value {
+        let mut combined_metadata = serde_json::Map::new();
+        for m in metadata {
+            for (k, v) in m.metadata.as_object().unwrap() {
+                combined_metadata.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::Value::Object(combined_metadata)
+    }
+
     fn combine_metadata(
         metadata: serde_json::Value,
         features: &[api::Feature],
@@ -537,13 +549,21 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
+        let index = output_index_map
+            .get(features[0].name.as_str())
+            .ok_or(anyhow!("default index not found"))?;
         let result = self
             .vector_index_manager
-            .get_points(&content_meta.namespace, vec![content_meta.id.clone()])
+            .get_points(&index, vec![content_meta.id.clone()])
             .await?;
         let metadata = if result.is_empty() {
-            serde_json::Value::Null
+            // If no embeddings were found in this feature list, read existing metadata
+            let existing_metadata = self.metadata_index_manager
+                .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
+                .await?;
+            Self::combine_extracted_metadata(&existing_metadata)
         } else {
+            println!("found existing vector for content {}", content_meta.id);
             result[0].metadata.clone()
         };
         self.write_extracted_features(
@@ -560,7 +580,7 @@ impl DataManager {
         if !result.is_empty() && !Self::has_embeddings(&features) {
             self.vector_index_manager
                 .update_metadata(
-                    &content_meta.namespace,
+                    &index,
                     content_meta.id.clone(),
                     Self::combine_metadata(metadata, &features),
                 )

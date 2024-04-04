@@ -184,7 +184,7 @@ impl VectorDb for LanceDb {
     }
 
     #[tracing::instrument]
-    async fn drop_index(&self, index: String) -> Result<()> {
+    async fn drop_index(&self, index: &str) -> Result<()> {
         self.conn
             .drop_table(&index)
             .await

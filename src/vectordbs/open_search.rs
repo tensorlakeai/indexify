@@ -215,7 +215,7 @@ impl VectorDb for OpenSearchKnn {
         }
     }
 
-    async fn drop_index(&self, index: String) -> Result<()> {
+    async fn drop_index(&self, index: &str) -> Result<()> {
         let response = self
             .create_client()?
             .indices()

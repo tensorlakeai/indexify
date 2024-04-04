@@ -102,7 +102,7 @@ pub trait VectorDb {
     ) -> Result<Vec<SearchResult>>;
 
     /// Deletes the specified vector index from the vector database.
-    async fn drop_index(&self, index: String) -> Result<()>;
+    async fn drop_index(&self, index: &str) -> Result<()>;
 
     /// Returns the number of vectors in the specified index.
     async fn num_vectors(&self, index: &str) -> Result<u64>;
