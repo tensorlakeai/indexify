@@ -39,10 +39,6 @@ impl Args {
         debug!("Server config is: {:?}", config);
         let server =
             server::Server::new(Arc::new(config.clone())).expect("failed to create server");
-
-        let server_handle = tokio::spawn(async move {
-            server.run().await.unwrap();
-        });
         if dev_mode {
             let coordinator = CoordinatorServer::new(Arc::new(config.clone()))
                 .await
@@ -50,9 +46,15 @@ impl Args {
             let coordinator_handle = tokio::spawn(async move {
                 coordinator.run().await.unwrap();
             });
+            let server_handle = tokio::spawn(async move {
+                server.run().await.unwrap();
+            });
             tokio::try_join!(server_handle, coordinator_handle)
                 .expect("failed to run server or coordinator server");
         } else {
+            let server_handle = tokio::spawn(async move {
+                server.run().await.unwrap();
+            });
             server_handle.await.expect("failed to run server");
         }
     }
