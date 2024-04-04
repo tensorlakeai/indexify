@@ -67,7 +67,7 @@ Start the whisper extractor
 === "Docker"
 
     ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join-server --workers=1 --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500
     ```
 
 Start the chunk extractor
