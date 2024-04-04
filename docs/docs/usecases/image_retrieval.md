@@ -72,8 +72,8 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
 === "Shell"
 
     ```bash
-    indexify-extractor download hub://embedding/clip
-    indexify-extractor join-server clip.openai_clip_extractor:ClipEmbeddingExtractor
+    indexify-extractor download hub://embedding/clip_embedding
+    indexify-extractor join-server clip_embedding.openai_clip_extractor:ClipEmbeddingExtractor
     ```
 === "Docker"
 
