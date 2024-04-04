@@ -76,12 +76,14 @@ impl GarbageCollector {
     async fn assign_task_to_server(&self, task: GarbageCollectionTask, server_id: String) {
         {
             let mut tasks_guard = self.gc_tasks.write().await;
+            let mut tasks_assignment_guard = self.assigned_gc_tasks.write().await;
             //  check the initial condition
             if let Some(task) = tasks_guard.get_mut(&task.id) {
                 if task.status != TaskStatus::Unassigned {
                     return;
                 }
                 task.status = TaskStatus::Assigned(server_id.to_string());
+                tasks_assignment_guard.insert(task.task.id.clone(), server_id.clone());
             }
         }
 
@@ -109,6 +111,7 @@ impl GarbageCollector {
         while let Some(task) = rx.recv().await {
             //  add the task
             {
+                println!("Adding a new task {:?}", task);
                 let mut tasks_guard = self.gc_tasks.write().await;
                 tasks_guard
                     .entry(task.id.clone())
@@ -117,10 +120,20 @@ impl GarbageCollector {
             let server = self.choose_server().await;
 
             if let Some(server) = server {
+                println!("Assigning task to server {}", server);
                 self.assign_task_to_server(task.clone(), server).await;
             } else {
                 error!("No server available to assign task to");
             }
+        }
+    }
+
+    pub async fn mark_gc_task_completed(&self, task_id: &str) {
+        let mut tasks_guard = self.gc_tasks.write().await;
+        let mut assigned_tasks_guard = self.assigned_gc_tasks.write().await;
+        if let Some(_) = tasks_guard.get_mut(task_id) {
+            tasks_guard.remove(task_id);
+            assigned_tasks_guard.remove(task_id);
         }
     }
 
@@ -154,34 +167,40 @@ impl GarbageCollector {
     pub async fn remove_ingestion_server(&self, server_id: &str) {
         self.ingestion_servers.write().await.remove(server_id);
 
-        //  Get the tasks that need to be re-assigned
         let mut tasks_to_reassign = Vec::new();
         let mut tasks_to_remove = Vec::new();
-        for (task_id, assigned_server_id) in self.assigned_gc_tasks.write().await.iter() {
+
+        //  Get the tasks that need to be re-assigned
+        let mut gc_tasks_guard = self.gc_tasks.write().await;
+        let mut assigned_gc_tasks_guard = self.assigned_gc_tasks.write().await;
+        for (task_id, assigned_server_id) in assigned_gc_tasks_guard.iter() {
             if assigned_server_id != server_id {
                 continue;
             }
-            let mut gc_tasks_guard = self.gc_tasks.write().await;
             if let Some(task) = gc_tasks_guard.get_mut(task_id) {
                 task.status = TaskStatus::Unassigned;
-                tasks_to_reassign.push(task.clone());
                 tasks_to_remove.push(task_id.clone());
+                tasks_to_reassign.push(task.clone());
             }
         }
 
-        //  Remove the re-assigned tasks from the original list
-        let mut assigned_gc_tasks_guard = self.assigned_gc_tasks.write().await;
+        //  Remove the tasks
         for task_id in tasks_to_remove {
             assigned_gc_tasks_guard.remove(&task_id);
         }
 
         //  Re-assign the tasks
-        for task_to_reassign in tasks_to_reassign {
+        for mut task_to_reassign in tasks_to_reassign {
             //  reassign the task here
             let server = self.choose_server().await;
             if let Some(server_id) = server {
-                self.assign_task_to_server(task_to_reassign.task, server_id)
-                    .await;
+                task_to_reassign.status = TaskStatus::Assigned(server_id.clone());
+                assigned_gc_tasks_guard.insert(task_to_reassign.task.id.clone(), server_id.clone());
+                if let Err(_) = self.send_task(server_id, task_to_reassign.task.clone()) {
+                    //  remove task assignment
+                    task_to_reassign.status = TaskStatus::Unassigned;
+                    assigned_gc_tasks_guard.remove(&task_to_reassign.task.id);
+                }
             } else {
                 error!("No server available to assign task to");
             }
@@ -231,19 +250,21 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_ingestion_server_removal_and_task_reassignment() {
         let gc = GarbageCollector::new();
+        let gc_clone = Arc::clone(&gc);
         gc.register_ingestion_server("server1").await;
-        gc.register_ingestion_server("server2").await;
 
         // Assign a task to server1
+        let (tx, rx) = mpsc::channel(1);
         let task = GarbageCollectionTask::default();
-        gc.assign_task_to_server(task.clone(), "server1".to_string())
-            .await;
-
-        // Remove server1 and expect reassignment
-        gc.remove_ingestion_server("server1").await;
+        tx.send(task.clone()).await.unwrap();
+        super::start_watching_deletion_events(gc_clone, rx);
 
         // Allow some time for the reassignment to be processed
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Remove server1 and expect reassignment
+        gc.remove_ingestion_server("server1").await;
+        gc.register_ingestion_server("server2").await;
 
         // Verify the task has been reassigned to server2
         let tasks_guard = gc.gc_tasks.read().await;
