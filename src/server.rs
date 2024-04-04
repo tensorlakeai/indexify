@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,12 +16,8 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
-use nanoid::nanoid;
 use rust_embed::RustEmbed;
 use tokio::{signal, sync::mpsc};
 use tokio_stream::StreamExt;
@@ -138,28 +132,6 @@ impl Server {
             blob_storage.clone(),
             coordinator_client.clone(),
         ));
-        let ingestion_server_id = nanoid!(16);
-        let req = indexify_coordinator::RegisterIngestionServerRequest {
-            ingestion_server_id: ingestion_server_id.clone(),
-            addr: format!("{}:{}", self.config.listen_if, self.config.listen_port),
-        };
-        coordinator_client
-            .get()
-            .await?
-            .register_ingestion_server(req)
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to register ingestion server with coordinator: {}",
-                    e
-                )
-            })?;
-        self.start_gc_tasks_stream(
-            coordinator_client.clone(),
-            &ingestion_server_id,
-            data_manager.clone(),
-        )
-        .await?;
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
