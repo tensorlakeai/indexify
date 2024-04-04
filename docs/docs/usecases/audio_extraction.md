@@ -19,13 +19,13 @@ On another terminal start the embedding extractor which we will use to index tex
 
     ```bash
     indexify-extractor download hub://embedding/minilm-l6
-    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
     ```
   
 === "Docker"
 
     ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/minilm-l6 join --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
     ```
 
 ### Download a Speech To Text Extractor
@@ -44,12 +44,12 @@ On another terminal start a Whisper based Speech To Text Extractor
 
     ```bash
     indexify-extractor download hub://audio/whisper-asr
-    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor 
+    indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor 
     ```
 === "Docker"
 
     ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/whisper-asr join --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
     ```
 
 
