@@ -167,7 +167,7 @@ pub struct UpdateContentRequest {
 pub struct UpdateContentResponse {}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DeleteContentRequest {
+pub struct TombstoneContentRequest {
     pub content_ids: Vec<String>,
 }
 

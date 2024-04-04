@@ -643,7 +643,7 @@ async fn update_content(
 async fn delete_content(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Json(body): Json<super::api::DeleteContentRequest>,
+    Json(body): Json<super::api::TombstoneContentRequest>,
 ) -> Result<Json<()>, IndexifyAPIError> {
     let request = indexify_coordinator::TombstoneContentRequest {
         namespace: namespace.clone(),

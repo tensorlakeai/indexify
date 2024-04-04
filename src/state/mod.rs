@@ -935,7 +935,29 @@ impl App {
         content_metadata: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
         let mut state_changes = vec![];
-        for content in &content_metadata {
+
+        //  filter the content list to remove any content which has the same id and hash combo as an existing piece of content
+        //  TODO: Filter only on the hash, since the id is non-deterministic. Use the id match to update the version
+        let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.clone()).collect();
+        let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
+        let existing_content_ids: HashSet<String> =
+            existing_content.iter().map(|c| c.id.clone()).collect();
+        let existing_content: HashSet<(&String, &String)> = existing_content
+            .iter()
+            .map(|content| (&content.id, &content.hash))
+            .collect();
+        let filtered_content_metadata: Vec<_> = content_metadata
+            .into_iter()
+            .filter(|content| !existing_content.contains(&(&content.id, &content.hash)))
+            .map(|mut content| {
+                if existing_content_ids.contains(&content.id) {
+                    content.version += 1;
+                }
+                content
+            })
+            .collect();
+
+        for content in &filtered_content_metadata {
             state_changes.push(StateChange::new(
                 content.id.clone(),
                 internal_api::ChangeType::NewContent,
@@ -943,7 +965,9 @@ impl App {
             ));
         }
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateContent { content_metadata },
+            payload: RequestPayload::CreateContent {
+                content_metadata: filtered_content_metadata,
+            },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
         };

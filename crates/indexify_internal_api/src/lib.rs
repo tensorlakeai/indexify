@@ -471,6 +471,14 @@ pub struct ContentMetadata {
     pub size_bytes: u64,
     pub tombstoned: bool,
     pub hash: String,
+    pub version: u64,
+}
+
+impl ContentMetadata {
+    /// Create the composite key for content used in storage
+    pub fn get_composite_key(&self) -> String {
+        format!("{}::v{}", self.id, self.version)
+    }
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -511,6 +519,7 @@ impl Default for ContentMetadata {
             size_bytes: 1234567890,
             tombstoned: false,
             hash: "test_hash".to_string(),
+            version: 1,
         }
     }
 }
@@ -532,6 +541,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             size_bytes: value.size_bytes,
             tombstoned: false,
             hash: value.hash,
+            version: 1, //  default to 1 when creating from grpc content metadata
         })
     }
 }

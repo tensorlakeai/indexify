@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -712,7 +704,7 @@ impl IndexifyState {
             let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                content.id.clone(),
+                content.get_composite_key(),
                 &serialized_content,
             )
             .map_err(|e| {
