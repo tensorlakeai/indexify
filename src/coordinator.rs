@@ -23,19 +23,15 @@ use crate::{
 pub struct Coordinator {
     shared_state: SharedState,
     scheduler: Scheduler,
-    garbage_collector: Arc<GarbageCollector>,
 }
 
 impl Coordinator {
-    pub fn new(shared_state: SharedState, garbage_collector: Arc<GarbageCollector>) -> Arc<Self> {
-        // let (tx, rx) = mpsc::channel(8);
+    pub fn new(shared_state: SharedState) -> Arc<Self> {
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
-        // start_watching_deletion_events(garbage_collector.clone(), rx);
         Arc::new(Self {
             shared_state,
             scheduler,
-            garbage_collector,
         })
     }
 
@@ -391,8 +387,7 @@ mod tests {
             .await
             .unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator =
-            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
+        let coordinator = crate::coordinator::Coordinator::new(shared_state.clone());
         (coordinator, shared_state)
     }
 

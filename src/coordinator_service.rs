@@ -716,7 +716,7 @@ impl CoordinatorServer {
         let shared_state =
             state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
 
-        let coordinator = Coordinator::new(shared_state.clone(), garbage_collector);
+        let coordinator = Coordinator::new(shared_state.clone());
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,
