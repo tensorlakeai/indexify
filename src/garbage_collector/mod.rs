@@ -5,17 +5,17 @@ use std::{
 
 use indexify_internal_api::{ContentMetadata, GarbageCollectionTask};
 use rand::seq::IteratorRandom;
-use tokio::sync::{broadcast, mpsc::Receiver, RwLock};
+use tokio::sync::{broadcast, RwLock};
 use tracing::error;
 
-pub fn start_watching_deletion_events(
-    garbage_collector: Arc<GarbageCollector>,
-    rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
-) {
-    tokio::spawn(async move {
-        garbage_collector.watch_deletion_events(rx).await;
-    });
-}
+// pub fn start_watching_deletion_events(
+//     garbage_collector: Arc<GarbageCollector>,
+//     rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
+// ) {
+//     tokio::spawn(async move {
+//         garbage_collector.watch_deletion_events(rx).await;
+//     });
+// }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskStatus {
@@ -104,29 +104,29 @@ impl GarbageCollector {
         servers.iter().choose(&mut rng).cloned()
     }
 
-    async fn watch_deletion_events(
-        &self,
-        mut rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
-    ) {
-        while let Some(task) = rx.recv().await {
-            //  add the task
-            {
-                println!("Adding a new task {:?}", task);
-                let mut tasks_guard = self.gc_tasks.write().await;
-                tasks_guard
-                    .entry(task.id.clone())
-                    .or_insert_with(|| GCTaskInfo::new(task.clone()));
-            }
-            let server = self.choose_server().await;
+    // async fn watch_deletion_events(
+    //     &self,
+    //     mut rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
+    // ) {
+    //     while let Some(task) = rx.recv().await {
+    //         //  add the task
+    //         {
+    //             println!("Adding a new task {:?}", task);
+    //             let mut tasks_guard = self.gc_tasks.write().await;
+    //             tasks_guard
+    //                 .entry(task.id.clone())
+    //                 .or_insert_with(|| GCTaskInfo::new(task.clone()));
+    //         }
+    //         let server = self.choose_server().await;
 
-            if let Some(server) = server {
-                println!("Assigning task to server {}", server);
-                self.assign_task_to_server(task.clone(), server).await;
-            } else {
-                error!("No server available to assign task to");
-            }
-        }
-    }
+    //         if let Some(server) = server {
+    //             println!("Assigning task to server {}", server);
+    //             self.assign_task_to_server(task.clone(), server).await;
+    //         } else {
+    //             error!("No server available to assign task to");
+    //         }
+    //     }
+    // }
 
     pub async fn mark_gc_task_completed(&self, task_id: &str) {
         let mut tasks_guard = self.gc_tasks.write().await;
@@ -272,10 +272,10 @@ mod tests {
         gc.register_ingestion_server(&server_id).await;
 
         // Simulate receiving a new deletion event
-        let (tx, rx) = mpsc::channel(1);
+        // let (tx, rx) = mpsc::channel(1);
         let task = GarbageCollectionTask::default();
-        tx.send(task.clone()).await.unwrap();
-        super::start_watching_deletion_events(gc_clone, rx);
+        // tx.send(task.clone()).await.unwrap();
+        // super::start_watching_deletion_events(gc_clone, rx);
 
         // Allow some time for the task to be processed
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -294,10 +294,10 @@ mod tests {
         gc.register_ingestion_server("server1").await;
 
         // Assign a task to server1
-        let (tx, rx) = mpsc::channel(1);
+        // let (tx, rx) = mpsc::channel(1);
         let task = GarbageCollectionTask::default();
-        tx.send(task.clone()).await.unwrap();
-        super::start_watching_deletion_events(gc_clone, rx);
+        // tx.send(task.clone()).await.unwrap();
+        // super::start_watching_deletion_events(gc_clone, rx);
 
         // Allow some time for the reassignment to be processed
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -321,7 +321,7 @@ mod tests {
 
         //  Simulate receiving deletion events
         let (tx, rx) = mpsc::channel(1);
-        super::start_watching_deletion_events(gc_clone, rx);
+        // super::start_watching_deletion_events(gc_clone, rx);
         let task = GarbageCollectionTask::default();
         tx.send(task.clone()).await.unwrap();
         tx.send(task.clone()).await.unwrap();

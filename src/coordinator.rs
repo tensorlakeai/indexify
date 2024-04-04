@@ -14,7 +14,6 @@ use tracing::info;
 
 use crate::{
     coordinator_filters::*,
-    garbage_collector::GarbageCollector,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
