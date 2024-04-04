@@ -365,9 +365,9 @@ impl CoordinatorService for CoordinatorServiceServer {
 
             //  Notify the garbage collector that the ingestion server has disconnected
             if let Some(server_id) = ingestion_server_id {
-                coordinator_clone
-                    .remove_ingestion_server_from_garbage_collector(&server_id)
-                    .await;
+                if let Err(e) = coordinator_clone.remove_ingestion_server(&server_id).await {
+                    tracing::error!("Error removing ingestion server: {}", e);
+                }
             }
         });
 

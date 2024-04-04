@@ -111,19 +111,6 @@ impl RaftGrpcServer {
         GrpcHelper::ok_response(response)
     }
 
-    async fn register_ingestion_server(
-        &self,
-        ingestion_server_id: &str,
-    ) -> Result<tonic::Response<RaftReply>, Status> {
-        self.garbage_collector
-            .register_ingestion_server(ingestion_server_id)
-            .await;
-        let response = StateMachineUpdateResponse {
-            handled_by: self.id,
-        };
-        GrpcHelper::ok_response(response)
-    }
-
     /// Helper function to detect whether the current node is the leader
     async fn ensure_leader(&self) -> Result<Option<ForwardToLeader<NodeId, BasicNode>>, Status> {
         let result = self.raft.ensure_linearizable().await;
@@ -167,13 +154,6 @@ impl RaftApi for RaftGrpcServer {
 
         if let RequestPayload::JoinCluster { node_id, address } = req.payload {
             return self.add_node_to_cluster_if_absent(node_id, &address).await;
-        } else if let RequestPayload::RegisterIngestionServer {
-            ingestion_server_metadata,
-        } = req.payload
-        {
-            return self
-                .register_ingestion_server(&ingestion_server_metadata.id)
-                .await;
         }
 
         self.handle_client_write(req).await
@@ -293,12 +273,40 @@ impl RaftApi for RaftGrpcServer {
     ) -> Result<tonic::Response<RaftReply>, Status> {
         self.incr_recv_bytes(&request);
 
+        if (self.ensure_leader().await?).is_some() {
+            return Err(GrpcHelper::internal_err(
+                "The node we thought was the leader is not the leader for registering an ingestion server",
+            ));
+        }
+
         let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
 
         let ForwardableMessage::RegisterIngestionServer { id } = req.message else {
             return Err(GrpcHelper::internal_err("Invalid request"));
         };
         self.garbage_collector.register_ingestion_server(&id).await;
+
+        GrpcHelper::ok_response(())
+    }
+
+    async fn remove_ingestion_server(
+        &self,
+        request: Request<RaftRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        self.incr_recv_bytes(&request);
+
+        if (self.ensure_leader().await?).is_some() {
+            return Err(GrpcHelper::internal_err(
+                "The node we thought was the leader is not the leader for removing an ingestion server",
+            ));
+        }
+
+        let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
+
+        let ForwardableMessage::RemoveIngestionServer { id } = req.message else {
+            return Err(GrpcHelper::internal_err("Invalid request"));
+        };
+        self.garbage_collector.remove_ingestion_server(&id).await;
 
         GrpcHelper::ok_response(())
     }

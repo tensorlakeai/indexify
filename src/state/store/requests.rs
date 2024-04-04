@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 use super::{ExecutorId, TaskId};
 use crate::state::NodeId;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ForwardableRequest {
     pub message: ForwardableMessage,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ForwardableMessage {
     RegisterIngestionServer { id: String },
     RemoveIngestionServer { id: String },
@@ -49,12 +49,6 @@ pub enum RequestPayload {
     },
     RemoveExecutor {
         executor_id: String,
-    },
-    RegisterIngestionServer {
-        ingestion_server_metadata: internal_api::IngestionServerMetadata,
-    },
-    RemoveIngestionServer {
-        ingestion_server_id: String,
     },
     CreateNamespace {
         name: String,

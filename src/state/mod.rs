@@ -19,16 +19,12 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
@@ -381,8 +377,9 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source &&
-                self.get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source
+                && self
+                    .get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -486,8 +483,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source &&
-                self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source
+                && self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -867,19 +864,22 @@ impl App {
     }
 
     pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        let state_change = StateChange::new(
-            ingestion_server_id.to_string(),
-            internal_api::ChangeType::IngestionServerRemoved,
-            timestamp_secs(),
-        );
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::RemoveIngestionServer {
-                ingestion_server_id: ingestion_server_id.to_string(),
-            },
-            new_state_changes: vec![state_change],
-            state_changes_processed: vec![],
-        };
-        let _resp = self.forwardable_raft.client_write(req).await?;
+        //  Check if this node is the leader
+        if let Some(forward_to_leader) = self.forwardable_raft.ensure_leader().await? {
+            println!("This node is not the leader, forwarding the request");
+            let leader_node = forward_to_leader
+                .leader_node
+                .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
+            return self
+                .network
+                .remove_ingestion_server(ingestion_server_id, &leader_node.addr)
+                .await;
+        }
+
+        //  this node is the leader, make the write
+        self.garbage_collector
+            .remove_ingestion_server(ingestion_server_id)
+            .await;
         Ok(())
     }
 
@@ -1300,8 +1300,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1562,9 +1561,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
@@ -1858,7 +1857,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_register_ingestion_server() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1876,6 +1875,34 @@ mod tests {
         let ingestion_servers_leader = leader_node.garbage_collector.ingestion_servers.read().await;
         assert!(!ingestion_servers_leader.is_empty());
         assert!(ingestion_servers_leader.contains(ingestion_server_id));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_remove_ingestion_server() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(1)?;
+        let leader_node = cluster.get_node(0)?;
+
+        //  register an ingestion server with a follower
+        let ingestion_server_id = "123";
+        node.register_ingestion_server(ingestion_server_id).await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        {
+            let registered_servers = leader_node.garbage_collector.ingestion_servers.read().await;
+            assert!(!registered_servers.is_empty());
+        }
+
+        //  remove the ingestion server
+        node.remove_ingestion_server(ingestion_server_id).await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        {
+            let registered_servers = leader_node.garbage_collector.ingestion_servers.read().await;
+            assert!(registered_servers.is_empty());
+        }
 
         Ok(())
     }

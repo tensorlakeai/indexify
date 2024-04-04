@@ -5,12 +5,8 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest,
-        AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
-        VoteRequest,
-        VoteResponse,
+        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
+        InstallSnapshotResponse, VoteRequest, VoteResponse,
     },
     BasicNode,
 };
@@ -28,8 +24,7 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId,
-        TypeConfig,
+        NodeId, TypeConfig,
     },
 };
 
@@ -160,6 +155,35 @@ impl Network {
 
         client
             .register_ingestion_server(request)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn remove_ingestion_server(
+        &self,
+        ingestion_server_id: &str,
+        target_addr: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut client = self
+            .raft_client
+            .get(target_addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
+
+        let request = ForwardableRequest {
+            message: ForwardableMessage::RemoveIngestionServer {
+                id: ingestion_server_id.to_string(),
+            },
+        };
+        let request = GrpcHelper::encode_raft_request(&request)?.into_request();
+
+        let bytes_sent = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_sent_bytes(target_addr, bytes_sent);
+
+        client
+            .remove_ingestion_server(request)
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 

@@ -101,12 +101,6 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn remove_ingestion_server_from_garbage_collector(&self, ingestion_server_id: &str) {
-        self.garbage_collector
-            .remove_ingestion_server(ingestion_server_id)
-            .await;
-    }
-
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
         match self.shared_state.namespace(namespace).await {
             Result::Ok(Some(_)) => {
@@ -208,6 +202,13 @@ impl Coordinator {
     pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
         self.shared_state
             .register_ingestion_server(ingestion_server_id)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
+        self.shared_state
+            .remove_ingestion_server(ingestion_server_id)
             .await?;
         Ok(())
     }
