@@ -10,7 +10,11 @@ use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResp
 use tonic::{Request, Status};
 use tracing::info;
 
-use super::{raft_client::RaftClient, NodeId};
+use super::{
+    raft_client::RaftClient,
+    store::requests::{ForwardableMessage, ForwardableRequest},
+    NodeId,
+};
 use crate::{
     garbage_collector::GarbageCollector,
     grpc_helper::GrpcHelper,
@@ -112,7 +116,7 @@ impl RaftGrpcServer {
         ingestion_server_id: &str,
     ) -> Result<tonic::Response<RaftReply>, Status> {
         self.garbage_collector
-            .register_ingestion_server(ingestion_server_id.to_string())
+            .register_ingestion_server(ingestion_server_id)
             .await;
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
@@ -281,5 +285,21 @@ impl RaftApi for RaftGrpcServer {
 
         //  This node is the leader - we've confirmed it
         self.add_node_to_cluster_if_absent(node_id, &address).await
+    }
+
+    async fn register_ingestion_server(
+        &self,
+        request: Request<RaftRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        self.incr_recv_bytes(&request);
+
+        let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
+
+        let ForwardableMessage::RegisterIngestionServer { id } = req.message else {
+            return Err(GrpcHelper::internal_err("Invalid request"));
+        };
+        self.garbage_collector.register_ingestion_server(&id).await;
+
+        GrpcHelper::ok_response(())
     }
 }

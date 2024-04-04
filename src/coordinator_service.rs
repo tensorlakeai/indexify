@@ -13,56 +13,24 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    TaskAssignments,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
+    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
+    ExtractionPolicyResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest,
+    GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
+    TaskAssignments, TombstoneContentRequest, TombstoneContentResponse, Uint64List,
+    UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -73,12 +41,8 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator,
-    garbage_collector::GarbageCollector,
-    server_config::ServerConfig,
-    state,
-    tonic_streamer::DropReceiver,
-    utils::timestamp_secs,
+    coordinator::Coordinator, garbage_collector::GarbageCollector, server_config::ServerConfig,
+    state, tonic_streamer::DropReceiver, utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -313,7 +277,7 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<RegisterIngestionServerResponse>, tonic::Status> {
         let request = request.into_inner();
         self.coordinator
-            .register_ingestion_server(&request.addr, &request.ingestion_server_id)
+            .register_ingestion_server(&request.ingestion_server_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
@@ -346,7 +310,10 @@ impl CoordinatorService for CoordinatorServiceServer {
                                 //  check for initial handshake message
                                 if task_ack.task_id.is_empty() {
                                     ingestion_server_id.replace(task_ack.ingestion_server_id);
-                                    tracing::debug!("Received handshake, ingestion server ID set to: {:?}", ingestion_server_id);
+                                    tracing::info!("Received handshake, ingestion server ID set to: {:?}", ingestion_server_id);
+                                    if let Err(e) = coordinator_clone.register_ingestion_server(ingestion_server_id.as_ref().unwrap()).await {
+                                        tracing::error!("Error registering ingestion server: {}", e);
+                                    }
                                     continue;
                                 }
 

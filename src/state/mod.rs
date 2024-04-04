@@ -120,6 +120,7 @@ pub struct App {
     pub network: Network,
     pub node_addr: String,
     pub state_machine: StateMachineStore,
+    pub garbage_collector: Arc<GarbageCollector>,
 }
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
@@ -179,12 +180,8 @@ impl App {
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
-        let forwardable_raft = ForwardableRaft::new(
-            server_config.node_id,
-            raft.clone(),
-            network.clone(),
-            Arc::clone(&garbage_collector),
-        );
+        let forwardable_raft =
+            ForwardableRaft::new(server_config.node_id, raft.clone(), network.clone());
 
         let mut nodes = BTreeMap::new();
         nodes.insert(
@@ -226,6 +223,7 @@ impl App {
             network,
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             state_machine,
+            garbage_collector,
         });
 
         let raft_clone = app.forwardable_raft.clone();
@@ -849,14 +847,22 @@ impl App {
         Ok(state_change.id)
     }
 
-    pub async fn register_ingestion_server(
-        &self,
-        addr: &str,
-        ingestion_server_id: &str,
-    ) -> Result<()> {
-        self.forwardable_raft
-            .register_ingestion_server(ingestion_server_id, addr)
-            .await?;
+    pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
+        //  Check if this node is the leader
+        if let Some(forward_to_leader) = self.forwardable_raft.ensure_leader().await? {
+            let leader_node = forward_to_leader
+                .leader_node
+                .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
+            return self
+                .network
+                .register_ingestion_server(ingestion_server_id, &leader_node.addr)
+                .await;
+        }
+
+        //  this node is the leader, make the write
+        self.garbage_collector
+            .register_ingestion_server(ingestion_server_id)
+            .await;
         Ok(())
     }
 
@@ -1847,6 +1853,29 @@ mod tests {
             .get("extraction_policy_id")
             .unwrap();
         assert!(set_time > initial_time);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_register_ingestion_server() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_node(1)?;
+        let leader_node = cluster.get_node(0)?;
+
+        //  register an ingestion server with a non-leader and check that it is handled
+        // by the leader
+        let ingestion_server_id = "123";
+        node.register_ingestion_server(ingestion_server_id).await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let ingestion_servers_follower = node.garbage_collector.ingestion_servers.read().await;
+        assert!(ingestion_servers_follower.is_empty());
+        let ingestion_servers_leader = leader_node.garbage_collector.ingestion_servers.read().await;
+        assert!(!ingestion_servers_leader.is_empty());
+        assert!(ingestion_servers_leader.contains(ingestion_server_id));
 
         Ok(())
     }

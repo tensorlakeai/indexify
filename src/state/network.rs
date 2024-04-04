@@ -16,7 +16,7 @@ use openraft::{
 };
 use tonic::IntoRequest;
 
-use super::store::requests::StateMachineUpdateResponse;
+use super::store::requests::{ForwardableMessage, ForwardableRequest, StateMachineUpdateResponse};
 use crate::{
     grpc_helper::GrpcHelper,
     metrics::{
@@ -135,6 +135,35 @@ impl Network {
             })?;
 
         Ok(reply)
+    }
+
+    pub async fn register_ingestion_server(
+        &self,
+        ingestion_server_id: &str,
+        target_addr: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut client = self
+            .raft_client
+            .get(target_addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get raft client: {}", e))?;
+
+        let request = ForwardableRequest {
+            message: ForwardableMessage::RegisterIngestionServer {
+                id: ingestion_server_id.to_string(),
+            },
+        };
+        let request = GrpcHelper::encode_raft_request(&request)?.into_request();
+
+        let bytes_sent = request.get_ref().data.len() as u64;
+        raft_metrics::network::incr_sent_bytes(target_addr, bytes_sent);
+
+        client
+            .register_ingestion_server(request)
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        Ok(())
     }
 }
 

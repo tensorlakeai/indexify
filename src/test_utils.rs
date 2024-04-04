@@ -165,9 +165,9 @@ impl RaftTestCluster {
     ) -> anyhow::Result<Self> {
         let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
         let seed_node_id = server_configs.first().unwrap().node_id; //  the seed node will always be the first node in the list
-        let garbage_collector = GarbageCollector::new();
         let mut nodes = BTreeMap::new();
         for config in server_configs {
+            let garbage_collector = GarbageCollector::new();
             let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
             let shared_state = App::new(
                 config.clone(),

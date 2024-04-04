@@ -205,14 +205,11 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn register_ingestion_server(
-        &self,
-        addr: &str,
-        ingestion_server_id: &str,
-    ) -> Result<()> {
+    pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
         self.shared_state
-            .register_ingestion_server(addr, ingestion_server_id)
-            .await
+            .register_ingestion_server(ingestion_server_id)
+            .await?;
+        Ok(())
     }
 
     pub async fn get_content_metadata(
@@ -399,14 +396,14 @@ impl Coordinator {
             );
 
             match change.change_type {
-                indexify_internal_api::ChangeType::IngestionServerAdded => {
-                    self.garbage_collector
-                        .register_ingestion_server(change.object_id.clone())
-                        .await;
-                    self.shared_state
-                        .mark_change_events_as_processed(vec![change])
-                        .await?
-                }
+                // indexify_internal_api::ChangeType::IngestionServerAdded => {
+                //     self.garbage_collector
+                //         .register_ingestion_server(change.object_id.clone())
+                //         .await;
+                //     self.shared_state
+                //         .mark_change_events_as_processed(vec![change])
+                //         .await?
+                // }
                 indexify_internal_api::ChangeType::TombstoneContent => {
                     self.handle_tombstone_content(change).await?
                 }

@@ -11,6 +11,17 @@ use super::{ExecutorId, TaskId};
 use crate::state::NodeId;
 
 #[derive(Serialize, Deserialize, Clone)]
+pub struct ForwardableRequest {
+    pub message: ForwardableMessage,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum ForwardableMessage {
+    RegisterIngestionServer { id: String },
+    RemoveIngestionServer { id: String },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub new_state_changes: Vec<StateChange>,
