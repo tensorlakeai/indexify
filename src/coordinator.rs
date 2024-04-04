@@ -18,7 +18,7 @@ use tracing::info;
 
 use crate::{
     coordinator_filters::*,
-    garbage_collector::GarbageCollector,
+    garbage_collector::{start_watching_deletion_events, GarbageCollector},
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
@@ -36,8 +36,7 @@ impl Coordinator {
         let (tx, rx) = mpsc::channel(8);
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
-        let garbage_collector_clone = Arc::clone(&garbage_collector);
-        garbage_collector_clone.start_watching_deletion_events(rx);
+        start_watching_deletion_events(garbage_collector.clone(), rx);
         Arc::new(Self {
             shared_state,
             scheduler,

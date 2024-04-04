@@ -8,6 +8,15 @@ use rand::seq::IteratorRandom;
 use tokio::sync::{broadcast, mpsc::Receiver, RwLock};
 use tracing::error;
 
+pub fn start_watching_deletion_events(
+    garbage_collector: Arc<GarbageCollector>,
+    rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
+) {
+    tokio::spawn(async move {
+        garbage_collector.watch_deletion_events(rx).await;
+    });
+}
+
 #[derive(Debug, Clone)]
 pub enum TaskStatus {
     Unassigned,
@@ -91,16 +100,6 @@ impl GarbageCollector {
         }
     }
 
-    pub fn start_watching_deletion_events(
-        self: Arc<Self>,
-        rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
-    ) {
-        let gc_clone = self.clone();
-        tokio::spawn(async move {
-            gc_clone.watch_deletion_events(rx).await;
-        });
-    }
-
     pub async fn register_ingestion_server(&self, server_id: String) {
         self.ingestion_servers.write().await.insert(server_id);
     }
@@ -170,7 +169,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         let task = GarbageCollectionTask::default();
         tx.send(task.clone()).await.unwrap();
-        gc_clone.start_watching_deletion_events(rx);
+        super::start_watching_deletion_events(gc_clone, rx);
 
         // Allow some time for the task to be processed
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
