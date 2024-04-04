@@ -44,7 +44,7 @@ On another terminal start a Whisper based Speech To Text Extractor
 
     ```bash
     indexify-extractor download hub://audio/whisper-asr
-    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor 
+    indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor 
     ```
 === "Docker"
 
