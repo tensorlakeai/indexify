@@ -11,8 +11,12 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-        InstallSnapshotResponse, VoteRequest, VoteResponse,
+        AppendEntriesRequest,
+        AppendEntriesResponse,
+        InstallSnapshotRequest,
+        InstallSnapshotResponse,
+        VoteRequest,
+        VoteResponse,
     },
     BasicNode,
 };
@@ -30,7 +34,8 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId, TypeConfig,
+        NodeId,
+        TypeConfig,
     },
 };
 

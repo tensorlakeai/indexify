@@ -28,7 +28,7 @@ impl GarbageCollector {
 
     pub async fn mark_gc_task_completed(&self, task_id: &str) {
         let mut tasks_guard = self.gc_tasks.write().await;
-        if let Some(_) = tasks_guard.get_mut(task_id) {
+        if tasks_guard.get_mut(task_id).is_some() {
             tasks_guard.remove(task_id);
         }
     }
@@ -172,7 +172,7 @@ mod tests {
             let tasks_guard = gc.gc_tasks.read().await;
             assert_eq!(
                 tasks_guard
-                    .get(&tasks.get(0).unwrap().id)
+                    .get(&tasks.first().unwrap().id)
                     .unwrap()
                     .assigned_to,
                 Some("server1".to_string())
@@ -185,7 +185,7 @@ mod tests {
             let tasks_guard = gc.gc_tasks.read().await;
             assert_eq!(
                 tasks_guard
-                    .get(&tasks.get(0).unwrap().id)
+                    .get(&tasks.first().unwrap().id)
                     .unwrap()
                     .assigned_to,
                 None
@@ -198,7 +198,7 @@ mod tests {
             let tasks_guard = gc.gc_tasks.read().await;
             assert_eq!(
                 tasks_guard
-                    .get(&tasks.get(0).unwrap().id)
+                    .get(&tasks.first().unwrap().id)
                     .unwrap()
                     .assigned_to,
                 Some("server2".to_string())

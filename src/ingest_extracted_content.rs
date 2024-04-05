@@ -5,7 +5,9 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
+    api::*,
+    blob_storage::StoragePartWriter,
+    data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 

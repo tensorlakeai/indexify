@@ -201,7 +201,8 @@ impl Coordinator {
     }
 
     pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        //  TODO: Forward using forwardable coordinator once figured out how to do raft to coordinator address mapping
+        //  TODO: Forward using forwardable coordinator once figured out how to do raft
+        // to coordinator address mapping
         self.shared_state
             .register_ingestion_server(ingestion_server_id)
             .await?;
@@ -209,7 +210,8 @@ impl Coordinator {
     }
 
     pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        //  TODO: Forward using forwardable coordinator once figured out how to do raft to coordinator address mapping
+        //  TODO: Forward using forwardable coordinator once figured out how to do raft
+        // to coordinator address mapping
         self.shared_state
             .register_ingestion_server(ingestion_server_id)
             .await?;
