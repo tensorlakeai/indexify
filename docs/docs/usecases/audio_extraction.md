@@ -49,7 +49,7 @@ On another terminal start a Whisper based Speech To Text Extractor
 === "Docker"
 
     ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/whisper-asr join-server --workers=1 --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/whisper-asr join-server --workers=1 --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501 --listen-port=9501
     ```
 
 
