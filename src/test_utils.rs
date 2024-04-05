@@ -8,19 +8,19 @@ use std::{
 use futures::Future;
 
 use crate::{
+    coordinator::Coordinator,
+    coordinator_client::CoordinatorClient,
     garbage_collector::GarbageCollector,
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App,
-        NodeId,
-        RaftConfigOverrides,
+        App, NodeId, RaftConfigOverrides,
     },
 };
 
 #[cfg(test)]
 pub struct RaftTestCluster {
-    nodes: BTreeMap<NodeId, Arc<App>>,
+    nodes: BTreeMap<NodeId, Arc<Coordinator>>,
     pub seed_node_id: NodeId,
 }
 
@@ -84,18 +84,23 @@ impl RaftTestCluster {
             .expect("Expect seed node to be present");
 
         let current_leader_id = seed_node
+            .shared_state
             .forwardable_raft
             .raft
             .current_leader()
             .await
             .ok_or(anyhow::anyhow!("Error getting leader"))?;
 
-        let current_leader = self.nodes.get(&current_leader_id).unwrap_or_else(|| {
-            panic!(
-                "Expect node {} to be present in the cluster",
-                current_leader_id
-            )
-        });
+        let current_leader = &self
+            .nodes
+            .get(&current_leader_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Expect node {} to be present in the cluster",
+                    current_leader_id
+                )
+            })
+            .shared_state;
         Ok(Arc::clone(current_leader))
     }
 
@@ -115,7 +120,7 @@ impl RaftTestCluster {
             .iter()
             .find(|(id, _)| **id != leader.id)
             .expect("Expect non leader to be present");
-        Arc::clone(non_leader.1)
+        Arc::clone(&non_leader.1.shared_state)
     }
 
     /// Send the current write to the leader of the cluster
@@ -175,7 +180,10 @@ impl RaftTestCluster {
                 Arc::clone(&garbage_collector),
             )
             .await?;
-            nodes.insert(config.node_id, shared_state);
+            let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);
+            let garbage_collector = GarbageCollector::new();
+            let coordinator = Coordinator::new(shared_state, coordinator_client, garbage_collector);
+            nodes.insert(config.node_id, coordinator);
         }
         Ok(Self {
             nodes,
@@ -186,10 +194,11 @@ impl RaftTestCluster {
     /// Initialize the TestRaftCluster. This will always initialize the seed
     /// node as that must always be the first node initialized
     pub async fn initialize(&self, timeout: Duration) -> anyhow::Result<()> {
-        let seed_node = self
+        let seed_node = &self
             .nodes
             .get(&self.seed_node_id)
-            .expect("Seed node not found");
+            .expect("Seed node not found")
+            .shared_state;
 
         seed_node
             .initialize_raft()
@@ -256,7 +265,8 @@ impl RaftTestCluster {
             .get(&node_id)
             .unwrap_or_else(|| panic!("Could not find {} in node list", node_id));
 
-        node.forwardable_raft
+        node.shared_state
+            .forwardable_raft
             .raft
             .ensure_linearizable()
             .await
@@ -277,10 +287,11 @@ impl RaftTestCluster {
 
     /// "Push" a specific node to be promoted to the leader of the cluster
     pub async fn promote_node_to_leader(&self, node_id: NodeId) -> anyhow::Result<()> {
-        let node_to_promote = self
+        let node_to_promote = &self
             .nodes
             .get(&node_id)
-            .unwrap_or_else(|| panic!("Could not find {} in node list", node_id));
+            .unwrap_or_else(|| panic!("Could not find {} in node list", node_id))
+            .shared_state;
         node_to_promote
             .forwardable_raft
             .raft
@@ -303,10 +314,21 @@ impl RaftTestCluster {
         Ok(())
     }
 
+    pub fn _get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
+        let node = self
+            .nodes
+            .get(&node_id)
+            .unwrap_or_else(|| panic!("Coudl not find {} in node_list", node_id));
+        Ok(Arc::clone(node))
+    }
+
     /// Get a specific node from the cluster based on the node id
-    pub fn get_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
-        Ok(Arc::clone(self.nodes.get(&node_id).unwrap_or_else(|| {
-            panic!("Could not find {} in node list", node_id)
-        })))
+    pub fn get_raft_node(&self, node_id: NodeId) -> anyhow::Result<Arc<App>> {
+        let node = &self
+            .nodes
+            .get(&node_id)
+            .unwrap_or_else(|| panic!("Could not find {} in node list", node_id))
+            .shared_state;
+        Ok(Arc::clone(node))
     }
 }

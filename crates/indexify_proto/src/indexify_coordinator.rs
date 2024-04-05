@@ -197,6 +197,12 @@ pub struct RemoveIngestionServerRequest {
 pub struct RemoveIngestionServerResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CoordinatorCommand {
+    #[prost(message, optional, tag = "1")]
+    pub gc_task: ::core::option::Option<GcTask>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GcTaskAcknowledgement {
     #[prost(string, tag = "1")]
     pub task_id: ::prost::alloc::string::String,
@@ -1112,7 +1118,7 @@ pub mod coordinator_service_client {
                 Message = super::GcTaskAcknowledgement,
             >,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::GcTask>>,
+            tonic::Response<tonic::codec::Streaming<super::CoordinatorCommand>>,
             tonic::Status,
         > {
             self.inner
@@ -1600,7 +1606,7 @@ pub mod coordinator_service_server {
         >;
         /// Server streaming response type for the GCTasksStream method.
         type GCTasksStreamStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::GcTask, tonic::Status>,
+                Item = std::result::Result<super::CoordinatorCommand, tonic::Status>,
             >
             + Send
             + 'static;
@@ -2413,7 +2419,7 @@ pub mod coordinator_service_server {
                         T: CoordinatorService,
                     > tonic::server::StreamingService<super::GcTaskAcknowledgement>
                     for GCTasksStreamSvc<T> {
-                        type Response = super::GcTask;
+                        type Response = super::CoordinatorCommand;
                         type ResponseStream = T::GCTasksStreamStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,

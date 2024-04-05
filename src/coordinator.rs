@@ -23,10 +23,10 @@ use crate::{
 };
 
 pub struct Coordinator {
-    shared_state: SharedState,
+    pub shared_state: SharedState,
     scheduler: Scheduler,
-    garbage_collector: Arc<GarbageCollector>,
-    forwardable_coordinator: ForwardableCoordinator,
+    _garbage_collector: Arc<GarbageCollector>,
+    _forwardable_coordinator: ForwardableCoordinator,
 }
 
 impl Coordinator {
@@ -41,8 +41,8 @@ impl Coordinator {
         Arc::new(Self {
             shared_state,
             scheduler,
-            garbage_collector,
-            forwardable_coordinator,
+            _garbage_collector: garbage_collector,
+            _forwardable_coordinator: forwardable_coordinator,
         })
     }
 
@@ -201,34 +201,18 @@ impl Coordinator {
     }
 
     pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
-            //  this is not the leader, forward it
-            let leader_node = forward_to_leader
-                .leader_node
-                .ok_or_else(|| anyhow::anyhow!("could not get leader node"))?;
-            self.forwardable_coordinator
-                .register_ingestion_server(&leader_node.addr, ingestion_server_id)
-                .await?;
-        }
-        self.garbage_collector
+        //  TODO: Forward using forwardable coordinator once figured out how to do raft to coordinator address mapping
+        self.shared_state
             .register_ingestion_server(ingestion_server_id)
-            .await;
+            .await?;
         Ok(())
     }
 
     pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
-            //  this is not the leader, forward it
-            let leader_node = forward_to_leader
-                .leader_node
-                .ok_or_else(|| anyhow::anyhow!("could not get leader node"))?;
-            self.forwardable_coordinator
-                .remove_ingestion_server(&leader_node.addr, ingestion_server_id)
-                .await?;
-        }
-        self.garbage_collector
-            .remove_ingestion_server(ingestion_server_id)
-            .await;
+        //  TODO: Forward using forwardable coordinator once figured out how to do raft to coordinator address mapping
+        self.shared_state
+            .register_ingestion_server(ingestion_server_id)
+            .await?;
         Ok(())
     }
 
@@ -797,7 +781,7 @@ mod tests {
         cluster.assert_is_leader(new_leader_id).await;
 
         //  check leader re-direct
-        let alt_node = cluster.get_node(1)?;
+        let alt_node = cluster.get_raft_node(1)?;
         let response = alt_node.check_cluster_membership().await?;
         assert_eq!(response.handled_by, new_leader_id);
         Ok(())

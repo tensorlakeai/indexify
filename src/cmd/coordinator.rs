@@ -16,7 +16,6 @@ impl Args {
         let Self { config_path } = self;
 
         info!("starting indexify coordinator, version: {}", crate::VERSION);
-        println!("The config path {:?}", config_path);
         let config = ServerConfig::from_path(&config_path).unwrap_or_else(|e| {
             panic!(
                 "failed to load config for coordinator: {}: {}",

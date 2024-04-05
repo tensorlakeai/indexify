@@ -30,7 +30,7 @@ service CoordinatorService {
 
     rpc RemoveIngestionServer(RemoveIngestionServerRequest) returns (RemoveIngestionServerResponse) {}
 
-    rpc GCTasksStream(stream GCTaskAcknowledgement) returns (stream GCTask) {}
+    rpc GCTasksStream(stream GCTaskAcknowledgement) returns (stream CoordinatorCommand) {}
 
     rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
 
@@ -192,6 +192,10 @@ message RemoveIngestionServerRequest {
 
 message RemoveIngestionServerResponse {
 
+}
+
+message CoordinatorCommand {
+    GCTask gc_task = 1;
 }
 
 message GCTaskAcknowledgement {

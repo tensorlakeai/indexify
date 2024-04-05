@@ -13,8 +13,6 @@ impl Args {
     pub async fn run(self, _: GlobalArgs) {
         let Self { config_path } = self;
 
-        println!("Initializing config file at: {}", &config_path);
-
         // Initialize the error message earlier so that the String can be moved to
         // ServerConfig
         let error_message = format!("failed to generate config file at: {}", &config_path);

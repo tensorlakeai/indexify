@@ -4,10 +4,7 @@ use clap::Args as ClapArgs;
 
 use super::GlobalArgs;
 use crate::{
-    coordinator_service::CoordinatorServer,
-    prelude::*,
-    server,
-    server_config::ServerConfig,
+    coordinator_service::CoordinatorServer, prelude::*, server, server_config::ServerConfig,
 };
 
 #[derive(Debug, ClapArgs)]
@@ -28,7 +25,6 @@ impl Args {
         } = self;
 
         info!("starting indexify server, version: {}", crate::VERSION);
-        println!("The config path {:?}", config_path);
         let config = if let Some(config_path) = config_path {
             ServerConfig::from_path(&config_path)
                 .unwrap_or_else(|_| panic!("failed to load config file `{}`", config_path))

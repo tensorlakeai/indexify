@@ -900,7 +900,7 @@ mod tests {
                 data: serialized_state,
                 done: true,
             };
-        let node = cluster.get_node(2)?;
+        let node = cluster.get_raft_node(2)?;
         node.forwardable_raft
             .raft
             .install_snapshot(install_snapshot_req)

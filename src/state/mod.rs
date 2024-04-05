@@ -951,7 +951,6 @@ impl App {
     pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
         //  Check if this node is the leader
         if let Some(forward_to_leader) = self.forwardable_raft.ensure_leader().await? {
-            println!("This node is not the leader, forwarding the request");
             let leader_node = forward_to_leader
                 .leader_node
                 .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
@@ -1443,7 +1442,7 @@ mod tests {
     async fn test_write_read_index() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
         let index_to_write = Index {
             name: "name".into(),
             namespace: "test".into(),
@@ -1552,7 +1551,7 @@ mod tests {
     async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a piece of content
         let content_id = "content_id";
@@ -1662,7 +1661,7 @@ mod tests {
             std::iter::repeat(indexify_internal_api::ContentMetadata::default())
                 .take(3)
                 .collect();
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
         node.update_task(task, Some(executor_id.into()), content_meta_list)
             .await?;
 
@@ -1681,7 +1680,7 @@ mod tests {
     async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create an executor and extractor and ensure they can be read back
         let executor_id = "executor_id";
@@ -1726,7 +1725,7 @@ mod tests {
 
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create some content
         let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
@@ -1771,7 +1770,7 @@ mod tests {
     async fn test_create_read_and_match_extraction_policies() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create some content
         let content_labels = vec![
@@ -1850,7 +1849,7 @@ mod tests {
     async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a namespace
         let namespace = "namespace";
@@ -1907,7 +1906,7 @@ mod tests {
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a mapping of content -> extraction policies, insert it, mark it as
         // read and read it back to assert
@@ -1939,8 +1938,8 @@ mod tests {
     async fn test_register_ingestion_server() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(1)?;
-        let leader_node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(1)?;
+        let leader_node = cluster.get_raft_node(0)?;
 
         //  register an ingestion server with a non-leader and check that it is handled
         // by the leader
@@ -1962,8 +1961,8 @@ mod tests {
     async fn test_remove_ingestion_server() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(1)?;
-        let leader_node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(1)?;
+        let leader_node = cluster.get_raft_node(0)?;
 
         //  register an ingestion server with a follower
         let ingestion_server_id = "123";

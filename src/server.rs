@@ -120,7 +120,6 @@ impl Server {
             false => info!("starting indexify server with TLS disabled"),
         }
         let vector_db = vectordbs::create_vectordb(self.config.index_config.clone()).await?;
-        println!("The coordinator addr {}", self.config.coordinator_addr);
         let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
         let vector_index_manager = Arc::new(
             VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
@@ -288,7 +287,6 @@ impl Server {
             })
             .await
         {
-            // FIXME: Listen to the shutdown handler and return if ctrl-c was pressed
             info!("failed to create default namespace: {}", err);
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
@@ -361,23 +359,30 @@ impl Server {
                     Ok(response) => {
                         let mut stream = response.into_inner();
 
-                        while let Ok(Some(gc_task)) = stream.message().await {
-                            if let Err(e) = data_manager.delete_content(&gc_task).await {
-                                tracing::error!(
-                                    "Failed to delete content for task {:?}: {}",
-                                    gc_task,
-                                    e
-                                );
-                            }
-                            if let Err(e) = ack_tx
-                                .send(GcTaskAcknowledgement {
-                                    task_id: gc_task.task_id.clone(),
-                                    completed: true,
-                                    ingestion_server_id: ingestion_server_id.clone(),
-                                })
-                                .await
-                            {
-                                tracing::error!("Failed to send ack for task {:?}: {}", gc_task, e);
+                        while let Ok(Some(command)) = stream.message().await {
+                            if let Some(gc_task) = command.gc_task {
+                                if let Err(e) = data_manager.delete_content(&gc_task).await {
+                                    tracing::error!(
+                                        "Failed to delete content for task {:?}: {}",
+                                        gc_task,
+                                        e
+                                    );
+                                    continue;
+                                }
+                                if let Err(e) = ack_tx
+                                    .send(GcTaskAcknowledgement {
+                                        task_id: gc_task.task_id.clone(),
+                                        completed: true,
+                                        ingestion_server_id: ingestion_server_id.clone(),
+                                    })
+                                    .await
+                                {
+                                    tracing::error!(
+                                        "Failed to send ack for task {:?}: {}",
+                                        gc_task,
+                                        e
+                                    );
+                                }
                             }
                         }
                     }

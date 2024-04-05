@@ -13,7 +13,7 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
+    self, coordinator_service_server::CoordinatorService, CoordinatorCommand, CreateContentRequest,
     CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
     ExtractionPolicyResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest,
     GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
@@ -49,7 +49,7 @@ use crate::{
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
 type GCTasksResponseStream =
-    Pin<Box<dyn tokio_stream::Stream<Item = Result<GcTask, Status>> + Send + Sync>>;
+    Pin<Box<dyn tokio_stream::Stream<Item = Result<CoordinatorCommand, Status>> + Send + Sync>>;
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
@@ -322,10 +322,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                     task_ack = inbound.next() => {
                         match task_ack {
                             Some(Ok(task_ack)) => {
-                                //  check for initial handshake message
+                                //  check for heartbeat
                                 if task_ack.task_id.is_empty() {
                                     ingestion_server_id.replace(task_ack.ingestion_server_id);
-                                    tracing::info!("Received handshake, ingestion server ID set to: {:?}", ingestion_server_id);
                                     if let Err(e) = coordinator_clone.register_ingestion_server(ingestion_server_id.as_ref().unwrap()).await {
                                         tracing::error!("Error registering ingestion server: {}", e);
                                     }
@@ -371,7 +370,10 @@ impl CoordinatorService for CoordinatorServiceServer {
                                         .collect::<Vec<String>>(),
                                     blob_store_path: task.blob_store_path,
                                 };
-                                tx.send(serialized_task).await.unwrap();
+                                let command = CoordinatorCommand {
+                                    gc_task: Some(serialized_task)
+                                };
+                                tx.send(command).await.unwrap();
                             }
                         }
                     }
@@ -730,8 +732,6 @@ impl CoordinatorServer {
         let garbage_collector = GarbageCollector::new();
         let shared_state =
             state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
-        println!("The config {:?}", config);
-        println!("The addr {}", addr);
         let coordinator_client = CoordinatorClient::new(&addr.to_string());
 
         let coordinator = Coordinator::new(
