@@ -180,6 +180,7 @@ impl RaftTestCluster {
                 config.clone(),
                 overrides.clone(),
                 Arc::clone(&garbage_collector),
+                &config.coordinator_addr,
             )
             .await?;
             let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);

@@ -768,8 +768,13 @@ impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let garbage_collector = GarbageCollector::new();
-        let shared_state =
-            state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
+        let shared_state = state::App::new(
+            config.clone(),
+            None,
+            Arc::clone(&garbage_collector),
+            &config.coordinator_addr,
+        )
+        .await?;
         let coordinator_client = CoordinatorClient::new(&addr.to_string());
 
         let coordinator = Coordinator::new(

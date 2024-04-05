@@ -25,8 +25,8 @@ use crate::{
 pub struct Coordinator {
     pub shared_state: SharedState,
     scheduler: Scheduler,
-    _garbage_collector: Arc<GarbageCollector>,
-    _forwardable_coordinator: ForwardableCoordinator,
+    garbage_collector: Arc<GarbageCollector>,
+    forwardable_coordinator: ForwardableCoordinator,
 }
 
 impl Coordinator {
@@ -41,8 +41,8 @@ impl Coordinator {
         Arc::new(Self {
             shared_state,
             scheduler,
-            _garbage_collector: garbage_collector,
-            _forwardable_coordinator: forwardable_coordinator,
+            garbage_collector,
+            forwardable_coordinator,
         })
     }
 
@@ -201,20 +201,42 @@ impl Coordinator {
     }
 
     pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        //  TODO: Forward using forwardable coordinator once figured out how to do raft
-        // to coordinator address mapping
-        self.shared_state
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_node_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_node_id)?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            self.forwardable_coordinator
+                .register_ingestion_server(&leader_coord_addr, ingestion_server_id)
+                .await?;
+            return Ok(());
+        }
+        self.garbage_collector
             .register_ingestion_server(ingestion_server_id)
-            .await?;
+            .await;
         Ok(())
     }
 
     pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        //  TODO: Forward using forwardable coordinator once figured out how to do raft
-        // to coordinator address mapping
-        self.shared_state
-            .register_ingestion_server(ingestion_server_id)
-            .await?;
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_node_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_node_id)?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            self.forwardable_coordinator
+                .remove_ingestion_server(&leader_coord_addr, ingestion_server_id)
+                .await?;
+            return Ok(());
+        }
+        self.garbage_collector
+            .remove_ingestion_server(ingestion_server_id)
+            .await;
         Ok(())
     }
 
@@ -400,9 +422,14 @@ mod tests {
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
         let garbage_collector = GarbageCollector::new();
         let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);
-        let shared_state = App::new(config, None, garbage_collector.clone())
-            .await
-            .unwrap();
+        let shared_state = App::new(
+            config.clone(),
+            None,
+            garbage_collector.clone(),
+            &config.coordinator_addr,
+        )
+        .await
+        .unwrap();
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(
             shared_state.clone(),

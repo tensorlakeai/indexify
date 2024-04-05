@@ -375,9 +375,14 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let garbage_collector = crate::garbage_collector::GarbageCollector::new();
-        let shared_state = App::new(config, None, Arc::clone(&garbage_collector))
-            .await
-            .unwrap();
+        let shared_state = App::new(
+            config.clone(),
+            None,
+            Arc::clone(&garbage_collector),
+            &config.coordinator_addr,
+        )
+        .await
+        .unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         let task_ids: HashSet<TaskId> = shared_state
@@ -404,9 +409,14 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let garbage_collector = crate::garbage_collector::GarbageCollector::new();
-        let shared_state = App::new(config, None, Arc::clone(&garbage_collector))
-            .await
-            .unwrap();
+        let shared_state = App::new(
+            config.clone(),
+            None,
+            Arc::clone(&garbage_collector),
+            &config.coordinator_addr,
+        )
+        .await
+        .unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
@@ -437,9 +447,14 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let garbage_collector = crate::garbage_collector::GarbageCollector::new();
-        let shared_state = App::new(config, None, Arc::clone(&garbage_collector))
-            .await
-            .unwrap();
+        let shared_state = App::new(
+            config.clone(),
+            None,
+            Arc::clone(&garbage_collector),
+            &config.coordinator_addr,
+        )
+        .await
+        .unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         let text_extractor = {
@@ -652,9 +667,14 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         std::fs::remove_dir_all(config.state_store.clone().path.unwrap()).unwrap();
         let garbage_collector = crate::garbage_collector::GarbageCollector::new();
-        let shared_state = App::new(config, None, Arc::clone(&garbage_collector))
-            .await
-            .unwrap();
+        let shared_state = App::new(
+            config.clone(),
+            None,
+            Arc::clone(&garbage_collector),
+            &config.coordinator_addr,
+        )
+        .await
+        .unwrap();
         shared_state.initialize_raft().await.unwrap();
 
         let text_extractor = {

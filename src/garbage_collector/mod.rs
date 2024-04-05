@@ -42,6 +42,7 @@ impl GarbageCollector {
 
         if result {
             //  get all unassigned tasks and try to assign them
+            tracing::info!("registering new ingestion server {}", server_id);
             let mut tasks_guard = self.gc_tasks.write().await;
             for (_, task) in tasks_guard.iter_mut() {
                 if task.assigned_to.is_none() {

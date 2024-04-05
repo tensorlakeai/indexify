@@ -27,6 +27,8 @@ pub struct RaftGrpcServer {
     raft: Arc<Raft>,
     raft_client: Arc<RaftClient>,
     garbage_collector: Arc<GarbageCollector>,
+    address: String,
+    coordinator_address: String,
 }
 
 impl RaftGrpcServer {
@@ -35,12 +37,16 @@ impl RaftGrpcServer {
         raft: Arc<Raft>,
         raft_client: Arc<RaftClient>,
         garbage_collector: Arc<GarbageCollector>,
+        address: String,
+        coordinator_addr: String,
     ) -> Self {
         Self {
             id,
             raft,
             raft_client,
             garbage_collector,
+            address,
+            coordinator_address: coordinator_addr,
         }
     }
 
@@ -74,6 +80,7 @@ impl RaftGrpcServer {
         &self,
         node_id: NodeId,
         address: &str,
+        coordinator_addr: &str,
     ) -> Result<tonic::Response<RaftReply>, Status> {
         let nodes_in_cluster = self.get_nodes_in_cluster();
         if nodes_in_cluster.contains_key(&node_id) {
@@ -104,6 +111,46 @@ impl RaftGrpcServer {
             .change_membership(node_ids, true)
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        //  add the coordinator address to state machine along with the leader
+        // coordinator address
+        let state_machine_req = StateMachineUpdateRequest {
+            payload: RequestPayload::JoinCluster {
+                node_id: self.id,
+                address: self.address.clone(),
+                coordinator_addr: self.coordinator_address.clone(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.raft
+            .client_write(state_machine_req)
+            .await
+            .map_err(|e| {
+                GrpcHelper::internal_err(format!(
+                    "Error writing to state machine: {}",
+                    e
+                ))
+            })?;
+
+        let state_machine_req = StateMachineUpdateRequest {
+            payload: RequestPayload::JoinCluster {
+                node_id,
+                address: address.to_string(),
+                coordinator_addr: coordinator_addr.to_string(),
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.raft
+            .client_write(state_machine_req)
+            .await
+            .map_err(|e| {
+                GrpcHelper::internal_err(format!(
+                    "Error writing to state machine: {}",
+                    e
+                ))
+            })?;
 
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
@@ -152,8 +199,15 @@ impl RaftApi for RaftGrpcServer {
 
         let req = GrpcHelper::parse_req::<StateMachineUpdateRequest>(request)?;
 
-        if let RequestPayload::JoinCluster { node_id, address } = req.payload {
-            return self.add_node_to_cluster_if_absent(node_id, &address).await;
+        if let RequestPayload::JoinCluster {
+            node_id,
+            address,
+            coordinator_addr,
+        } = req.payload
+        {
+            return self
+                .add_node_to_cluster_if_absent(node_id, &address, &coordinator_addr)
+                .await;
         }
 
         self.handle_client_write(req).await
@@ -235,7 +289,12 @@ impl RaftApi for RaftGrpcServer {
 
         let req = GrpcHelper::parse_req::<StateMachineUpdateRequest>(request)?;
 
-        let RequestPayload::JoinCluster { node_id, address } = req.payload else {
+        let RequestPayload::JoinCluster {
+            node_id,
+            address,
+            coordinator_addr,
+        } = req.payload
+        else {
             return Err(GrpcHelper::internal_err("Invalid request"));
         };
 
@@ -251,7 +310,11 @@ impl RaftApi for RaftGrpcServer {
                 .await
                 .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
             let forwarding_req = GrpcHelper::encode_raft_request(&StateMachineUpdateRequest {
-                payload: requests::RequestPayload::JoinCluster { node_id, address },
+                payload: requests::RequestPayload::JoinCluster {
+                    node_id,
+                    address,
+                    coordinator_addr,
+                },
                 new_state_changes: vec![],
                 state_changes_processed: vec![],
             })
@@ -264,51 +327,8 @@ impl RaftApi for RaftGrpcServer {
         };
 
         //  This node is the leader - we've confirmed it
-        self.add_node_to_cluster_if_absent(node_id, &address).await
-    }
-
-    async fn register_ingestion_server(
-        &self,
-        request: Request<RaftRequest>,
-    ) -> Result<tonic::Response<RaftReply>, Status> {
-        self.incr_recv_bytes(&request);
-
-        if (self.ensure_leader().await?).is_some() {
-            return Err(GrpcHelper::internal_err(
-                "The node we thought was the leader is not the leader for registering an ingestion server",
-            ));
-        }
-
-        let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
-
-        let ForwardableMessage::RegisterIngestionServer { id } = req.message else {
-            return Err(GrpcHelper::internal_err("Invalid request"));
-        };
-        self.garbage_collector.register_ingestion_server(&id).await;
-
-        GrpcHelper::ok_response(())
-    }
-
-    async fn remove_ingestion_server(
-        &self,
-        request: Request<RaftRequest>,
-    ) -> Result<tonic::Response<RaftReply>, Status> {
-        self.incr_recv_bytes(&request);
-
-        if (self.ensure_leader().await?).is_some() {
-            return Err(GrpcHelper::internal_err(
-                "The node we thought was the leader is not the leader for removing an ingestion server",
-            ));
-        }
-
-        let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
-
-        let ForwardableMessage::RemoveIngestionServer { id } = req.message else {
-            return Err(GrpcHelper::internal_err("Invalid request"));
-        };
-        self.garbage_collector.remove_ingestion_server(&id).await;
-
-        GrpcHelper::ok_response(())
+        self.add_node_to_cluster_if_absent(node_id, &address, &coordinator_addr)
+            .await
     }
 
     async fn create_gc_tasks(

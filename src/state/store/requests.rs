@@ -49,6 +49,7 @@ pub enum RequestPayload {
     JoinCluster {
         node_id: NodeId,
         address: String,
+        coordinator_addr: String,
     },
     RegisterExecutor {
         addr: String,

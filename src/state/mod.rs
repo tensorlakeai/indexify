@@ -109,6 +109,7 @@ pub struct RaftMetrics {
 pub struct App {
     pub id: NodeId,
     pub addr: String,
+    coordinator_addr: String,
     seed_node: String,
     pub forwardable_raft: ForwardableRaft,
     nodes: BTreeMap<NodeId, BasicNode>,
@@ -133,6 +134,7 @@ impl App {
         server_config: Arc<ServerConfig>,
         overrides: Option<RaftConfigOverrides>,
         garbage_collector: Arc<GarbageCollector>,
+        coordinator_addr: &str,
     ) -> Result<Arc<Self>> {
         let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
@@ -203,6 +205,8 @@ impl App {
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
             Arc::clone(&garbage_collector),
+            addr.to_string(),
+            server_config.coordinator_addr.clone(),
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
@@ -212,6 +216,7 @@ impl App {
                 .coordinator_lis_addr_sock()
                 .map_err(|e| anyhow!("unable to get coordinator address : {}", e.to_string()))?
                 .to_string(),
+            coordinator_addr: coordinator_addr.to_string(),
             seed_node: server_config.seed_node.clone(),
             forwardable_raft,
             shutdown_rx: rx,
@@ -932,44 +937,6 @@ impl App {
         Ok(state_change.id)
     }
 
-    pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        //  Check if this node is the leader
-        if let Some(forward_to_leader) = self.forwardable_raft.ensure_leader().await? {
-            let leader_node = forward_to_leader
-                .leader_node
-                .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
-            return self
-                .network
-                .register_ingestion_server(ingestion_server_id, &leader_node.addr)
-                .await;
-        }
-
-        //  this node is the leader, make the write
-        self.garbage_collector
-            .register_ingestion_server(ingestion_server_id)
-            .await;
-        Ok(())
-    }
-
-    pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        //  Check if this node is the leader
-        if let Some(forward_to_leader) = self.forwardable_raft.ensure_leader().await? {
-            let leader_node = forward_to_leader
-                .leader_node
-                .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
-            return self
-                .network
-                .remove_ingestion_server(ingestion_server_id, &leader_node.addr)
-                .await;
-        }
-
-        //  this node is the leader, make the write
-        self.garbage_collector
-            .remove_ingestion_server(ingestion_server_id)
-            .await;
-        Ok(())
-    }
-
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
         let extractors: Vec<internal_api::ExtractorDescription> = self
             .state_machine
@@ -1306,7 +1273,12 @@ impl App {
         &self,
     ) -> Result<store::requests::StateMachineUpdateResponse, anyhow::Error> {
         self.network
-            .join_cluster(self.id, &self.node_addr, &self.seed_node)
+            .join_cluster(
+                self.id,
+                &self.node_addr,
+                &self.coordinator_addr,
+                &self.seed_node,
+            )
             .await
     }
 
@@ -1329,6 +1301,10 @@ impl App {
 
     pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
         self.forwardable_raft.ensure_leader().await
+    }
+
+    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+        self.state_machine.get_coordinator_addr(node_id)
     }
 }
 
@@ -1933,57 +1909,6 @@ mod tests {
             .get("extraction_policy_id")
             .unwrap();
         assert!(set_time > initial_time);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_register_ingestion_server() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(1)?;
-        let leader_node = cluster.get_raft_node(0)?;
-
-        //  register an ingestion server with a non-leader and check that it is handled
-        // by the leader
-        let ingestion_server_id = "123";
-        node.register_ingestion_server(ingestion_server_id).await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let ingestion_servers_follower = node.garbage_collector.ingestion_servers.read().await;
-        assert!(ingestion_servers_follower.is_empty());
-        let ingestion_servers_leader = leader_node.garbage_collector.ingestion_servers.read().await;
-        assert!(!ingestion_servers_leader.is_empty());
-        assert!(ingestion_servers_leader.contains(ingestion_server_id));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_remove_ingestion_server() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(1)?;
-        let leader_node = cluster.get_raft_node(0)?;
-
-        //  register an ingestion server with a follower
-        let ingestion_server_id = "123";
-        node.register_ingestion_server(ingestion_server_id).await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        {
-            let registered_servers = leader_node.garbage_collector.ingestion_servers.read().await;
-            assert!(!registered_servers.is_empty());
-        }
-
-        //  remove the ingestion server
-        node.remove_ingestion_server(ingestion_server_id).await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        {
-            let registered_servers = leader_node.garbage_collector.ingestion_servers.read().await;
-            assert!(registered_servers.is_empty());
-        }
 
         Ok(())
     }

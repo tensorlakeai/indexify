@@ -89,6 +89,7 @@ pub enum StateMachineColumns {
     IndexTable,                         //  String -> Index
     StructuredDataSchemas,              //  SchemaId -> StructuredDataSchema
     ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
+    CoordinatorAddress,                 //  NodeId -> Coordinator address
 }
 
 impl StateMachineColumns {
@@ -386,6 +387,12 @@ impl StateMachineStore {
 
     pub async fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
         self.data.indexify_state.get_schemas(ids, &self.db)
+    }
+
+    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+        self.data
+            .indexify_state
+            .get_coordinator_addr(node_id, &self.db)
     }
 
     /// Test utility method to get all key-value pairs from a column family
