@@ -96,13 +96,9 @@ impl GarbageCollector {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::Arc,
-    };
+    use std::collections::{HashMap, HashSet};
 
-    use indexify_internal_api::{ContentMetadata, GarbageCollectionTask};
-    use tokio::sync::mpsc;
+    use indexify_internal_api::ContentMetadata;
 
     use crate::garbage_collector::GarbageCollector;
 
