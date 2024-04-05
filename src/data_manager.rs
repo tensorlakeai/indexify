@@ -502,9 +502,7 @@ impl DataManager {
         Ok(())
     }
 
-    fn combine_extracted_metadata(
-        metadata: &[ExtractedMetadata]
-    ) -> serde_json::Value {
+    fn combine_extracted_metadata(metadata: &[ExtractedMetadata]) -> serde_json::Value {
         let mut combined_metadata = serde_json::Map::new();
         for m in metadata {
             for (k, v) in m.metadata.as_object().unwrap() {
@@ -558,7 +556,8 @@ impl DataManager {
             .await?;
         let metadata = if result.is_empty() {
             // If no embeddings were found in this feature list, read existing metadata
-            let existing_metadata = self.metadata_index_manager
+            let existing_metadata = self
+                .metadata_index_manager
                 .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
                 .await?;
             Self::combine_extracted_metadata(&existing_metadata)

@@ -308,7 +308,6 @@ mod tests {
 
     use indexify_internal_api::TaskOutcome;
     use serde_json::json;
-
     use tokio::task::JoinHandle;
 
     use super::*;
@@ -564,7 +563,7 @@ mod tests {
         "distance" : "cosine"}),
         });
 
-        let metadata1 =  json!({"key1" : "value1", "key2" : "value2"});
+        let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
 
         payload.features.push(Feature {
             feature_type: FeatureType::Metadata,
@@ -683,7 +682,7 @@ mod tests {
             labels: HashMap::new(),
         };
 
-        let metadata1 =  json!({"key1" : "value1", "key2" : "value2"});
+        let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
 
         // Add metadata only without embedding
         payload.features.push(Feature {
