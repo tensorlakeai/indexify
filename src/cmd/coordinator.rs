@@ -16,8 +16,12 @@ impl Args {
         let Self { config_path } = self;
 
         info!("starting indexify coordinator, version: {}", crate::VERSION);
-        let config = ServerConfig::from_path(&config_path)
-            .unwrap_or_else(|_| panic!("failed to load config for coordinator: {}", config_path));
+        let config = ServerConfig::from_path(&config_path).unwrap_or_else(|e| {
+            panic!(
+                "failed to load config for coordinator: {}: {}",
+                config_path, e
+            )
+        });
         let coordinator = CoordinatorServer::new(Arc::new(config))
             .await
             .expect("failed to create coordinator server");

@@ -32,6 +32,7 @@ use store::{
 };
 use tokio::{
     sync::{
+        broadcast,
         watch::{self, Receiver, Sender},
         Mutex,
     },
@@ -108,6 +109,7 @@ pub struct RaftMetrics {
 pub struct App {
     pub id: NodeId,
     pub addr: String,
+    coordinator_addr: String,
     seed_node: String,
     pub forwardable_raft: ForwardableRaft,
     nodes: BTreeMap<NodeId, BasicNode>,
@@ -120,6 +122,7 @@ pub struct App {
     pub network: Network,
     pub node_addr: String,
     pub state_machine: StateMachineStore,
+    pub garbage_collector: Arc<GarbageCollector>,
 }
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
@@ -131,6 +134,7 @@ impl App {
         server_config: Arc<ServerConfig>,
         overrides: Option<RaftConfigOverrides>,
         garbage_collector: Arc<GarbageCollector>,
+        coordinator_addr: &str,
     ) -> Result<Arc<Self>> {
         let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
@@ -179,12 +183,8 @@ impl App {
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
 
-        let forwardable_raft = ForwardableRaft::new(
-            server_config.node_id,
-            raft.clone(),
-            network.clone(),
-            Arc::clone(&garbage_collector),
-        );
+        let forwardable_raft =
+            ForwardableRaft::new(server_config.node_id, raft.clone(), network.clone());
 
         let mut nodes = BTreeMap::new();
         nodes.insert(
@@ -204,7 +204,8 @@ impl App {
             server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
-            Arc::clone(&garbage_collector),
+            addr.to_string(),
+            server_config.coordinator_addr.clone(),
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
@@ -214,6 +215,7 @@ impl App {
                 .coordinator_lis_addr_sock()
                 .map_err(|e| anyhow!("unable to get coordinator address : {}", e.to_string()))?
                 .to_string(),
+            coordinator_addr: coordinator_addr.to_string(),
             seed_node: server_config.seed_node.clone(),
             forwardable_raft,
             shutdown_rx: rx,
@@ -226,6 +228,7 @@ impl App {
             network,
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             state_machine,
+            garbage_collector,
         });
 
         let raft_clone = app.forwardable_raft.clone();
@@ -722,6 +725,105 @@ impl App {
         Ok(())
     }
 
+    // pub async fn create_gc_tasks(
+    //     &self,
+    //     content_id: &str,
+    // ) -> Result<Vec<internal_api::GarbageCollectionTask>> {
+    //     //  Get the metadata of the children of the content id
+    //     let content_tree_metadata = self.get_content_tree_metadata(content_id)?;
+    //     let mut output_tables = HashMap::new();
+    //     let mut policy_ids = HashMap::new();
+
+    //     for content_metadata in &content_tree_metadata {
+    //         let content_extraction_policy_mappings = self
+    //
+    // .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
+    //             .await?;
+
+    //         if content_extraction_policy_mappings.is_none() {
+    //             continue;
+    //         }
+
+    //         let mappings = content_extraction_policy_mappings.unwrap();
+    //         let applied_extraction_policy_ids: HashSet<String> =
+    //             mappings.time_of_policy_completion.keys().cloned().collect();
+    //         let applied_extraction_policies = self
+    //             .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+    //             .await?;
+
+    //         if applied_extraction_policies.is_none() {
+    //             continue;
+    //         }
+
+    //         let policy_id = &applied_extraction_policies
+    //             .as_ref()
+    //             .unwrap()
+    //             .iter()
+    //             .next()
+    //             .map(|policy| policy.id.clone())
+    //             .unwrap_or("".to_string());
+    //         policy_ids.insert(content_metadata.id.clone(),
+    // policy_id.to_string());
+
+    //         for applied_extraction_policy in
+    // applied_extraction_policies.clone().unwrap() {
+    // output_tables.insert(                 content_metadata.id.clone(),
+    //                 applied_extraction_policy
+    //                     .index_name_table_mapping
+    //                     .values()
+    //                     .cloned()
+    //                     .collect::<HashSet<_>>(),
+    //             );
+    //         }
+    //     }
+
+    //     if let Some(forward_to_leader) =
+    // self.forwardable_raft.ensure_leader().await? {         //  forward to the
+    // leader         let leader_node = forward_to_leader
+    //             .leader_node
+    //             .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
+    //         self.network
+    //             .create_gc_tasks(
+    //                 content_tree_metadata,
+    //                 output_tables,
+    //                 policy_ids,
+    //                 &leader_node.addr,
+    //             )
+    //             .await?;
+    //         return Ok(Vec::new());
+    //     }
+
+    //     //  this is the leader
+    //     let gc_tasks = self
+    //         .garbage_collector
+    //         .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
+    //         .await?;
+
+    //     let request = StateMachineUpdateRequest {
+    //         payload: RequestPayload::CreateOrAssignGarbageCollectionTask {
+    //             gc_tasks: gc_tasks.clone(),
+    //         },
+    //         new_state_changes: vec![],
+    //         state_changes_processed: vec![],
+    //     };
+    //     self.forwardable_raft.client_write(request).await?;
+
+    //     Ok(gc_tasks)
+    // }
+
+    pub async fn create_gc_tasks(
+        &self,
+        gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>,
+    ) -> Result<()> {
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(request).await?;
+        Ok(())
+    }
+
     pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {
         let mark_finished = gc_task.outcome != internal_api::TaskOutcome::Unknown;
         let req = StateMachineUpdateRequest {
@@ -847,34 +949,6 @@ impl App {
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(state_change.id)
-    }
-
-    pub async fn register_ingestion_server(
-        &self,
-        addr: &str,
-        ingestion_server_id: &str,
-    ) -> Result<()> {
-        self.forwardable_raft
-            .register_ingestion_server(ingestion_server_id, addr)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
-        let state_change = StateChange::new(
-            ingestion_server_id.to_string(),
-            internal_api::ChangeType::IngestionServerRemoved,
-            timestamp_secs(),
-        );
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::RemoveIngestionServer {
-                ingestion_server_id: ingestion_server_id.to_string(),
-            },
-            new_state_changes: vec![state_change],
-            state_changes_processed: vec![],
-        };
-        let _resp = self.forwardable_raft.client_write(req).await?;
-        Ok(())
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
@@ -1027,23 +1101,6 @@ impl App {
             new_state_changes: vec![],
             state_changes_processed: vec![StateChangeProcessed {
                 state_change_id: state_change_id.to_string(),
-                processed_at: timestamp_secs(),
-            }],
-        };
-        let _resp = self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
-    pub async fn create_gc_tasks(
-        &self,
-        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
-        processed_change_id: &str,
-    ) -> Result<()> {
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateGarbageCollectionTasks { gc_tasks },
-            new_state_changes: vec![],
-            state_changes_processed: vec![StateChangeProcessed {
-                state_change_id: processed_change_id.to_string(),
                 processed_at: timestamp_secs(),
             }],
         };
@@ -1230,7 +1287,12 @@ impl App {
         &self,
     ) -> Result<store::requests::StateMachineUpdateResponse, anyhow::Error> {
         self.network
-            .join_cluster(self.id, &self.node_addr, &self.seed_node)
+            .join_cluster(
+                self.id,
+                &self.node_addr,
+                &self.coordinator_addr,
+                &self.seed_node,
+            )
             .await
     }
 
@@ -1243,6 +1305,20 @@ impl App {
             openraft_metrics,
             raft_metrics,
         }
+    }
+
+    pub fn subscribe_to_gc_task_events(
+        &self,
+    ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
+        self.state_machine.subscribe_to_gc_task_events()
+    }
+
+    pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
+        self.forwardable_raft.ensure_leader().await
+    }
+
+    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+        self.state_machine.get_coordinator_addr(node_id)
     }
 }
 
@@ -1360,7 +1436,7 @@ mod tests {
     async fn test_write_read_index() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
         let index_to_write = Index {
             name: "name".into(),
             namespace: "test".into(),
@@ -1469,7 +1545,7 @@ mod tests {
     async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a piece of content
         let content_id = "content_id";
@@ -1579,7 +1655,7 @@ mod tests {
             std::iter::repeat(indexify_internal_api::ContentMetadata::default())
                 .take(3)
                 .collect();
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
         node.update_task(task, Some(executor_id.into()), content_meta_list)
             .await?;
 
@@ -1598,7 +1674,7 @@ mod tests {
     async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create an executor and extractor and ensure they can be read back
         let executor_id = "executor_id";
@@ -1643,7 +1719,7 @@ mod tests {
 
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create some content
         let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
@@ -1688,7 +1764,7 @@ mod tests {
     async fn test_create_read_and_match_extraction_policies() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create some content
         let content_labels = vec![
@@ -1767,7 +1843,7 @@ mod tests {
     async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a namespace
         let namespace = "namespace";
@@ -1824,7 +1900,7 @@ mod tests {
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_node(0)?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a mapping of content -> extraction policies, insert it, mark it as
         // read and read it back to assert

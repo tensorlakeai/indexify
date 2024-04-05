@@ -27,6 +27,7 @@ use super::{
     StateMachineError,
     TaskId,
 };
+use crate::state::NodeId;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct UnassignedTasks {
@@ -1022,6 +1023,28 @@ impl IndexifyState {
         Ok(())
     }
 
+    pub fn set_coordinator_addr(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        node_id: NodeId,
+        coordinator_addr: &str,
+    ) -> Result<(), StateMachineError> {
+        let serialized_coordinator_addr = JsonEncoder::encode(&coordinator_addr)?;
+        txn.put_cf(
+            StateMachineColumns::CoordinatorAddress.cf(db),
+            node_id.to_string(),
+            serialized_coordinator_addr,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error writing coordinator address for node {}: {}",
+                node_id, e
+            ))
+        })?;
+        Ok(())
+    }
+
     pub fn mark_state_changes_processed(
         &mut self,
         state_change: &StateChangeProcessed,
@@ -1058,7 +1081,7 @@ impl IndexifyState {
             RequestPayload::CreateTasks { tasks } => {
                 self.set_tasks(db, &txn, tasks)?;
             }
-            RequestPayload::CreateGarbageCollectionTasks { gc_tasks } => {
+            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
                 self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
             }
             RequestPayload::UpdateGarbageCollectionTask {
@@ -1066,6 +1089,7 @@ impl IndexifyState {
                 mark_finished,
             } => {
                 if *mark_finished {
+                    tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
                     self.delete_content(db, &txn, vec![gc_task.content_id.clone()])?;
                 }
@@ -1214,7 +1238,13 @@ impl IndexifyState {
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 self.set_processed_state_changes(db, &txn, state_changes)?;
             }
-            _ => (),
+            RequestPayload::JoinCluster {
+                node_id,
+                address: _,
+                coordinator_addr,
+            } => {
+                self.set_coordinator_addr(db, &txn, *node_id, coordinator_addr)?;
+            }
         };
 
         self.apply(request);
@@ -1655,6 +1685,18 @@ impl IndexifyState {
             schemas.push(schema);
         }
         Ok(schemas)
+    }
+
+    pub fn get_coordinator_addr(
+        &self,
+        node_id: NodeId,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<String>> {
+        self.get_from_cf(
+            db,
+            StateMachineColumns::CoordinatorAddress,
+            node_id.to_string(),
+        )
     }
 
     /// Test utility method to get all key-value pairs from a column family

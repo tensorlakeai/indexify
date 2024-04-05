@@ -27,6 +27,21 @@ impl CoordinatorClient {
         }
     }
 
+    pub async fn get_coordinator(&self, addr: &str) -> Result<CoordinatorServiceClient<Channel>> {
+        let mut clients = self.clients.lock().await;
+        if let Some(client) = clients.get(addr) {
+            return Ok(client.clone());
+        }
+
+        tracing::info!("connecting to coordinator at {}", addr);
+
+        let client = CoordinatorServiceClient::connect(format!("http://{}", addr))
+            .await
+            .map_err(|e| anyhow!("unable to connect to coordinator: {} at addr {}", e, addr))?;
+        clients.insert(addr.to_string(), client.clone());
+        Ok(client)
+    }
+
     pub async fn get(&self) -> Result<CoordinatorServiceClient<Channel>> {
         let mut clients = self.clients.lock().await;
         if let Some(client) = clients.get(&self.addr) {

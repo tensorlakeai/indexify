@@ -432,7 +432,6 @@ mod tests {
         ingest_state.begin_multipart_content().await.unwrap();
 
         let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
-            println!("{:?}", s.writer.url);
             s.writer.url.clone()
         } else {
             panic!("frame_state should be Writing");

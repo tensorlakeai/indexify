@@ -29,6 +29,7 @@ pub enum RequestPayload {
     JoinCluster {
         node_id: NodeId,
         address: String,
+        coordinator_addr: String,
     },
     RegisterExecutor {
         addr: String,
@@ -38,12 +39,6 @@ pub enum RequestPayload {
     },
     RemoveExecutor {
         executor_id: String,
-    },
-    RegisterIngestionServer {
-        ingestion_server_metadata: internal_api::IngestionServerMetadata,
-    },
-    RemoveIngestionServer {
-        ingestion_server_id: String,
     },
     CreateNamespace {
         name: String,
@@ -55,9 +50,12 @@ pub enum RequestPayload {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
-    CreateGarbageCollectionTasks {
+    CreateOrAssignGarbageCollectionTask {
         gc_tasks: Vec<internal_api::GarbageCollectionTask>,
     },
+    // CreateGarbageCollectionTasks {
+    //     gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+    // },
     UpdateGarbageCollectionTask {
         gc_task: internal_api::GarbageCollectionTask,
         mark_finished: bool,

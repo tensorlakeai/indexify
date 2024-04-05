@@ -358,7 +358,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[schema(as=internal_api::GarbageCollectionTask)]
 pub struct GarbageCollectionTask {
     pub namespace: String,
@@ -369,6 +369,7 @@ pub struct GarbageCollectionTask {
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
     pub blob_store_path: String,
+    pub assigned_to: Option<String>,
 }
 
 impl Default for GarbageCollectionTask {
@@ -381,6 +382,32 @@ impl Default for GarbageCollectionTask {
             output_tables: HashSet::new(),
             outcome: TaskOutcome::Unknown,
             blob_store_path: "test_blob_store_path".to_string(),
+            assigned_to: None,
+        }
+    }
+}
+
+impl GarbageCollectionTask {
+    pub fn new(
+        namespace: &str,
+        content_metadata: ContentMetadata,
+        output_tables: HashSet<String>,
+        policy_id: &str,
+    ) -> Self {
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        content_metadata.id.hash(&mut hasher);
+        policy_id.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        Self {
+            namespace: namespace.to_string(),
+            id,
+            content_id: content_metadata.id,
+            parent_content_id: content_metadata.parent_id,
+            output_tables,
+            outcome: TaskOutcome::Unknown,
+            blob_store_path: content_metadata.storage_url,
+            assigned_to: None,
         }
     }
 }
@@ -605,8 +632,6 @@ pub enum ChangeType {
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
-    IngestionServerAdded,
-    IngestionServerRemoved,
     NewGargabeCollectionTask,
 }
 
@@ -618,8 +643,6 @@ impl fmt::Display for ChangeType {
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
-            ChangeType::IngestionServerAdded => write!(f, "IngestionServerAdded"),
-            ChangeType::IngestionServerRemoved => write!(f, "IngestionServerRemoved"),
             ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
         }
     }
