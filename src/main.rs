@@ -1,9 +1,7 @@
 use clap::Parser;
 use tracing_core::{Level, LevelFilter};
 use tracing_subscriber::{
-    prelude::__tracing_subscriber_SubscriberExt,
-    util::SubscriberInitExt,
-    Layer,
+    prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
 };
 
 pub mod coordinator_filters;
@@ -23,6 +21,7 @@ mod coordinator;
 mod coordinator_client;
 mod data_manager;
 mod extractor_router;
+mod forwardable_coordinator;
 mod garbage_collector;
 mod grpc_helper;
 mod metadata_storage;

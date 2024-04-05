@@ -24,8 +24,9 @@ use indexify_proto::indexify_coordinator::{
     ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
     ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
     RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
-    TaskAssignments, TombstoneContentRequest, TombstoneContentResponse, Uint64List,
-    UpdateTaskRequest, UpdateTaskResponse,
+    RemoveIngestionServerRequest, RemoveIngestionServerResponse, TaskAssignments,
+    TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateTaskRequest,
+    UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use itertools::Itertools;
@@ -41,8 +42,9 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator, garbage_collector::GarbageCollector, server_config::ServerConfig,
-    state, tonic_streamer::DropReceiver, utils::timestamp_secs,
+    coordinator::Coordinator, coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
+    tonic_streamer::DropReceiver, utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -282,6 +284,19 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         Ok(tonic::Response::new(RegisterIngestionServerResponse {}))
+    }
+
+    async fn remove_ingestion_server(
+        &self,
+        request: tonic::Request<RemoveIngestionServerRequest>,
+    ) -> Result<tonic::Response<RemoveIngestionServerResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .remove_ingestion_server(&request.ingestion_server_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        Ok(tonic::Response::new(RemoveIngestionServerResponse {}))
     }
 
     async fn gc_tasks_stream(
@@ -715,8 +730,15 @@ impl CoordinatorServer {
         let garbage_collector = GarbageCollector::new();
         let shared_state =
             state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
+        println!("The config {:?}", config);
+        println!("The addr {}", addr);
+        let coordinator_client = CoordinatorClient::new(&addr.to_string());
 
-        let coordinator = Coordinator::new(shared_state.clone());
+        let coordinator = Coordinator::new(
+            shared_state.clone(),
+            coordinator_client,
+            Arc::clone(&garbage_collector),
+        );
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,

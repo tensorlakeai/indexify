@@ -28,6 +28,8 @@ service CoordinatorService {
 
     rpc RegisterIngestionServer(RegisterIngestionServerRequest) returns (RegisterIngestionServerResponse) {}
 
+    rpc RemoveIngestionServer(RemoveIngestionServerRequest) returns (RemoveIngestionServerResponse) {}
+
     rpc GCTasksStream(stream GCTaskAcknowledgement) returns (stream GCTask) {}
 
     rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
@@ -178,10 +180,17 @@ message RegisterExecutorResponse {
 
 message RegisterIngestionServerRequest {
     string ingestion_server_id = 1;
-    string addr = 2;
 }
 
 message RegisterIngestionServerResponse {
+
+}
+
+message RemoveIngestionServerRequest {
+    string ingestion_server_id = 1;
+}
+
+message RemoveIngestionServerResponse {
 
 }
 

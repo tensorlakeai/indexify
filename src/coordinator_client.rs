@@ -4,8 +4,7 @@ use anyhow::{anyhow, Ok, Result};
 use axum::{http::StatusCode, Json};
 use indexify_internal_api::StructuredDataSchema;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_client::CoordinatorServiceClient,
+    self, coordinator_service_client::CoordinatorServiceClient,
 };
 use itertools::Itertools;
 use tokio::sync::Mutex;
@@ -25,6 +24,21 @@ impl CoordinatorClient {
             addr: addr.to_string(),
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub async fn get_coordinator(&self, addr: &str) -> Result<CoordinatorServiceClient<Channel>> {
+        let mut clients = self.clients.lock().await;
+        if let Some(client) = clients.get(addr) {
+            return Ok(client.clone());
+        }
+
+        tracing::info!("connecting to coordinator at {}", addr);
+
+        let client = CoordinatorServiceClient::connect(format!("http://{}", addr))
+            .await
+            .map_err(|e| anyhow!("unable to connect to coordinator: {} at addr {}", e, addr))?;
+        clients.insert(addr.to_string(), client.clone());
+        Ok(client)
     }
 
     pub async fn get(&self) -> Result<CoordinatorServiceClient<Channel>> {

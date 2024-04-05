@@ -1324,6 +1324,10 @@ impl App {
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
         self.state_machine.subscribe_to_gc_task_events()
     }
+
+    pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
+        self.forwardable_raft.ensure_leader().await
+    }
 }
 
 async fn watch_for_leader_change(
