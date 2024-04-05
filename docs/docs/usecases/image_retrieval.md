@@ -44,7 +44,7 @@ client.upload_file(path="../path/to/file")
 === "Docker"
 
     ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/yolo-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/yolo-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500
     ```
 
 
@@ -72,13 +72,13 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
 === "Shell"
 
     ```bash
-    indexify-extractor download hub://embedding/clip
-    indexify-extractor join-server clip.openai_clip_extractor:ClipEmbeddingExtractor
+    indexify-extractor download hub://embedding/clip_embedding
+    indexify-extractor join-server clip_embedding.openai_clip_extractor:ClipEmbeddingExtractor
     ```
 === "Docker"
 
     ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage tensorlake/clip-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/clip-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501
     ```
 
 
