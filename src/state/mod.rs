@@ -204,7 +204,6 @@ impl App {
             server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
-            Arc::clone(&garbage_collector),
             addr.to_string(),
             server_config.coordinator_addr.clone(),
         ));
@@ -726,88 +725,103 @@ impl App {
         Ok(())
     }
 
+    // pub async fn create_gc_tasks(
+    //     &self,
+    //     content_id: &str,
+    // ) -> Result<Vec<internal_api::GarbageCollectionTask>> {
+    //     //  Get the metadata of the children of the content id
+    //     let content_tree_metadata = self.get_content_tree_metadata(content_id)?;
+    //     let mut output_tables = HashMap::new();
+    //     let mut policy_ids = HashMap::new();
+
+    //     for content_metadata in &content_tree_metadata {
+    //         let content_extraction_policy_mappings = self
+    //
+    // .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
+    //             .await?;
+
+    //         if content_extraction_policy_mappings.is_none() {
+    //             continue;
+    //         }
+
+    //         let mappings = content_extraction_policy_mappings.unwrap();
+    //         let applied_extraction_policy_ids: HashSet<String> =
+    //             mappings.time_of_policy_completion.keys().cloned().collect();
+    //         let applied_extraction_policies = self
+    //             .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+    //             .await?;
+
+    //         if applied_extraction_policies.is_none() {
+    //             continue;
+    //         }
+
+    //         let policy_id = &applied_extraction_policies
+    //             .as_ref()
+    //             .unwrap()
+    //             .iter()
+    //             .next()
+    //             .map(|policy| policy.id.clone())
+    //             .unwrap_or("".to_string());
+    //         policy_ids.insert(content_metadata.id.clone(),
+    // policy_id.to_string());
+
+    //         for applied_extraction_policy in
+    // applied_extraction_policies.clone().unwrap() {
+    // output_tables.insert(                 content_metadata.id.clone(),
+    //                 applied_extraction_policy
+    //                     .index_name_table_mapping
+    //                     .values()
+    //                     .cloned()
+    //                     .collect::<HashSet<_>>(),
+    //             );
+    //         }
+    //     }
+
+    //     if let Some(forward_to_leader) =
+    // self.forwardable_raft.ensure_leader().await? {         //  forward to the
+    // leader         let leader_node = forward_to_leader
+    //             .leader_node
+    //             .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
+    //         self.network
+    //             .create_gc_tasks(
+    //                 content_tree_metadata,
+    //                 output_tables,
+    //                 policy_ids,
+    //                 &leader_node.addr,
+    //             )
+    //             .await?;
+    //         return Ok(Vec::new());
+    //     }
+
+    //     //  this is the leader
+    //     let gc_tasks = self
+    //         .garbage_collector
+    //         .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
+    //         .await?;
+
+    //     let request = StateMachineUpdateRequest {
+    //         payload: RequestPayload::CreateOrAssignGarbageCollectionTask {
+    //             gc_tasks: gc_tasks.clone(),
+    //         },
+    //         new_state_changes: vec![],
+    //         state_changes_processed: vec![],
+    //     };
+    //     self.forwardable_raft.client_write(request).await?;
+
+    //     Ok(gc_tasks)
+    // }
+
     pub async fn create_gc_tasks(
         &self,
-        content_id: &str,
-    ) -> Result<Vec<internal_api::GarbageCollectionTask>> {
-        //  Get the metadata of the children of the content id
-        let content_tree_metadata = self.get_content_tree_metadata(content_id)?;
-        let mut output_tables = HashMap::new();
-        let mut policy_ids = HashMap::new();
-
-        for content_metadata in &content_tree_metadata {
-            let content_extraction_policy_mappings = self
-                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
-                .await?;
-
-            if content_extraction_policy_mappings.is_none() {
-                continue;
-            }
-
-            let mappings = content_extraction_policy_mappings.unwrap();
-            let applied_extraction_policy_ids: HashSet<String> =
-                mappings.time_of_policy_completion.keys().cloned().collect();
-            let applied_extraction_policies = self
-                .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-                .await?;
-
-            if applied_extraction_policies.is_none() {
-                continue;
-            }
-
-            let policy_id = &applied_extraction_policies
-                .as_ref()
-                .unwrap()
-                .iter()
-                .next()
-                .map(|policy| policy.id.clone())
-                .unwrap_or("".to_string());
-            policy_ids.insert(content_metadata.id.clone(), policy_id.to_string());
-
-            for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
-                output_tables.insert(
-                    content_metadata.id.clone(),
-                    applied_extraction_policy
-                        .index_name_table_mapping
-                        .values()
-                        .cloned()
-                        .collect::<HashSet<_>>(),
-                );
-            }
-        }
-
-        if let Some(forward_to_leader) = self.forwardable_raft.ensure_leader().await? {
-            //  forward to the leader
-            let leader_node = forward_to_leader
-                .leader_node
-                .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
-            self.network
-                .create_gc_tasks(
-                    content_tree_metadata,
-                    output_tables,
-                    policy_ids,
-                    &leader_node.addr,
-                )
-                .await?;
-            return Ok(Vec::new());
-        }
-
-        //  this is the leader
-        let gc_tasks = self
-            .garbage_collector
-            .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
-            .await?;
-
+        gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>,
+    ) -> Result<()> {
         let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateOrAssignGarbageCollectionTask {
-                gc_tasks: gc_tasks.clone(),
-            },
+            payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
         self.forwardable_raft.client_write(request).await?;
-
-        Ok(gc_tasks)
+        Ok(())
     }
 
     pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {

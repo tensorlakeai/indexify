@@ -10,13 +10,8 @@ use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResp
 use tonic::{Request, Status};
 use tracing::info;
 
-use super::{
-    raft_client::RaftClient,
-    store::requests::{ForwardableMessage, ForwardableRequest},
-    NodeId,
-};
+use super::{raft_client::RaftClient, NodeId};
 use crate::{
-    garbage_collector::GarbageCollector,
     grpc_helper::GrpcHelper,
     metrics::{raft_metrics, CounterGuard},
     state::{store::requests, Raft},
@@ -26,7 +21,6 @@ pub struct RaftGrpcServer {
     id: NodeId,
     raft: Arc<Raft>,
     raft_client: Arc<RaftClient>,
-    garbage_collector: Arc<GarbageCollector>,
     address: String,
     coordinator_address: String,
 }
@@ -36,7 +30,6 @@ impl RaftGrpcServer {
         id: NodeId,
         raft: Arc<Raft>,
         raft_client: Arc<RaftClient>,
-        garbage_collector: Arc<GarbageCollector>,
         address: String,
         coordinator_addr: String,
     ) -> Self {
@@ -44,7 +37,6 @@ impl RaftGrpcServer {
             id,
             raft,
             raft_client,
-            garbage_collector,
             address,
             coordinator_address: coordinator_addr,
         }
@@ -127,10 +119,7 @@ impl RaftGrpcServer {
             .client_write(state_machine_req)
             .await
             .map_err(|e| {
-                GrpcHelper::internal_err(format!(
-                    "Error writing to state machine: {}",
-                    e
-                ))
+                GrpcHelper::internal_err(format!("Error writing to state machine: {}", e))
             })?;
 
         let state_machine_req = StateMachineUpdateRequest {
@@ -146,10 +135,7 @@ impl RaftGrpcServer {
             .client_write(state_machine_req)
             .await
             .map_err(|e| {
-                GrpcHelper::internal_err(format!(
-                    "Error writing to state machine: {}",
-                    e
-                ))
+                GrpcHelper::internal_err(format!("Error writing to state machine: {}", e))
             })?;
 
         let response = StateMachineUpdateResponse {
@@ -329,47 +315,5 @@ impl RaftApi for RaftGrpcServer {
         //  This node is the leader - we've confirmed it
         self.add_node_to_cluster_if_absent(node_id, &address, &coordinator_addr)
             .await
-    }
-
-    async fn create_gc_tasks(
-        &self,
-        request: Request<RaftRequest>,
-    ) -> Result<tonic::Response<RaftReply>, Status> {
-        self.incr_recv_bytes(&request);
-
-        if (self.ensure_leader().await?).is_some() {
-            return Err(GrpcHelper::internal_err(
-                "The node we thought was the leader is not the leader for creating GC tasks",
-            ));
-        }
-
-        let req = GrpcHelper::parse_req::<ForwardableRequest>(request)?;
-
-        let ForwardableMessage::CreateGCTasks {
-            content_tree_metadata,
-            output_tables,
-            policy_ids,
-        } = req.message
-        else {
-            return Err(GrpcHelper::internal_err("Invalid request"));
-        };
-        let gc_tasks = self
-            .garbage_collector
-            .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
-            .await
-            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
-
-        //  TODO: Write the tasks to Raft
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.raft
-            .client_write(request)
-            .await
-            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
-
-        GrpcHelper::ok_response(())
     }
 }

@@ -18,6 +18,8 @@ use indexify_proto::indexify_coordinator::{
     CoordinatorCommand,
     CreateContentRequest,
     CreateContentResponse,
+    CreateGcTasksRequest,
+    CreateGcTasksResponse,
     CreateIndexRequest,
     CreateIndexResponse,
     ExtractionPolicyRequest,
@@ -335,6 +337,18 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         Ok(tonic::Response::new(RemoveIngestionServerResponse {}))
+    }
+
+    async fn create_gc_tasks(
+        &self,
+        request: tonic::Request<CreateGcTasksRequest>,
+    ) -> Result<tonic::Response<CreateGcTasksResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .create_gc_tasks(&request.content_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(CreateGcTasksResponse {}))
     }
 
     async fn gc_tasks_stream(

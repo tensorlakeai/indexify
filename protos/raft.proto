@@ -19,6 +19,5 @@ service RaftApi {
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
     rpc JoinCluster(RaftRequest) returns (RaftReply);
-    rpc CreateGcTasks(RaftRequest) returns (RaftReply);
 }
 

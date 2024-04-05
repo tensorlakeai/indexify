@@ -42,4 +42,20 @@ impl ForwardableCoordinator {
 
         Ok(())
     }
+
+    pub async fn create_gc_tasks(
+        &self,
+        leader_addr: &str,
+        content_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let req = indexify_coordinator::CreateGcTasksRequest {
+            content_id: content_id.to_string(),
+        };
+
+        let mut client = self.coordinator_client.get_coordinator(leader_addr).await?;
+
+        client.create_gc_tasks(req).await?;
+
+        Ok(())
+    }
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -304,12 +304,82 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
+        let content_tree_metadata = self.shared_state.get_content_tree_metadata(content_id)?;
+        let mut output_tables = HashMap::new();
+        let mut policy_ids = HashMap::new();
+
+        for content_metadata in &content_tree_metadata {
+            let content_extraction_policy_mappings = self
+                .shared_state
+                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
+                .await?;
+
+            if content_extraction_policy_mappings.is_none() {
+                continue;
+            }
+
+            let mappings = content_extraction_policy_mappings.unwrap();
+            let applied_extraction_policy_ids: HashSet<String> =
+                mappings.time_of_policy_completion.keys().cloned().collect();
+            let applied_extraction_policies = self
+                .shared_state
+                .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+                .await?;
+
+            if applied_extraction_policies.is_none() {
+                continue;
+            }
+
+            let policy_id = &applied_extraction_policies
+                .as_ref()
+                .unwrap()
+                .iter()
+                .next()
+                .map(|policy| policy.id.clone())
+                .unwrap_or("".to_string());
+            policy_ids.insert(content_metadata.id.clone(), policy_id.to_string());
+
+            for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
+                output_tables.insert(
+                    content_metadata.id.clone(),
+                    applied_extraction_policy
+                        .index_name_table_mapping
+                        .values()
+                        .cloned()
+                        .collect::<HashSet<_>>(),
+                );
+            }
+        }
+
+        let tasks = self
+            .garbage_collector
+            .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
+            .await?;
+        self.shared_state.create_gc_tasks(tasks.clone()).await?;
+        Ok(tasks)
+    }
+
     async fn handle_tombstone_content(
         &self,
         change: StateChange,
     ) -> Result<Vec<GarbageCollectionTask>> {
-        let tasks = self.shared_state.create_gc_tasks(&change.object_id).await?;
-        Ok(tasks)
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_id)?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            self.forwardable_coordinator
+                .create_gc_tasks(&leader_coord_addr, &change.object_id)
+                .await?;
+            return Ok(Vec::new());
+        }
+
+        //  this coordinator node is the leader
+        self.create_gc_tasks(&change.object_id).await
     }
 
     #[tracing::instrument(skip(self))]
