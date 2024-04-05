@@ -10,26 +10,6 @@ use serde::{Deserialize, Serialize};
 use super::{ExecutorId, TaskId};
 use crate::state::NodeId;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ForwardableRequest {
-    pub message: ForwardableMessage,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ForwardableMessage {
-    RegisterIngestionServer {
-        id: String,
-    },
-    RemoveIngestionServer {
-        id: String,
-    },
-    CreateGCTasks {
-        content_tree_metadata: Vec<internal_api::ContentMetadata>,
-        output_tables: HashMap<String, HashSet<String>>,
-        policy_ids: HashMap<String, String>,
-    },
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
