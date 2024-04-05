@@ -120,8 +120,7 @@ The extraction policies informs Indexify how to extract information from ingeste
     ```python
     client.add_extraction_policy(
         extractor="tensorlake/minilm-l6", 
-        name="minilml6", 
-        content_source="ingestion")
+        name="minilml6")
 
     extraction_policies = client.extraction_policies
     ```
@@ -131,8 +130,7 @@ The extraction policies informs Indexify how to extract information from ingeste
     ```typescript
     client.addExtractionPolicy({
         extractor: "tensorlake/minilm-l6",
-        name: "testpolicy",
-        content_source: "ingestion"
+        name: "minilml6"
     });
     
     const extractionPolicies = client.extractionPolicies;
