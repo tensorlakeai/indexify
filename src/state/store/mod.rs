@@ -28,6 +28,7 @@ use tracing::debug;
 type Node = BasicNode;
 
 use self::{
+    requests::RequestPayload,
     serializer::{JsonEncode, JsonEncoder},
     state_machine_objects::{IndexifyState, IndexifyStateSnapshot},
 };
@@ -111,6 +112,8 @@ pub struct StateMachineData {
     pub indexify_state: IndexifyState,
 
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
+
+    gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
 }
 
 #[derive(Clone)]
@@ -137,12 +140,14 @@ impl StateMachineStore {
         snapshot_file_path: PathBuf,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
+        let (gc_tasks_tx, _) = broadcast::channel(8);
         let mut sm = Self {
             data: StateMachineData {
                 last_applied_log_id: None,
                 last_membership: Default::default(),
                 state_change_tx: Arc::new(tx),
                 indexify_state: IndexifyState::default(),
+                gc_tasks_tx,
             },
             snapshot_idx: 0,
             db,
@@ -263,7 +268,7 @@ impl StateMachineStore {
     pub fn subscribe_to_gc_task_events(
         &self,
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
-        self.data.indexify_state.subscribe_to_gc_task_events()
+        self.data.gc_tasks_tx.subscribe()
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES
@@ -510,10 +515,19 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                         .indexify_state
                         .apply_state_machine_updates(req.clone(), &self.db)
                     {
-                        //  TODO: Should we just log the error here? This seems incorrect as it
-                        // includes any errors that are thrown from a RocksDB transaction
                         panic!("error applying state machine update: {}", e);
                     };
+
+                    //  if the payload is a GC task, send it via channel
+                    if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
+                        req.payload
+                    {
+                        for gc_task in gc_tasks {
+                            if let Err(e) = self.data.gc_tasks_tx.send(gc_task.clone()) {
+                                tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                            }
+                        }
+                    }
                 }
                 EntryPayload::Membership(mem) => {
                     self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);

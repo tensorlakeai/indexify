@@ -5,97 +5,19 @@ use std::{
 
 use indexify_internal_api::{ContentMetadata, GarbageCollectionTask};
 use rand::seq::IteratorRandom;
-use tokio::sync::{broadcast, RwLock};
-use tracing::error;
-
-// pub fn start_watching_deletion_events(
-//     garbage_collector: Arc<GarbageCollector>,
-//     rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
-// ) {
-//     tokio::spawn(async move {
-//         garbage_collector.watch_deletion_events(rx).await;
-//     });
-// }
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TaskStatus {
-    Unassigned,
-    Assigned(String), //  contains the ingestion server id
-}
-
-#[derive(Debug, Clone)]
-pub struct GCTaskInfo {
-    task: GarbageCollectionTask,
-    status: TaskStatus,
-}
-
-impl GCTaskInfo {
-    fn new(task: GarbageCollectionTask) -> Self {
-        Self {
-            task,
-            status: TaskStatus::Unassigned,
-        }
-    }
-}
+use tokio::sync::RwLock;
 
 pub struct GarbageCollector {
     pub ingestion_servers: RwLock<HashSet<String>>,
-    pub assigned_gc_tasks: RwLock<HashMap<String, String>>, // gc task id -> ingestion server id
-    pub gc_tasks: RwLock<HashMap<String, GCTaskInfo>>,      //  gc task id -> task info
-    pub task_deletion_allocation_events_sender:
-        broadcast::Sender<(String, indexify_internal_api::GarbageCollectionTask)>,
-    pub task_deletion_allocation_events_receiver:
-        broadcast::Receiver<(String, indexify_internal_api::GarbageCollectionTask)>,
+    pub gc_tasks: RwLock<HashMap<String, GarbageCollectionTask>>, //  gc task id -> gc task
 }
 
 impl GarbageCollector {
     pub fn new() -> Arc<Self> {
-        let (tx, rx) = broadcast::channel(8);
         Arc::new(Self {
             ingestion_servers: RwLock::new(HashSet::new()),
-            assigned_gc_tasks: RwLock::new(HashMap::new()),
             gc_tasks: RwLock::new(HashMap::new()),
-            task_deletion_allocation_events_sender: tx,
-            task_deletion_allocation_events_receiver: rx,
         })
-    }
-
-    fn send_task(
-        &self,
-        server_id: String,
-        task: GarbageCollectionTask,
-    ) -> Result<usize, anyhow::Error> {
-        self.task_deletion_allocation_events_sender
-            .send((server_id, task))
-            .map_err(|e| {
-                error!("Unable to send task allocation event: {}", e);
-                anyhow::anyhow!("Unable to send task allocation event: {}", e)
-            })
-    }
-
-    async fn assign_task_to_server(&self, task: GarbageCollectionTask, server_id: String) {
-        {
-            let mut tasks_guard = self.gc_tasks.write().await;
-            let mut tasks_assignment_guard = self.assigned_gc_tasks.write().await;
-            //  check the initial condition
-            if let Some(task) = tasks_guard.get_mut(&task.id) {
-                if task.status != TaskStatus::Unassigned {
-                    return;
-                }
-                task.status = TaskStatus::Assigned(server_id.to_string());
-                tasks_assignment_guard.insert(task.task.id.clone(), server_id.clone());
-            }
-        }
-
-        if let Err(_) = self.send_task(server_id, task.clone()) {
-            //  remove task assignment
-            let mut tasks_guard = self.gc_tasks.write().await;
-            if let Some(task) = tasks_guard.get_mut(&task.id) {
-                task.status = TaskStatus::Unassigned;
-            }
-            let mut assigned_tasks_guard = self.assigned_gc_tasks.write().await;
-            assigned_tasks_guard.remove(&task.id);
-        }
     }
 
     async fn choose_server(&self) -> Option<String> {
@@ -104,36 +26,10 @@ impl GarbageCollector {
         servers.iter().choose(&mut rng).cloned()
     }
 
-    // async fn watch_deletion_events(
-    //     &self,
-    //     mut rx: Receiver<indexify_internal_api::GarbageCollectionTask>,
-    // ) {
-    //     while let Some(task) = rx.recv().await {
-    //         //  add the task
-    //         {
-    //             println!("Adding a new task {:?}", task);
-    //             let mut tasks_guard = self.gc_tasks.write().await;
-    //             tasks_guard
-    //                 .entry(task.id.clone())
-    //                 .or_insert_with(|| GCTaskInfo::new(task.clone()));
-    //         }
-    //         let server = self.choose_server().await;
-
-    //         if let Some(server) = server {
-    //             println!("Assigning task to server {}", server);
-    //             self.assign_task_to_server(task.clone(), server).await;
-    //         } else {
-    //             error!("No server available to assign task to");
-    //         }
-    //     }
-    // }
-
     pub async fn mark_gc_task_completed(&self, task_id: &str) {
         let mut tasks_guard = self.gc_tasks.write().await;
-        let mut assigned_tasks_guard = self.assigned_gc_tasks.write().await;
         if let Some(_) = tasks_guard.get_mut(task_id) {
             tasks_guard.remove(task_id);
-            assigned_tasks_guard.remove(task_id);
         }
     }
 
@@ -145,20 +41,11 @@ impl GarbageCollector {
             .insert(server_id.to_string());
 
         if result {
-            //  newly added server
+            //  get all unassigned tasks and try to assign them
             let mut tasks_guard = self.gc_tasks.write().await;
-            for (_, task_info) in tasks_guard.iter_mut() {
-                if task_info.status == TaskStatus::Unassigned {
-                    let server = self.choose_server().await;
-                    if let Some(server_id) = server {
-                        task_info.status = TaskStatus::Assigned(server_id.clone());
-                        if let Err(_) = self.send_task(server_id, task_info.task.clone()) {
-                            //  remove task assignment
-                            task_info.status = TaskStatus::Unassigned;
-                            let mut assigned_tasks_guard = self.assigned_gc_tasks.write().await;
-                            assigned_tasks_guard.remove(&task_info.task.id);
-                        }
-                    }
+            for (_, task) in tasks_guard.iter_mut() {
+                if task.assigned_to.is_none() {
+                    task.assigned_to = Some(server_id.to_string());
                 }
             }
         }
@@ -167,50 +54,14 @@ impl GarbageCollector {
     pub async fn remove_ingestion_server(&self, server_id: &str) {
         self.ingestion_servers.write().await.remove(server_id);
 
-        let mut tasks_to_reassign = Vec::new();
-        let mut tasks_to_remove = Vec::new();
-
-        //  Get the tasks that need to be re-assigned
-        let mut gc_tasks_guard = self.gc_tasks.write().await;
-        let mut assigned_gc_tasks_guard = self.assigned_gc_tasks.write().await;
-        for (task_id, assigned_server_id) in assigned_gc_tasks_guard.iter() {
-            if assigned_server_id != server_id {
-                continue;
-            }
-            if let Some(task) = gc_tasks_guard.get_mut(task_id) {
-                task.status = TaskStatus::Unassigned;
-                tasks_to_remove.push(task_id.clone());
-                tasks_to_reassign.push(task.clone());
+        //  get all tasks that were assigned to this server and try to re-assign them
+        let mut tasks_guard = self.gc_tasks.write().await;
+        for (_, task) in tasks_guard.iter_mut() {
+            if task.assigned_to == Some(server_id.to_string()) {
+                task.assigned_to = None;
+                task.assigned_to = self.choose_server().await;
             }
         }
-
-        //  Remove the tasks
-        for task_id in tasks_to_remove {
-            assigned_gc_tasks_guard.remove(&task_id);
-        }
-
-        //  Re-assign the tasks
-        for mut task_to_reassign in tasks_to_reassign {
-            //  reassign the task here
-            let server = self.choose_server().await;
-            if let Some(server_id) = server {
-                task_to_reassign.status = TaskStatus::Assigned(server_id.clone());
-                assigned_gc_tasks_guard.insert(task_to_reassign.task.id.clone(), server_id.clone());
-                if let Err(_) = self.send_task(server_id, task_to_reassign.task.clone()) {
-                    //  remove task assignment
-                    task_to_reassign.status = TaskStatus::Unassigned;
-                    assigned_gc_tasks_guard.remove(&task_to_reassign.task.id);
-                }
-            } else {
-                error!("No server available to assign task to");
-            }
-        }
-    }
-
-    pub fn subscribe_to_events(
-        &self,
-    ) -> broadcast::Receiver<(String, indexify_internal_api::GarbageCollectionTask)> {
-        self.task_deletion_allocation_events_sender.subscribe()
     }
 
     pub async fn create_gc_tasks(
@@ -230,25 +81,14 @@ impl GarbageCollector {
                 output_tables,
                 &policy_id,
             );
-            tracing::info!("created gc task {:?}", gc_task);
 
-            //  add the task
-            {
-                let mut tasks_guard = self.gc_tasks.write().await;
-                tasks_guard
-                    .entry(gc_task.id.clone())
-                    .or_insert_with(|| GCTaskInfo::new(gc_task.clone()));
-            }
+            //  add and assign the task
             let server = self.choose_server().await;
-
-            //  set the server
-            if let Some(server) = server {
-                gc_task.assigned_to = Some(server.clone());
-                self.assign_task_to_server(gc_task.clone(), server).await;
-            } else {
-                error!("No server available to assign task to");
-            }
+            gc_task.assigned_to = server;
+            let mut tasks_guard = self.gc_tasks.write().await;
+            tasks_guard.insert(gc_task.id.clone(), gc_task.clone());
             created_gc_tasks.push(gc_task.clone());
+            tracing::info!("created gc task {:?}", gc_task);
         }
         Ok(created_gc_tasks)
     }
@@ -256,92 +96,175 @@ impl GarbageCollector {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
 
-    use indexify_internal_api::GarbageCollectionTask;
+    use indexify_internal_api::{ContentMetadata, GarbageCollectionTask};
     use tokio::sync::mpsc;
 
-    use crate::garbage_collector::{GarbageCollector, TaskStatus};
+    use crate::garbage_collector::GarbageCollector;
+
+    fn create_data_for_task(
+        num: u64,
+    ) -> (
+        Vec<ContentMetadata>,
+        HashMap<String, HashSet<String>>,
+        HashMap<String, String>,
+    ) {
+        let mut content_metadata = Vec::new();
+        let mut outputs = HashMap::new();
+        let mut policy_ids = HashMap::new();
+
+        for i in 0..num {
+            let content_id = format!("content_id_{}", i);
+            let content = ContentMetadata {
+                id: content_id.clone(),
+                ..Default::default()
+            };
+            content_metadata.push(content);
+
+            let output_tables = HashSet::from([format!("table_{}", i)]);
+            outputs.insert(content_id.clone(), output_tables);
+
+            let policy_id = format!("policy_id_{}", i);
+            policy_ids.insert(content_id.clone(), policy_id);
+        }
+
+        (content_metadata, outputs, policy_ids)
+    }
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_new_task_deletion_event_allocation() {
+    async fn test_new_task_deletion_event_allocation() -> Result<(), anyhow::Error> {
         let gc = GarbageCollector::new();
-        let gc_clone = Arc::clone(&gc);
         let server_id = "server1".to_string();
         gc.register_ingestion_server(&server_id).await;
 
-        // Simulate receiving a new deletion event
-        // let (tx, rx) = mpsc::channel(1);
-        let task = GarbageCollectionTask::default();
-        // tx.send(task.clone()).await.unwrap();
-        // super::start_watching_deletion_events(gc_clone, rx);
+        //  Create a task
+        let (content_metadata, outputs, policy_ids) = create_data_for_task(1);
+        let tasks = gc
+            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .await?;
 
-        // Allow some time for the task to be processed
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Verify the task has been assigned
+        //  verify task has been stored and assigned
         let tasks_guard = gc.gc_tasks.read().await;
-        let task_info = tasks_guard.get(&task.id).unwrap();
-        matches!(task_info.status, TaskStatus::Assigned(ref id) if id == &server_id);
+        assert_eq!(tasks.len(), 1);
+        for task in tasks {
+            let retrieved_task = tasks_guard.get(&task.id).unwrap();
+            assert_eq!(retrieved_task, &task);
+            assert_eq!(retrieved_task.assigned_to, Some(server_id.clone()));
+        }
+        Ok(())
     }
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_ingestion_server_removal_and_task_reassignment() {
+    async fn test_ingestion_server_removal_and_task_reassignment() -> Result<(), anyhow::Error> {
         let gc = GarbageCollector::new();
-        let gc_clone = Arc::clone(&gc);
         gc.register_ingestion_server("server1").await;
 
         // Assign a task to server1
-        // let (tx, rx) = mpsc::channel(1);
-        let task = GarbageCollectionTask::default();
-        // tx.send(task.clone()).await.unwrap();
-        // super::start_watching_deletion_events(gc_clone, rx);
+        let (content_metadata, outputs, policy_ids) = create_data_for_task(1);
+        let tasks = gc
+            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .await?;
 
-        // Allow some time for the reassignment to be processed
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        //  task should be assigned to server 1
+        {
+            let tasks_guard = gc.gc_tasks.read().await;
+            assert_eq!(
+                tasks_guard
+                    .get(&tasks.get(0).unwrap().id)
+                    .unwrap()
+                    .assigned_to,
+                Some("server1".to_string())
+            );
+        }
 
-        // Remove server1 and expect reassignment
+        // Remove server1
         gc.remove_ingestion_server("server1").await;
-        gc.register_ingestion_server("server2").await;
+        {
+            let tasks_guard = gc.gc_tasks.read().await;
+            assert_eq!(
+                tasks_guard
+                    .get(&tasks.get(0).unwrap().id)
+                    .unwrap()
+                    .assigned_to,
+                None
+            );
+        }
 
-        // Verify the task has been reassigned to server2
-        let tasks_guard = gc.gc_tasks.read().await;
-        let task_info = tasks_guard.get(&task.id).unwrap();
-        matches!(task_info.status, TaskStatus::Assigned(ref id) if id == "server2");
+        //  Register server 2 and check that the tasks have been assigned to this
+        gc.register_ingestion_server("server2").await;
+        {
+            let tasks_guard = gc.gc_tasks.read().await;
+            assert_eq!(
+                tasks_guard
+                    .get(&tasks.get(0).unwrap().id)
+                    .unwrap()
+                    .assigned_to,
+                Some("server2".to_string())
+            );
+        }
+        Ok(())
     }
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_assign_unassigned_gc_tasks_to_new_server() {
+    async fn test_assign_unassigned_gc_tasks_to_new_server() -> Result<(), anyhow::Error> {
         let server_id = "123";
         let gc = GarbageCollector::new();
-        let gc_clone = Arc::clone(&gc);
 
-        //  Simulate receiving deletion events
-        let (tx, rx) = mpsc::channel(1);
-        // super::start_watching_deletion_events(gc_clone, rx);
-        let task = GarbageCollectionTask::default();
-        tx.send(task.clone()).await.unwrap();
-        tx.send(task.clone()).await.unwrap();
+        //  Create a couple of tasks
+        let (content_metadata, outputs, policy_ids) = create_data_for_task(2);
+        let _ = gc
+            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .await?;
 
-        // Allow some time for the task to be processed
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        //  all tasks should be unassigned
+        //  all tasks should be unassigned since there are no ingestion servers
         {
             let stored_tasks = gc.gc_tasks.read().await;
             for task in stored_tasks.values() {
-                matches!(task.status, TaskStatus::Unassigned);
+                assert!(task.assigned_to.is_none());
             }
         }
 
-        //  when a new server is registered, all tasks should be assigned to it
+        //  add a new server and all tasks should be assigned to it
         gc.register_ingestion_server(server_id).await;
-        let stored_tasks = gc.gc_tasks.read().await;
-        for task in stored_tasks.values() {
-            assert_eq!(task.status, TaskStatus::Assigned(server_id.to_string()));
+        {
+            let stored_tasks = gc.gc_tasks.read().await;
+            for task in stored_tasks.values() {
+                assert_eq!(task.assigned_to, Some(server_id.to_string()));
+            }
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_mark_task_completed() -> Result<(), anyhow::Error> {
+        let server_id = "123";
+        let gc = GarbageCollector::new();
+
+        //  Create a couple of tasks
+        gc.register_ingestion_server(server_id).await;
+        let (content_metadata, outputs, policy_ids) = create_data_for_task(3);
+        let tasks = gc
+            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .await?;
+
+        //  Mark all tasks as complete and check that they are removed
+        for task in tasks {
+            gc.mark_gc_task_completed(&task.id).await;
+        }
+        {
+            let stored_tasks = gc.gc_tasks.read().await;
+            assert!(stored_tasks.is_empty());
+        }
+
+        Ok(())
     }
 }

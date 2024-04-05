@@ -358,7 +358,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[schema(as=internal_api::GarbageCollectionTask)]
 pub struct GarbageCollectionTask {
     pub namespace: String,

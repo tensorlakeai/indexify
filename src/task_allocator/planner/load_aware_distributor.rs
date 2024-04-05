@@ -379,8 +379,6 @@ mod tests {
             .await
             .unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let _coordinator =
-            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
 
         let task_ids: HashSet<TaskId> = shared_state
             .state_machine
@@ -410,8 +408,6 @@ mod tests {
             .await
             .unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let _coordinator =
-            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
         let state_change_id = shared_state
@@ -660,8 +656,6 @@ mod tests {
             .await
             .unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let _coordinator =
-            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
 
         let text_extractor = {
             let mut extractor = mock_extractor();
