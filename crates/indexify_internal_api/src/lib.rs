@@ -6,13 +6,58 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use derive_builder::Builder;
 use indexify_proto::indexify_coordinator::{self};
+use jsonschema::JSONSchema;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{schema, ToSchema};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct ExtractionGraph {
+    pub id: String,
+    // Name of the extractor
+    pub name: String,
+    pub namespace: String,
+
+    // Child policies of the root policy
+    // Policy ID -> Set of child policy IDs
+    pub extraction_policies: HashSet<String>,
+}
+
+impl ExtractionGraph {
+    pub fn create_id(name: &str, namespace: &str) -> String {
+        let mut s = DefaultHasher::new();
+        name.hash(&mut s);
+        namespace.hash(&mut s);
+        format!("{:x}", s.finish())
+    }
+}
+
+impl ExtractionGraphBuilder {
+    pub fn build(&self) -> Result<ExtractionGraph> {
+        let name = self.name.clone().ok_or(anyhow!("name can't be empty"))?;
+        let namespace = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace can't be empty"))?;
+        let extraction_policies = self
+            .extraction_policies
+            .clone()
+            .ok_or(anyhow!("child policies can't be empty"))?;
+        let id = ExtractionGraph::create_id(&name, &namespace);
+        Ok(ExtractionGraph {
+            id,
+            name,
+            namespace,
+            extraction_policies,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct Index {
@@ -122,6 +167,34 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
             input_mime_types: value.input_mime_types,
             metadata_schemas,
         }
+    }
+}
+
+impl ExtractorDescription {
+    pub fn validate_input_params(&self, input_params: &serde_json::Value) -> Result<()> {
+        if self.input_params != serde_json::Value::Null {
+            return Ok(());
+        }
+        let input_params_schema = JSONSchema::compile(&self.input_params).map_err(|e| {
+            anyhow!(
+                "unable to compile json schema for input params: {:?}, error: {:?}",
+                &self.input_params,
+                e
+            )
+        })?;
+        let validation_result = input_params_schema.validate(input_params);
+        if let Err(errors) = validation_result {
+            let errors = errors
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<String>>();
+            return Err(anyhow!(
+                "unable to validate input params for extractor policy: {}, errors: {}",
+                &self.name,
+                errors.join(",")
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -459,22 +532,19 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default, Builder)]
+#[builder(build_fn(skip))]
 pub struct ExtractionPolicy {
     pub id: String,
+    pub graph_id: String,
     pub name: String,
     pub namespace: String,
     pub extractor: String,
     pub filters: HashMap<String, String>,
     pub input_params: serde_json::Value,
 
-    // Output name of the extractor to index name where the
-    // ouput is written to
-    pub output_index_name_mapping: HashMap<String, String>,
-
-    // Index name to the underlying table name of the index
-    // in storage system
-    pub index_name_table_mapping: HashMap<String, String>,
+    // Extractor Output -> Table Name
+    pub output_table_mapping: HashMap<String, String>,
 
     // The source of the content - ingestion, name of some extractor binding
     // which produces the content by invoking an extractor
@@ -605,6 +675,53 @@ impl Default for ContentMetadataId {
             id: "test_id".to_string(),
             version: 1,
         }
+    }
+}
+
+impl ExtractionPolicyBuilder {
+    pub fn build(
+        &self,
+        graph_id: &str,
+        extractor_description: ExtractorDescription,
+    ) -> Result<ExtractionPolicy> {
+        let input_params = self.input_params.clone().unwrap_or_default();
+        extractor_description.validate_input_params(&input_params)?;
+        let ns = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is not present"))?;
+        let name = self.name.clone().ok_or(anyhow!("name is not present"))?;
+        let extractor = self
+            .extractor
+            .clone()
+            .ok_or(anyhow!("extractor is not present"))?;
+
+        let content_source = self
+            .content_source
+            .clone()
+            .ok_or(anyhow!("content source is not present"))?;
+        let mut s = DefaultHasher::new();
+        name.hash(&mut s);
+        ns.hash(&mut s);
+        graph_id.hash(&mut s);
+        let id = s.finish().to_string();
+
+        let mut output_table_mapping = HashMap::new();
+        for output_name in extractor_description.outputs.keys() {
+            let index_table_name = format!("{}.{}.{}.{}", ns, graph_id, name, output_name);
+            output_table_mapping.insert(output_name.clone(), index_table_name.clone());
+        }
+        Ok(ExtractionPolicy {
+            id,
+            graph_id: graph_id.to_string(),
+            name,
+            namespace: ns,
+            extractor,
+            filters: self.filters.clone().unwrap_or_default(),
+            input_params: self.input_params.clone().unwrap_or_default(),
+            output_table_mapping,
+            content_source,
+        })
     }
 }
 

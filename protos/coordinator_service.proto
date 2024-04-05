@@ -14,7 +14,7 @@ service CoordinatorService {
 
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
 
-    rpc CreateExtractionPolicy(ExtractionPolicyRequest) returns (ExtractionPolicyResponse) {}
+    rpc CreateExtractionGraph(CreateExtractionGraphRequest) returns (CreateExtractionGraphResponse) {}
 
     rpc ListExtractionPolicies(ListExtractionPoliciesRequest) returns (ListExtractionPoliciesResponse) {}
 
@@ -337,6 +337,20 @@ message ExtractionPolicyRequest {
     map<string, string> filters = 5;
     string content_source = 6;
     int64 created_at = 7;
+}
+
+message CreateExtractionGraphRequest {
+    string namespace = 1;
+    string name = 2;
+    repeated ExtractionPolicyRequest policies = 3;
+}
+
+message CreateExtractionGraphResponse {
+    string graph_id = 1;
+    map<string, Extractor> extractors = 2;
+    map<string, ExtractionPolicy> policies = 3;
+    map<string, string> extractor_output_table_mapping = 4;
+    repeated Index indexes = 5;
 }
 
 message ExtractionPolicyResponse {

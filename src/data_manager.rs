@@ -12,6 +12,7 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self};
+use internal_api::ExtractorDescription;
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
@@ -19,7 +20,7 @@ use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
 use crate::{
-    api::{self, BeginExtractedContentIngest},
+    api::{self, BeginExtractedContentIngest, ExtractionGraphRequest},
     blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
@@ -143,7 +144,7 @@ impl DataManager {
         );
         let input_params_serialized = serde_json::to_string(&ep_req.input_params)
             .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
-        let req = indexify_coordinator::ExtractionPolicyRequest {
+        let policy_req = indexify_coordinator::ExtractionPolicyRequest {
             namespace: namespace.to_string(),
             extractor: ep_req.extractor.clone(),
             name: ep_req.name.clone(),
@@ -157,21 +158,24 @@ impl DataManager {
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs() as i64,
         };
+        let req = indexify_coordinator::CreateExtractionGraphRequest{
+            namespace: namespace.to_string(),
+            name: ep_req.name.clone(),
+            policies: vec![policy_req],
+        };
         let response = self
             .coordinator_client
             .get()
             .await?
-            .create_extraction_policy(req)
+            .create_extraction_graph(req)
             .await?
             .into_inner();
         let mut index_names = Vec::new();
-        let extractor = response
-            .extractor
-            .ok_or(anyhow!("extractor {:?} not found", ep_req.extractor))?;
+        let extractors = response
+            .extractors;
         for (name, output_schema) in &extractor.embedding_schemas {
             let embedding_schema: internal_api::EmbeddingSchema =
                 serde_json::from_str(output_schema)?;
-            let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
             let schema_json = serde_json::to_value(&embedding_schema)?;
@@ -191,6 +195,60 @@ impl DataManager {
         }
 
         Ok(index_names)
+    }
+
+    async fn create_tables_for_extractors(&self, output_table_mappings:  extractors: Vec<indexify_coordinator::Extractor>) -> Result<Vec<String>> {
+        let mut index_names = Vec::new();
+        for extractor in extractors {
+        for (name, output_schema) in &extractor.embedding_schemas{
+            let embedding_schema: internal_api::EmbeddingSchema =
+                serde_json::from_str(output_schema)?;
+            let table_name = extractor.ou.get(index_name).unwrap();
+            index_names.push(index_name.clone());
+            let schema_json = serde_json::to_value(&embedding_schema)?;
+            let _ = self
+                .vector_index_manager
+                .create_index(table_name, embedding_schema.clone())
+                .await?;
+            self.create_index_metadata(
+                namespace,
+                index_name,
+                table_name,
+                schema_json,
+                &ep_req.name,
+                &extractor.name,
+            )
+            .await?;
+        }
+
+
+        }
+
+    }
+
+    pub async fn create_extraction_graph(
+        &self,
+        namespace: &str,
+        req: ExtractionGraphRequest,
+    ) -> Result<Vec<String>> {
+        let mut extraction_policies = Vec::new();
+        for ep in req.policies {
+            let input_params_serialized = serde_json::to_string(&ep.input_params)
+                .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
+            let req = indexify_coordinator::ExtractionPolicyRequest {
+                namespace: namespace.to_string(),
+                extractor: ep.extractor.clone(),
+                name: ep.name.clone(),
+                filters: ep.filters_eq.clone().unwrap_or_default(),
+                input_params: input_params_serialized,
+                content_source: ep.content_source.clone().unwrap_or(req.name.to_string()),
+                created_at: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)?
+                    .as_secs() as i64,
+            };
+            extraction_policies.push(req);
+        }
+        Ok(vec![])
     }
 
     async fn create_index_metadata(

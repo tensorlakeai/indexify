@@ -66,6 +66,7 @@ pub type ExtractionEventId = String;
 pub type ExtractionPolicyId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
+pub type ExtractionGraphId = String;
 pub type SchemaId = String;
 
 pub mod requests;
@@ -89,18 +90,20 @@ pub enum StateMachineError {
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
-    Executors,              //  ExecutorId -> Executor Metadata
-    Tasks,                  //  TaskId -> Task
-    GarbageCollectionTasks, //  GCTaskId -> GCTask
-    TaskAssignments,        //  ExecutorId -> HashSet<TaskId>
-    StateChanges,           //  StateChangeId -> StateChange
-    ContentTable,           //  ContentId -> ContentMetadata
-    ExtractionPolicies,     //  ExtractionPolicyId -> ExtractionPolicy
-    Extractors,             //  ExtractorName -> ExtractorDescription
-    Namespaces,             //  Namespaces
-    IndexTable,             //  String -> Index
-    StructuredDataSchemas,  //  SchemaId -> StructuredDataSchema
-    CoordinatorAddress,     //  NodeId -> Coordinator address
+    Executors,                          //  ExecutorId -> Executor Metadata
+    Tasks,                              //  TaskId -> Task
+    GarbageCollectionTasks,             //  GCTaskId -> GCTask
+    TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
+    StateChanges,                       //  StateChangeId -> StateChange
+    ContentTable,                       //  ContentId -> ContentMetadata
+    ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,                         //  ExtractorName -> ExtractorDescription
+    Namespaces,                         //  Namespaces
+    IndexTable,                         //  String -> Index
+    StructuredDataSchemas,              //  SchemaId -> StructuredDataSchema
+    ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
+    CoordinatorAddress,                 //  NodeId -> Coordinator address
+    ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
 }
 
 impl StateMachineColumns {
@@ -488,7 +491,9 @@ impl StateMachineStore {
         self.data.indexify_state.get_executor_running_task_count()
     }
 
-    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+    pub async fn get_schemas_by_namespace(
+        &self,
+    ) -> HashMap<NamespaceName, HashSet<ExtractionGraphId>> {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 

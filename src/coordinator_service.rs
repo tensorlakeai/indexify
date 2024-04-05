@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     net::SocketAddr,
     pin::Pin,
@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
+use axum::http::request;
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_internal_api as internal_api;
@@ -21,6 +22,8 @@ use indexify_proto::indexify_coordinator::{
     CoordinatorCommand,
     CreateContentRequest,
     CreateContentResponse,
+    CreateExtractionGraphRequest,
+    CreateExtractionGraphResponse,
     CreateGcTasksRequest,
     CreateGcTasksResponse,
     CreateIndexRequest,
@@ -79,6 +82,7 @@ use opentelemetry::{
     KeyValue,
 };
 use prometheus::Encoder;
+use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
 use tokio::{
     select,
     signal,
@@ -179,58 +183,48 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn create_extraction_policy(
+    async fn create_extraction_graph(
         &self,
-        request: tonic::Request<ExtractionPolicyRequest>,
-    ) -> Result<tonic::Response<ExtractionPolicyResponse>, tonic::Status> {
+        request: tonic::Request<CreateExtractionGraphRequest>,
+    ) -> Result<tonic::Response<CreateExtractionGraphResponse>, tonic::Status> {
         let request = request.into_inner();
-        let mut s = DefaultHasher::new();
-        request.namespace.hash(&mut s);
-        request.name.hash(&mut s);
-        let id = s.finish().to_string();
-        let input_params = serde_json::from_str(&request.input_params)
-            .map_err(|e| tonic::Status::aborted(format!("unable to parse input_params: {}", e)))?;
-
-        let extractor = self
-            .coordinator
-            .get_extractor(&request.extractor)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut index_name_table_mapping = HashMap::new();
-        let mut output_index_name_mapping = HashMap::new();
-
-        //  TODO: Just create an output to table mapping here directly instead of 2
-        // separate mappings
-        for output_name in extractor.outputs.keys() {
-            let index_name = format!("{}.{}", request.name, output_name);
-            let index_table_name =
-                format!("{}.{}.{}", request.namespace, request.name, output_name);
-            index_name_table_mapping.insert(index_name.clone(), index_table_name.clone());
-            output_index_name_mapping.insert(output_name.clone(), index_name.clone());
+        let graph_id = ExtractionGraph::create_id(&request.name, &request.namespace);
+        let mut policies = vec![];
+        let mut policy_ids = HashSet::new();
+        for ep in request.policies.iter() {
+            let input_params = serde_json::from_str(&ep.input_params).map_err(|e| {
+                tonic::Status::aborted(format!("unable to parse input_params: {}", e))
+            })?;
+            let extractor = self
+                .coordinator
+                .get_extractor(&ep.extractor)
+                .await
+                .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+            let extraction_policy = ExtractionPolicyBuilder::default()
+                .namespace(request.namespace.clone())
+                .name(request.name.clone())
+                .extractor(ep.extractor.clone())
+                .filters(ep.filters.clone())
+                .input_params(input_params)
+                .content_source(ep.content_source.clone())
+                .build(&graph_id, extractor)
+                .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+            policy_ids.insert(extraction_policy.id.clone());
+            policies.push(extraction_policy);
         }
-
-        let extraction_policy = internal_api::ExtractionPolicy {
-            id,
-            extractor: request.extractor,
-            name: request.name,
-            namespace: request.namespace,
-            filters: request.filters,
-            input_params,
-            output_index_name_mapping: output_index_name_mapping.clone(),
-            index_name_table_mapping: index_name_table_mapping.clone(),
-            content_source: request.content_source,
-        };
+        let graph = ExtractionGraphBuilder::default()
+            .namespace(request.namespace.clone())
+            .name(request.name.clone())
+            .extraction_policies(policy_ids)
+            .build()
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let _ = self
             .coordinator
-            .create_policy(extraction_policy.clone(), extractor.clone())
+            .create_extraction_graph(graph, policies)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(ExtractionPolicyResponse {
-            created_at: timestamp_secs() as i64,
-            extractor: Some(extractor.into()),
-            extraction_policy: Some(extraction_policy.into()),
-            index_name_table_mapping,
-            output_index_name_mapping,
+        Ok(tonic::Response::new(CreateExtractionGraphResponse {
+            graph_id,
         }))
     }
 

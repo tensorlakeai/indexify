@@ -10,6 +10,8 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
     ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicy,
     GarbageCollectionTask,
     OutputSchema,
     StateChange,
@@ -303,27 +305,7 @@ impl Coordinator {
         extractor: internal_api::ExtractorDescription,
     ) -> Result<()> {
         if extractor.input_params != serde_json::Value::Null {
-            let input_params_schema =
-                JSONSchema::compile(&extractor.input_params).map_err(|e| {
-                    anyhow!(
-                        "unable to compile json schema for input params: {:?}, error: {:?}",
-                        &extractor.input_params,
-                        e
-                    )
-                })?;
-            let extractor_params_schema = extraction_policy.input_params.clone();
-            let validation_result = input_params_schema.validate(&extractor_params_schema);
-            if let Err(errors) = validation_result {
-                let errors = errors
-                    .into_iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<String>>();
-                return Err(anyhow!(
-                    "unable to validate input params for extractor policy: {}, errors: {}",
-                    &extraction_policy.name,
-                    errors.join(",")
-                ));
-            }
+            extractor.validate_input_params(&extraction_policy.input_params)?;
         }
         let structured_data_schema = self
             .shared_state
@@ -342,6 +324,14 @@ impl Coordinator {
         self.shared_state
             .create_extraction_policy(extraction_policy, updated_schema)
             .await?;
+        Ok(())
+    }
+
+    pub async fn create_extraction_graph(
+        &self,
+        extraction_graph: ExtractionGraph,
+        extraction_policies: Vec<ExtractionPolicy>,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -378,7 +368,7 @@ impl Coordinator {
                 output_tables.insert(
                     content_metadata.id.clone(),
                     applied_extraction_policy
-                        .index_name_table_mapping
+                        .output_table_mapping
                         .values()
                         .cloned()
                         .collect::<HashSet<_>>(),
@@ -644,17 +634,14 @@ mod tests {
             .create_policy(
                 internal_api::ExtractionPolicy {
                     id: "test-binding-id".to_string(),
+                    graph_id: "test-graph-id".to_string(),
                     name: "test".to_string(),
                     extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
                     namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                     input_params: serde_json::json!({}),
                     filters: HashMap::new(),
-                    output_index_name_mapping: HashMap::from([(
+                    output_table_mapping: HashMap::from([(
                         "test_output".to_string(),
-                        "test.test_output".to_string(),
-                    )]),
-                    index_name_table_mapping: HashMap::from([(
-                        "test.test_output".to_string(),
                         "test_namespace.test.test_output".to_string(),
                     )]),
                     content_source: "ingestion".to_string(),
@@ -746,12 +733,8 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: "ingestion".to_string(),
@@ -803,12 +786,8 @@ mod tests {
             id: "extraction_policy_id_2".to_string(),
             extractor: extractor_2_name.clone(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: extraction_policy_1.name,
@@ -889,12 +868,8 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: "ingestion".to_string(),
@@ -949,12 +924,8 @@ mod tests {
             id: "extraction_policy_id_2".to_string(),
             extractor: extractor_2_name.clone(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: extraction_policy_1.name,
@@ -1019,12 +990,8 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: "ingestion".to_string(),
@@ -1049,12 +1016,8 @@ mod tests {
             id: "extraction_policy_id_2".to_string(),
             extractor: extractor_2_name.clone(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: extraction_policy_1.name,
@@ -1161,12 +1124,8 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: "ingestion".to_string(),
@@ -1191,12 +1150,8 @@ mod tests {
             id: "extraction_policy_id_2".to_string(),
             extractor: extractor_2_name.clone(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: extraction_policy_1.name,
@@ -1362,12 +1317,8 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: "ingestion".to_string(),
@@ -1485,12 +1436,8 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: "ingestion".to_string(),
@@ -1516,12 +1463,8 @@ mod tests {
             id: "extraction_policy_id_2".to_string(),
             extractor: extractor_2_name.clone(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
-                "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
             content_source: extraction_policy_1.name,

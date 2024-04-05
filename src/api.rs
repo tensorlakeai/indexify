@@ -676,3 +676,13 @@ pub struct TaskAssignments {
 pub struct UploadFileResponse {
     pub content_id: String,
 }
+pub struct ExtractionGraphRequest {
+    pub namespace: String,
+    pub name: String,
+    pub policies: Vec<ExtractionPolicy>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExtractionGraphResponse {
+    pub indexes: Vec<String>,
+}

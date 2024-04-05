@@ -181,6 +181,10 @@ impl Server {
                 post(create_extraction_policy).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespace/:namespace/extraction_graphs",
+                post(create_extraction_graphs).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/indexes",
                 get(list_indexes).with_state(namespace_endpoint_state.clone()),
             )
@@ -564,6 +568,34 @@ async fn create_extraction_policy(
         .into_iter()
         .collect();
     Ok(Json(ExtractionPolicyResponse { index_names }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/namespace/{namespace}/extraction_policies",
+    request_body = ExtractionPolicyRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Extractor policy added successfully", body = ExtractionPolicyResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction policy to namespace")
+    ),
+)]
+#[axum::debug_handler]
+async fn create_extraction_graphs(
+    // FIXME: this throws a 500 when the binding already exists
+    // FIXME: also throws a 500 when the index name already exists
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+    Json(payload): Json<ExtractionGraphRequest>,
+) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
+    let indexes = state
+        .data_manager
+        .create_extraction_graph(&namespace, payload)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
+        .into_iter()
+        .collect();
+    Ok(Json(ExtractionGraphResponse { indexes }))
 }
 
 #[tracing::instrument(skip(state, payload))]

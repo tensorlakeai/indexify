@@ -55,6 +55,11 @@ pub enum RequestPayload {
         gc_task: internal_api::GarbageCollectionTask,
         mark_finished: bool,
     },
+    CreateExtractionGraph {
+        extraction_graph: internal_api::ExtractionGraph,
+        extraction_policies: Vec<internal_api::ExtractionPolicy>,
+        structured_data_schema: internal_api::StructuredDataSchema,
+    },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
