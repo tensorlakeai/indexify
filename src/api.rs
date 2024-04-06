@@ -563,14 +563,8 @@ pub struct ListStateChangesResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetStructuredDataSchemasResponse {
-    pub schemas: Vec<StructuredDataSchema>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StructuredDataSchema {
-    pub columns: serde_json::Value,
-    pub content_source: String,
-    pub namespace: String,
+    pub schemas: Vec<internal_api::StructuredDataSchema>,
+    pub ddls: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
