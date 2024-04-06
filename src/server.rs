@@ -1050,6 +1050,7 @@ async fn list_schemas(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let results = results.into_inner().schemas;
+    let mut ddls = Vec::new();
     let mut schemas = Vec::new();
     for schema in results {
         let columns = serde_json::from_str(&schema.columns).map_err(|e| {
@@ -1058,13 +1059,19 @@ async fn list_schemas(
                 &format!("failed to parse schema columns: {} {}", schema.columns, e),
             )
         })?;
-        schemas.push(StructuredDataSchema {
+
+        let schema = internal_api::StructuredDataSchema {
             columns,
-            namespace: namespace.to_string(),
-            content_source: schema.content_source,
-        })
+            content_source: schema.content_source.to_string(),
+            namespace: namespace.clone(),
+            id: internal_api::StructuredDataSchema::schema_id(&namespace, &schema.content_source),
+        };
+
+        ddls.push(schema.to_ddl());
+        schemas.push(schema);
     }
-    Ok(Json(GetStructuredDataSchemasResponse { schemas }))
+
+    Ok(Json(GetStructuredDataSchemasResponse { schemas, ddls }))
 }
 
 #[tracing::instrument]
