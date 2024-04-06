@@ -174,7 +174,7 @@ impl VectorDb for QdrantDb {
         let points: Vec<PointId> = vec![point_id.into()];
         let _result = self
             .create_client()?
-            .overwrite_payload(&index, None, &points.into(), metadata, None)
+            .overwrite_payload(&index, None, &points.into(), metadata, None, None)
             .await
             .map_err(|e| anyhow!("unable to update metadata: {}", e.to_string()))?;
         Ok(())
