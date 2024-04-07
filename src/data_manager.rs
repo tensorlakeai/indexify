@@ -31,6 +31,19 @@ use crate::{
     vector_index::{ScoredText, VectorIndexManager},
 };
 
+fn index_in_features(
+    output_index_map: &HashMap<String, String>,
+    features: &[api::Feature],
+    index_name: &str,
+) -> bool {
+    features.iter().any(|f| match f.feature_type {
+        api::FeatureType::Embedding => output_index_map
+            .get(&f.name)
+            .map_or(false, |index| index == index_name),
+        _ => false,
+    })
+}
+
 pub struct DataManager {
     pub vector_index_manager: Arc<VectorIndexManager>,
     metadata_index_manager: MetadataStorageTS,
@@ -533,12 +546,6 @@ impl DataManager {
         serde_json::Value::Object(metadata)
     }
 
-    fn has_embeddings(features: &[api::Feature]) -> bool {
-        features
-            .iter()
-            .any(|f| matches!(f.feature_type, api::FeatureType::Embedding))
-    }
-
     pub async fn write_existing_content_features(
         &self,
         extractor_name: &str,
@@ -546,44 +553,38 @@ impl DataManager {
         content_meta: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
+        index_tables: &[String],
     ) -> Result<()> {
-        let index = output_index_map
-            .get(features[0].name.as_str())
-            .ok_or(anyhow!("default index not found"))?;
-        let result = self
-            .vector_index_manager
-            .get_points(&index, vec![content_meta.id.clone()])
+        let existing_metadata = self
+            .metadata_index_manager
+            .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
             .await?;
-        let metadata = if result.is_empty() {
-            // If no embeddings were found in this feature list, read existing metadata
-            let existing_metadata = self
-                .metadata_index_manager
-                .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
-                .await?;
-            Self::combine_extracted_metadata(&existing_metadata)
-        } else {
-            println!("found existing vector for content {}", content_meta.id);
-            result[0].metadata.clone()
-        };
+        let existing_metadata = Self::combine_extracted_metadata(&existing_metadata);
         self.write_extracted_features(
             extractor_name,
             extraction_policy,
             content_meta,
             features.clone(),
-            metadata.clone(),
+            existing_metadata.clone(),
             output_index_map,
         )
         .await?;
-        // If no embeddings were found in this feature list but vector already exists,
-        // update its metadata.
-        if !result.is_empty() && !Self::has_embeddings(&features) {
-            self.vector_index_manager
-                .update_metadata(
-                    &index,
+        // For all embeddings not updated with new values, update their metadata
+        for index in index_tables {
+            if !index_in_features(output_index_map, &features, &index) {
+                info!(
+                    "updating metadata for content {} index {}",
                     content_meta.id.clone(),
-                    Self::combine_metadata(metadata, &features),
-                )
-                .await?;
+                    index
+                );
+                self.vector_index_manager
+                    .update_metadata(
+                        &index,
+                        content_meta.id.clone(),
+                        Self::combine_metadata(existing_metadata.clone(), &features),
+                    )
+                    .await?;
+            }
         }
         Ok(())
     }

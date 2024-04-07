@@ -44,7 +44,11 @@ impl IngestExtractedContentState {
     }
 
     fn begin(&mut self, payload: BeginExtractedContentIngest) {
-        info!("beginning extraction ingest for task: {}", payload.task_id);
+        info!(
+            "beginning extraction ingest for task: {} index_tables: {}",
+            payload.task_id,
+            payload.index_tables.join(",")
+        );
         self.ingest_metadata.replace(payload);
     }
 
@@ -226,6 +230,7 @@ impl IngestExtractedContentState {
                     .as_ref()
                     .unwrap()
                     .output_to_index_table_mapping,
+                &self.ingest_metadata.as_ref().unwrap().index_tables,
             )
             .await
     }
@@ -412,7 +417,7 @@ mod tests {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
             .finish();
-        tracing::subscriber::set_global_default(subscriber).unwrap();
+        let _ = tracing::subscriber::set_global_default(subscriber);
     }
 
     #[tokio::test]
@@ -432,6 +437,7 @@ mod tests {
             output_to_index_table_mapping: HashMap::new(),
             executor_id: "test".to_string(),
             task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test".to_string()],
         };
         ingest_state.begin(payload.clone());
         let new_payload = ingest_state.ingest_metadata.clone().unwrap();
@@ -513,13 +519,12 @@ mod tests {
             distance: "cosine".to_string(),
         };
 
-        ingest_state
+        let _ = ingest_state
             .state
             .data_manager
             .vector_index_manager
             .drop_index("test_index1")
-            .await
-            .unwrap();
+            .await;
 
         ingest_state
             .state
@@ -538,6 +543,7 @@ mod tests {
             output_to_index_table_mapping: output_mappings,
             executor_id: "test".to_string(),
             task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test_index1".to_string()],
         };
 
         ingest_state.begin(payload.clone());
@@ -639,13 +645,12 @@ mod tests {
             distance: "cosine".to_string(),
         };
 
-        ingest_state
+        let _ = ingest_state
             .state
             .data_manager
             .vector_index_manager
             .drop_index("test_index1")
-            .await
-            .unwrap();
+            .await;
 
         ingest_state
             .state
@@ -664,6 +669,7 @@ mod tests {
             output_to_index_table_mapping: output_mappings,
             executor_id: "test".to_string(),
             task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test_index1".to_string()],
         };
 
         ingest_state.begin(payload.clone());

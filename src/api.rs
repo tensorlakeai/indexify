@@ -506,6 +506,7 @@ pub struct BeginExtractedContentIngest {
     pub task_outcome: internal_api::TaskOutcome,
     pub extraction_policy: String,
     pub extractor: String,
+    pub index_tables: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]

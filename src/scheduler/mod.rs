@@ -72,6 +72,25 @@ impl Scheduler {
         Ok(())
     }
 
+    async fn tables_for_policies(
+        &self,
+        policies: &[internal_api::ExtractionPolicy],
+    ) -> Result<Vec<String>> {
+        let mut tables = Vec::new();
+        for policy in policies {
+            let extractor = self
+                .shared_state
+                .extractor_with_name(&policy.extractor)
+                .await?;
+            for name in extractor.outputs.keys() {
+                let index_name = policy.output_index_name_mapping.get(name).unwrap();
+                let table_name = policy.index_name_table_mapping.get(index_name).unwrap();
+                tables.push(table_name.clone());
+            }
+        }
+        Ok(tables)
+    }
+
     pub async fn create_new_tasks(
         &self,
         state_change: StateChange,
@@ -85,8 +104,7 @@ impl Scheduler {
                     .shared_state
                     .content_matching_policy(&state_change.object_id)
                     .await?;
-
-                self.create_task(&state_change.object_id, content_list)
+                self.create_task_list(&state_change.object_id, content_list)
                     .await?
             }
             internal_api::ChangeType::NewContent => {
@@ -102,9 +120,10 @@ impl Scheduler {
                 let mut content_extraction_policy_mapppings: Vec<
                     internal_api::ContentExtractionPolicyMapping,
                 > = Vec::new();
+                let tables = self.tables_for_policies(&extraction_policies).await?;
                 for extraction_policy in extraction_policies {
                     let tasks_and_content_extraction_policy_mappings = self
-                        .create_task(&extraction_policy.id, vec![content.clone()])
+                        .create_task(&extraction_policy.id, &content, &tables)
                         .await?;
                     tasks.extend(tasks_and_content_extraction_policy_mappings.0);
                     content_extraction_policy_mapppings
@@ -147,10 +166,57 @@ impl Scheduler {
         Ok(TaskAllocationPlan(HashMap::new()))
     }
 
+    pub async fn create_task_list(
+        &self,
+        extraction_policy_id: &str,
+        contents: Vec<internal_api::ContentMetadata>,
+    ) -> Result<(
+        Vec<internal_api::Task>,
+        Vec<internal_api::ContentExtractionPolicyMapping>,
+    )> {
+        let mut tasks = Vec::new();
+        let mut content_extraction_policy_mappings = Vec::new();
+        for content in &contents {
+            // Get list of existing extraction policies for content.
+            let mappings = self
+                .shared_state
+                .get_content_extraction_policy_mappings_for_content_id(&content.id)
+                .await?;
+            let mut policy_ids = if let Some(mappings) = mappings {
+                mappings.extraction_policy_ids
+            } else {
+                HashSet::new()
+            };
+
+            // Add the new extraction policy to the list of policies for the content.
+            policy_ids.insert(extraction_policy_id.to_string());
+
+            // Collect all index tables associated with the content including the new
+            // policy.
+            let tables = if let Some(policies) = self
+                .shared_state
+                .get_extraction_policies_from_ids(policy_ids)
+                .await?
+            {
+                self.tables_for_policies(&policies).await?
+            } else {
+                Vec::new()
+            };
+
+            let (new_tasks, new_policy_mapping) = self
+                .create_task(extraction_policy_id, content, &tables)
+                .await?;
+            tasks.extend(new_tasks);
+            content_extraction_policy_mappings.extend(new_policy_mapping);
+        }
+        Ok((tasks, content_extraction_policy_mappings))
+    }
+
     pub async fn create_task(
         &self,
         extraction_policy_id: &str,
-        content_list: Vec<internal_api::ContentMetadata>,
+        content: &internal_api::ContentMetadata,
+        index_tables: &[String],
     ) -> Result<(
         Vec<internal_api::Task>,
         Vec<internal_api::ContentExtractionPolicyMapping>,
@@ -180,32 +246,31 @@ impl Scheduler {
         }
         let mut tasks = Vec::new();
         let mut content_extraction_policy_mappings = Vec::new();
-        for content in content_list {
-            let mut hasher = DefaultHasher::new();
-            extraction_policy.name.hash(&mut hasher);
-            extraction_policy.namespace.hash(&mut hasher);
-            content.id.hash(&mut hasher);
-            let id = format!("{:x}", hasher.finish());
-            let task = internal_api::Task {
-                id,
-                extractor: extraction_policy.extractor.clone(),
-                extraction_policy_id: extraction_policy.id.clone(),
-                output_index_table_mapping: output_mapping.clone(),
-                namespace: extraction_policy.namespace.clone(),
-                content_metadata: content.clone(),
-                input_params: extraction_policy.input_params.clone(),
-                outcome: internal_api::TaskOutcome::Unknown,
-            };
-            info!("created task: {:?}", task);
-            tasks.push(task);
+        let mut hasher = DefaultHasher::new();
+        extraction_policy.name.hash(&mut hasher);
+        extraction_policy.namespace.hash(&mut hasher);
+        content.id.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        let task = internal_api::Task {
+            id,
+            extractor: extraction_policy.extractor.clone(),
+            extraction_policy_id: extraction_policy.id.clone(),
+            output_index_table_mapping: output_mapping.clone(),
+            namespace: extraction_policy.namespace.clone(),
+            content_metadata: content.clone(),
+            input_params: extraction_policy.input_params.clone(),
+            outcome: internal_api::TaskOutcome::Unknown,
+            index_tables: index_tables.to_vec(),
+        };
+        info!("created task: {:?}", task);
+        tasks.push(task);
 
-            let content_extraction_policy_mapping = internal_api::ContentExtractionPolicyMapping {
-                content_id: content.id,
-                extraction_policy_ids: HashSet::from_iter(vec![extraction_policy.id.clone()]),
-                time_of_policy_completion: HashMap::new(),
-            };
-            content_extraction_policy_mappings.push(content_extraction_policy_mapping);
-        }
+        let content_extraction_policy_mapping = internal_api::ContentExtractionPolicyMapping {
+            content_id: content.id.clone(),
+            extraction_policy_ids: HashSet::from_iter(vec![extraction_policy.id.clone()]),
+            time_of_policy_completion: HashMap::new(),
+        };
+        content_extraction_policy_mappings.push(content_extraction_policy_mapping);
         Ok((tasks, content_extraction_policy_mappings))
     }
 }

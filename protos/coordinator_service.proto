@@ -218,6 +218,7 @@ message Task {
     string extraction_policy_id = 6;
     map<string, string> output_index_mapping = 7;
     TaskOutcome outcome = 8;
+    repeated string index_tables = 9;
 }
 
 message ListExtractorsRequest {
