@@ -64,7 +64,7 @@ message GetContentMetadataRequest {
 }
 
 message GetContentMetadataResponse {
-    repeated ContentMetadata content_list = 1;
+    map<string, ContentMetadata> content_list = 1;
 }
 
 enum TaskOutcome {

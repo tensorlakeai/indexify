@@ -64,7 +64,6 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
-use itertools::Itertools;
 use tokio::{
     select,
     signal,
@@ -611,8 +610,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let content_metadata = content_metadata_list
             .iter()
-            .map(|c| c.clone().into())
-            .collect_vec();
+            .map(|c| (c.id.clone(), c.clone().into()))
+            .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
                 content_list: content_metadata,
