@@ -37,14 +37,14 @@ indexify-extractor join pdf_extractor.PDFExtactor
 
 Upload a PDF 
 
-```bash
+```python
 client = IndexifyClient()
 content_id = client.upload_file("foo.pdf")
 client.create_extraction_policy(...)
 ```
 
 Inspect the extracted content
-```bash
+```python
 extracted_content = client.derived_content_of(content_id=content_id)
 ```
 
