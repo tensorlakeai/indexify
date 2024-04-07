@@ -23,6 +23,33 @@ Tables are extracted as JSON
 Every `Content` will have `page_number` as a metadata. 
 
 
+## How to Test PDF Extraction
+
+Start the Indexify Server 
+```bash
+indexify server -d
+```
+
+Run a PDF Extractor 
+```bash
+indexify-extractor join pdf_extractor.PDFExtactor
+```
+
+Upload a PDF 
+
+```bash
+client = IndexifyClient()
+content_id = client.upload_file("foo.pdf")
+client.create_extraction_policy(...)
+```
+
+Inspect the extracted content
+```bash
+extracted_content = client.derived_content_of(content_id=content_id)
+```
+
+
+
 ## Examples 
 
 ### Invoices
