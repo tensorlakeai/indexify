@@ -353,7 +353,7 @@ impl DataManager {
             .await?;
         let content_metadata_list = response.into_inner().content_list;
         let mut content_list = Vec::new();
-        for c in content_metadata_list {
+        for c in content_metadata_list.values().cloned() {
             content_list.push(c.into())
         }
         Ok(content_list)
