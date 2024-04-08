@@ -2,9 +2,9 @@
 
 We are going to build a pipeline where we will upload a few episodes of the "All In" podcast and ask questions about them. We will also show how you can also get the transcription directly.
 
-### Install the Indexify Extractor SDK and the Indexify Client
+### Install the Indexify Extractor SDK, Langchain Retriever and the Indexify Client
 ```bash
-pip install indexify-extractor-sdk indexify
+pip install indexify-extractor-sdk indexify-langchain indexify
 ```
 
 ### Start the Indexify Server
@@ -14,10 +14,19 @@ indexify server -d
 
 ### Download an Embedding Extractor
 On another terminal start the embedding extractor which we will use to index text from the wikiepdia page.
-```bash
-indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
-```
+
+=== "Shell"
+
+    ```bash
+    indexify-extractor download hub://embedding/minilm-l6
+    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    ```
+  
+=== "Docker"
+
+    ```shell
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500
+    ```
 
 ### Download a Speech To Text Extractor
 Install ffmpeg on your machine 
@@ -31,11 +40,17 @@ Install ffmpeg on your machine
     ```
 
 On another terminal start a Whisper based Speech To Text Extractor
-```bash
-indexify-extractor download hub://audio/whisper-asr
-indexify-extractor join whisper-asr.whisper_extractor:WhisperExtractor 
-```
+=== "Shell"
 
+    ```bash
+    indexify-extractor download hub://audio/whisper-asr
+    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor 
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/whisper-asr join-server --workers=1 --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501 --listen-port=9501
+    ```
 
 
 ### Create Extraction Policies

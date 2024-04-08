@@ -13,22 +13,57 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self, coordinator_service_server::CoordinatorService, CreateContentRequest,
-    CreateContentResponse, CreateIndexRequest, CreateIndexResponse, ExtractionPolicyRequest,
-    ExtractionPolicyResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest,
-    GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
-    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
-    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
-    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
-    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
-    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
-    TaskAssignments, TombstoneContentRequest, TombstoneContentResponse, Uint64List,
-    UpdateTaskRequest, UpdateTaskResponse,
+    self,
+    coordinator_service_server::CoordinatorService,
+    CoordinatorCommand,
+    CreateContentRequest,
+    CreateContentResponse,
+    CreateGcTasksRequest,
+    CreateGcTasksResponse,
+    CreateIndexRequest,
+    CreateIndexResponse,
+    ExtractionPolicyRequest,
+    ExtractionPolicyResponse,
+    GcTask,
+    GcTaskAcknowledgement,
+    GetAllSchemaRequest,
+    GetAllSchemaResponse,
+    GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest,
+    GetExtractorCoordinatesRequest,
+    GetIndexRequest,
+    GetIndexResponse,
+    GetRaftMetricsSnapshotRequest,
+    GetSchemaRequest,
+    GetSchemaResponse,
+    HeartbeatRequest,
+    HeartbeatResponse,
+    ListContentRequest,
+    ListContentResponse,
+    ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse,
+    ListExtractorsRequest,
+    ListExtractorsResponse,
+    ListIndexesRequest,
+    ListIndexesResponse,
+    ListStateChangesRequest,
+    ListTasksRequest,
+    ListTasksResponse,
+    RaftMetricsSnapshotResponse,
+    RegisterExecutorRequest,
+    RegisterExecutorResponse,
+    RegisterIngestionServerRequest,
+    RegisterIngestionServerResponse,
+    RemoveIngestionServerRequest,
+    RemoveIngestionServerResponse,
+    TaskAssignments,
+    TombstoneContentRequest,
+    TombstoneContentResponse,
+    Uint64List,
+    UpdateTaskRequest,
+    UpdateTaskResponse,
 };
 use internal_api::StateChange;
-use itertools::Itertools;
 use tokio::{
     select, signal,
     sync::{
@@ -41,13 +76,18 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator, garbage_collector::GarbageCollector, server_config::ServerConfig,
-    state, tonic_streamer::DropReceiver, utils::timestamp_secs,
+    coordinator::Coordinator,
+    coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector,
+    server_config::ServerConfig,
+    state,
+    tonic_streamer::DropReceiver,
+    utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
 type GCTasksResponseStream =
-    Pin<Box<dyn tokio_stream::Stream<Item = Result<GcTask, Status>> + Send + Sync>>;
+    Pin<Box<dyn tokio_stream::Stream<Item = Result<CoordinatorCommand, Status>> + Send + Sync>>;
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
@@ -277,11 +317,36 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<RegisterIngestionServerResponse>, tonic::Status> {
         let request = request.into_inner();
         self.coordinator
-            .register_ingestion_server(&request.addr, &request.ingestion_server_id)
+            .register_ingestion_server(&request.ingestion_server_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         Ok(tonic::Response::new(RegisterIngestionServerResponse {}))
+    }
+
+    async fn remove_ingestion_server(
+        &self,
+        request: tonic::Request<RemoveIngestionServerRequest>,
+    ) -> Result<tonic::Response<RemoveIngestionServerResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .remove_ingestion_server(&request.ingestion_server_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        Ok(tonic::Response::new(RemoveIngestionServerResponse {}))
+    }
+
+    async fn create_gc_tasks(
+        &self,
+        request: tonic::Request<CreateGcTasksRequest>,
+    ) -> Result<tonic::Response<CreateGcTasksResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .create_gc_tasks(&request.content_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(CreateGcTasksResponse {}))
     }
 
     async fn gc_tasks_stream(
@@ -307,10 +372,12 @@ impl CoordinatorService for CoordinatorServiceServer {
                     task_ack = inbound.next() => {
                         match task_ack {
                             Some(Ok(task_ack)) => {
-                                //  check for initial handshake message
+                                //  check for heartbeat
                                 if task_ack.task_id.is_empty() {
                                     ingestion_server_id.replace(task_ack.ingestion_server_id);
-                                    tracing::debug!("Received handshake, ingestion server ID set to: {:?}", ingestion_server_id);
+                                    if let Err(e) = coordinator_clone.register_ingestion_server(ingestion_server_id.as_ref().unwrap()).await {
+                                        tracing::error!("Error registering ingestion server: {}", e);
+                                    }
                                     continue;
                                 }
 
@@ -340,9 +407,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                     }
                     Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
-                        let (assigned_ingestion_server, task) = task_allocation;
+                        let task = task_allocation;
                         if let Some(ref server_id) = ingestion_server_id {
-                            if &assigned_ingestion_server == server_id {
+                            if task.assigned_to.is_some() && &task.assigned_to.unwrap() == server_id {
                                 let serialized_task = GcTask {
                                     task_id: task.id,
                                     namespace: task.namespace,
@@ -353,7 +420,10 @@ impl CoordinatorService for CoordinatorServiceServer {
                                         .collect::<Vec<String>>(),
                                     blob_store_path: task.blob_store_path,
                                 };
-                                tx.send(serialized_task).await.unwrap();
+                                let command = CoordinatorCommand {
+                                    gc_task: Some(serialized_task)
+                                };
+                                tx.send(command).await.unwrap();
                             }
                         }
                     }
@@ -362,9 +432,9 @@ impl CoordinatorService for CoordinatorServiceServer {
 
             //  Notify the garbage collector that the ingestion server has disconnected
             if let Some(server_id) = ingestion_server_id {
-                coordinator_clone
-                    .remove_ingestion_server_from_garbage_collector(&server_id)
-                    .await;
+                if let Err(e) = coordinator_clone.remove_ingestion_server(&server_id).await {
+                    tracing::error!("Error removing ingestion server: {}", e);
+                }
             }
         });
 
@@ -540,8 +610,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let content_metadata = content_metadata_list
             .iter()
-            .map(|c| c.clone().into())
-            .collect_vec();
+            .map(|c| (c.id.clone(), c.clone().into()))
+            .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
                 content_list: content_metadata,
@@ -711,10 +781,20 @@ impl CoordinatorServer {
     pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let garbage_collector = GarbageCollector::new();
-        let shared_state =
-            state::App::new(config.clone(), None, Arc::clone(&garbage_collector)).await?;
+        let shared_state = state::App::new(
+            config.clone(),
+            None,
+            Arc::clone(&garbage_collector),
+            &config.coordinator_addr,
+        )
+        .await?;
+        let coordinator_client = CoordinatorClient::new(&addr.to_string());
 
-        let coordinator = Coordinator::new(shared_state.clone(), garbage_collector);
+        let coordinator = Coordinator::new(
+            shared_state.clone(),
+            coordinator_client,
+            Arc::clone(&garbage_collector),
+        );
         info!("coordinator listening on: {}", addr.to_string());
         Ok(Self {
             addr,

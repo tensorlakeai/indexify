@@ -9,15 +9,13 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
 use jsonschema::JSONSchema;
-use tokio::sync::{
-    broadcast,
-    mpsc::{self, Sender},
-    watch::Receiver,
-};
+use tokio::sync::{broadcast, watch::Receiver};
 use tracing::info;
 
 use crate::{
+    coordinator_client::CoordinatorClient,
     coordinator_filters::*,
+    forwardable_coordinator::ForwardableCoordinator,
     garbage_collector::GarbageCollector,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
@@ -25,24 +23,26 @@ use crate::{
 };
 
 pub struct Coordinator {
-    shared_state: SharedState,
+    pub shared_state: SharedState,
     scheduler: Scheduler,
     garbage_collector: Arc<GarbageCollector>,
-    gc_tasks_tx: Sender<indexify_internal_api::GarbageCollectionTask>,
+    forwardable_coordinator: ForwardableCoordinator,
 }
 
 impl Coordinator {
-    pub fn new(shared_state: SharedState, garbage_collector: Arc<GarbageCollector>) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel(8);
+    pub fn new(
+        shared_state: SharedState,
+        coordinator_client: CoordinatorClient,
+        garbage_collector: Arc<GarbageCollector>,
+    ) -> Arc<Self> {
         let task_allocator = TaskAllocator::new(shared_state.clone());
         let scheduler = Scheduler::new(shared_state.clone(), task_allocator);
-        let garbage_collector_clone = Arc::clone(&garbage_collector);
-        garbage_collector_clone.start_watching_deletion_events(rx);
+        let forwardable_coordinator = ForwardableCoordinator::new(coordinator_client);
         Arc::new(Self {
             shared_state,
             scheduler,
             garbage_collector,
-            gc_tasks_tx: tx,
+            forwardable_coordinator,
         })
     }
 
@@ -100,12 +100,6 @@ impl Coordinator {
         gc_task.outcome = outcome;
         self.shared_state.update_gc_task(gc_task).await?;
         Ok(())
-    }
-
-    pub async fn remove_ingestion_server_from_garbage_collector(&self, ingestion_server_id: &str) {
-        self.garbage_collector
-            .remove_ingestion_server(ingestion_server_id)
-            .await;
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
@@ -206,14 +200,44 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn register_ingestion_server(
-        &self,
-        addr: &str,
-        ingestion_server_id: &str,
-    ) -> Result<()> {
-        self.shared_state
-            .register_ingestion_server(addr, ingestion_server_id)
-            .await
+    pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_node_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_node_id)?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            self.forwardable_coordinator
+                .register_ingestion_server(&leader_coord_addr, ingestion_server_id)
+                .await?;
+            return Ok(());
+        }
+        self.garbage_collector
+            .register_ingestion_server(ingestion_server_id)
+            .await;
+        Ok(())
+    }
+
+    pub async fn remove_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_node_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_node_id)?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            self.forwardable_coordinator
+                .remove_ingestion_server(&leader_coord_addr, ingestion_server_id)
+                .await?;
+            return Ok(());
+        }
+        self.garbage_collector
+            .remove_ingestion_server(ingestion_server_id)
+            .await;
+        Ok(())
     }
 
     pub async fn get_content_metadata(
@@ -280,39 +304,18 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn create_gc_tasks(&self, content_id: String) -> Result<Vec<GarbageCollectionTask>> {
-        //  Get the metadata of the children of the content id
-        let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
-        let namespace: String = content_tree_metadata[0].namespace.clone();
+    pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
+        let content_tree_metadata = self.shared_state.get_content_tree_metadata(content_id)?;
+        let mut output_tables = HashMap::new();
+        let mut policy_ids = HashMap::new();
 
-        let mut gc_tasks_created = Vec::new();
-
-        //  Iterate over the content tree and create a gc task per node
-        for content_metadata in content_tree_metadata {
+        for content_metadata in &content_tree_metadata {
             let content_extraction_policy_mappings = self
                 .shared_state
                 .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
                 .await?;
 
-            //  If no extraction policies have been applied to the parent of this node, then
-            // it cannot have output features and embeddings
             if content_extraction_policy_mappings.is_none() {
-                let mut hasher = DefaultHasher::new();
-                namespace.hash(&mut hasher);
-                content_metadata.id.hash(&mut hasher);
-                let id = format!("{:x}", hasher.finish());
-
-                let gc_task = indexify_internal_api::GarbageCollectionTask {
-                    namespace: namespace.clone(),
-                    id,
-                    content_id: content_metadata.id,
-                    parent_content_id: content_metadata.parent_id,
-                    output_tables: HashSet::new(),
-                    outcome: indexify_internal_api::TaskOutcome::Unknown,
-                    blob_store_path: content_metadata.name,
-                };
-                info!("created gc task {:?}", gc_task);
-                gc_tasks_created.push(gc_task);
                 continue;
             }
 
@@ -324,70 +327,59 @@ impl Coordinator {
                 .get_extraction_policies_from_ids(applied_extraction_policy_ids)
                 .await?;
 
-            //  Get the table names from the extraction_policies
-            let mut output_tables: Vec<String> = Vec::new();
             if applied_extraction_policies.is_none() {
-                let mut hasher = DefaultHasher::new();
-                namespace.hash(&mut hasher);
-                content_metadata.id.hash(&mut hasher);
-                let id = format!("{:x}", hasher.finish());
-                let gc_task = indexify_internal_api::GarbageCollectionTask {
-                    namespace: namespace.clone(),
-                    id,
-                    content_id: content_metadata.id,
-                    parent_content_id: content_metadata.parent_id,
-                    output_tables: HashSet::new(),
-                    outcome: indexify_internal_api::TaskOutcome::Unknown,
-                    blob_store_path: content_metadata.name,
-                };
-                info!("created gc task {:?}", gc_task);
-                gc_tasks_created.push(gc_task);
                 continue;
             }
 
+            let policy_id = &applied_extraction_policies
+                .as_ref()
+                .unwrap()
+                .iter()
+                .next()
+                .map(|policy| policy.id.clone())
+                .unwrap_or("".to_string());
+            policy_ids.insert(content_metadata.id.clone(), policy_id.to_string());
+
             for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
-                output_tables.extend(
+                output_tables.insert(
+                    content_metadata.id.clone(),
                     applied_extraction_policy
                         .index_name_table_mapping
                         .values()
-                        .cloned(),
+                        .cloned()
+                        .collect::<HashSet<_>>(),
                 );
             }
-
-            //  Create the garbage collection task
-            let mut hasher = DefaultHasher::new();
-            let policies = applied_extraction_policies.unwrap();
-            let policy = policies.first().unwrap();
-
-            policy.name.hash(&mut hasher);
-            policy.namespace.hash(&mut hasher);
-            content_metadata.id.hash(&mut hasher);
-            let id = format!("{:x}", hasher.finish());
-
-            let gc_task = indexify_internal_api::GarbageCollectionTask {
-                namespace: namespace.clone(),
-                id,
-                content_id: content_metadata.id,
-                parent_content_id: content_metadata.parent_id,
-                output_tables: output_tables.iter().cloned().collect(),
-                outcome: indexify_internal_api::TaskOutcome::Unknown,
-                blob_store_path: content_metadata.name,
-            };
-            info!("created gc task {:?}", gc_task);
-            gc_tasks_created.push(gc_task);
         }
-        Ok(gc_tasks_created)
+
+        let tasks = self
+            .garbage_collector
+            .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
+            .await?;
+        self.shared_state.create_gc_tasks(tasks.clone()).await?;
+        Ok(tasks)
     }
 
-    async fn handle_tombstone_content(&self, change: StateChange) -> Result<()> {
-        let gc_tasks_created = self.create_gc_tasks(change.object_id).await?;
-        self.shared_state
-            .create_gc_tasks(gc_tasks_created.clone(), &change.id)
-            .await?;
-        for gc_task in gc_tasks_created {
-            self.gc_tasks_tx.send(gc_task).await?;
+    async fn handle_tombstone_content(
+        &self,
+        change: StateChange,
+    ) -> Result<Vec<GarbageCollectionTask>> {
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_id)?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            self.forwardable_coordinator
+                .create_gc_tasks(&leader_coord_addr, &change.object_id)
+                .await?;
+            return Ok(Vec::new());
         }
-        Ok(())
+
+        //  this coordinator node is the leader
+        self.create_gc_tasks(&change.object_id).await
     }
 
     #[tracing::instrument(skip(self))]
@@ -400,16 +392,8 @@ impl Coordinator {
             );
 
             match change.change_type {
-                indexify_internal_api::ChangeType::IngestionServerAdded => {
-                    self.garbage_collector
-                        .register_ingestion_server(change.object_id.clone())
-                        .await;
-                    self.shared_state
-                        .mark_change_events_as_processed(vec![change])
-                        .await?
-                }
                 indexify_internal_api::ChangeType::TombstoneContent => {
-                    self.handle_tombstone_content(change).await?
+                    let _ = self.handle_tombstone_content(change).await?;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
             }
@@ -417,8 +401,8 @@ impl Coordinator {
         Ok(())
     }
 
-    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<(String, GarbageCollectionTask)> {
-        self.garbage_collector.subscribe_to_events()
+    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
+        self.shared_state.subscribe_to_gc_task_events()
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {
@@ -495,6 +479,7 @@ mod tests {
 
     use super::Coordinator;
     use crate::{
+        coordinator_client::CoordinatorClient,
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
         state::App,
@@ -506,12 +491,21 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
         let garbage_collector = GarbageCollector::new();
-        let shared_state = App::new(config, None, garbage_collector.clone())
-            .await
-            .unwrap();
+        let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);
+        let shared_state = App::new(
+            config.clone(),
+            None,
+            garbage_collector.clone(),
+            &config.coordinator_addr,
+        )
+        .await
+        .unwrap();
         shared_state.initialize_raft().await.unwrap();
-        let coordinator =
-            crate::coordinator::Coordinator::new(shared_state.clone(), garbage_collector);
+        let coordinator = crate::coordinator::Coordinator::new(
+            shared_state.clone(),
+            coordinator_client,
+            garbage_collector,
+        );
         (coordinator, shared_state)
     }
 
@@ -892,7 +886,7 @@ mod tests {
         cluster.assert_is_leader(new_leader_id).await;
 
         //  check leader re-direct
-        let alt_node = cluster.get_node(1)?;
+        let alt_node = cluster.get_raft_node(1)?;
         let response = alt_node.check_cluster_membership().await?;
         assert_eq!(response.handled_by, new_leader_id);
         Ok(())
@@ -1478,7 +1472,7 @@ mod tests {
             object_id: parent_content.id.clone(),
             ..Default::default()
         };
-        let tasks = coordinator.create_gc_tasks(state_change.object_id).await?;
+        let tasks = coordinator.handle_tombstone_content(state_change).await?;
         assert_eq!(tasks.len(), 4);
         for task in &tasks {
             match task.content_id.as_str() {

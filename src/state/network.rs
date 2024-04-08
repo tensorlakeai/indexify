@@ -99,6 +99,7 @@ impl Network {
         &self,
         node_id: NodeId,
         node_addr: &str,
+        coordinator_addr: &str,
         target_addr: &str,
     ) -> Result<StateMachineUpdateResponse, anyhow::Error> {
         let mut client = self
@@ -111,6 +112,7 @@ impl Network {
             payload: RequestPayload::JoinCluster {
                 node_id,
                 address: node_addr.into(),
+                coordinator_addr: coordinator_addr.into(),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],

@@ -21,13 +21,63 @@ Applications leveraging LLMs for autonomous planning or queries necessitate time
 * We have even **Open Sourced Automation** to deploy to Kubernetes in production.
 
 
-## Getting Started
+## Detailed Getting Started
 
 To get started follow our [documentation](https://getindexify.ai/getting_started/).
 
-## Documentation
+## Quick Start
 
-Our comprehensive documentation is available - https://getindexify.ai
+#### Download Indexify 
+```bash
+curl https://tensorlake.ai | sh
+```
+
+#### Start the server
+```bash
+./indexify server -d
+```
+
+#### Install the Indexify Extractor and Client SDKs
+```bash
+pip install indexify indexify-extractors
+```
+
+#### Start an embedding extractor 
+```bash
+indexify-extractor download hub://embedding/minilm-l6
+indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+```
+
+#### Upload some texts 
+```python
+from indexify import IndexifyClient
+client = IndexifyClient()
+client.add_extraction_policy(extractor="tensorlake/minilm-l6", name="minilml6")
+client.indexes()
+client.add_documents(["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
+```
+
+#### Search the Index
+```python
+client.search_index(name="minilm6.embedding", query="NBA commissioner", top_k=1)
+```
+
+#### Use Extracted Data in Applications
+You can now use the extracted data in your application. As data is ingested by Indexify, your indexes are going to be automatically
+updated by Indexify. We have an example of a Langchain application [here](https://getindexify.ai/integrations/langchain/python_langchain/)
+
+#### Try out Video, Audio or PDF Extractors 
+We have extractors for [Video](https://getindexify.ai/usecases/video_rag/), [Audio](https://getindexify.ai/usecases/audio_extraction/) and [PDF](https://getindexify.ai/usecases/pdf_extraction/) as well, you can list all the available extractors 
+
+```bash
+indexify-extractor list
+```
+#### Structured Data
+
+Extractors which produce structured data from content, such as bounding boxes and object type, or line items of invoices are stored in
+structured store. You can query extracted structured data using Indexify's SQL interface.
+
+We have an example [here](https://getindexify.ai/usecases/image_retrieval/)
 
 ## Contributions
 Please open an issue to discuss new features, or join our Discord group. Contributions are welcome, there are a bunch of open tasks we could use help with! 

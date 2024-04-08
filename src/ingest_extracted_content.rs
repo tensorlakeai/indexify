@@ -224,21 +224,22 @@ impl IngestExtractedContentState {
         content_id: String,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         if self.content_metadata.is_none() {
-            self.content_metadata = Some(
-                self.state
-                    .coordinator_client
-                    .get()
-                    .await?
-                    .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
-                        content_list: vec![content_id],
-                    })
-                    .await?
-                    .into_inner()
-                    .content_list
-                    .first()
-                    .ok_or(anyhow!("No content metadata found"))?
-                    .clone(),
-            );
+            let content_metas = self
+                .state
+                .coordinator_client
+                .get()
+                .await?
+                .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
+                    content_list: vec![content_id.clone()],
+                })
+                .await?
+                .into_inner()
+                .content_list;
+
+            let content_meta = content_metas
+                .get(&content_id)
+                .ok_or(anyhow!("No content metadata found"))?;
+            self.content_metadata.replace(content_meta.clone());
         }
         Ok(self.content_metadata.clone().unwrap())
     }
@@ -438,7 +439,6 @@ mod tests {
         ingest_state.begin_multipart_content().await.unwrap();
 
         let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
-            println!("{:?}", s.writer.url);
             s.writer.url.clone()
         } else {
             panic!("frame_state should be Writing");

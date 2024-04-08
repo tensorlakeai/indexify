@@ -66,7 +66,9 @@ impl BlobStorageWriter for DiskStorage {
 
     #[tracing::instrument(skip(self))]
     async fn delete(&self, key: &str) -> Result<(), anyhow::Error> {
-        let path = format!("{}/{}", self.config.path, key);
+        let path = key
+            .strip_prefix("file://")
+            .ok_or_else(|| anyhow::anyhow!("Invalid key format"))?;
         std::fs::remove_file(path)?;
         Ok(())
     }

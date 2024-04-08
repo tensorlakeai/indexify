@@ -22,7 +22,7 @@ use gluesql::{
     },
     prelude::Glue,
 };
-use indexify_internal_api::{SchemaColumnType, StructuredDataSchema};
+use indexify_internal_api::StructuredDataSchema;
 use serde::{Deserialize, Serialize};
 
 use super::MetadataReaderTS;
@@ -83,29 +83,6 @@ impl QueryEngine {
             metadata_scan_query,
         }
     }
-
-    fn schema_to_sql_ddl(&self, schema: &StructuredDataSchema) -> Result<String> {
-        let mut columns = vec![r#""content_id" TEXT NULL"#.to_string()];
-        for (column_name, dtype) in schema.columns.iter() {
-            let dtype = match dtype {
-                SchemaColumnType::Null => "OBJECT",
-                SchemaColumnType::Array => "LIST",
-                SchemaColumnType::BigInt => "BIGINT",
-                SchemaColumnType::Bool => "BOOLEAN",
-                SchemaColumnType::Float => "FLOAT",
-                SchemaColumnType::Int => "INT",
-                SchemaColumnType::Text => "TEXT",
-                SchemaColumnType::Object => "JSON",
-            };
-            columns.push(format!(r#""{}" {} NULL"#, column_name, dtype));
-        }
-        let column_str = columns.join(",");
-        let schema_str = format!(
-            r#"CREATE TABLE "{}" ({});"#,
-            schema.content_source, column_str
-        );
-        Ok(schema_str)
-    }
 }
 
 #[async_trait(?Send)]
@@ -113,7 +90,7 @@ impl Store for QueryEngine {
     async fn fetch_all_schemas(&self) -> Result<Vec<Schema>> {
         let mut schema_ddls = vec![];
         for schema in &self.schemas {
-            let schema_str = self.schema_to_sql_ddl(schema)?;
+            let schema_str = schema.to_ddl();
             schema_ddls.push(Schema::from_ddl(&schema_str)?);
         }
         Ok(schema_ddls)
@@ -122,7 +99,7 @@ impl Store for QueryEngine {
     async fn fetch_schema(&self, table_name: &str) -> Result<Option<Schema>> {
         for schema in &self.schemas {
             if schema.content_source == table_name {
-                let schema_str = self.schema_to_sql_ddl(schema)?;
+                let schema_str = schema.to_ddl();
                 return Ok(Some(Schema::from_ddl(&schema_str)?));
             }
         }
@@ -189,6 +166,7 @@ mod tests {
     use std::sync::Arc;
 
     use gluesql::prelude::Glue;
+    use indexify_internal_api::SchemaColumnType;
     use nanoid::nanoid;
     use serde_json::json;
 
@@ -226,7 +204,7 @@ mod tests {
         }
     }
 
-    async fn test_schema_to_sql_ddl<T: MetadataStorage + MetadataReader + Sync + Send + 'static>(
+    async fn test_fetch_all_schemas<T: MetadataStorage + MetadataReader + Sync + Send + 'static>(
         index_manager: Arc<T>,
     ) {
         let cols1 = vec![
@@ -313,14 +291,14 @@ mod tests {
     #[tokio::test]
     async fn test_sqlite() {
         let sqlite_index_manager = create_sqlite_metadata_store().await;
-        test_schema_to_sql_ddl(sqlite_index_manager.clone()).await;
+        test_fetch_all_schemas(sqlite_index_manager.clone()).await;
         test_query_data(sqlite_index_manager).await;
     }
 
     #[tokio::test]
     async fn test_postgres() {
         let postgres_index_manager = create_postgres_metadata_store().await;
-        test_schema_to_sql_ddl(postgres_index_manager.clone()).await;
+        test_fetch_all_schemas(postgres_index_manager.clone()).await;
         test_query_data(postgres_index_manager).await;
     }
 }

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -18,9 +18,11 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
-use nanoid::nanoid;
 use rust_embed::RustEmbed;
-use tokio::{signal, sync::mpsc};
+use tokio::{
+    signal,
+    sync::{mpsc, watch},
+};
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
@@ -101,6 +103,9 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
+        // let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
         // TLS is set to true if the "tls" field is present in the config and the
         // TlsConfig "api" field is set to true
         let use_tls = self.config.tls.is_some() && self.config.tls.as_ref().unwrap().api;
@@ -133,28 +138,14 @@ impl Server {
             blob_storage.clone(),
             coordinator_client.clone(),
         ));
-        let ingestion_server_id = nanoid!(16);
-        let req = indexify_coordinator::RegisterIngestionServerRequest {
-            ingestion_server_id: ingestion_server_id.clone(),
-            addr: format!("{}:{}", self.config.listen_if, self.config.listen_port),
-        };
-        coordinator_client
-            .get()
-            .await?
-            .register_ingestion_server(req)
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to register ingestion server with coordinator: {}",
-                    e
-                )
-            })?;
+        let ingestion_server_id = nanoid::nanoid!(16);
+
         self.start_gc_tasks_stream(
             coordinator_client.clone(),
             &ingestion_server_id,
             data_manager.clone(),
-        )
-        .await?;
+            shutdown_rx.clone(),
+        );
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
@@ -289,6 +280,8 @@ impl Server {
         tokio::spawn(async move {
             shutdown_signal(handle_sh).await;
             info!("received graceful shutdown signal. Telling tasks to shutdown");
+
+            let _ = shutdown_tx.send(true);
         });
 
         // Create the default namespace. It's idempotent so we can keep trying
@@ -299,9 +292,13 @@ impl Server {
             })
             .await
         {
-            // FIXME: Listen to the shutdown handler and return if ctrl-c was pressed
             info!("failed to create default namespace: {}", err);
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+            if *shutdown_rx.borrow() {
+                info!("shutting down create namespace loop");
+                break;
+            }
         }
 
         let handle = handle.clone();
@@ -313,62 +310,107 @@ impl Server {
         Ok(())
     }
 
-    async fn start_gc_tasks_stream(
+    fn start_gc_tasks_stream(
         &self,
         coordinator_client: Arc<CoordinatorClient>,
         ingestion_server_id: &str,
         data_manager: Arc<DataManager>,
-    ) -> Result<()> {
-        let mut client = coordinator_client.get().await.map_err(|e| {
-            anyhow!(
-                "unable to get coordinator client to start garbage collection task stream: {}",
-                e
-            )
-        })?;
-
-        let (ack_tx, mut ack_rx) = mpsc::channel(4);
-
-        // Create the initial handshake message
+        shutdown_rx: watch::Receiver<bool>,
+    ) {
+        let mut attempt = 0;
+        let delay = 2;
         let ingestion_server_id = ingestion_server_id.to_string();
-        let initial_handshake = GcTaskAcknowledgement {
-            task_id: "".to_string(),
-            completed: false,
-            ingestion_server_id: ingestion_server_id.clone(),
-        };
-
-        let request = tonic::Request::new(async_stream::stream! {
-            yield initial_handshake;
-            while let Some(ack) = ack_rx.recv().await {
-                yield ack;
-            }
-        });
-
-        let mut stream = client.gc_tasks_stream(request).await?.into_inner();
 
         tokio::spawn(async move {
-            while let Ok(Some(message)) = stream.message().await {
-                let gc_task = message;
-
-                // Handle the GC task
-                if let Err(e) = data_manager.delete_content(&gc_task).await {
-                    tracing::error!("Failed to delete content for task {:#?}: {}", gc_task, e);
+            loop {
+                let client_result = coordinator_client.get().await;
+                if let Err(e) = client_result {
+                    attempt += 1;
+                    tracing::error!(
+                        "Attempt {}: Unable to connect to the coordinator: {}",
+                        attempt,
+                        e
+                    );
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
+                    continue;
                 }
 
-                // After handling, acknowledge completion.
-                ack_tx
-                    .send(GcTaskAcknowledgement {
-                        task_id: gc_task.task_id.clone(),
-                        completed: true,
-                        ingestion_server_id: ingestion_server_id.clone(),
-                    })
-                    .await
-                    .expect("Failed to send ack");
+                let mut client = client_result.unwrap();
 
-                tracing::debug!("Acknowledged completion of task: {}", gc_task.task_id);
+                let (ack_tx, mut ack_rx) = mpsc::channel(4);
+
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+                let heartbeat = GcTaskAcknowledgement {
+                    task_id: "".to_string(),
+                    completed: false,
+                    ingestion_server_id: ingestion_server_id.clone(),
+                };
+                let request = tonic::Request::new(async_stream::stream! {
+                    loop {
+                        tokio::select! {
+                            _ = interval.tick() => {
+                                yield heartbeat.clone();
+                            },
+                            ack = ack_rx.recv() => {
+                                if let Some(ack) = ack {
+                                    yield ack;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                match client.gc_tasks_stream(request).await {
+                    Ok(response) => {
+                        let mut stream = response.into_inner();
+
+                        while let Ok(Some(command)) = stream.message().await {
+                            if let Some(gc_task) = command.gc_task {
+                                if let Err(e) = data_manager.delete_content(&gc_task).await {
+                                    tracing::error!(
+                                        "Failed to delete content for task {:?}: {}",
+                                        gc_task,
+                                        e
+                                    );
+                                    continue;
+                                }
+                                if let Err(e) = ack_tx
+                                    .send(GcTaskAcknowledgement {
+                                        task_id: gc_task.task_id.clone(),
+                                        completed: true,
+                                        ingestion_server_id: ingestion_server_id.clone(),
+                                    })
+                                    .await
+                                {
+                                    tracing::error!(
+                                        "Failed to send ack for task {:?}: {}",
+                                        gc_task,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start gc_tasks_stream: {}, retrying...", e);
+                        attempt += 1;
+                        tokio::time::sleep(Duration::from_secs(delay)).await;
+
+                        if *shutdown_rx.borrow() {
+                            tracing::info!("shutting down gc_tasks_stream loop");
+                            break;
+                        }
+
+                        continue;
+                    }
+                }
+
+                if *shutdown_rx.borrow() {
+                    tracing::info!("shutting down gc_tasks_stream loop");
+                    break;
+                }
             }
         });
-
-        Ok(())
     }
 }
 
@@ -1061,6 +1103,7 @@ async fn list_schemas(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let results = results.into_inner().schemas;
+    let mut ddls = Vec::new();
     let mut schemas = Vec::new();
     for schema in results {
         let columns = serde_json::from_str(&schema.columns).map_err(|e| {
@@ -1069,13 +1112,19 @@ async fn list_schemas(
                 &format!("failed to parse schema columns: {} {}", schema.columns, e),
             )
         })?;
-        schemas.push(StructuredDataSchema {
+
+        let schema = internal_api::StructuredDataSchema {
             columns,
-            namespace: namespace.to_string(),
-            content_source: schema.content_source,
-        })
+            content_source: schema.content_source.to_string(),
+            namespace: namespace.clone(),
+            id: internal_api::StructuredDataSchema::schema_id(&namespace, &schema.content_source),
+        };
+
+        ddls.push(schema.to_ddl());
+        schemas.push(schema);
     }
-    Ok(Json(GetStructuredDataSchemasResponse { schemas }))
+
+    Ok(Json(GetStructuredDataSchemasResponse { schemas, ddls }))
 }
 
 #[tracing::instrument]

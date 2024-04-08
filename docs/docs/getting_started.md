@@ -96,9 +96,19 @@ indexify-extractor download hub://embedding/minilm-l6
 ```
 
 Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane.
-```shell
-indexify-extractor join minilm-l6.minilm_l6:MiniLML6Extractor
-```
+
+=== "Shell"
+
+    ```shell
+    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    ```
+
+=== "Docker"
+
+    ```shell
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500
+    ```
+  
 The extractor is now ready to receive content you upload and extract embedding using the MiniLML6Extractor
 
 #### Set up some Extraction Policies
@@ -110,8 +120,7 @@ The extraction policies informs Indexify how to extract information from ingeste
     ```python
     client.add_extraction_policy(
         extractor="tensorlake/minilm-l6", 
-        name="minilml6", 
-        content_source="ingestion")
+        name="minilml6")
 
     extraction_policies = client.extraction_policies
     ```
@@ -121,8 +130,7 @@ The extraction policies informs Indexify how to extract information from ingeste
     ```typescript
     client.addExtractionPolicy({
         extractor: "tensorlake/minilm-l6",
-        name: "testpolicy",
-        content_source: "ingestion"
+        name: "minilml6"
     });
     
     const extractionPolicies = client.extractionPolicies;

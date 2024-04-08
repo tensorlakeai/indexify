@@ -123,25 +123,24 @@ impl VectorIndexManager {
             .await?
             .get_content_metadata(req)
             .await?
-            .into_inner();
-        if content_ids.len() != content_metadata_list.content_list.len() {
+            .into_inner()
+            .content_list;
+        if content_ids.len() != content_metadata_list.len() {
             return Err(anyhow!(
                 "Unable to get metadata for all content ids: {:?}, retreived content ids: {:?}",
                 &content_ids,
-                content_metadata_list.content_list,
+                content_metadata_list.values(),
             ));
         }
 
         let mut content_byte_map = HashMap::new();
-        let mut content_mime_map = HashMap::new();
-        for content_meta in content_metadata_list.content_list {
+        for (id, content_meta) in &content_metadata_list {
             let content = self
                 .content_reader
                 .bytes(&content_meta.storage_url)
                 .await
                 .map_err(|e| anyhow!("unable to get content: {}", e.to_string()))?;
-            content_byte_map.insert(content_meta.id.clone(), content);
-            content_mime_map.insert(content_meta.id.clone(), content_meta.mime);
+            content_byte_map.insert(id.clone(), content);
         }
 
         let mut index_search_results = Vec::new();
@@ -151,10 +150,16 @@ impl VectorIndexManager {
                 continue;
             }
             let content = content.unwrap().clone();
-            let mime_type = content_mime_map
+            let mime_type = content_metadata_list
                 .get(&result.content_id)
                 .unwrap()
+                .mime
                 .to_string();
+            let labels = content_metadata_list
+                .get(&result.content_id)
+                .unwrap()
+                .labels
+                .clone();
             let text = if mime_type.starts_with("text/") {
                 String::from_utf8(content.to_vec()).unwrap()
             } else {
@@ -164,7 +169,7 @@ impl VectorIndexManager {
                 text,
                 content_id: result.content_id.clone(),
                 mime_type,
-                labels: HashMap::new(),
+                labels: labels,
                 confidence_score: result.confidence_score,
             };
             index_search_results.push(search_result);
