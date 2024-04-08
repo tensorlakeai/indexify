@@ -55,6 +55,8 @@ nav:
     - Langchain:
       - Python: 'integrations/langchain/python_langchain.md'
       - TypeScript: 'integrations/langchain/typescript_langchain.md'
+    - DSPy:
+      - Python: 'integrations/dspy/python_dspy.md'
   - Deployment and Operation:
     - Configuration: 'configuration.md'
     - Deployment: 'deployment.md'
