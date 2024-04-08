@@ -53,9 +53,6 @@ pub enum RequestPayload {
     CreateOrAssignGarbageCollectionTask {
         gc_tasks: Vec<internal_api::GarbageCollectionTask>,
     },
-    // CreateGarbageCollectionTasks {
-    //     gc_tasks: Vec<internal_api::GarbageCollectionTask>,
-    // },
     UpdateGarbageCollectionTask {
         gc_task: internal_api::GarbageCollectionTask,
         mark_finished: bool,
@@ -65,10 +62,10 @@ pub enum RequestPayload {
     },
     TombstoneContent {
         namespace: String,
-        content_ids: HashSet<String>,
+        content_ids: HashSet<internal_api::ContentMetadataId>,
     },
     RemoveTombstonedContent {
-        content_id: String,
+        content_id: internal_api::ContentMetadataId,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,

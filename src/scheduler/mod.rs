@@ -92,11 +92,13 @@ impl Scheduler {
             internal_api::ChangeType::NewContent => {
                 let extraction_policies = self
                     .shared_state
-                    .filter_extraction_policy_for_content(&state_change.object_id)
+                    .filter_extraction_policy_for_content(
+                        &state_change.object_id.clone().try_into()?,
+                    )
                     .await?;
                 let content = self
                     .shared_state
-                    .get_conent_metadata(&state_change.object_id)
+                    .get_content_metadata(&state_change.object_id.try_into()?)
                     .await?;
                 let mut tasks: Vec<internal_api::Task> = Vec::new();
                 let mut content_extraction_policy_mapppings: Vec<
@@ -184,7 +186,7 @@ impl Scheduler {
             let mut hasher = DefaultHasher::new();
             extraction_policy.name.hash(&mut hasher);
             extraction_policy.namespace.hash(&mut hasher);
-            content.id.hash(&mut hasher);
+            content.id.to_string().hash(&mut hasher);
             let id = format!("{:x}", hasher.finish());
             let task = internal_api::Task {
                 id,
@@ -200,7 +202,7 @@ impl Scheduler {
             tasks.push(task);
 
             let content_extraction_policy_mapping = internal_api::ContentExtractionPolicyMapping {
-                content_id: content.id,
+                content_id: content.id.to_string(),
                 extraction_policy_ids: HashSet::from_iter(vec![extraction_policy.id.clone()]),
                 time_of_policy_completion: HashMap::new(),
             };

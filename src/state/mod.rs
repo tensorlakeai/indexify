@@ -13,7 +13,7 @@ use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
-use internal_api::{ExtractionPolicy, StateChange, StructuredDataSchema};
+use internal_api::{ContentMetadataId, ExtractionPolicy, StateChange, StructuredDataSchema};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
@@ -357,9 +357,9 @@ impl App {
     /// content_matching_policy
     pub async fn filter_extraction_policy_for_content(
         &self,
-        content_id: &str,
+        content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
-        let content_metadata = self.get_conent_metadata(content_id).await?;
+        let content_metadata = self.get_content_metadata(content_id).await?;
         if content_metadata.tombstoned {
             return Ok(vec![]);
         }
@@ -409,7 +409,8 @@ impl App {
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
-                    content_metadata.id, extraction_policy.extractor
+                    content_metadata.id.to_string(),
+                    extraction_policy.extractor
                 );
                 continue;
             }
@@ -702,7 +703,7 @@ impl App {
         let mut state_changes = vec![];
         for content in &content_meta_list {
             state_changes.push(StateChange::new(
-                content.id.clone(),
+                content.id.to_string().clone(),
                 internal_api::ChangeType::NewContent,
                 timestamp_secs(),
             ));
@@ -1012,28 +1013,37 @@ impl App {
 
         //  filter the content list to remove any content which has the same id and hash combo as an existing piece of content
         //  TODO: Filter only on the hash, since the id is non-deterministic. Use the id match to update the version
-        let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.clone()).collect();
+        let content_ids: Vec<ContentMetadataId> =
+            content_metadata.iter().map(|c| c.id.clone()).collect();
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
-        let existing_content_ids: HashSet<String> =
-            existing_content.iter().map(|c| c.id.clone()).collect();
-        let existing_content: HashSet<(&String, &String)> = existing_content
+        let existing_content_ids: HashSet<String> = existing_content
             .iter()
-            .map(|content| (&content.id, &content.hash))
+            .map(|c| c.id.to_string().clone())
+            .collect();
+        let existing_content: HashSet<(ContentMetadataId, String)> = existing_content
+            .iter()
+            .map(|content| (content.id.clone(), content.hash.clone()))
             .collect();
         let filtered_content_metadata: Vec<_> = content_metadata
             .into_iter()
-            .filter(|content| !existing_content.contains(&(&content.id, &content.hash)))
+            .filter(|content| {
+                !existing_content.contains(&(content.id.clone(), content.hash.clone()))
+            })
             .map(|mut content| {
-                if existing_content_ids.contains(&content.id) {
-                    content.version += 1;
+                if existing_content_ids.contains(&content.id.to_string()) {
+                    content.id.version += 1;
                 }
                 content
             })
             .collect();
+        println!(
+            "The filtered content metadata {:?}",
+            filtered_content_metadata
+        );
 
         for content in &filtered_content_metadata {
             state_changes.push(StateChange::new(
-                content.id.clone(),
+                content.id.to_string().clone(),
                 internal_api::ChangeType::NewContent,
                 timestamp_secs(),
             ));
@@ -1056,12 +1066,12 @@ impl App {
     pub async fn tombstone_content_batch(
         &self,
         namespace: &str,
-        content_ids: &[String],
+        content_ids: &[ContentMetadataId],
     ) -> Result<()> {
         let mut state_changes = vec![];
         for content_id in content_ids {
             state_changes.push(StateChange::new(
-                content_id.clone(),
+                content_id.to_string(),
                 internal_api::ChangeType::TombstoneContent,
                 timestamp_secs(),
             ));
@@ -1069,7 +1079,7 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::TombstoneContent {
                 namespace: namespace.to_string(),
-                content_ids: content_ids.iter().cloned().collect(),
+                content_ids: content_ids.iter().map(|id| id.clone()).collect(),
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
@@ -1082,9 +1092,9 @@ impl App {
         Ok(())
     }
 
-    pub async fn get_conent_metadata(
+    pub async fn get_content_metadata(
         &self,
-        content_id: &str,
+        content_id: &ContentMetadataId,
     ) -> Result<internal_api::ContentMetadata> {
         let content_metadata = self
             .state_machine
@@ -1093,21 +1103,21 @@ impl App {
                 content_id,
             )
             .await?
-            .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
+            .ok_or_else(|| anyhow!("Content with id {} not found", content_id.to_string()))?;
         Ok(content_metadata)
     }
 
     pub async fn get_content_metadata_batch(
         &self,
-        content_ids: Vec<String>,
+        content_ids: Vec<ContentMetadataId>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content_ids: HashSet<String> = content_ids.into_iter().collect();
+        let content_ids: HashSet<ContentMetadataId> = content_ids.into_iter().collect();
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
     pub fn get_content_tree_metadata(
         &self,
-        content_id: &str,
+        content_id: &ContentMetadataId,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine.get_content_tree_metadata(content_id)
     }
@@ -1385,7 +1395,9 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use indexify_internal_api::{ContentExtractionPolicyMapping, Index, TaskOutcome};
+    use indexify_internal_api::{
+        ContentExtractionPolicyMapping, ContentMetadataId, Index, TaskOutcome,
+    };
 
     use crate::{
         state::{
@@ -1568,9 +1580,12 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         //  Create a piece of content
-        let content_id = "content_id";
+        let content_id = ContentMetadataId {
+            id: "content_id".to_string(),
+            ..Default::default()
+        };
         let content_metadata = indexify_internal_api::ContentMetadata {
-            id: content_id.into(),
+            id: content_id,
             content_type: "text/plain".into(),
             ..Default::default()
         };
@@ -1745,7 +1760,10 @@ mod tests {
         let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
         for i in 0..content_size {
             let content_metadata = indexify_internal_api::ContentMetadata {
-                id: format!("id{}", i),
+                id: ContentMetadataId {
+                    id: format!("id{}", i),
+                    ..Default::default()
+                },
                 ..Default::default()
             };
             content_metadata_vec.push(content_metadata);
@@ -1772,7 +1790,7 @@ mod tests {
 
         //  Read back a specific piece of content
         let read_content = node
-            .get_conent_metadata(&content_metadata_vec[0].id)
+            .get_content_metadata(&content_metadata_vec[0].id)
             .await?;
         assert_eq!(read_content, content_metadata_vec[0]);
 

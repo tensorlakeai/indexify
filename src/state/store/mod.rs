@@ -14,21 +14,9 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -363,7 +351,7 @@ impl StateMachineStore {
 
     pub async fn get_content_from_ids(
         &self,
-        content_ids: HashSet<String>,
+        content_ids: HashSet<indexify_internal_api::ContentMetadataId>,
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
@@ -371,7 +359,10 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
+    pub fn get_content_tree_metadata(
+        &self,
+        content_id: &indexify_internal_api::ContentMetadataId,
+    ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
             .get_content_tree_metadata(content_id, &self.db)
@@ -419,7 +410,9 @@ impl StateMachineStore {
         self.data.indexify_state.get_unprocessed_state_changes()
     }
 
-    pub async fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+    pub async fn get_content_namespace_table(
+        &self,
+    ) -> HashMap<NamespaceName, HashSet<indexify_internal_api::ContentMetadataId>> {
         self.data.indexify_state.get_content_namespace_table()
     }
 

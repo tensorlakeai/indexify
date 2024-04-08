@@ -7,7 +7,9 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
+use internal_api::{
+    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
+};
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::info;
@@ -244,6 +246,9 @@ impl Coordinator {
         &self,
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
+        let content_ids: Result<Vec<ContentMetadataId>> =
+            content_ids.iter().map(|cid| cid.try_into()).collect();
+        let content_ids = content_ids?;
         self.shared_state
             .get_content_metadata_batch(content_ids)
             .await
@@ -304,7 +309,10 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
+    pub async fn create_gc_tasks(
+        &self,
+        content_id: &ContentMetadataId,
+    ) -> Result<Vec<GarbageCollectionTask>> {
         let content_tree_metadata = self.shared_state.get_content_tree_metadata(content_id)?;
         let mut output_tables = HashMap::new();
         let mut policy_ids = HashMap::new();
@@ -312,8 +320,11 @@ impl Coordinator {
         for content_metadata in &content_tree_metadata {
             let content_extraction_policy_mappings = self
                 .shared_state
-                .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
+                .get_content_extraction_policy_mappings_for_content_id(
+                    &content_metadata.id.to_string(),
+                )
                 .await?;
+            println!("The mappings {:?}", content_extraction_policy_mappings);
 
             if content_extraction_policy_mappings.is_none() {
                 continue;
@@ -338,11 +349,14 @@ impl Coordinator {
                 .next()
                 .map(|policy| policy.id.clone())
                 .unwrap_or("".to_string());
-            policy_ids.insert(content_metadata.id.clone(), policy_id.to_string());
+            policy_ids.insert(
+                content_metadata.id.to_string().clone(),
+                policy_id.to_string(),
+            );
 
             for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
                 output_tables.insert(
-                    content_metadata.id.clone(),
+                    content_metadata.id.to_string().clone(),
                     applied_extraction_policy
                         .index_name_table_mapping
                         .values()
@@ -379,7 +393,7 @@ impl Coordinator {
         }
 
         //  this coordinator node is the leader
-        self.create_gc_tasks(&change.object_id).await
+        self.create_gc_tasks(&change.object_id.try_into()?).await
     }
 
     #[tracing::instrument(skip(self))]
@@ -425,8 +439,12 @@ impl Coordinator {
         namespace: &str,
         content_ids: &[String],
     ) -> Result<()> {
+        let content_ids: Vec<ContentMetadataId> = content_ids
+            .iter()
+            .map(|c_id| c_id.try_into())
+            .collect::<Result<_>>()?;
         self.shared_state
-            .tombstone_content_batch(namespace, content_ids)
+            .tombstone_content_batch(namespace, &content_ids)
             .await?;
         Ok(())
     }
@@ -510,7 +528,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
         let (coordinator, shared_state) = setup_coordinator().await;
 
@@ -520,7 +538,7 @@ mod tests {
         // Add content and ensure that we are creating a extraction event
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                id: "test".to_string(),
+                id: "test::v1".to_string(),
                 namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
@@ -592,9 +610,9 @@ mod tests {
         // Add a content with a different source and ensure we don't create a task
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                id: "test2".to_string(),
+                id: "test2::v1".to_string(),
                 namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                parent_id: "test".to_string(),
+                parent_id: "test::v1".to_string(),
                 file_name: "test2".to_string(),
                 mime: "text/plain".to_string(),
                 created_at: 0,
@@ -666,7 +684,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_1 = indexify_coordinator::ContentMetadata {
-            id: "test_id".to_string(),
+            id: "test_id::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -718,7 +736,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_2 = indexify_coordinator::ContentMetadata {
-            id: "test_id".to_string(),
+            id: "test_id::v2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -755,7 +773,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_1 = indexify_coordinator::ContentMetadata {
-            id: "test_id".to_string(),
+            id: "test_id::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -808,7 +826,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_2 = indexify_coordinator::ContentMetadata {
-            id: "test_id".to_string(),
+            id: "test_id::v2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -893,7 +911,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_create_and_read_content_tree() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -953,7 +971,7 @@ mod tests {
 
         //  Build a content tree where the parent content id is the pointer
         let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id".to_string(),
+            id: "test_parent_id::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -966,9 +984,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
+            id: "test_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -979,9 +997,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2".to_string(),
+            id: "test_child_id_2::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -992,9 +1010,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
-            id: "test_child_child_id_1".to_string(),
+            id: "test_child_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1".to_string(),
+            parent_id: "test_child_id_1::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1015,14 +1033,14 @@ mod tests {
 
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id.try_into()?)?;
         assert_eq!(content_tree.len(), 4);
 
         Ok(())
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_tombstone_content_tree() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1082,7 +1100,7 @@ mod tests {
 
         //  Build a content tree where the parent_content is the root
         let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id".to_string(),
+            id: "test_parent_id::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -1095,9 +1113,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
+            id: "test_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1108,9 +1126,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2".to_string(),
+            id: "test_child_id_2::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1121,9 +1139,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
-            id: "test_child_child_id_1".to_string(),
+            id: "test_child_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1".to_string(),
+            parent_id: "test_child_id_1::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1136,7 +1154,7 @@ mod tests {
 
         //  Build a separate content tree where parent_content_2 is the root
         let parent_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id_2".to_string(),
+            id: "test_parent_id_2::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -1149,9 +1167,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_2_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2_1".to_string(),
+            id: "test_child_id_2_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id_2".to_string(),
+            parent_id: "test_parent_id_2::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1181,29 +1199,29 @@ mod tests {
             .await?;
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id.try_into()?)?;
         let content_tree_2 = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content_2.id)?;
+            .get_content_tree_metadata(&parent_content_2.id.try_into()?)?;
         for content in &content_tree {
             assert!(
                 content.tombstoned,
                 "Content {} is not tombstoned",
-                content.id
+                content.id.id
             );
         }
         for content in content_tree_2 {
             assert!(
                 content.tombstoned,
                 "Content {} is not tombstoned",
-                content.id
+                content.id.id
             );
         }
         Ok(())
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_match_tombstoned_content() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1237,7 +1255,7 @@ mod tests {
 
         //  Build a content tree where the parent_content is the root
         let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id".to_string(),
+            id: "test_parent_id::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -1250,9 +1268,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
+            id: "test_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1263,9 +1281,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2".to_string(),
+            id: "test_child_id_2::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1282,6 +1300,8 @@ mod tests {
                 child_content_2.clone(),
             ])
             .await?;
+
+        let parent_content: indexify_internal_api::ContentMetadata = parent_content.try_into()?;
 
         //  before tombstone
         let content_matching_policy = coordinator
@@ -1316,7 +1336,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1376,7 +1396,7 @@ mod tests {
 
         //  Build a content tree where the parent content id is the pointer
         let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id".to_string(),
+            id: "test_parent_id::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -1389,9 +1409,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
+            id: "test_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1402,9 +1422,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2".to_string(),
+            id: "test_child_id_2::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
+            parent_id: "test_parent_id::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1415,9 +1435,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
-            id: "test_child_child_id_1".to_string(),
+            id: "test_child_child_id_1::v1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1".to_string(),
+            parent_id: "test_child_id_1::v1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1474,10 +1494,13 @@ mod tests {
         };
         let tasks = coordinator.handle_tombstone_content(state_change).await?;
         assert_eq!(tasks.len(), 4);
+        println!("tasks {:#?}", tasks);
         for task in &tasks {
-            match task.content_id.as_str() {
-                "test_parent_id" | "test_child_id_1" => assert!(!task.output_tables.is_empty()),
-                "test_child_id_2" | "test_child_child_id_1" => {
+            match task.content_id.to_string().as_str() {
+                "test_parent_id::v1" | "test_child_id_1::v1" => {
+                    assert!(!task.output_tables.is_empty())
+                }
+                "test_child_id_2::v1" | "test_child_child_id_1::v1" => {
                     assert!(task.output_tables.is_empty())
                 }
                 _ => panic!("Unexpected content_id"),

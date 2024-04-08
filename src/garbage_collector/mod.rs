@@ -74,8 +74,14 @@ impl GarbageCollector {
         let mut created_gc_tasks = Vec::new();
         let namespace = content_metadata[0].namespace.clone();
         for content in content_metadata {
-            let output_tables = outputs.get(&content.id).cloned().unwrap_or_default();
-            let policy_id = policy_ids.get(&content.id).cloned().unwrap_or_default();
+            let output_tables = outputs
+                .get(&content.id.to_string())
+                .cloned()
+                .unwrap_or_default();
+            let policy_id = policy_ids
+                .get(&content.id.to_string())
+                .cloned()
+                .unwrap_or_default();
             let mut gc_task = indexify_internal_api::GarbageCollectionTask::new(
                 &namespace,
                 content,
@@ -99,7 +105,7 @@ impl GarbageCollector {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use indexify_internal_api::ContentMetadata;
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId};
 
     use crate::garbage_collector::GarbageCollector;
 
@@ -117,7 +123,10 @@ mod tests {
         for i in 0..num {
             let content_id = format!("content_id_{}", i);
             let content = ContentMetadata {
-                id: content_id.clone(),
+                id: ContentMetadataId {
+                    id: content_id.clone(),
+                    ..Default::default()
+                },
                 ..Default::default()
             };
             content_metadata.push(content);

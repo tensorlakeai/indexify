@@ -13,54 +13,19 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CoordinatorCommand,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateGcTasksRequest,
-    CreateGcTasksResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    RemoveIngestionServerRequest,
-    RemoveIngestionServerResponse,
-    TaskAssignments,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateTaskRequest,
+    self, coordinator_service_server::CoordinatorService, CoordinatorCommand, CreateContentRequest,
+    CreateContentResponse, CreateGcTasksRequest, CreateGcTasksResponse, CreateIndexRequest,
+    CreateIndexResponse, ExtractionPolicyRequest, ExtractionPolicyResponse, GcTask,
+    GcTaskAcknowledgement, GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest, GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
+    RemoveIngestionServerRequest, RemoveIngestionServerResponse, TaskAssignments,
+    TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateTaskRequest,
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
@@ -76,13 +41,9 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator,
-    coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector,
-    server_config::ServerConfig,
-    state,
-    tonic_streamer::DropReceiver,
-    utils::timestamp_secs,
+    coordinator::Coordinator, coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
+    tonic_streamer::DropReceiver, utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -343,7 +304,9 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<CreateGcTasksResponse>, tonic::Status> {
         let request = request.into_inner();
         self.coordinator
-            .create_gc_tasks(&request.content_id)
+            .create_gc_tasks(&request.content_id.try_into().map_err(|e| {
+                tonic::Status::aborted(format!("unable to parse content id: {}", e))
+            })?)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateGcTasksResponse {}))
@@ -413,7 +376,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                                 let serialized_task = GcTask {
                                     task_id: task.id,
                                     namespace: task.namespace,
-                                    content_id: task.content_id,
+                                    content_id: task.content_id.to_string(),
                                     output_tables: task
                                         .output_tables
                                         .into_iter()
@@ -610,7 +573,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let content_metadata = content_metadata_list
             .iter()
-            .map(|c| (c.id.clone(), c.clone().into()))
+            .map(|c| (c.id.id.clone(), c.clone().into()))
             .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
