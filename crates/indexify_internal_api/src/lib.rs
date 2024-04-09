@@ -363,8 +363,8 @@ impl TryFrom<indexify_coordinator::Task> for Task {
 pub struct GarbageCollectionTask {
     pub namespace: String,
     pub id: String,
-    pub content_id: ContentMetadataId,
-    pub parent_content_id: ContentMetadataId,
+    pub content_id: String,
+    pub parent_content_id: String,
     pub output_tables: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
@@ -377,14 +377,8 @@ impl Default for GarbageCollectionTask {
         Self {
             namespace: "test_namespace".to_string(),
             id: "test_id".to_string(),
-            content_id: ContentMetadataId {
-                id: "test_content_id".to_string(),
-                ..Default::default()
-            },
-            parent_content_id: ContentMetadataId {
-                id: "test_parent_content_id".to_string(),
-                ..Default::default()
-            },
+            content_id: "test_content_id".to_string(),
+            parent_content_id: "test_parent_content_id".to_string(),
             output_tables: HashSet::new(),
             outcome: TaskOutcome::Unknown,
             blob_store_path: "test_blob_store_path".to_string(),
@@ -408,8 +402,8 @@ impl GarbageCollectionTask {
         Self {
             namespace: namespace.to_string(),
             id,
-            content_id: content_metadata.id,
-            parent_content_id: content_metadata.parent_id,
+            content_id: content_metadata.id.id,
+            parent_content_id: content_metadata.parent_id.id,
             output_tables,
             outcome: TaskOutcome::Unknown,
             blob_store_path: content_metadata.storage_url,
@@ -467,7 +461,7 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContentExtractionPolicyMapping {
-    pub content_id: String,
+    pub content_id: ContentMetadataId,
     pub extraction_policy_ids: HashSet<String>, /*  NOTE: This is a hash set because the
                                                  * extraction policy should only be applied to
                                                  * a piece of content once */
@@ -482,7 +476,10 @@ impl Default for ContentExtractionPolicyMapping {
         let time_of_policy_completion = HashMap::new();
 
         Self {
-            content_id: "content_id".to_string(),
+            content_id: ContentMetadataId {
+                id: "test_content_id".to_string(),
+                version: 1,
+            },
             extraction_policy_ids,
             time_of_policy_completion,
         }

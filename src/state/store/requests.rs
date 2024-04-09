@@ -62,10 +62,7 @@ pub enum RequestPayload {
     },
     TombstoneContent {
         namespace: String,
-        content_ids: HashSet<internal_api::ContentMetadataId>,
-    },
-    RemoveTombstonedContent {
-        content_id: internal_api::ContentMetadataId,
+        content_ids: HashSet<String>,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,

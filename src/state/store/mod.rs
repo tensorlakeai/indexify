@@ -61,6 +61,9 @@ pub enum StateMachineError {
 
     #[error("RocksDB transaction error: {0}")]
     TransactionError(String),
+
+    #[error("External error: {0}")]
+    ExternalError(#[from] anyhow::Error),
 }
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
@@ -349,16 +352,6 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_content_from_ids_with_version(
-        &self,
-        content_ids: HashSet<indexify_internal_api::ContentMetadataId>,
-    ) -> Result<Vec<ContentMetadata>> {
-        self.data
-            .indexify_state
-            .get_content_from_ids_with_version(content_ids, &self.db)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
     pub async fn get_content_from_ids(
         &self,
         content_ids: HashSet<String>,
@@ -369,10 +362,17 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub fn get_content_tree_metadata(
+    pub async fn get_content_from_ids_with_version(
         &self,
-        content_id: &indexify_internal_api::ContentMetadataId,
+        content_ids: HashSet<indexify_internal_api::ContentMetadataId>,
     ) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_from_ids_with_version(content_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
             .get_content_tree_metadata(content_id, &self.db)

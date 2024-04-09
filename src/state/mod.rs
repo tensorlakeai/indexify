@@ -360,9 +360,15 @@ impl App {
         content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_content_metadata(content_id).await?;
-        if content_metadata.tombstoned {
+        if content_metadata.len() == 0 {
             return Ok(vec![]);
         }
+        let content_metadata = content_metadata.get(0).ok_or_else(|| {
+            anyhow!(
+                "Content metadata with id {} not found",
+                content_id.to_string()
+            )
+        })?;
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -409,7 +415,7 @@ impl App {
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
-                    content_metadata.id.to_string(),
+                    format!("{}::v{}", content_id.id, content_id.version),
                     extraction_policy.extractor
                 );
                 continue;
@@ -975,7 +981,7 @@ impl App {
     pub async fn tombstone_content_batch(
         &self,
         namespace: &str,
-        content_ids: &[ContentMetadataId],
+        content_ids: &[String],
     ) -> Result<()> {
         let mut state_changes = vec![];
         for content_id in content_ids {
@@ -988,7 +994,7 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::TombstoneContent {
                 namespace: namespace.to_string(),
-                content_ids: content_ids.iter().map(|id| id.clone()).collect(),
+                content_ids: content_ids.iter().map(|id| id.to_string()).collect(),
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
@@ -1005,16 +1011,10 @@ impl App {
     pub async fn get_content_metadata(
         &self,
         content_id: &ContentMetadataId,
-    ) -> Result<internal_api::ContentMetadata> {
-        let result = self
-            .state_machine
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.state_machine
             .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
-            .await?;
-
-        result
-            .get(0)
-            .ok_or_else(|| anyhow!("Content with id {} not found", content_id.to_string()))
-            .cloned()
+            .await
     }
 
     /// Get content based on id's without version
@@ -1028,7 +1028,7 @@ impl App {
 
     pub fn get_content_tree_metadata(
         &self,
-        content_id: &ContentMetadataId,
+        content_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine.get_content_tree_metadata(content_id)
     }
@@ -1616,7 +1616,7 @@ mod tests {
     /// associated extractors Executors are typically created along with
     /// extractors so both need to be asserted
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1703,7 +1703,7 @@ mod tests {
         let read_content = node
             .get_content_metadata(&content_metadata_vec[0].id)
             .await?;
-        assert_eq!(read_content, content_metadata_vec[0]);
+        assert_eq!(read_content.get(0).unwrap(), &content_metadata_vec[0]);
 
         Ok(())
     }
@@ -1844,15 +1844,22 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_create_mark_and_read_content_extraction_policy_mappings(
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
-        //  Create a mapping of content -> extraction policies, insert it, mark it as
-        // read and read it back to assert
+        //  Create a piece of content, create a mapping for an extraction policy for it, mark the policy as completed and read it back to assert
+        let content_metadata = indexify_internal_api::ContentMetadata {
+            id: ContentMetadataId {
+                id: "test_content_id".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content_metadata]).await?;
         let mapping = ContentExtractionPolicyMapping::default();
         let current_sys_time = SystemTime::now();
         let initial_time = mapping
@@ -1861,10 +1868,10 @@ mod tests {
             .unwrap_or(&current_sys_time);
         node.set_content_extraction_policy_mappings(vec![mapping.clone()])
             .await?;
-        node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")
+        node.mark_extraction_policy_applied_on_content("test_content_id", "extraction_policy_id")
             .await?;
         let retrieved_mappings = node
-            .get_content_extraction_policy_mappings_for_content_id("content_id")
+            .get_content_extraction_policy_mappings_for_content_id("test_content_id")
             .await?
             .unwrap();
         let set_time = retrieved_mappings

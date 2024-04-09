@@ -304,9 +304,7 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<CreateGcTasksResponse>, tonic::Status> {
         let request = request.into_inner();
         self.coordinator
-            .create_gc_tasks(&request.content_id.try_into().map_err(|e| {
-                tonic::Status::aborted(format!("unable to parse content id: {}", e))
-            })?)
+            .create_gc_tasks(&request.content_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateGcTasksResponse {}))
@@ -480,7 +478,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<UpdateTaskRequest>,
     ) -> Result<tonic::Response<UpdateTaskResponse>, tonic::Status> {
-        println!("Updating task with request {:#?}", request);
         let request = request.into_inner();
         let outcome: internal_api::TaskOutcome = request.outcome().into();
         let _ = self

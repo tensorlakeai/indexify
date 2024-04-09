@@ -98,8 +98,14 @@ impl Scheduler {
                     .await?;
                 let content = self
                     .shared_state
-                    .get_content_metadata(&state_change.object_id.try_into()?)
+                    .get_content_metadata(&state_change.object_id.clone().try_into()?)
                     .await?;
+                let content = content.get(0).unwrap_or_else(|| {
+                    panic!(
+                        "content not found for content_id: {}",
+                        &state_change.object_id
+                    )
+                });
                 let mut tasks: Vec<internal_api::Task> = Vec::new();
                 let mut content_extraction_policy_mapppings: Vec<
                     internal_api::ContentExtractionPolicyMapping,
@@ -167,7 +173,6 @@ impl Scheduler {
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
 
-        //  TODO: This will be done in create_extraction_policy in coordinator_service.
         // Just store the mapping
         for name in extractor.outputs.keys() {
             let index_name = extraction_policy
@@ -186,7 +191,8 @@ impl Scheduler {
             let mut hasher = DefaultHasher::new();
             extraction_policy.name.hash(&mut hasher);
             extraction_policy.namespace.hash(&mut hasher);
-            content.id.to_string().hash(&mut hasher);
+            content.id.id.hash(&mut hasher);
+            content.id.version.hash(&mut hasher);
             let id = format!("{:x}", hasher.finish());
             let task = internal_api::Task {
                 id,
@@ -202,7 +208,7 @@ impl Scheduler {
             tasks.push(task);
 
             let content_extraction_policy_mapping = internal_api::ContentExtractionPolicyMapping {
-                content_id: content.id.to_string(),
+                content_id: content.id,
                 extraction_policy_ids: HashSet::from_iter(vec![extraction_policy.id.clone()]),
                 time_of_policy_completion: HashMap::new(),
             };
