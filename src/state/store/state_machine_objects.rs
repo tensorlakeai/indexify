@@ -701,9 +701,34 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        for content in contents_vec {
-            let content_key = format!("{}::v{}", content.id.id, content.id.version);
-            let serialized_content = JsonEncoder::encode(content)?;
+        println!("Creating content for {:?}", contents_vec);
+        let mut updated_contents = Vec::new();
+
+        //  Update the parents of all the contents to point to the latest version
+        println!("updating content");
+        for content in contents_vec.iter().cloned() {
+            let mut updated_content = content;
+            println!("the parent id {}", updated_content.parent_id);
+            if !updated_content.parent_id.id.is_empty() {
+                let parent_latest_version =
+                    self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)?;
+                println!("the latest version of the parent {}", parent_latest_version);
+                if parent_latest_version == 0 {
+                    return Err(StateMachineError::DatabaseError(format!(
+                        "Parent content {} not found",
+                        updated_content.parent_id.id
+                    )));
+                }
+                // Update the parent_id version to the latest version
+                updated_content.parent_id.version = parent_latest_version;
+            }
+
+            updated_contents.push(updated_content);
+        }
+
+        for updated_content in updated_contents {
+            let content_key = format!("{}::v{}", updated_content.id.id, updated_content.id.version);
+            let serialized_content = JsonEncoder::encode(&updated_content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 content_key,
@@ -1116,7 +1141,7 @@ impl IndexifyState {
                 gc_task,
                 mark_finished,
             } => {
-                //  NOTE: Special case where reverse indexes are also updated along with forward indexes
+                //  NOTE: Special case where forward and reverse indexes are updated together
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
@@ -1198,9 +1223,7 @@ impl IndexifyState {
                 self.set_extractor(db, &txn, extractor)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
-                //  NOTE: Special case of a handler that also remove its own reverse indexes
-                // here and returns from this function  Doing this because
-                // altering the reverse indexes requires references to the removed items
+                //  NOTE: Special case where forward and reverse indexes are updated together
 
                 //  Get a handle on the executor before deleting it from the DB
                 let executor_meta = self.delete_executor(db, &txn, executor_id)?;

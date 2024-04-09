@@ -975,8 +975,11 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "123".into(),
         };
+        coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -988,7 +991,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "456".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1001,8 +1004,11 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "789".into(),
         };
+        coordinator
+            .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
+            .await?;
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1014,15 +1020,10 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "987".into(),
         };
         coordinator
-            .create_content_metadata(vec![
-                parent_content.clone(),
-                child_content_1.clone(),
-                child_content_2.clone(),
-                child_content_1_child.clone(),
-            ])
+            .create_content_metadata(vec![child_content_1_child.clone()])
             .await?;
 
         let content_tree = coordinator
@@ -1106,10 +1107,14 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id::v1".to_string(),
+            parent_id: "test_parent_id".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1122,7 +1127,7 @@ mod tests {
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id::v1".to_string(),
+            parent_id: "test_parent_id".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1132,10 +1137,14 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
+            .await?;
+
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1::v1".to_string(),
+            parent_id: "test_child_id_1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1145,6 +1154,9 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![child_content_1_child.clone()])
+            .await?;
 
         //  Build a separate content tree where parent_content_2 is the root
         let parent_content_2 = indexify_coordinator::ContentMetadata {
@@ -1160,10 +1172,14 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![parent_content_2.clone()])
+            .await?;
+
         let child_content_2_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id_2::v1".to_string(),
+            parent_id: "test_parent_id_2".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1173,16 +1189,8 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
-
         coordinator
-            .create_content_metadata(vec![
-                parent_content.clone(),
-                child_content_1.clone(),
-                child_content_2.clone(),
-                child_content_1_child.clone(),
-                parent_content_2.clone(),
-                child_content_2_1.clone(),
-            ])
+            .create_content_metadata(vec![child_content_2_1.clone()])
             .await?;
 
         coordinator
@@ -1263,6 +1271,10 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1290,11 +1302,7 @@ mod tests {
             hash: "".into(),
         };
         coordinator
-            .create_content_metadata(vec![
-                parent_content.clone(),
-                child_content_1.clone(),
-                child_content_2.clone(),
-            ])
+            .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
             .await?;
 
         let parent_content_internal: indexify_internal_api::ContentMetadata =
@@ -1405,6 +1413,10 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1431,6 +1443,10 @@ mod tests {
             size_bytes: 100,
             hash: "".into(),
         };
+        coordinator
+            .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
+            .await?;
+
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1445,12 +1461,7 @@ mod tests {
             hash: "".into(),
         };
         coordinator
-            .create_content_metadata(vec![
-                parent_content.clone(),
-                child_content_1.clone(),
-                child_content_2.clone(),
-                child_content_1_child.clone(),
-            ])
+            .create_content_metadata(vec![child_content_1_child.clone()])
             .await?;
 
         //  Create mappings of the extraction policies applied to first two pieces of

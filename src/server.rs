@@ -818,6 +818,7 @@ async fn upload_file(
     State(state): State<NamespaceEndpointState>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
+    println!("Uploading file {:#?}", files);
     while let Some(file) = files.next_field().await.unwrap() {
         let name = file
             .file_name()

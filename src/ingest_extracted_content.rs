@@ -46,6 +46,10 @@ impl IngestExtractedContentState {
 
     fn begin(&mut self, payload: BeginExtractedContentIngest) {
         info!("beginning extraction ingest for task: {}", payload.task_id);
+        println!(
+            "Beginning extraction ingest for task: {} with parent content id: {}",
+            payload.task_id, payload.parent_content_id
+        );
         self.ingest_metadata.replace(payload);
     }
 

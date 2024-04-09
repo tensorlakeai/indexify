@@ -52,7 +52,6 @@ impl BlobStorageWriter for DiskStorage {
         let mut size_bytes: u64 = 0;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            println!("writing chunk {:#?}", chunk);
             file.write_all(&chunk).await?;
             size_bytes += chunk.len() as u64;
         }

@@ -577,8 +577,8 @@ pub struct ContentMetadata {
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
         Self {
-            id: value.id.id, //  TODO: Might need to change this because version should be exposed
-            parent_id: value.parent_id.id, //  TODO: Might need to change this because version should be exposed?
+            id: value.id.id,               //  don't expose the version on the task
+            parent_id: value.parent_id.id, //  don't expose the version on the task
             file_name: value.name,
             mime: value.content_type,
             labels: value.labels,
@@ -624,7 +624,7 @@ impl Default for ContentMetadata {
         Self {
             id: ContentMetadataId::default(),
             parent_id: ContentMetadataId {
-                id: "test_parent_id".to_string(),
+                id: "".to_string(),
                 ..Default::default()
             },
             namespace: "test_namespace".to_string(),

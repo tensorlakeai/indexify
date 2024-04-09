@@ -937,19 +937,13 @@ impl App {
     ) -> Result<()> {
         let mut state_changes = vec![];
 
-        // Get a list of content IDs from the incoming content.
         let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
-
-        // Retrieve existing content for the batch of IDs.
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
-
-        // Create a map of existing content by ID for easy lookup.
         let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
             .into_iter()
             .map(|c| (c.id.id.to_string(), c))
             .collect();
 
-        // Filter and process the incoming content.
         let processed_content: Vec<internal_api::ContentMetadata> = content_metadata
             .into_iter()
             .filter_map(|content| {
@@ -1496,19 +1490,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
         //  Create a piece of content
-        let content_id = ContentMetadataId {
-            id: "content_id".to_string(),
-            ..Default::default()
-        };
         let content_metadata = indexify_internal_api::ContentMetadata {
-            id: content_id,
+            id: ContentMetadataId {
+                id: "content_id".to_string(),
+                ..Default::default()
+            },
             content_type: "text/plain".into(),
             ..Default::default()
         };
@@ -1856,7 +1849,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_mark_and_read_content_extraction_policy_mappings(
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
