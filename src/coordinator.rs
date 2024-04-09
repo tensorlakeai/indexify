@@ -312,7 +312,9 @@ impl Coordinator {
     }
 
     pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
+        println!("Creating gc tasks for content id {}", content_id);
         let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
+        println!("The content tree metadata {:?}", content_tree_metadata);
         let mut output_tables = HashMap::new();
         let mut policy_ids = HashMap::new();
 

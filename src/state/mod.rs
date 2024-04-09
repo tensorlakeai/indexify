@@ -708,6 +708,10 @@ impl App {
         executor_id: Option<String>,
         content_meta_list: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
+        println!(
+            "updating task {} for executor id {:?} with content list {:?}",
+            task, executor_id, content_meta_list
+        );
         let mut state_changes = vec![];
         for content in &content_meta_list {
             state_changes.push(StateChange::new(

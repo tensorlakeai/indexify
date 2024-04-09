@@ -71,6 +71,10 @@ impl GarbageCollector {
         outputs: HashMap<String, HashSet<String>>,
         policy_ids: HashMap<String, String>,
     ) -> Result<Vec<GarbageCollectionTask>, anyhow::Error> {
+        println!(
+            "Called create_gc_tasks with content {:?}, outputs {:?}, policy_ids {:?}",
+            content_metadata, outputs, policy_ids
+        );
         let mut created_gc_tasks = Vec::new();
         let namespace = content_metadata[0].namespace.clone();
         for content in content_metadata {

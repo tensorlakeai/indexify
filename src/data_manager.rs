@@ -549,6 +549,10 @@ impl DataManager {
         content_id: &str,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
+        println!(
+            "Writing embeddings with content id {}",
+            content_id.to_string()
+        );
         let embeddings = internal_api::ExtractedEmbeddings {
             content_id: content_id.to_string(),
             embedding: embedding.to_vec(),
@@ -571,9 +575,12 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
+        println!("Writing features");
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
+                    println!("Writing embeddings");
+                    println!("The content meta is {:#?}", content_meta);
                     let embedding_payload: internal_api::Embedding =
                         serde_json::from_value(feature.data.clone()).map_err(|e| {
                             anyhow!("unable to get embedding from extracted data {}", e)

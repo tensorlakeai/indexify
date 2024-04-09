@@ -702,10 +702,11 @@ impl IndexifyState {
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
+            let content_key = format!("{}::v{}", content.id.id, content.id.version);
             let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                format!("{}::v{}", content.id.id, content.id.version),
+                content_key,
                 &serialized_content,
             )
             .map_err(|e| {
@@ -1410,6 +1411,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
     ) -> Result<u64, StateMachineError> {
         let prefix = format!("{}::v", content_id);
+        println!("The prefix is {}", prefix);
 
         let mut read_opts = rocksdb::ReadOptions::default();
         read_opts.set_prefix_same_as_start(true);
@@ -1681,7 +1683,12 @@ impl IndexifyState {
         queue.push_back(content_id.to_string());
 
         while let Some(current_root) = queue.pop_front() {
+            println!("Getting latest version for current_root {}", current_root);
             let highest_version = self.get_latest_version_of_content(&current_root, db, &txn)?;
+            println!(
+                "The highest version for {} is {}",
+                current_root, highest_version
+            );
             if highest_version == 0 {
                 continue;
             }
@@ -1699,9 +1706,6 @@ impl IndexifyState {
                 })?;
             let content =
                 JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
-            if content.tombstoned {
-                continue;
-            }
             collected_content_metadata.push(content.clone());
             let children = self.content_children_table.get_children(&content.id);
             queue.extend(children.into_iter().map(|id| id.id));
