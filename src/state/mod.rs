@@ -709,7 +709,7 @@ impl App {
         content_meta_list: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
         println!(
-            "updating task {} for executor id {:?} with content list {:?}",
+            "updating task {:#?} for executor id {:?} with content list {:?}",
             task, executor_id, content_meta_list
         );
         let mut state_changes = vec![];
@@ -937,39 +937,47 @@ impl App {
     ) -> Result<()> {
         let mut state_changes = vec![];
 
-        //  filter the content list to remove any content which has the same hash as an existing piece of content
-        //  update the content version if there is already an existing version with the same id
+        // Get a list of content IDs from the incoming content.
         let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
+
+        // Retrieve existing content for the batch of IDs.
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
-        let existing_content_ids: HashSet<String> = existing_content
-            .iter()
-            .map(|c| c.id.id.to_string().clone())
-            .collect();
-        let existing_content_hashes: HashSet<String> = existing_content
-            .iter()
-            .map(|content| content.hash.clone())
-            .collect();
-        let filtered_content: Vec<internal_api::ContentMetadata> = content_metadata
+
+        // Create a map of existing content by ID for easy lookup.
+        let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
             .into_iter()
-            .filter(|content| !existing_content_hashes.contains(&content.hash))
-            .map(|mut content| {
-                if existing_content_ids.contains(&content.id.id.to_string()) {
-                    content.id.version += 1;
+            .map(|c| (c.id.id.to_string(), c))
+            .collect();
+
+        // Filter and process the incoming content.
+        let processed_content: Vec<internal_api::ContentMetadata> = content_metadata
+            .into_iter()
+            .filter_map(|content| {
+                // Check if there's existing content with the same hash.
+                if let Some(existing) = existing_content_map.get(&content.id.id.to_string()) {
+                    if existing.hash == content.hash {
+                        // If the hash matches, increment the version of the *existing* content, not the incoming content.
+                        let mut updated_existing = existing.clone();
+                        updated_existing.id.version += 1;
+                        return Some(updated_existing);
+                    }
                 }
-                content
+                // If no matching hash was found in existing content, or the content is new, return the incoming content.
+                Some(content)
             })
             .collect();
 
-        for content in &filtered_content {
+        for content in &processed_content {
             state_changes.push(StateChange::new(
                 content.id.to_string().clone(),
                 internal_api::ChangeType::NewContent,
                 timestamp_secs(),
             ));
         }
+
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateContent {
-                content_metadata: filtered_content,
+                content_metadata: processed_content,
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
