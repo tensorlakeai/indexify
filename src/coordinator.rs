@@ -1333,7 +1333,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1491,6 +1491,10 @@ mod tests {
         coordinator
             .shared_state
             .mark_extraction_policy_applied_on_content(&child_content_1.id, &extraction_policy_1.id)
+            .await?;
+
+        coordinator
+            .tombstone_content_metadatas(DEFAULT_TEST_NAMESPACE, &vec![parent_content.id.clone()])
             .await?;
 
         let state_change = internal_api::StateChange {
