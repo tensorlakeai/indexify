@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use rust_embed::RustEmbed;
 use tokio::{
@@ -687,6 +682,31 @@ async fn get_content_metadata(
 
     Ok(Json(GetContentMetadataResponse {
         content_metadata: content_metadata.clone(),
+    }))
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/content/{content_id}",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Gets a content tree rooted at a specific content id in the namespace"),
+        (status = BAD_REQUEST, description = "Unable to read content tree")
+    )
+)]
+#[axum::debug_handler]
+async fn get_content_tree_metadata(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<GetContentTreeMetadataResponse>, IndexifyAPIError> {
+    let content_tree_metadata = state
+        .data_manager
+        .get_content_tree_metadata(&namespace, content_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(Json(GetContentTreeMetadataResponse {
+        content_tree_metadata,
     }))
 }
 

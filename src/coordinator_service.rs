@@ -13,60 +13,24 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CoordinatorCommand,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateGcTasksRequest,
-    CreateGcTasksResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    RemoveIngestionServerRequest,
-    RemoveIngestionServerResponse,
-    TaskAssignments,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
+    self, coordinator_service_server::CoordinatorService, CoordinatorCommand, CreateContentRequest,
+    CreateContentResponse, CreateGcTasksRequest, CreateGcTasksResponse, CreateIndexRequest,
+    CreateIndexResponse, ExtractionPolicyRequest, ExtractionPolicyResponse, GcTask,
+    GcTaskAcknowledgement, GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest, GetContentTreeMetadataRequest, GetExtractorCoordinatesRequest,
+    GetIndexRequest, GetIndexResponse, GetRaftMetricsSnapshotRequest, GetSchemaRequest,
+    GetSchemaResponse, HeartbeatRequest, HeartbeatResponse, ListContentRequest,
+    ListContentResponse, ListExtractionPoliciesRequest, ListExtractionPoliciesResponse,
+    ListExtractorsRequest, ListExtractorsResponse, ListIndexesRequest, ListIndexesResponse,
+    ListStateChangesRequest, ListTasksRequest, ListTasksResponse, RaftMetricsSnapshotResponse,
+    RegisterExecutorRequest, RegisterExecutorResponse, RegisterIngestionServerRequest,
+    RegisterIngestionServerResponse, RemoveIngestionServerRequest, RemoveIngestionServerResponse,
+    TaskAssignments, TombstoneContentRequest, TombstoneContentResponse, Uint64List,
+    UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -77,13 +41,9 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
-    coordinator::Coordinator,
-    coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector,
-    server_config::ServerConfig,
-    state,
-    tonic_streamer::DropReceiver,
-    utils::timestamp_secs,
+    coordinator::Coordinator, coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
+    tonic_streamer::DropReceiver, utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -615,6 +575,26 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
                 content_list: content_metadata,
+            },
+        ))
+    }
+
+    async fn get_content_tree_metadata(
+        &self,
+        req: Request<GetContentTreeMetadataRequest>,
+    ) -> Result<Response<indexify_coordinator::GetContentTreeMetadataResponse>, Status> {
+        let req = req.into_inner();
+        let content_tree_metadata = self
+            .coordinator
+            .get_content_tree_metadata(&req.content_id)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let parsed_content_tree: Vec<indexify_coordinator::ContentMetadata> = content_tree_metadata
+            .iter()
+            .map(|c| c.clone().into())
+            .collect();
+        Ok(Response::new(
+            indexify_coordinator::GetContentTreeMetadataResponse {
+                content_list: parsed_content_tree,
             },
         ))
     }

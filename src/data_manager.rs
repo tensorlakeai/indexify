@@ -24,9 +24,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -356,6 +354,27 @@ impl DataManager {
         for c in content_metadata_list.values().cloned() {
             content_list.push(c.into())
         }
+        Ok(content_list)
+    }
+
+    pub async fn get_content_tree_metadata(
+        &self,
+        _namespace: &str,
+        content_id: String,
+    ) -> Result<Vec<api::ContentMetadata>> {
+        let req = indexify_coordinator::GetContentTreeMetadataRequest { content_id };
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_content_tree_metadata(req)
+            .await?;
+        let content_list: Vec<api::ContentMetadata> = response
+            .into_inner()
+            .content_list
+            .into_iter()
+            .map(|content| content.into())
+            .collect();
         Ok(content_list)
     }
 
