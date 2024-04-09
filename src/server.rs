@@ -690,6 +690,31 @@ async fn get_content_metadata(
     }))
 }
 
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/content/{content_id}",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Gets a content tree rooted at a specific content id in the namespace"),
+        (status = BAD_REQUEST, description = "Unable to read content tree")
+    )
+)]
+#[axum::debug_handler]
+async fn get_content_tree_metadata(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<GetContentTreeMetadataResponse>, IndexifyAPIError> {
+    let content_tree_metadata = state
+        .data_manager
+        .get_content_tree_metadata(&namespace, content_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(Json(GetContentTreeMetadataResponse {
+        content_tree_metadata,
+    }))
+}
+
 #[axum::debug_handler]
 async fn download_content(
     Path((namespace, content_id)): Path<(String, String)>,

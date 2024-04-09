@@ -30,6 +30,7 @@ use indexify_proto::indexify_coordinator::{
     GetAllSchemaResponse,
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
+    GetContentTreeMetadataRequest,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
@@ -615,6 +616,26 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
                 content_list: content_metadata,
+            },
+        ))
+    }
+
+    async fn get_content_tree_metadata(
+        &self,
+        req: Request<GetContentTreeMetadataRequest>,
+    ) -> Result<Response<indexify_coordinator::GetContentTreeMetadataResponse>, Status> {
+        let req = req.into_inner();
+        let content_tree_metadata = self
+            .coordinator
+            .get_content_tree_metadata(&req.content_id)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let parsed_content_tree: Vec<indexify_coordinator::ContentMetadata> = content_tree_metadata
+            .iter()
+            .map(|c| c.clone().into())
+            .collect();
+        Ok(Response::new(
+            indexify_coordinator::GetContentTreeMetadataResponse {
+                content_list: parsed_content_tree,
             },
         ))
     }
