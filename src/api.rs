@@ -548,6 +548,11 @@ pub struct GetContentMetadataResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GetContentTreeMetadataResponse {
+    pub content_tree_metadata: Vec<ContentMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GetExtractedMetadataResponse {
     pub extracted_metadata: Vec<ExtractedMetadata>,
 }

@@ -251,6 +251,13 @@ impl Coordinator {
             .await
     }
 
+    pub fn get_content_tree_metadata(
+        &self,
+        content_id: &str,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.shared_state.get_content_tree_metadata(content_id)
+    }
+
     pub async fn get_extractor(
         &self,
         extractor_name: &str,

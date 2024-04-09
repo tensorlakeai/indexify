@@ -339,6 +339,7 @@ impl IngestExtractedContentState {
                             tracing::error!("Error finishing extraction ingest: {}", e);
                             return;
                         }
+                        return;
                     }
                 };
             }

@@ -10,6 +10,8 @@ service CoordinatorService {
 
     rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
 
+    rpc GetContentTreeMetadata(GetContentTreeMetadataRequest) returns (GetContentTreeMetadataResponse) {}
+
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
 
     rpc CreateExtractionPolicy(ExtractionPolicyRequest) returns (ExtractionPolicyResponse) {}
@@ -65,6 +67,14 @@ message GetContentMetadataRequest {
 
 message GetContentMetadataResponse {
     map<string, ContentMetadata> content_list = 1;
+}
+
+message GetContentTreeMetadataRequest {
+    string content_id = 1;
+}
+
+message GetContentTreeMetadataResponse {
+    repeated ContentMetadata content_list = 1;
 }
 
 enum TaskOutcome {

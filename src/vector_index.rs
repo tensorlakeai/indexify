@@ -169,7 +169,7 @@ impl VectorIndexManager {
                 text,
                 content_id: result.content_id.clone(),
                 mime_type,
-                labels: labels,
+                labels,
                 confidence_score: result.confidence_score,
             };
             index_search_results.push(search_result);
