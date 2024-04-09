@@ -705,7 +705,7 @@ impl IndexifyState {
             let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                content.id.clone(),
+                format!("{}::v{}", content.id.id, content.id.version), //  TODO: Figure out why format is required here when setting content
                 &serialized_content,
             )
             .map_err(|e| {
@@ -1503,20 +1503,33 @@ impl IndexifyState {
         executors
     }
 
-    /// This method will fetch content based on the id's provided
-    pub fn get_content_from_ids(
+    /// This method will fetch content based on the id and version provided.
+    pub fn get_content_from_ids_with_version(
         &self,
         content_ids: HashSet<ContentMetadataId>,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
+
         let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
             content_ids
                 .into_iter()
                 .filter_map(|content_id| {
-                    match txn.get_cf(StateMachineColumns::ContentTable.cf(db), content_id.clone()) {
-                        Ok(Some(content_bytes)) => match JsonEncoder::decode(&content_bytes) {
-                            Ok(content) => Some(Ok(content)),
+                    match txn.get_cf(
+                        StateMachineColumns::ContentTable.cf(db),
+                        format!("{}::v{}", content_id.id, content_id.version), //  TODO: Figure out why format is required here
+                    ) {
+                        Ok(Some(content_bytes)) => match JsonEncoder::decode::<
+                            indexify_internal_api::ContentMetadata,
+                        >(&content_bytes)
+                        {
+                            Ok(content) => {
+                                if !content.tombstoned {
+                                    Some(Ok(content))
+                                } else {
+                                    None
+                                }
+                            }
                             Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
                         },
                         Ok(None) => None,
@@ -1525,6 +1538,77 @@ impl IndexifyState {
                 })
                 .collect::<Result<Vec<_>, _>>();
         content
+    }
+
+    /// This method will fetch content based on the id's provided. It will look for the latest version for each piece of content
+    /// It will skip any that cannot be found and expect the consumer to decide what to do in that case
+    /// It will also skip any that have been tombstoned
+    pub fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let mut contents = Vec::new();
+
+        //  For each content id find the highest version, deserialize it and collect it
+        for content_id in content_ids {
+            // Construct prefix for content ID to search for all its versions
+            let prefix = format!("{}::v", content_id);
+
+            let mut read_opts = rocksdb::ReadOptions::default();
+            read_opts.set_prefix_same_as_start(true);
+            let iter = txn.iterator_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
+            );
+
+            let mut highest_version: u64 = 0;
+
+            for item in iter {
+                match item {
+                    Ok((key, _)) => {
+                        if let Ok(key_str) = std::str::from_utf8(&key) {
+                            if let Some(version_str) = key_str.strip_prefix(&prefix) {
+                                if let Ok(version) = version_str.parse::<u64>() {
+                                    if version > highest_version {
+                                        highest_version = version;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => return Err(StateMachineError::TransactionError(e.to_string())),
+                }
+            }
+
+            // If a key with the highest version is found, decode its content and add to the results
+            if highest_version > 0 {
+                match txn.get_cf(
+                    StateMachineColumns::ContentTable.cf(db),
+                    &format!("{}::v{}", content_id, highest_version),
+                ) {
+                    Ok(Some(content_bytes)) => {
+                        match JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
+                            &content_bytes,
+                        ) {
+                            Ok(content) => {
+                                if !content.tombstoned {
+                                    contents.push(content);
+                                }
+                            }
+                            Err(e) => {
+                                return Err(StateMachineError::TransactionError(e.to_string()));
+                            }
+                        }
+                    }
+                    Ok(None) => {} // This should technically never happen since we have the key
+                    Err(e) => return Err(StateMachineError::TransactionError(e.to_string())),
+                }
+            }
+        }
+
+        Ok(contents)
     }
 
     /// This method will fetch all pieces of content metadata for the tree
@@ -1552,6 +1636,9 @@ impl IndexifyState {
                 })?;
             let content =
                 JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
+            if content.tombstoned {
+                continue;
+            }
             collected_content_metadata.push(content);
             let children = self.content_children_table.get_children(&current_root);
             queue.extend(children);

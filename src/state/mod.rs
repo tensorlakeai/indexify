@@ -450,6 +450,7 @@ impl App {
         let extractor = self
             .extractor_with_name(&extraction_policy.extractor)
             .await?;
+
         let content_list = {
             let content_list = self
                 .state_machine
@@ -462,14 +463,12 @@ impl App {
             for content_id in content_list {
                 let content_metadata = self
                     .state_machine
-                    .get_from_cf::<internal_api::ContentMetadata, _>(
-                        StateMachineColumns::ContentTable,
-                        &content_id,
-                    )
+                    .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
                     .await?;
+
                 // if the content metadata mimetype does not match the extractor, skip it
                 //  if the content metadata is tombstoned, skip it
-                if let Some(content_metadata) = content_metadata {
+                if let Some(content_metadata) = content_metadata.get(0) {
                     if !matches_mime_type(
                         &extractor.input_mime_types,
                         &content_metadata.content_type,
@@ -479,7 +478,7 @@ impl App {
                     if content_metadata.tombstoned {
                         continue;
                     }
-                    content_meta_list.push(content_metadata);
+                    content_meta_list.push(content_metadata.clone());
                 }
             }
             content_meta_list
@@ -569,6 +568,7 @@ impl App {
         Ok(task_ids)
     }
 
+    /// Get all content from a namespace
     pub async fn list_content(
         &self,
         namespace: &str,
@@ -580,7 +580,9 @@ impl App {
             .get(namespace)
             .cloned()
             .unwrap_or_default();
-        self.state_machine.get_content_from_ids(content_ids).await
+        self.state_machine
+            .get_content_from_ids_with_version(content_ids)
+            .await
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -722,92 +724,6 @@ impl App {
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
-
-    // pub async fn create_gc_tasks(
-    //     &self,
-    //     content_id: &str,
-    // ) -> Result<Vec<internal_api::GarbageCollectionTask>> {
-    //     //  Get the metadata of the children of the content id
-    //     let content_tree_metadata = self.get_content_tree_metadata(content_id)?;
-    //     let mut output_tables = HashMap::new();
-    //     let mut policy_ids = HashMap::new();
-
-    //     for content_metadata in &content_tree_metadata {
-    //         let content_extraction_policy_mappings = self
-    //
-    // .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
-    //             .await?;
-
-    //         if content_extraction_policy_mappings.is_none() {
-    //             continue;
-    //         }
-
-    //         let mappings = content_extraction_policy_mappings.unwrap();
-    //         let applied_extraction_policy_ids: HashSet<String> =
-    //             mappings.time_of_policy_completion.keys().cloned().collect();
-    //         let applied_extraction_policies = self
-    //             .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-    //             .await?;
-
-    //         if applied_extraction_policies.is_none() {
-    //             continue;
-    //         }
-
-    //         let policy_id = &applied_extraction_policies
-    //             .as_ref()
-    //             .unwrap()
-    //             .iter()
-    //             .next()
-    //             .map(|policy| policy.id.clone())
-    //             .unwrap_or("".to_string());
-    //         policy_ids.insert(content_metadata.id.clone(),
-    // policy_id.to_string());
-
-    //         for applied_extraction_policy in
-    // applied_extraction_policies.clone().unwrap() {
-    // output_tables.insert(                 content_metadata.id.clone(),
-    //                 applied_extraction_policy
-    //                     .index_name_table_mapping
-    //                     .values()
-    //                     .cloned()
-    //                     .collect::<HashSet<_>>(),
-    //             );
-    //         }
-    //     }
-
-    //     if let Some(forward_to_leader) =
-    // self.forwardable_raft.ensure_leader().await? {         //  forward to the
-    // leader         let leader_node = forward_to_leader
-    //             .leader_node
-    //             .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
-    //         self.network
-    //             .create_gc_tasks(
-    //                 content_tree_metadata,
-    //                 output_tables,
-    //                 policy_ids,
-    //                 &leader_node.addr,
-    //             )
-    //             .await?;
-    //         return Ok(Vec::new());
-    //     }
-
-    //     //  this is the leader
-    //     let gc_tasks = self
-    //         .garbage_collector
-    //         .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
-    //         .await?;
-
-    //     let request = StateMachineUpdateRequest {
-    //         payload: RequestPayload::CreateOrAssignGarbageCollectionTask {
-    //             gc_tasks: gc_tasks.clone(),
-    //         },
-    //         new_state_changes: vec![],
-    //         state_changes_processed: vec![],
-    //     };
-    //     self.forwardable_raft.client_write(request).await?;
-
-    //     Ok(gc_tasks)
-    // }
 
     pub async fn create_gc_tasks(
         &self,
@@ -1011,37 +927,30 @@ impl App {
     ) -> Result<()> {
         let mut state_changes = vec![];
 
-        //  filter the content list to remove any content which has the same id and hash combo as an existing piece of content
-        //  TODO: Filter only on the hash, since the id is non-deterministic. Use the id match to update the version
-        let content_ids: Vec<ContentMetadataId> =
-            content_metadata.iter().map(|c| c.id.clone()).collect();
+        //  filter the content list to remove any content which has the same hash as an existing piece of content
+        //  update the content version if there is already an existing version with the same id
+        let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
         let existing_content_ids: HashSet<String> = existing_content
             .iter()
-            .map(|c| c.id.to_string().clone())
+            .map(|c| c.id.id.to_string().clone())
             .collect();
-        let existing_content: HashSet<(ContentMetadataId, String)> = existing_content
+        let existing_content_hashes: HashSet<String> = existing_content
             .iter()
-            .map(|content| (content.id.clone(), content.hash.clone()))
+            .map(|content| content.hash.clone())
             .collect();
-        let filtered_content_metadata: Vec<_> = content_metadata
+        let filtered_content: Vec<internal_api::ContentMetadata> = content_metadata
             .into_iter()
-            .filter(|content| {
-                !existing_content.contains(&(content.id.clone(), content.hash.clone()))
-            })
+            .filter(|content| !existing_content_hashes.contains(&content.hash))
             .map(|mut content| {
-                if existing_content_ids.contains(&content.id.to_string()) {
+                if existing_content_ids.contains(&content.id.id.to_string()) {
                     content.id.version += 1;
                 }
                 content
             })
             .collect();
-        println!(
-            "The filtered content metadata {:?}",
-            filtered_content_metadata
-        );
 
-        for content in &filtered_content_metadata {
+        for content in &filtered_content {
             state_changes.push(StateChange::new(
                 content.id.to_string().clone(),
                 internal_api::ChangeType::NewContent,
@@ -1050,7 +959,7 @@ impl App {
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateContent {
-                content_metadata: filtered_content_metadata,
+                content_metadata: filtered_content,
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
@@ -1092,26 +1001,28 @@ impl App {
         Ok(())
     }
 
+    /// Get specific piece of content. This uses a content id with a specific version
     pub async fn get_content_metadata(
         &self,
         content_id: &ContentMetadataId,
     ) -> Result<internal_api::ContentMetadata> {
-        let content_metadata = self
+        let result = self
             .state_machine
-            .get_from_cf::<internal_api::ContentMetadata, _>(
-                StateMachineColumns::ContentTable,
-                content_id,
-            )
-            .await?
-            .ok_or_else(|| anyhow!("Content with id {} not found", content_id.to_string()))?;
-        Ok(content_metadata)
+            .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
+            .await?;
+
+        result
+            .get(0)
+            .ok_or_else(|| anyhow!("Content with id {} not found", content_id.to_string()))
+            .cloned()
     }
 
+    /// Get content based on id's without version
     pub async fn get_content_metadata_batch(
         &self,
-        content_ids: Vec<ContentMetadataId>,
+        content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content_ids: HashSet<ContentMetadataId> = content_ids.into_iter().collect();
+        let content_ids: HashSet<String> = content_ids.into_iter().collect();
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
@@ -1782,7 +1693,7 @@ mod tests {
             .get_content_metadata_batch(
                 content_metadata_vec
                     .iter()
-                    .map(|content| content.id.clone())
+                    .map(|content| content.id.id.clone())
                     .collect(),
             )
             .await?;

@@ -246,9 +246,6 @@ impl Coordinator {
         &self,
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content_ids: Result<Vec<ContentMetadataId>> =
-            content_ids.iter().map(|cid| cid.try_into()).collect();
-        let content_ids = content_ids?;
         self.shared_state
             .get_content_metadata_batch(content_ids)
             .await
@@ -324,7 +321,6 @@ impl Coordinator {
                     &content_metadata.id.to_string(),
                 )
                 .await?;
-            println!("The mappings {:?}", content_extraction_policy_mappings);
 
             if content_extraction_policy_mappings.is_none() {
                 continue;
@@ -374,7 +370,7 @@ impl Coordinator {
         Ok(tasks)
     }
 
-    async fn handle_tombstone_content(
+    async fn handle_tombstone_content_state_change(
         &self,
         change: StateChange,
     ) -> Result<Vec<GarbageCollectionTask>> {
@@ -407,7 +403,8 @@ impl Coordinator {
 
             match change.change_type {
                 indexify_internal_api::ChangeType::TombstoneContent => {
-                    let _ = self.handle_tombstone_content(change).await?;
+                    let _ = self.handle_tombstone_content_state_change(change).await?;
+                    return Ok(());
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
             }
@@ -528,7 +525,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_extraction_events() -> Result<(), anyhow::Error> {
         let (coordinator, shared_state) = setup_coordinator().await;
 
@@ -538,7 +535,7 @@ mod tests {
         // Add content and ensure that we are creating a extraction event
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                id: "test::v1".to_string(),
+                id: "test".to_string(),
                 namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 parent_id: "".to_string(),
                 file_name: "test".to_string(),
@@ -610,9 +607,9 @@ mod tests {
         // Add a content with a different source and ensure we don't create a task
         coordinator
             .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                id: "test2::v1".to_string(),
+                id: "test2".to_string(),
                 namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                parent_id: "test::v1".to_string(),
+                parent_id: "test".to_string(),
                 file_name: "test2".to_string(),
                 mime: "text/plain".to_string(),
                 created_at: 0,
@@ -684,7 +681,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_1 = indexify_coordinator::ContentMetadata {
-            id: "test_id::v1".to_string(),
+            id: "test_id".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -736,7 +733,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_2 = indexify_coordinator::ContentMetadata {
-            id: "test_id::v2".to_string(),
+            id: "test_id_2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -764,7 +761,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_multiple_contents_and_extraction_policies() -> Result<(), anyhow::Error> {
         let (coordinator, shared_state) = setup_coordinator().await;
 
@@ -773,7 +770,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_1 = indexify_coordinator::ContentMetadata {
-            id: "test_id::v1".to_string(),
+            id: "test_id".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -826,7 +823,7 @@ mod tests {
 
         //  Create content metadata
         let content_metadata_2 = indexify_coordinator::ContentMetadata {
-            id: "test_id::v2".to_string(),
+            id: "test_id_2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -969,9 +966,9 @@ mod tests {
             .create_policy(extraction_policy_2.clone(), extractor_2)
             .await?;
 
-        //  Build a content tree where the parent content id is the pointer
+        //  Build a content tree where the parent_contentis the root
         let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id::v1".to_string(),
+            id: "test_parent_id".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "".to_string(),
             file_name: "test_file".to_string(),
@@ -984,9 +981,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1::v1".to_string(),
+            id: "test_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id::v1".to_string(),
+            parent_id: "test_parent_id".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -997,9 +994,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2::v1".to_string(),
+            id: "test_child_id_2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id::v1".to_string(),
+            parent_id: "test_parent_id".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1010,9 +1007,9 @@ mod tests {
             hash: "".into(),
         };
         let child_content_1_child = indexify_coordinator::ContentMetadata {
-            id: "test_child_child_id_1::v1".to_string(),
+            id: "test_child_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1::v1".to_string(),
+            parent_id: "test_child_id_1".to_string(),
             file_name: "test_file".to_string(),
             mime: "text/plain".to_string(),
             created_at: 0,
@@ -1040,7 +1037,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_tombstone_content_tree() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1221,7 +1218,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_match_tombstoned_content() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1336,7 +1333,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1492,7 +1489,9 @@ mod tests {
             object_id: parent_content.id.clone(),
             ..Default::default()
         };
-        let tasks = coordinator.handle_tombstone_content(state_change).await?;
+        let tasks = coordinator
+            .handle_tombstone_content_state_change(state_change)
+            .await?;
         assert_eq!(tasks.len(), 4);
         println!("tasks {:#?}", tasks);
         for task in &tasks {

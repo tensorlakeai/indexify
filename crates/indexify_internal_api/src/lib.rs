@@ -402,7 +402,7 @@ impl GarbageCollectionTask {
     ) -> Self {
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
-        content_metadata.id.id.hash(&mut hasher);
+        content_metadata.id.hash(&mut hasher);
         policy_id.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         Self {
@@ -580,8 +580,8 @@ pub struct ContentMetadata {
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
         Self {
-            id: value.id.id,
-            parent_id: value.parent_id.id,
+            id: value.id.id, //  TODO: Might need to change this because version should be exposed
+            parent_id: value.parent_id.id, //  TODO: Might need to change this because version should be exposed?
             file_name: value.name,
             mime: value.content_type,
             labels: value.labels,
@@ -600,8 +600,14 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
 
     fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
         Ok(Self {
-            id: value.id.try_into()?,
-            parent_id: value.parent_id.try_into()?,
+            id: ContentMetadataId {
+                id: value.id,
+                version: 1,
+            },
+            parent_id: ContentMetadataId {
+                id: value.parent_id,
+                version: 1,
+            },
             name: value.file_name,
             content_type: value.mime,
             labels: value.labels,

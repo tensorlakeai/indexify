@@ -349,9 +349,19 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_content_from_ids(
+    pub async fn get_content_from_ids_with_version(
         &self,
         content_ids: HashSet<indexify_internal_api::ContentMetadataId>,
+    ) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_from_ids_with_version(content_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub async fn get_content_from_ids(
+        &self,
+        content_ids: HashSet<String>,
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
