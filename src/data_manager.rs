@@ -161,7 +161,6 @@ impl DataManager {
             let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
-            println!("creating index {}", index_name);
             let schema_json = serde_json::to_value(&embedding_schema)?;
             let _ = self
                 .vector_index_manager
@@ -245,7 +244,6 @@ impl DataManager {
         content_list: Vec<api::Content>,
         content_id: Option<&str>,
     ) -> Result<()> {
-        println!("The content list being added {:?}", content_list);
         for text in content_list {
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
             let content_metadata = self
