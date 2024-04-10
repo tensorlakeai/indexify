@@ -62,7 +62,6 @@ impl VectorDb for PgVector {
 
     #[tracing::instrument]
     async fn add_embedding(&self, index: &str, chunks: Vec<VectorChunk>) -> Result<()> {
-        println!("Writing embedding to index {}", index);
         let index = PostgresIndexName::new(index);
 
         for chunk in chunks {
