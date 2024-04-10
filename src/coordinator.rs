@@ -1662,14 +1662,27 @@ mod tests {
             .unprocessed_state_change_events()
             .await?;
         assert_eq!(unprocessed_state_changes.len(), 2);
+        let tombstone_content_tree_count = unprocessed_state_changes
+            .iter()
+            .filter(|change_event| {
+                change_event.change_type == internal_api::ChangeType::TombstoneContentTree
+            })
+            .count();
+        let update_content_count = unprocessed_state_changes
+            .iter()
+            .filter(|change_event| {
+                change_event.change_type == internal_api::ChangeType::UpdateContent
+            })
+            .count();
         assert_eq!(
-            unprocessed_state_changes.first().unwrap().change_type,
-            internal_api::ChangeType::TombstoneContentTree
+            tombstone_content_tree_count, 1,
+            "Expected exactly one TombstoneContentTree change."
         );
         assert_eq!(
-            unprocessed_state_changes.get(1).unwrap().change_type,
-            internal_api::ChangeType::UpdateContent
+            update_content_count, 1,
+            "Expected exactly one UpdateContent change."
         );
+
         let tasks = coordinator
             .create_gc_tasks(&unprocessed_state_changes.first().unwrap().object_id)
             .await?;
