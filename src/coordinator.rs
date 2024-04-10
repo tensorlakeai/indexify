@@ -1683,8 +1683,14 @@ mod tests {
             "Expected exactly one UpdateContent change."
         );
 
+        let tombstone_content_tree_change = unprocessed_state_changes
+            .iter()
+            .find(|change_event| {
+                change_event.change_type == internal_api::ChangeType::TombstoneContentTree
+            })
+            .unwrap();
         let tasks = coordinator
-            .create_gc_tasks(&unprocessed_state_changes.first().unwrap().object_id)
+            .create_gc_tasks(&tombstone_content_tree_change.object_id)
             .await?;
         assert_eq!(tasks.len(), 1);
 
