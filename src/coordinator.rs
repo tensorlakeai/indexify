@@ -1471,7 +1471,7 @@ mod tests {
         let stored_parent_content = coordinator
             .get_content_metadata(vec![parent_content.id.clone()])
             .await?;
-        let stored_parent_content = stored_parent_content.get(0).unwrap();
+        let stored_parent_content = stored_parent_content.first().unwrap();
         let content_extraction_policy_mappings_parent_content =
             internal_api::ContentExtractionPolicyMapping {
                 content_id: stored_parent_content.id.clone(),
@@ -1481,7 +1481,7 @@ mod tests {
         let stored_child_content = coordinator
             .get_content_metadata(vec![child_content_1.id.clone()])
             .await?;
-        let stored_child_content = stored_child_content.get(0).unwrap();
+        let stored_child_content = stored_child_content.first().unwrap();
         let content_extraction_policy_mappings_child_content_1 =
             internal_api::ContentExtractionPolicyMapping {
                 content_id: stored_child_content.id.clone(),
@@ -1510,10 +1510,10 @@ mod tests {
             .shared_state
             .get_content_metadata_batch(vec![parent_content.id.clone()])
             .await?;
-        let retrieved_parent_content = retrieved_parent_content.get(0).unwrap();
+        let retrieved_parent_content = retrieved_parent_content.first().unwrap();
 
         coordinator
-            .tombstone_content_metadatas(DEFAULT_TEST_NAMESPACE, &vec![parent_content.id.clone()])
+            .tombstone_content_metadatas(DEFAULT_TEST_NAMESPACE, &[parent_content.id.clone()])
             .await?;
 
         let state_change = internal_api::StateChange {
@@ -1644,7 +1644,8 @@ mod tests {
             .create_content_metadata(vec![root_left_content_updated.clone()])
             .await?;
 
-        //  fetch the content tree rooted at "root" and check that the tree has been updated
+        //  fetch the content tree rooted at "root" and check that the tree has been
+        // updated
         let content_tree = coordinator
             .shared_state
             .get_content_tree_metadata(&root_content.id)?;
@@ -1662,7 +1663,7 @@ mod tests {
             .await?;
         assert_eq!(unprocessed_state_changes.len(), 2);
         assert_eq!(
-            unprocessed_state_changes.get(0).unwrap().change_type,
+            unprocessed_state_changes.first().unwrap().change_type,
             internal_api::ChangeType::TombstoneContentTree
         );
         assert_eq!(
@@ -1670,7 +1671,7 @@ mod tests {
             internal_api::ChangeType::UpdateContent
         );
         let tasks = coordinator
-            .create_gc_tasks(&unprocessed_state_changes.get(0).unwrap().object_id)
+            .create_gc_tasks(&unprocessed_state_changes.first().unwrap().object_id)
             .await?;
         assert_eq!(tasks.len(), 1);
 

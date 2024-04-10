@@ -16,8 +16,15 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -865,7 +872,7 @@ impl IndexifyState {
         content_ids: Vec<String>,
     ) -> Result<(), StateMachineError> {
         for content_id in content_ids {
-            let latest_version = self.get_latest_version_of_content(&content_id, db, &txn)?;
+            let latest_version = self.get_latest_version_of_content(&content_id, db, txn)?;
             txn.delete_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 &format!("{}::v{}", content_id, latest_version),
@@ -1206,7 +1213,8 @@ impl IndexifyState {
                 gc_task,
                 mark_finished,
             } => {
-                //  NOTE: Special case where forward and reverse indexes are updated together because get_latest_version_of_content requires a txn
+                //  NOTE: Special case where forward and reverse indexes are updated together
+                // because get_latest_version_of_content requires a txn
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
@@ -1317,7 +1325,8 @@ impl IndexifyState {
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::UpdateContent { updated_content } => {
-                //  NOTE: Special case where forward and reverse indexes are updated together so errors can be handled
+                //  NOTE: Special case where forward and reverse indexes are updated together so
+                // errors can be handled
                 self.update_content(db, &txn, updated_content)?;
                 for (old_content_key, new_content_data) in updated_content.iter() {
                     let old_content_key: ContentMetadataId = old_content_key.try_into()?;
@@ -1503,8 +1512,10 @@ impl IndexifyState {
 
     //  START READER METHODS FOR ROCKSDB FORWARD INDEXES
 
-    /// This function is a helper method that will get the latest version of any piece of content in the database by building a prefix foward iterator
-    /// TODO: Should we be ignoring tombstoned content here for the latest version?
+    /// This function is a helper method that will get the latest version of any
+    /// piece of content in the database by building a prefix foward iterator
+    /// TODO: Should we be ignoring tombstoned content here for the latest
+    /// version?
     pub fn get_latest_version_of_content(
         &self,
         content_id: &str,
@@ -1723,9 +1734,10 @@ impl IndexifyState {
         content
     }
 
-    /// This method will fetch content based on the id's provided. It will look for the latest version for each piece of content
-    /// It will skip any that cannot be found and expect the consumer to decide what to do in that case
-    /// It will also skip any that have been tombstoned
+    /// This method will fetch content based on the id's provided. It will look
+    /// for the latest version for each piece of content It will skip any
+    /// that cannot be found and expect the consumer to decide what to do in
+    /// that case It will also skip any that have been tombstoned
     pub fn get_content_from_ids(
         &self,
         content_ids: HashSet<String>,
@@ -1739,7 +1751,8 @@ impl IndexifyState {
             // Construct prefix for content ID to search for all its versions
             let highest_version = self.get_latest_version_of_content(content_id, db, &txn)?;
 
-            // If a key with the highest version is found, decode its content and add to the results
+            // If a key with the highest version is found, decode its content and add to the
+            // results
             if highest_version == 0 {
                 continue;
             }

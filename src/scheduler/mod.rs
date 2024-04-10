@@ -100,7 +100,7 @@ impl Scheduler {
                     .shared_state
                     .get_content_metadata(&state_change.object_id.clone().try_into()?)
                     .await?;
-                let content = content.get(0).unwrap_or_else(|| {
+                let content = content.first().unwrap_or_else(|| {
                     panic!(
                         "content not found for content_id: {}",
                         &state_change.object_id

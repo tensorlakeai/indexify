@@ -25,7 +25,9 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -258,12 +260,13 @@ impl DataManager {
                 )
                 .await?;
 
-            //  Check if the content id with the hash already exists, if it does don't create metadata and remove the written file
-            if !content_id.is_none() {
+            //  Check if the content id with the hash already exists, if it does don't
+            // create metadata and remove the written file
+            if content_id.is_some() {
                 let retrieved_content_metadata = self
                     .get_content_metadata(namespace, vec![content_id.unwrap().into()])
                     .await?;
-                if let Some(retrieved_content_metadata) = retrieved_content_metadata.get(0) {
+                if let Some(retrieved_content_metadata) = retrieved_content_metadata.first() {
                     if retrieved_content_metadata.hash == content_metadata.hash {
                         self.blob_storage
                             .delete(&content_metadata.file_name)
