@@ -828,7 +828,8 @@ async fn update_content(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    let content_metadata = content_metadata.first()
+    let content_metadata = content_metadata
+        .first()
         .ok_or_else(|| IndexifyAPIError::not_found(&format!("content {} not found", content_id)))?;
 
     while let Some(file) = files.next_field().await.unwrap() {
