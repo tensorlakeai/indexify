@@ -6,7 +6,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
@@ -202,7 +202,7 @@ impl Server {
             )
             .route(
                 "/namespaces/:namespace/content/:content_id",
-                post(update_content)
+                put(update_content)
                     .with_state(namespace_endpoint_state.clone())
                     .clone(),
             )
@@ -621,58 +621,6 @@ async fn list_content(
 
 #[tracing::instrument]
 #[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/content/:content_id",
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
-        (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
-    ),
-)]
-#[axum::debug_handler]
-async fn update_content(
-    Path((namespace, content_id)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(body): Json<super::api::UpdateContentRequest>,
-) -> Result<Json<UpdateContentResponse>, IndexifyAPIError> {
-    //  First, check if the content to update exists
-    let content_metadata = state
-        .data_manager
-        .get_content_metadata(&namespace, vec![content_id.clone()])
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    if content_metadata.len() == 0 {
-        return Err(IndexifyAPIError::not_found("content not found"));
-    }
-
-    //  write the content to storage and create content metadata
-    let content: Vec<api::Content> = body
-        .content
-        .iter()
-        .map(|chunk| api::Content {
-            content_type: mime::TEXT_PLAIN.to_string(),
-            bytes: chunk.text.as_bytes().to_vec(),
-            labels: chunk.labels.clone(),
-            features: vec![],
-        })
-        .collect();
-    state
-        .data_manager
-        .add_texts(&namespace, content, Some(&content_id))
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::BAD_REQUEST,
-                &format!("failed to add text: {}", e),
-            )
-        })?;
-
-    Ok(Json(UpdateContentResponse {}))
-}
-
-#[tracing::instrument]
-#[utoipa::path(
     delete,
     path = "/namespaces/{namespace}/content",
     tag = "indexify",
@@ -818,7 +766,6 @@ async fn upload_file(
     State(state): State<NamespaceEndpointState>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
-    println!("Uploading file {:#?}", files);
     while let Some(file) = files.next_field().await.unwrap() {
         let name = file
             .file_name()
@@ -829,7 +776,7 @@ async fn upload_file(
             .to_string();
         info!("writing to blob store, file name = {:?}", name);
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-        state
+        let content_metadata = state
             .data_manager
             .upload_file(&namespace, stream, &name)
             .await
@@ -839,7 +786,86 @@ async fn upload_file(
                     &format!("failed to upload file: {}", e),
                 )
             })?;
+        state
+            .data_manager
+            .create_content_metadata(content_metadata)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to create content for file: {}", e),
+                )
+            })?;
     }
+    Ok(())
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    put,
+    path = "/namespaces/{namespace}/content/:content_id",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
+        (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
+    ),
+)]
+#[axum::debug_handler]
+async fn update_content(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    mut files: Multipart,
+) -> Result<(), IndexifyAPIError> {
+    //  check that the content exists
+    let content_metadata = state
+        .data_manager
+        .get_content_metadata(&namespace, vec![content_id.clone()])
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    let content_metadata = content_metadata
+        .get(0)
+        .ok_or_else(|| IndexifyAPIError::not_found(&format!("content {} not found", content_id)))?;
+
+    while let Some(file) = files.next_field().await.unwrap() {
+        let name = file
+            .file_name()
+            .ok_or(IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                "file_name is not present",
+            ))?
+            .to_string();
+        info!("writing to blob store, file name = {:?}", name);
+        let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+        let new_content_metadata = state
+            .data_manager
+            .upload_file(&namespace, stream, &name)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to upload file: {}", e),
+                )
+            })?;
+
+        if new_content_metadata.hash == content_metadata.hash {
+            //  the content is the same, undo local writes and don't create metadata
+            info!("the content received is the same, not creating content metadata");
+            return Ok(());
+        }
+
+        state
+            .data_manager
+            .create_content_metadata(new_content_metadata)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to create content for file: {}", e),
+                )
+            })?;
+    }
+
     Ok(())
 }
 

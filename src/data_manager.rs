@@ -15,6 +15,7 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self};
 use itertools::Itertools;
 use nanoid::nanoid;
+use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
 use crate::{
@@ -158,6 +159,7 @@ impl DataManager {
             let index_name = response.output_index_name_mapping.get(name).unwrap();
             let table_name = response.index_name_table_mapping.get(index_name).unwrap();
             index_names.push(index_name.clone());
+            println!("creating index {}", index_name);
             let schema_json = serde_json::to_value(&embedding_schema)?;
             let _ = self
                 .vector_index_manager
@@ -413,7 +415,7 @@ impl DataManager {
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
-    ) -> Result<()> {
+    ) -> Result<indexify_coordinator::ContentMetadata> {
         let ext = Path::new(name)
             .extension()
             .unwrap_or_default()
@@ -434,6 +436,13 @@ impl DataManager {
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
+        Ok(content_metadata)
+    }
+
+    pub async fn create_content_metadata(
+        &self,
+        content_metadata: indexify_coordinator::ContentMetadata,
+    ) -> Result<()> {
         let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata),
         };
@@ -475,7 +484,6 @@ impl DataManager {
         parent_id: Option<String>,
         source: &str,
     ) -> Result<indexify_coordinator::ContentMetadata> {
-        println!("Writing content bytes");
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
@@ -483,10 +491,10 @@ impl DataManager {
 
         let id = DataManager::make_id(namespace, &file_name, &parent_id);
 
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = Sha256::new();
         let hashed_stream = data.map(|item| match item {
             Ok(bytes) => {
-                bytes.hash(&mut hasher);
+                hasher.update(&bytes);
                 Ok(bytes)
             }
             Err(e) => Err(e),
@@ -497,9 +505,8 @@ impl DataManager {
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
 
-        let hash_result = hasher.finish();
+        let hash_result = hasher.finalize();
         let hash = format!("{:x}", hash_result);
-        println!("The hash is {}", hash);
 
         let labels = labels
             .clone()
@@ -549,10 +556,6 @@ impl DataManager {
         content_id: &str,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
-        println!(
-            "Writing embeddings with content id {}",
-            content_id.to_string()
-        );
         let embeddings = internal_api::ExtractedEmbeddings {
             content_id: content_id.to_string(),
             embedding: embedding.to_vec(),
@@ -575,12 +578,9 @@ impl DataManager {
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
-        println!("Writing features");
         for feature in features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
-                    println!("Writing embeddings");
-                    println!("The content meta is {:#?}", content_meta);
                     let embedding_payload: internal_api::Embedding =
                         serde_json::from_value(feature.data.clone()).map_err(|e| {
                             anyhow!("unable to get embedding from extracted data {}", e)
@@ -782,7 +782,6 @@ impl DataManager {
         name: &str,
         file: impl Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult> {
-        println!("writing to blob store");
         self.blob_storage.put_stream(name, file).await
     }
 

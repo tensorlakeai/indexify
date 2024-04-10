@@ -4,13 +4,13 @@ use std::{
 };
 
 use indexify_internal_api as internal_api;
-use internal_api::StateChange;
+use internal_api::{ContentMetadataId, StateChange};
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
 use crate::state::NodeId;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub new_state_changes: Vec<StateChange>,
@@ -23,7 +23,7 @@ pub struct StateChangeProcessed {
     pub processed_at: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum RequestPayload {
     //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
@@ -60,9 +60,12 @@ pub enum RequestPayload {
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    TombstoneContent {
+    UpdateContent {
+        updated_content: HashMap<String, internal_api::ContentMetadata>,
+    },
+    TombstoneContentTree {
         namespace: String,
-        content_ids: HashSet<String>,
+        content_ids: HashSet<ContentMetadataId>,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,

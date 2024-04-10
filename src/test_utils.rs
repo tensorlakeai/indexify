@@ -14,9 +14,7 @@ use crate::{
     server_config::{ServerConfig, StateStoreConfig},
     state::{
         store::requests::{StateMachineUpdateRequest, StateMachineUpdateResponse},
-        App,
-        NodeId,
-        RaftConfigOverrides,
+        App, NodeId, RaftConfigOverrides,
     },
 };
 
@@ -317,7 +315,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
-    pub fn _get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
+    pub fn get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
         let node = self
             .nodes
             .get(&node_id)

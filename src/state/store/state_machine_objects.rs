@@ -389,9 +389,24 @@ impl ContentChildrenTable {
         }
     }
 
+    pub fn remove_all(&self, parent_id: &ContentMetadataId) {
+        let mut guard = self.content_children.write().unwrap();
+        guard.remove(parent_id);
+    }
+
     pub fn get_children(&self, parent_id: &ContentMetadataId) -> HashSet<ContentMetadataId> {
         let guard = self.content_children.read().unwrap();
         guard.get(parent_id).cloned().unwrap_or_default()
+    }
+
+    pub fn replace_parent(
+        &self,
+        old_parent_id: &ContentMetadataId,
+        new_parent_id: &ContentMetadataId,
+    ) {
+        let mut guard = self.content_children.write().unwrap();
+        let children = guard.remove(old_parent_id).unwrap_or_default();
+        guard.insert(new_parent_id.clone(), children);
     }
 
     pub fn inner(&self) -> HashMap<ContentMetadataId, HashSet<ContentMetadataId>> {
@@ -701,18 +716,14 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        println!("Creating content for {:?}", contents_vec);
         let mut updated_contents = Vec::new();
 
         //  Update the parents of all the contents to point to the latest version
-        println!("updating content");
         for content in contents_vec.iter().cloned() {
             let mut updated_content = content;
-            println!("the parent id {}", updated_content.parent_id);
             if !updated_content.parent_id.id.is_empty() {
                 let parent_latest_version =
                     self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)?;
-                println!("the latest version of the parent {}", parent_latest_version);
                 if parent_latest_version == 0 {
                     return Err(StateMachineError::DatabaseError(format!(
                         "Parent content {} not found",
@@ -741,11 +752,69 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn tombstone_content(
+    fn update_content(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: &HashSet<String>,
+        updated_content_map: &HashMap<String, internal_api::ContentMetadata>,
+    ) -> Result<(), StateMachineError> {
+        for (old_content_key, new_content_data) in updated_content_map.iter() {
+            let old_content_key: ContentMetadataId = old_content_key.clone().try_into()?;
+            let serialized_content = JsonEncoder::encode(new_content_data)?;
+
+            //  update the children so that it points to the new parent
+            for child in self.content_children_table.get_children(&old_content_key) {
+                let child_content_key = format!("{}::v{}", child.id, child.version);
+                let child_content = txn
+                    .get_cf(StateMachineColumns::ContentTable.cf(db), &child_content_key)
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!(
+                            "Error reading child content: {}",
+                            e
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!(
+                            "Child content {} not found",
+                            child_content_key
+                        ))
+                    })?;
+                let mut child_content =
+                    JsonEncoder::decode::<internal_api::ContentMetadata>(&child_content)?;
+                child_content.parent_id = new_content_data.id.clone();
+                let serialized_child_content = JsonEncoder::encode(&child_content)?;
+                txn.put_cf(
+                    StateMachineColumns::ContentTable.cf(db),
+                    child_content_key,
+                    &serialized_child_content,
+                )
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!("Error writing child content: {}", e))
+                })?;
+            }
+
+            //  create the new node
+            let new_content_key = format!(
+                "{}::v{}",
+                new_content_data.id.id, new_content_data.id.version
+            );
+            txn.put_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                new_content_key,
+                &serialized_content,
+            )
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("error writing updated content: {}", e))
+            })?;
+        }
+        Ok(())
+    }
+
+    fn tombstone_content_tree(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        content_ids: &HashSet<ContentMetadataId>,
     ) -> Result<(), StateMachineError> {
         let mut queue = VecDeque::new();
         for root_content_id in content_ids {
@@ -753,11 +822,7 @@ impl IndexifyState {
         }
 
         while let Some(current_root) = queue.pop_front() {
-            let latest_version = self.get_latest_version_of_content(&current_root, db, &txn)?;
-            if latest_version == 0 {
-                continue;
-            }
-            let stored_key = format!("{}::v{}", current_root, latest_version);
+            let stored_key = format!("{}::v{}", current_root.id, current_root.version);
             let serialized_content_metadata = txn
                 .get_cf(StateMachineColumns::ContentTable.cf(db), &stored_key)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
@@ -786,7 +851,7 @@ impl IndexifyState {
             let children = self
                 .content_children_table
                 .get_children(&content_metadata.id);
-            queue.extend(children.into_iter().map(|c_id| c_id.id));
+            queue.extend(children.iter().cloned());
         }
 
         Ok(())
@@ -1141,7 +1206,7 @@ impl IndexifyState {
                 gc_task,
                 mark_finished,
             } => {
-                //  NOTE: Special case where forward and reverse indexes are updated together
+                //  NOTE: Special case where forward and reverse indexes are updated together because get_latest_version_of_content requires a txn
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
@@ -1251,11 +1316,24 @@ impl IndexifyState {
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
             }
-            RequestPayload::TombstoneContent {
+            RequestPayload::UpdateContent { updated_content } => {
+                //  NOTE: Special case where forward and reverse indexes are updated together so errors can be handled
+                self.update_content(db, &txn, updated_content)?;
+                for (old_content_key, new_content_data) in updated_content.iter() {
+                    let old_content_key: ContentMetadataId = old_content_key.try_into()?;
+                    self.content_namespace_table
+                        .remove(&new_content_data.namespace, &old_content_key);
+                    self.content_namespace_table
+                        .insert(&new_content_data.namespace, &new_content_data.id);
+                    self.content_children_table
+                        .replace_parent(&old_content_key, &new_content_data.id);
+                }
+            }
+            RequestPayload::TombstoneContentTree {
                 namespace: _,
                 content_ids,
             } => {
-                self.tombstone_content(db, &txn, content_ids)?;
+                self.tombstone_content_tree(db, &txn, content_ids)?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
@@ -1427,14 +1505,13 @@ impl IndexifyState {
 
     /// This function is a helper method that will get the latest version of any piece of content in the database by building a prefix foward iterator
     /// TODO: Should we be ignoring tombstoned content here for the latest version?
-    fn get_latest_version_of_content(
+    pub fn get_latest_version_of_content(
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
     ) -> Result<u64, StateMachineError> {
         let prefix = format!("{}::v", content_id);
-        println!("The prefix is {}", prefix);
 
         let mut read_opts = rocksdb::ReadOptions::default();
         read_opts.set_prefix_same_as_start(true);
@@ -1706,12 +1783,7 @@ impl IndexifyState {
         queue.push_back(content_id.to_string());
 
         while let Some(current_root) = queue.pop_front() {
-            println!("Getting latest version for current_root {}", current_root);
             let highest_version = self.get_latest_version_of_content(&current_root, db, &txn)?;
-            println!(
-                "The highest version for {} is {}",
-                current_root, highest_version
-            );
             if highest_version == 0 {
                 continue;
             }
@@ -1732,6 +1804,41 @@ impl IndexifyState {
             collected_content_metadata.push(content.clone());
             let children = self.content_children_table.get_children(&content.id);
             queue.extend(children.into_iter().map(|id| id.id));
+        }
+        Ok(collected_content_metadata)
+    }
+
+    /// This method will fetch all pieces of content metadata for the tree
+    /// rooted at content_id. It will look for a specfic version of the node
+    pub fn get_content_tree_metadata_with_version(
+        &self,
+        content_id: &ContentMetadataId,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let mut collected_content_metadata = Vec::new();
+
+        let mut queue = VecDeque::new();
+        queue.push_back(content_id.clone());
+
+        while let Some(current_root) = queue.pop_front() {
+            let content_bytes = txn
+                .get_cf(
+                    StateMachineColumns::ContentTable.cf(db),
+                    &format!("{}::v{}", current_root.id, current_root.version),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                .ok_or_else(|| {
+                    StateMachineError::DatabaseError(format!(
+                        "Content {} not found while fetching content tree",
+                        &current_root
+                    ))
+                })?;
+            let content =
+                JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
+            collected_content_metadata.push(content.clone());
+            let children = self.content_children_table.get_children(&content.id);
+            queue.extend(children.into_iter());
         }
         Ok(collected_content_metadata)
     }

@@ -715,7 +715,8 @@ impl From<Namespace> for indexify_coordinator::Namespace {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
-    TombstoneContent,
+    UpdateContent,
+    TombstoneContentTree,
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
@@ -726,7 +727,8 @@ impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
-            ChangeType::TombstoneContent => write!(f, "TombstoneContent"),
+            ChangeType::UpdateContent => write!(f, "UpdateContent"),
+            ChangeType::TombstoneContentTree => write!(f, "TombstoneContentTree"),
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),

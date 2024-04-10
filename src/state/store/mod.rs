@@ -276,6 +276,14 @@ impl StateMachineStore {
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES
+    pub fn get_latest_version_of_content(&self, content_id: &str) -> Result<u64> {
+        let txn = self.db.transaction();
+        self.data
+            .indexify_state
+            .get_latest_version_of_content(content_id, &self.db, &txn)
+            .map_err(|e| anyhow::anyhow!("Failed to get latest version of content: {}", e))
+    }
+
     /// This method fetches a key from a specific column family
     pub async fn get_from_cf<T, K>(
         &self,
@@ -376,6 +384,16 @@ impl StateMachineStore {
         self.data
             .indexify_state
             .get_content_tree_metadata(content_id, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_content_tree_metadata_with_version(
+        &self,
+        content_id: &indexify_internal_api::ContentMetadataId,
+    ) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_tree_metadata_with_version(content_id, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 

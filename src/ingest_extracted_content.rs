@@ -1,8 +1,14 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-
 use anyhow::{anyhow, Result};
 use axum_typed_websockets::{Message, WebSocket};
 use indexify_proto::indexify_coordinator;
+use sha2::{
+    digest::{
+        consts::{B0, B1},
+        core_api::{CoreWrapper, CtVariableCoreWrapper},
+        typenum::{UInt, UTerm},
+    },
+    Digest, OidSha256, Sha256, Sha256VarCore,
+};
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
@@ -18,7 +24,13 @@ struct Writing {
     file_size: u64,
     id: String, // DataManager ID
     writer: StoragePartWriter,
-    hasher: DefaultHasher,
+    hasher: CoreWrapper<
+        CtVariableCoreWrapper<
+            Sha256VarCore,
+            UInt<UInt<UInt<UInt<UInt<UInt<UTerm, B1>, B0>, B0>, B0>, B0>, B0>,
+            OidSha256,
+        >,
+    >,
 }
 
 #[derive(Debug)]
@@ -46,10 +58,6 @@ impl IngestExtractedContentState {
 
     fn begin(&mut self, payload: BeginExtractedContentIngest) {
         info!("beginning extraction ingest for task: {}", payload.task_id);
-        println!(
-            "Beginning extraction ingest for task: {} with parent content id: {}",
-            payload.task_id, payload.parent_content_id
-        );
         self.ingest_metadata.replace(payload);
     }
 
@@ -88,7 +96,7 @@ impl IngestExtractedContentState {
             file_size: 0,
             id,
             writer,
-            hasher: DefaultHasher::new(),
+            hasher: Sha256::new(),
         });
         Ok(())
     }
@@ -126,7 +134,7 @@ impl IngestExtractedContentState {
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.file_size += payload.bytes.len() as u64;
-                payload.bytes.hash(&mut frame_state.hasher);
+                frame_state.hasher.update(&payload.bytes);
                 frame_state
                     .writer
                     .writer
@@ -194,7 +202,7 @@ impl IngestExtractedContentState {
                 frame_state.writer.writer.shutdown().await?;
 
                 let metadata = self.ingest_metadata.as_ref().unwrap();
-                let hash_result = frame_state.hasher.finish();
+                let hash_result = frame_state.hasher.clone().finalize();
                 let hash = format!("{:x}", hash_result);
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: frame_state.id.clone(),

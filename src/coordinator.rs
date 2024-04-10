@@ -312,9 +312,9 @@ impl Coordinator {
     }
 
     pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
-        println!("Creating gc tasks for content id {}", content_id);
-        let content_tree_metadata = self.shared_state.get_content_tree_metadata(&content_id)?;
-        println!("The content tree metadata {:?}", content_tree_metadata);
+        let content_tree_metadata = self
+            .shared_state
+            .get_content_tree_metadata_with_version(&content_id.to_string().try_into()?)?;
         let mut output_tables = HashMap::new();
         let mut policy_ids = HashMap::new();
 
@@ -371,7 +371,7 @@ impl Coordinator {
         Ok(tasks)
     }
 
-    async fn handle_tombstone_content_state_change(
+    async fn handle_tombstone_content_tree_state_change(
         &self,
         change: StateChange,
     ) -> Result<Vec<GarbageCollectionTask>> {
@@ -403,8 +403,10 @@ impl Coordinator {
             );
 
             match change.change_type {
-                indexify_internal_api::ChangeType::TombstoneContent => {
-                    let _ = self.handle_tombstone_content_state_change(change).await?;
+                indexify_internal_api::ChangeType::TombstoneContentTree => {
+                    let _ = self
+                        .handle_tombstone_content_tree_state_change(change)
+                        .await?;
                     return Ok(());
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
@@ -1225,7 +1227,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_match_tombstoned_content() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1341,7 +1343,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_gc_tasks_creation() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1504,16 +1506,22 @@ mod tests {
             .mark_extraction_policy_applied_on_content(&child_content_1.id, &extraction_policy_1.id)
             .await?;
 
+        let retrieved_parent_content = coordinator
+            .shared_state
+            .get_content_metadata_batch(vec![parent_content.id.clone()])
+            .await?;
+        let retrieved_parent_content = retrieved_parent_content.get(0).unwrap();
+
         coordinator
             .tombstone_content_metadatas(DEFAULT_TEST_NAMESPACE, &vec![parent_content.id.clone()])
             .await?;
 
         let state_change = internal_api::StateChange {
-            object_id: parent_content.id.clone(),
+            object_id: retrieved_parent_content.id.to_string(),
             ..Default::default()
         };
         let tasks = coordinator
-            .handle_tombstone_content_state_change(state_change)
+            .handle_tombstone_content_tree_state_change(state_change)
             .await?;
         assert_eq!(tasks.len(), 4);
         for task in &tasks {
@@ -1527,6 +1535,148 @@ mod tests {
                 _ => panic!("Unexpected content_id"),
             }
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // #[tracing_test::traced_test]
+    async fn test_update_content() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let coordinator = cluster.get_coordinator_node(0)?;
+
+        //  Add a namespace
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        //  create root of content tree
+        let root_content = indexify_coordinator::ContentMetadata {
+            id: "root".to_string(),
+            parent_id: "".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+            hash: "".into(),
+        };
+        coordinator
+            .create_content_metadata(vec![root_content.clone()])
+            .await?;
+
+        //create 2 children
+        let root_left_content = indexify_coordinator::ContentMetadata {
+            id: "root_left".to_string(),
+            parent_id: "root".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+            hash: "".into(),
+        };
+        let root_right_content = indexify_coordinator::ContentMetadata {
+            id: "root_right".to_string(),
+            parent_id: "root".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+            hash: "".into(),
+        };
+        coordinator
+            .create_content_metadata(vec![root_left_content.clone(), root_right_content])
+            .await?;
+
+        //  create left child's child
+        let root_left_left_content = indexify_coordinator::ContentMetadata {
+            id: "root_left_left".to_string(),
+            parent_id: "root_left".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+            hash: "".into(),
+        };
+        coordinator
+            .create_content_metadata(vec![root_left_left_content.clone()])
+            .await?;
+
+        //  mark all change events as processed
+        let unprocessed_change_events = coordinator
+            .shared_state
+            .unprocessed_state_change_events()
+            .await?;
+        coordinator
+            .shared_state
+            .mark_change_events_as_processed(unprocessed_change_events)
+            .await?;
+
+        //  create an updated version of the left child with a different hash
+        let root_left_content_updated = indexify_coordinator::ContentMetadata {
+            id: "root_left".to_string(),
+            parent_id: "root".to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            file_name: "test_file".to_string(),
+            mime: "text/plain".to_string(),
+            created_at: 0,
+            storage_url: "test_storage_url".to_string(),
+            labels: HashMap::new(),
+            source: "ingestion".to_string(),
+            size_bytes: 100,
+            hash: "123".into(),
+        };
+        coordinator
+            .create_content_metadata(vec![root_left_content_updated.clone()])
+            .await?;
+
+        //  fetch the content tree rooted at "root" and check that the tree has been updated
+        let content_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&root_content.id)?;
+        assert_eq!(content_tree.len(), 4);
+        let root_left_content = content_tree
+            .iter()
+            .find(|content| content.id.id == root_left_content.id)
+            .unwrap();
+        assert_eq!(root_left_content.hash, "123");
+
+        //  check that a request to tombstone the old content has been placed
+        let unprocessed_state_changes = coordinator
+            .shared_state
+            .unprocessed_state_change_events()
+            .await?;
+        assert_eq!(unprocessed_state_changes.len(), 2);
+        assert_eq!(
+            unprocessed_state_changes.get(0).unwrap().change_type,
+            internal_api::ChangeType::TombstoneContentTree
+        );
+        assert_eq!(
+            unprocessed_state_changes.get(1).unwrap().change_type,
+            internal_api::ChangeType::UpdateContent
+        );
+        let tasks = coordinator
+            .create_gc_tasks(&unprocessed_state_changes.get(0).unwrap().object_id)
+            .await?;
+        assert_eq!(tasks.len(), 1);
+
+        //  check that the original content tree is still intact
+        let content_tree = coordinator.get_content_tree_metadata(&root_content.id)?;
+        assert_eq!(content_tree.len(), 4);
 
         Ok(())
     }

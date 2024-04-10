@@ -46,6 +46,7 @@ impl BlobStorageWriter for DiskStorage {
         data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult, anyhow::Error> {
         let path = format!("{}/{}", self.config.path, key);
+        println!("blob put_stream writing with path {}", path);
         let mut file = File::create(&path).await?;
         let mut stream = data;
         // TODO: need to handle partially successful writes
