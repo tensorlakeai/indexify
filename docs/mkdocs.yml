@@ -65,6 +65,8 @@ nav:
     - Configuration: 'configuration.md'
     - Deployment: 'deployment.md'
     - Develop Indexify: 'develop.md'
+  - Examples:
+    - Scientific Journals: 'examples/Scientific_Journals.ipynb'
     
 plugins: 
   - mkdocs-jupyter

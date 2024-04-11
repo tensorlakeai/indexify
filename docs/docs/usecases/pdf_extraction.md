@@ -53,16 +53,16 @@ extracted_content = client.derived_content_of(content_id=content_id)
 ## Examples 
 
 ### Invoices
-[Notebook for Invoices](./Invoices.ipynb)
+[Notebook for Invoices](../examples/Invoices.ipynb)
 
 ### Scientific Journals
-[Notebook for Scientific Journals](./Scientific_Journals.ipynb)
+[Notebook for Scientific Journals](../examples/Scientific_Journals.ipynb)
 
 ### SEC 10-K docs
-[Notebook for SEC 10-K docs](./SEC_10_K_docs.ipynb)
+[Notebook for SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
 
 ### Terms and Condition Documents of Car Rental
-[Notebook for Documents of Car Rental](./Terms_and_Condition_Documents_of_Car_Rental.ipynb)
+[Notebook for Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb)
 
 ### Terms and Conditions Documents of Health Care Benefits
-[Notebook for Documents of Health Care](./Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb)
+[Notebook for Documents of Health Care](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb)
