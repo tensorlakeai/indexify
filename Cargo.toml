@@ -116,7 +116,7 @@ flate2 = "1"
 tar = "0.4"
 walkdir = { version = "2" }
 vectordb = {version = "0.4.10" }
-lance = {version = "0.10.6"}
+lance = {version = "0.10.6", default_features=false}
 gluesql = { git = "https://github.com/gluesql/gluesql.git", rev = "07dd839", default_features = false }
 
 [dependencies]
@@ -199,7 +199,7 @@ once_cell = "1.19.0"
 pin-project-lite = "0.2.13"
 gluesql = {workspace=true, default-features=false}
 uuid = "1.8.0"
-lancedb = "0.4.15"
+lancedb = {version = "0.4.15", default_features = false}
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
