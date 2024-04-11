@@ -310,6 +310,7 @@ pub struct Task {
     pub input_params: serde_json::Value,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
+    pub index_tables: Vec<String>, // list of index tables that this content may be present in
 }
 
 impl Display for Task {
@@ -334,6 +335,7 @@ impl From<Task> for indexify_coordinator::Task {
             extraction_policy_id: value.extraction_policy_id,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
+            index_tables: value.index_tables,
         }
     }
 }
@@ -354,6 +356,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
             extraction_policy_id: value.extraction_policy_id,
             output_index_table_mapping: value.output_index_mapping,
             outcome,
+            index_tables: value.index_tables,
         })
     }
 }
@@ -718,6 +721,7 @@ impl From<StateChange> for indexify_coordinator::StateChange {
 pub struct ExtractedEmbeddings {
     pub content_id: String,
     pub embedding: Vec<f32>,
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
