@@ -29,7 +29,10 @@ nav:
     - Getting Started: 'getting_started.md'
     - Key Concepts: 'concepts.md'
     - Comparisons: 'comparisons.md'
-  - User Interface: 'ui.md'
+  - CLI and UI:
+    - User Interface: 'ui.md'
+    - Extractor CLI: 'extractor_cli.md'
+    - Server CLI: 'server_cli.md'
   - Extractors:
     - Introduction: 'apis/extractors.md'
     - Develop Extractors: 'apis/develop_extractors.md'
