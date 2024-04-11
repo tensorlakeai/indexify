@@ -733,7 +733,7 @@ impl DataManager {
         name: &str,
         file: impl Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult> {
-        self.blob_storage.put_stream(name, file).await
+        self.blob_storage.put(name, file).await
     }
 
     pub async fn blob_store_writer(&self, namespace: &str, key: &str) -> Result<StoragePartWriter> {
