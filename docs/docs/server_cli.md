@@ -1,6 +1,6 @@
 # Server CLI
 
-Indexify Control Plane is two Different Servers, Ingestion Server and Coordinator Server, packaged in one binary. We will show you how you can run them together in `Dev` mode, or run these servers separately.
+Indexify Control Plane has two components - Ingestion Server and Coordinator Server, packaged in one binary. We will show you how you can run them together in `Dev` mode, or run these servers separately.
 
 ### Download the CLI
 ```bash
