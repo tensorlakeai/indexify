@@ -19,16 +19,12 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
@@ -392,8 +388,9 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source &&
-                self.get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source
+                && self
+                    .get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -497,8 +494,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source &&
-                self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source
+                && self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -1031,6 +1028,63 @@ impl App {
         Ok(())
     }
 
+    pub async fn update_content(
+        &self,
+        old_content_id: &str,
+        new_content_metadata: internal_api::ContentMetadata,
+    ) -> Result<()> {
+        let old_content = self
+            .get_content_metadata_batch(vec![old_content_id.to_string()])
+            .await?;
+        let old_content = old_content.first().ok_or_else(|| {
+            anyhow!(
+                "Content metadata with id {} not found",
+                old_content_id.to_string()
+            )
+        })?;
+
+        //  Update the old content first
+        let state_changes = vec![StateChange::new(
+            new_content_metadata.id.to_string(),
+            internal_api::ChangeType::UpdateContent,
+            timestamp_secs(),
+        )];
+        let mut updated_content = HashMap::new();
+        updated_content.insert(old_content.id.to_string(), new_content_metadata);
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::UpdateContent { updated_content },
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
+        };
+        let _ = self
+            .forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to update content metadata: {}", e.to_string()));
+
+        //  tombstone the old content
+        let state_changes = vec![StateChange::new(
+            old_content.id.to_string(),
+            internal_api::ChangeType::TombstoneContentTree,
+            timestamp_secs(),
+        )];
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::TombstoneContentTree {
+                namespace: old_content.namespace.clone(),
+                content_ids: HashSet::from([old_content.id.clone()]),
+            },
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
+        };
+        let _ = self
+            .forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to tombstone content metadata: {}", e.to_string()))?;
+
+        Ok(())
+    }
+
     pub async fn tombstone_content_batch(
         &self,
         namespace: &str,
@@ -1390,18 +1444,14 @@ mod tests {
     };
 
     use indexify_internal_api::{
-        ContentExtractionPolicyMapping,
-        ContentMetadataId,
-        Index,
-        TaskOutcome,
+        ContentExtractionPolicyMapping, ContentMetadataId, Index, TaskOutcome,
     };
 
     use crate::{
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1664,9 +1714,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

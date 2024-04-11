@@ -2,7 +2,6 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash, Hasher},
-    path::Path,
     str::FromStr,
     sync::Arc,
     time::SystemTime,
@@ -26,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -424,12 +421,6 @@ impl DataManager {
         name: &str,
         mime_type: Mime,
     ) -> Result<indexify_coordinator::ContentMetadata> {
-        let ext = Path::new(name)
-            .extension()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default();
-        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
         let labels = HashMap::new();
 
         let content_metadata = self
@@ -437,7 +428,7 @@ impl DataManager {
                 namespace,
                 data,
                 &labels,
-                content_mime.to_string(),
+                mime_type.to_string(),
                 Some(name),
                 None,
                 "ingestion",
@@ -472,15 +463,6 @@ impl DataManager {
         file_name.map(|f| f.to_string()).unwrap_or(nanoid!())
     }
 
-    // pub fn make_id(namespace: &str, file_name: &str, parent_id: &Option<String>)
-    // -> String {     let mut s = DefaultHasher::new();
-    //     namespace.hash(&mut s);
-    //     file_name.hash(&mut s);
-    //     if let Some(parent_id) = &parent_id {
-    //         parent_id.hash(&mut s);
-    //     }
-    //     format!("{:x}", s.finish())
-    // }
     pub fn make_id(namespace: &str, parent_id: &Option<String>, content_hash: &str) -> String {
         let mut s = DefaultHasher::new();
         namespace.hash(&mut s);

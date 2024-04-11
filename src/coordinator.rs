@@ -1656,7 +1656,7 @@ mod tests {
             .unwrap();
         assert_eq!(root_left_content.hash, "123");
 
-        //  check that a request to tombstone the old content has been placed
+        //  check that requests to update content and tombstone the old content have been placed
         let unprocessed_state_changes = coordinator
             .shared_state
             .unprocessed_state_change_events()
@@ -1683,6 +1683,7 @@ mod tests {
             "Expected exactly one UpdateContent change."
         );
 
+        //  check that the old content gets tombstoned correctly
         let tombstone_content_tree_change = unprocessed_state_changes
             .iter()
             .find(|change_event| {
