@@ -216,8 +216,10 @@ message Task {
     ContentMetadata content_metadata = 4;
     string input_params = 5;
     string extraction_policy_id = 6;
+    // mapping of extractor names to index tables
     map<string, string> output_index_mapping = 7;
     TaskOutcome outcome = 8;
+    // list of all tables that the content may belong to
     repeated string index_tables = 9;
 }
 

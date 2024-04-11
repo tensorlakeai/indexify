@@ -515,35 +515,28 @@ impl DataManager {
         Ok(())
     }
 
-    fn combine_extracted_metadata(metadata: &[ExtractedMetadata]) -> serde_json::Value {
+    // Combine metadata from existing metadata and new features into single json
+    // object
+    fn combine_metadata(
+        metadata: Vec<ExtractedMetadata>,
+        features: &[api::Feature],
+    ) -> serde_json::Value {
         let mut combined_metadata = serde_json::Map::new();
         for m in metadata {
             for (k, v) in m.metadata.as_object().unwrap() {
                 combined_metadata.insert(k.clone(), v.clone());
             }
         }
-        serde_json::Value::Object(combined_metadata)
-    }
-
-    fn combine_metadata(
-        metadata: serde_json::Value,
-        features: &[api::Feature],
-    ) -> serde_json::Value {
-        let mut metadata = if let serde_json::Value::Object(map) = metadata {
-            map
-        } else {
-            serde_json::Map::new()
-        };
         for feature in features {
             if let api::FeatureType::Metadata = feature.feature_type {
                 if let serde_json::Value::Object(data) = &feature.data {
                     for (k, v) in data {
-                        metadata.insert(k.clone(), v.clone());
+                        combined_metadata.insert(k.clone(), v.clone());
                     }
                 }
             }
         }
-        serde_json::Value::Object(metadata)
+        serde_json::Value::Object(combined_metadata)
     }
 
     pub async fn write_existing_content_features(
@@ -559,13 +552,13 @@ impl DataManager {
             .metadata_index_manager
             .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
             .await?;
-        let existing_metadata = Self::combine_extracted_metadata(&existing_metadata);
+        let new_metadata = Self::combine_metadata(existing_metadata, &features);
         self.write_extracted_features(
             extractor_name,
             extraction_policy,
             content_meta,
             features.clone(),
-            existing_metadata.clone(),
+            &new_metadata,
             output_index_map,
         )
         .await?;
@@ -578,11 +571,7 @@ impl DataManager {
                     index
                 );
                 self.vector_index_manager
-                    .update_metadata(
-                        &index,
-                        content_meta.id.clone(),
-                        Self::combine_metadata(existing_metadata.clone(), &features),
-                    )
+                    .update_metadata(&index, content_meta.id.clone(), new_metadata.clone())
                     .await?;
             }
         }
@@ -595,7 +584,7 @@ impl DataManager {
         extraction_policy: &str,
         content_meta: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
-        metadata: serde_json::Value,
+        metadata: &serde_json::Value,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
         for feature in &features {
@@ -610,7 +599,7 @@ impl DataManager {
                         &embedding_payload.values,
                         &content_meta.id,
                         &output_index_map,
-                        Self::combine_metadata(metadata.clone(), &features),
+                        metadata.clone(),
                     )
                     .await?;
                 }
@@ -656,12 +645,13 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
+        let combined_metadata = Self::combine_metadata(Vec::new(), &features);
         self.write_extracted_features(
             &ingest_metadata.extractor,
             &ingest_metadata.extraction_policy,
             content_meta,
             features,
-            serde_json::Value::Null, // new context, no existing metadata
+            &combined_metadata,
             &ingest_metadata.output_to_index_table_mapping,
         )
         .await
@@ -843,7 +833,7 @@ mod tests {
             },
         ];
 
-        let combined = DataManager::combine_metadata(serde_json::Value::Null, &features);
+        let combined = DataManager::combine_metadata(Vec::new(), &features);
         let expected = json!({
             "key1": "value1",
             "key2": "value2",

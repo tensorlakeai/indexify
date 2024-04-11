@@ -244,6 +244,7 @@ pub struct Task {
     pub input_params: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub extraction_policy_id: ::prost::alloc::string::String,
+    /// mapping of extractor names to index tables
     #[prost(map = "string, string", tag = "7")]
     pub output_index_mapping: ::std::collections::HashMap<
         ::prost::alloc::string::String,
@@ -251,6 +252,7 @@ pub struct Task {
     >,
     #[prost(enumeration = "TaskOutcome", tag = "8")]
     pub outcome: i32,
+    /// list of all tables that the content may belong to
     #[prost(string, repeated, tag = "9")]
     pub index_tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
