@@ -306,3 +306,134 @@ pub mod raft_metrics {
         }
     }
 }
+
+pub mod ingest {
+    use prometheus::{opts, IntCounter, IntGauge, Registry};
+
+    #[derive(Clone, Debug)]
+    pub struct Metrics {
+        pub registry: Registry,
+        pub tasks_completed: IntGauge,
+        pub tasks_errored: IntGauge,
+        pub tasks_in_progress: IntGauge,
+        pub executors_online: IntGauge,
+        pub content_uploads: IntGauge,
+        pub content_bytes_uploaded: IntGauge,
+        pub content_extracted: IntGauge,
+        pub content_extracted_bytes: IntGauge,
+        pub content_uploads_this_node: IntCounter,
+        pub content_bytes_uploaded_this_node: IntCounter,
+        pub content_extracted_this_node: IntCounter,
+        pub content_bytes_extracted_this_node: IntCounter,
+    }
+
+    pub fn new() -> Metrics {
+        let registry = Registry::new();
+        let tasks_completed =
+            IntGauge::with_opts(opts!("tasks_completed", "Number of tasks completed")).unwrap();
+        registry
+            .register(Box::new(tasks_completed.clone()))
+            .unwrap();
+
+        let tasks_errored = IntGauge::with_opts(opts!(
+            "tasks_errored",
+            "Number of tasks completed with error"
+        ))
+        .unwrap();
+        registry.register(Box::new(tasks_errored.clone())).unwrap();
+
+        let tasks_in_progress =
+            IntGauge::with_opts(opts!("tasks_in_progress", "Number of tasks in progress")).unwrap();
+        registry
+            .register(Box::new(tasks_in_progress.clone()))
+            .unwrap();
+
+        let executors_online =
+            IntGauge::with_opts(opts!("executors_online", "Number of executors running")).unwrap();
+        registry
+            .register(Box::new(executors_online.clone()))
+            .unwrap();
+
+        let content_uploads =
+            IntGauge::with_opts(opts!("content_uploads", "Number of contents uploaded")).unwrap();
+        registry
+            .register(Box::new(content_uploads.clone()))
+            .unwrap();
+
+        let content_bytes_uploaded = IntGauge::with_opts(opts!(
+            "content_bytes_uploaded",
+            "Number of content bytes uploaded"
+        ))
+        .unwrap();
+        registry
+            .register(Box::new(content_bytes_uploaded.clone()))
+            .unwrap();
+
+        let content_extracted =
+            IntGauge::with_opts(opts!("content_extracted", "Number of contents extracted")).unwrap();
+        registry
+            .register(Box::new(content_extracted.clone()))
+            .unwrap();
+
+        let content_bytes_extracted = IntGauge::with_opts(opts!(
+            "content_bytes_extracted",
+            "Number of content bytes extracted"
+        ))
+        .unwrap();
+        registry
+            .register(Box::new(content_bytes_extracted.clone()))
+            .unwrap();
+
+        let content_uploads_this_node = IntCounter::with_opts(opts!(
+            "content_uploads_this_node",
+            "Number of contents uploaded by this node"
+        ))
+        .unwrap();
+        registry
+            .register(Box::new(content_uploads_this_node.clone()))
+            .unwrap();
+
+        let content_bytes_uploaded_this_node = IntCounter::with_opts(opts!(
+            "content_bytes_uploaded_this_node",
+            "Number of content bytes uploaded by this node"
+        ))
+        .unwrap();
+        registry
+            .register(Box::new(content_bytes_uploaded_this_node.clone()))
+            .unwrap();
+
+        let content_extracted_this_node = IntCounter::with_opts(opts!(
+            "content_extracted_this_node",
+            "Number of contents extracted by this node"
+        ))
+        .unwrap();
+        registry
+            .register(Box::new(content_extracted_this_node.clone()))
+            .unwrap();
+
+        let content_bytes_extracted_this_node = IntCounter::with_opts(opts!(
+            "content_bytes_extracted_this_node",
+            "Number of content bytes extracted by this node"
+        ))
+        .unwrap();
+        registry
+            .register(Box::new(content_bytes_extracted_this_node.clone()))
+            .unwrap();
+
+        Metrics {
+            registry,
+            tasks_completed,
+            tasks_errored,
+            tasks_in_progress,
+            executors_online,
+            content_uploads,
+            content_bytes_uploaded,
+            content_extracted,
+            content_extracted_bytes: content_bytes_extracted,
+            content_uploads_this_node,
+            content_bytes_uploaded_this_node,
+            content_extracted_this_node,
+            content_bytes_extracted_this_node,
+        }
+    }
+}

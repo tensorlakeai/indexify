@@ -1194,7 +1194,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk 0.21.2",
  "pin-project-lite",
- "prometheus",
+ "prometheus 0.13.3",
  "tower",
 ]
 
@@ -2003,7 +2003,7 @@ dependencies = [
  "hashbrown 0.14.3",
  "lock_api",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.9",
 ]
 
 [[package]]
@@ -2046,7 +2046,7 @@ dependencies = [
  "log",
  "num_cpus",
  "object_store",
- "parking_lot",
+ "parking_lot 0.12.1",
  "parquet",
  "pin-project-lite",
  "rand",
@@ -2095,7 +2095,7 @@ dependencies = [
  "hashbrown 0.14.3",
  "log",
  "object_store",
- "parking_lot",
+ "parking_lot 0.12.1",
  "rand",
  "tempfile",
  "url",
@@ -2193,7 +2193,7 @@ dependencies = [
  "itertools 0.12.1",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.1",
  "pin-project-lite",
  "rand",
  "tokio",
@@ -2509,7 +2509,7 @@ checksum = "1ee447700ac8aa0b2f2bd7bc4462ad686ba06baa6727ac149a2d6277f0d240fd"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.4.1",
  "windows-sys 0.52.0",
 ]
 
@@ -2671,7 +2671,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot",
+ "parking_lot 0.12.1",
 ]
 
 [[package]]
@@ -3285,6 +3285,7 @@ dependencies = [
  "opentelemetry 0.20.0",
  "pgvector",
  "pin-project-lite",
+ "prometheus 0.12.0",
  "qdrant-client",
  "rand",
  "redis",
@@ -3492,7 +3493,7 @@ dependencies = [
  "memchr",
  "num-cmp",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.1",
  "percent-encoding",
  "regex",
  "serde",
@@ -3963,7 +3964,7 @@ checksum = "85c833ca1e66078851dba29046874e38f08b2c883700aa29a03ddd3b23814ee8"
 dependencies = [
  "bitflags 2.4.2",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.4.1",
 ]
 
 [[package]]
@@ -4207,7 +4208,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.1",
  "quanta 0.11.1",
  "rustc_version",
  "scheduled-thread-pool",
@@ -4232,7 +4233,7 @@ dependencies = [
  "crossbeam-utils",
  "futures-util",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.1",
  "quanta 0.12.2",
  "rustc_version",
  "skeptic",
@@ -4509,7 +4510,7 @@ dependencies = [
  "humantime",
  "hyper 0.14.28",
  "itertools 0.12.1",
- "parking_lot",
+ "parking_lot 0.12.1",
  "percent-encoding",
  "quick-xml",
  "rand",
@@ -4613,7 +4614,7 @@ dependencies = [
  "once_cell",
  "opentelemetry 0.21.0",
  "opentelemetry_sdk 0.21.2",
- "prometheus",
+ "prometheus 0.13.3",
  "protobuf",
 ]
 
@@ -4739,12 +4740,37 @@ checksum = "bb813b8af86854136c6922af0598d719255ecb2179515e6e7730d468f05c9cae"
 
 [[package]]
 name = "parking_lot"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
+dependencies = [
+ "instant",
+ "lock_api",
+ "parking_lot_core 0.8.6",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3742b2c103b9f06bc9fff0a37ff4912935851bee6d36f3c02bcc755bcfec228f"
 dependencies = [
  "lock_api",
- "parking_lot_core",
+ "parking_lot_core 0.9.9",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
+dependencies = [
+ "cfg-if",
+ "instant",
+ "libc",
+ "redox_syscall 0.2.16",
+ "smallvec",
+ "winapi",
 ]
 
 [[package]]
@@ -4755,7 +4781,7 @@ checksum = "4c42a9226546d68acdd9c0a280d17ce19bfe27a46bf68784e4066115788d008e"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.4.1",
  "smallvec",
  "windows-targets 0.48.5",
 ]
@@ -5094,6 +5120,21 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5986aa8d62380092d2f50f8b1cdba9cb9b6731ffd4b25b51fd126b6c3e05b99c"
+dependencies = [
+ "cfg-if",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot 0.11.2",
+ "protobuf",
+ "thiserror",
+]
+
+[[package]]
+name = "prometheus"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "449811d15fbdf5ceb5c1144416066429cf82316e2ec8ce0c1f6f8a02e7bbcf8c"
@@ -5102,7 +5143,7 @@ dependencies = [
  "fnv",
  "lazy_static",
  "memchr",
- "parking_lot",
+ "parking_lot 0.12.1",
  "protobuf",
  "thiserror",
 ]
@@ -5390,6 +5431,15 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
+dependencies = [
+ "bitflags 1.3.2",
 ]
 
 [[package]]
@@ -5854,7 +5904,7 @@ version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.12.1",
 ]
 
 [[package]]
@@ -6834,7 +6884,7 @@ dependencies = [
  "libc",
  "mio",
  "num_cpus",
- "parking_lot",
+ "parking_lot 0.12.1",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.5.5",

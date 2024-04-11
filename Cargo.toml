@@ -52,6 +52,7 @@ opensearch = { version = "2", default_features = false, features = [
 ] }
 opentelemetry = { version = "0.20", features = ["rt-async-std"] }
 pgvector = { version = "0.3", features = ["sqlx"] }
+prometheus = "0.12.0"
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
 qdrant-client = { version = "1" }
@@ -154,6 +155,7 @@ openraft = { workspace = true }
 opensearch = { workspace = true }
 opentelemetry = { workspace = true }
 pgvector = { workspace = true }
+prometheus = { workspace = true }
 qdrant-client = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true }

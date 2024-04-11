@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,11 +16,9 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, GetIngestMetricsRequest, ListStateChangesRequest, ListTasksRequest
 };
+use prometheus::Encoder;
 use rust_embed::RustEmbed;
 use tokio::{
     signal,
@@ -45,6 +41,7 @@ use crate::{
     extractor_router::ExtractorRouter,
     ingest_extracted_content::IngestExtractedContentState,
     metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
+    metrics,
     server_config::ServerConfig,
     vector_index::VectorIndexManager,
     vectordbs,
@@ -61,6 +58,7 @@ pub struct NamespaceEndpointState {
     pub data_manager: Arc<DataManager>,
     pub coordinator_client: Arc<CoordinatorClient>,
     pub content_reader: Arc<ContentReader>,
+    pub ingest_metrics: metrics::ingest::Metrics,
 }
 
 #[derive(OpenApi)]
@@ -155,6 +153,7 @@ impl Server {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            ingest_metrics: metrics::ingest::new(),
         };
         let caches = Caches::new(self.config.cache.clone());
         let cors = CorsLayer::new()
@@ -264,6 +263,10 @@ impl Server {
             .route(
                 "/metrics/raft",
                 get(get_raft_metrics_snapshot).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/metrics/ingest",
+                get(ingest_metrics).with_state(namespace_endpoint_state.clone()),
             )
             .route("/ui", get(ui_index_handler))
             .route("/ui/*rest", get(ui_handler))
@@ -775,7 +778,7 @@ async fn upload_file(
             .to_string();
         info!("writing to blob store, file name = {:?}", name);
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-        state
+        let size_bytes = state
             .data_manager
             .upload_file(&namespace, stream, &name)
             .await
@@ -785,6 +788,8 @@ async fn upload_file(
                     &format!("failed to upload file: {}", e),
                 )
             })?;
+        state.ingest_metrics.content_uploads_this_node.inc();
+        state.ingest_metrics.content_bytes_uploaded_this_node.inc_by(size_bytes);
     }
     Ok(())
 }
@@ -1131,6 +1136,36 @@ async fn get_raft_metrics_snapshot(
     State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
     state.coordinator_client.get_raft_metrics_snapshot().await
+}
+
+#[axum::debug_handler]
+#[tracing::instrument]
+async fn ingest_metrics(
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let coordinator_metrics = state
+        .coordinator_client
+        .get()
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
+        .get_ingest_metrics(GetIngestMetricsRequest {} )
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?;
+    let coordinator_metrics = coordinator_metrics.into_inner();
+    state.ingest_metrics.tasks_completed.set(coordinator_metrics.tasks_completed as i64);
+    state.ingest_metrics.tasks_errored.set(coordinator_metrics.tasks_errored as i64);
+    state.ingest_metrics.tasks_in_progress.set(coordinator_metrics.tasks_in_progress as i64);
+    state.ingest_metrics.content_uploads.set(coordinator_metrics.content_uploads as i64);
+    state.ingest_metrics.content_bytes_uploaded.set(coordinator_metrics.content_bytes as i64);
+    state.ingest_metrics.content_extracted_bytes.set(coordinator_metrics.content_extracted_bytes as i64);
+    state.ingest_metrics.content_extracted.set(coordinator_metrics.content_extracted as i64);
+
+    let metric_families = state.ingest_metrics.registry.gather();
+    let mut buffer = vec![];
+    let encoder = prometheus::TextEncoder::new();
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+
+    Ok(Response::new(Body::from(buffer)))
 }
 
 #[axum::debug_handler]

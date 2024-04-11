@@ -11,23 +11,19 @@ use internal_api::{ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
-use tracing::{error, warn};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use tracing::{error, info, warn};
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
+
 use crate::state::NodeId;
+use indexify_proto::indexify_coordinator::GetIngestMetricsResponse;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct UnassignedTasks {
@@ -415,7 +411,7 @@ impl From<HashMap<ContentId, HashSet<ContentId>>> for ContentChildrenTable {
     }
 }
 
-#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -450,6 +446,51 @@ pub struct IndexifyState {
 
     /// Parent content id -> children content id's
     content_children_table: ContentChildrenTable,
+
+    /// Number of tasks total
+    tasks_completed: AtomicU64,
+
+    /// Number of tasks completed with errors
+    tasks_completed_with_errors: AtomicU64,
+
+    /// Number of contents created
+    pub content_created: AtomicU64,
+
+    /// Total number of bytes in contents
+    content_bytes: AtomicU64,
+
+    /// Number of contents extacted
+    content_extracted: AtomicU64,
+
+    /// Total number of bytes in extracted contents
+    content_extracted_bytes: AtomicU64,
+}
+
+impl Clone for IndexifyState {
+    fn clone(&self) -> Self {
+        Self {
+            unassigned_tasks: self.unassigned_tasks.clone(),
+            unprocessed_state_changes: self.unprocessed_state_changes.clone(),
+            content_namespace_table: self.content_namespace_table.clone(),
+            extraction_policies_table: self.extraction_policies_table.clone(),
+            extractor_executors_table: self.extractor_executors_table.clone(),
+            namespace_index_table: self.namespace_index_table.clone(),
+            unfinished_tasks_by_extractor: self.unfinished_tasks_by_extractor.clone(),
+            executor_running_task_count: self.executor_running_task_count.clone(),
+            schemas_by_namespace: self.schemas_by_namespace.clone(),
+            content_children_table: self.content_children_table.clone(),
+            tasks_completed: AtomicU64::new(self.tasks_completed.load(Ordering::Relaxed)),
+            tasks_completed_with_errors: AtomicU64::new(
+                self.tasks_completed_with_errors.load(Ordering::Relaxed),
+            ),
+            content_created: AtomicU64::new(self.content_created.load(Ordering::Relaxed)),
+            content_bytes: AtomicU64::new(self.content_bytes.load(Ordering::Relaxed)),
+            content_extracted: AtomicU64::new(self.content_extracted.load(Ordering::Relaxed)),
+            content_extracted_bytes: AtomicU64::new(
+                self.content_extracted_bytes.load(Ordering::Relaxed),
+            ),
+        }
+    }
 }
 
 impl fmt::Display for IndexifyState {
@@ -1126,6 +1167,16 @@ impl IndexifyState {
                 if *mark_finished {
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
+                    match task.outcome {
+                        internal_api::TaskOutcome::Success => {
+                            self.tasks_completed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        internal_api::TaskOutcome::Failed => {
+                            self.tasks_completed_with_errors
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        _ => (),
+                    };
                     if let Some(executor_id) = executor_id {
                         let mut existing_tasks =
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
@@ -1313,6 +1364,17 @@ impl IndexifyState {
                         .insert(&content.namespace, &content.id);
                     self.content_children_table
                         .insert(&content.parent_id, &content.id);
+                    let addr = self as *const _;
+                    info!("Content created: self addr {:x}", addr as usize);
+                    if content.parent_id.is_empty() {
+                        self.content_created.fetch_add(1, Ordering::Relaxed);
+                        self.content_extracted_bytes
+                            .fetch_add(content.size_bytes, Ordering::Relaxed);
+                    } else {
+                        self.content_extracted.fetch_add(1, Ordering::Relaxed);
+                        self.content_extracted_bytes
+                            .fetch_add(content.size_bytes, Ordering::Relaxed);
+                    }
                 }
             }
             RequestPayload::CreateExtractionPolicy {
@@ -1793,6 +1855,12 @@ impl IndexifyState {
             executor_running_task_count: self.get_executor_running_task_count(),
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
+            tasks_completed: self.tasks_completed.load(Ordering::Relaxed),
+            tasks_completed_with_errors: self.tasks_completed_with_errors.load(Ordering::Relaxed),
+            content_created: self.content_created.load(Ordering::Relaxed),
+            content_bytes: self.content_bytes.load(Ordering::Relaxed),
+            content_extracted: self.content_extracted.load(Ordering::Relaxed),
+            content_extracted_bytes: self.content_extracted_bytes.load(Ordering::Relaxed),
         }
     }
 
@@ -1807,8 +1875,33 @@ impl IndexifyState {
         self.executor_running_task_count = snapshot.executor_running_task_count.into();
         self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
         self.content_children_table = snapshot.content_children_table.into();
+        self.content_created = snapshot.content_created.into();
+        self.content_extracted_bytes = snapshot.content_extracted_bytes.into();
+        self.content_bytes = snapshot.content_bytes.into();
+        self.tasks_completed = snapshot.tasks_completed.into();
+        self.tasks_completed_with_errors = snapshot.tasks_completed_with_errors.into();
     }
     //  END SNAPSHOT METHODS
+
+    pub fn ingest_metrics(&self) -> GetIngestMetricsResponse {
+        let addr = self as *const _;
+        info!("ingest metrics: self addr {:x}", addr as usize);
+        GetIngestMetricsResponse {
+            tasks_completed: self.tasks_completed.load(Ordering::Relaxed),
+            tasks_errored: self.tasks_completed_with_errors.load(Ordering::Relaxed),
+            tasks_in_progress: self.unassigned_tasks.inner().len() as u64
+                + self
+                    .unfinished_tasks_by_extractor
+                    .inner()
+                    .values()
+                    .map(|v| v.len())
+                    .sum::<usize>() as u64,
+            content_uploads: self.content_created.load(Ordering::Relaxed),
+            content_bytes: self.content_bytes.load(Ordering::Relaxed),
+            content_extracted: self.content_extracted.load(Ordering::Relaxed),
+            content_extracted_bytes: self.content_extracted_bytes.load(Ordering::Relaxed),
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
@@ -1823,6 +1916,12 @@ pub struct IndexifyStateSnapshot {
     executor_running_task_count: HashMap<ExecutorId, usize>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentId, HashSet<ContentId>>,
+    tasks_completed: u64,
+    tasks_completed_with_errors: u64,
+    content_created: u64,
+    content_bytes: u64,
+    content_extracted: u64,
+    content_extracted_bytes: u64,
 }
 
 #[cfg(test)]

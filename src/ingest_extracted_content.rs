@@ -5,9 +5,7 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
-    blob_storage::StoragePartWriter,
-    data_manager::DataManager,
+    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -207,6 +205,10 @@ impl IngestExtractedContentState {
                         payload.features,
                     )
                     .await?;
+                self.state.ingest_metrics.content_extracted_this_node.inc();
+                self.state.ingest_metrics.content_bytes_extracted_this_node.inc_by(
+                    frame_state.file_size as u64,
+                );
                 self.frame_state = FrameState::New;
             }
         }
@@ -353,8 +355,8 @@ mod tests {
         blob_storage::{BlobStorage, ContentReader},
         coordinator_client::CoordinatorClient,
         data_manager::DataManager,
-        metadata_storage,
-        metadata_storage::{MetadataReaderTS, MetadataStorageTS},
+        metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
+        metrics,
         server::NamespaceEndpointState,
         server_config::ServerConfig,
         vector_index::VectorIndexManager,
@@ -385,6 +387,7 @@ mod tests {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            ingest_metrics: metrics::ingest::new(),
         };
         Ok(namespace_endpoint_state)
     }

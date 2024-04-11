@@ -63,6 +63,8 @@ use indexify_proto::indexify_coordinator::{
     Uint64List,
     UpdateTaskRequest,
     UpdateTaskResponse,
+    GetIngestMetricsRequest,
+    GetIngestMetricsResponse,
 };
 use internal_api::StateChange;
 use tokio::{
@@ -111,6 +113,9 @@ impl CoordinatorService for CoordinatorServiceServer {
             .ok_or(tonic::Status::aborted("content is missing"))?;
         let id = content_meta.id.clone();
         let content_list = vec![content_meta];
+        let addr = &self.coordinator.shared_state.state_machine.data.indexify_state as *const _;
+        info!("create content: self addr {:x}", addr as usize);
+        self.coordinator.shared_state.state_machine.data.indexify_state.content_created.fetch_add(1, Ordering::SeqCst);
         let _ = self
             .coordinator
             .create_content_metadata(content_list)
@@ -789,6 +794,14 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(TaskAssignments { assignments }))
+    }
+
+    async fn get_ingest_metrics(
+        &self,
+        _req: Request<GetIngestMetricsRequest>,
+    ) -> Result<Response<GetIngestMetricsResponse>, Status> {
+        let addr = &self as *const _;
+        Ok(Response::new(self.coordinator.shared_state.state_machine.ingest_metrics()))
     }
 }
 

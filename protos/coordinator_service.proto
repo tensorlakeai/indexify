@@ -59,6 +59,9 @@ service CoordinatorService {
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
 
     rpc GetAllTaskAssignments(GetAllTaskAssignmentRequest) returns (TaskAssignments) {}
+
+    rpc GetIngestMetrics(GetIngestMetricsRequest) returns (GetIngestMetricsResponse) {}
+    
 }
 
 message GetContentMetadataRequest {
@@ -429,6 +432,18 @@ message RaftMetricsSnapshotResponse {
     uint64 current_leader = 20;
 }
 //  End Raft Metrics Snapshot
+
+message GetIngestMetricsRequest {}
+
+message GetIngestMetricsResponse {
+    uint64 tasks_completed = 1;
+    uint64 tasks_errored = 2;
+    uint64 tasks_in_progress = 4;
+    uint64 content_created = 5;
+    uint64 content_bytes = 6;
+    uint64 content_extracted = 7;
+    uint64 content_extracted_bytes = 8;
+}
 
 message GetAllTaskAssignmentRequest {
 }

@@ -12,6 +12,7 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
+use indexify_proto::indexify_coordinator::GetIngestMetricsResponse;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -460,6 +461,10 @@ impl StateMachineStore {
             .insert_executor_running_task_count(executor_id, task_count);
     }
     //  END REVERSE INDEX WRITER METHOD INTERFACES
+
+    pub fn ingest_metrics(&self) -> GetIngestMetricsResponse {
+        self.data.indexify_state.ingest_metrics()
+    }
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
