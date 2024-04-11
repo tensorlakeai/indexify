@@ -6,6 +6,7 @@ edit_uri: edit/main/docs/docs
 copyright: Copyright &copy; 2024 Tensorlake
 
 markdown_extensions:
+  - attr_list
   - def_list
   - admonition
   - pymdownx.details
