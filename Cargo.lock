@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "indexify"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "anyerror",
  "anyhow",
