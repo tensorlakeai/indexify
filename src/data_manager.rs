@@ -14,6 +14,7 @@ use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self};
 use itertools::Itertools;
+use mime::Mime;
 use nanoid::nanoid;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
@@ -318,6 +319,11 @@ impl DataManager {
         Ok(())
     }
 
+    #[tracing::instrument]
+    pub async fn delete_file(&self, path: &str) -> Result<()> {
+        self.blob_storage.delete(path).await
+    }
+
     pub async fn ingest_remote_file(
         &self,
         namespace: &str,
@@ -416,6 +422,7 @@ impl DataManager {
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
+        mime_type: Mime,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let ext = Path::new(name)
             .extension()
@@ -465,13 +472,22 @@ impl DataManager {
         file_name.map(|f| f.to_string()).unwrap_or(nanoid!())
     }
 
-    pub fn make_id(namespace: &str, file_name: &str, parent_id: &Option<String>) -> String {
+    // pub fn make_id(namespace: &str, file_name: &str, parent_id: &Option<String>)
+    // -> String {     let mut s = DefaultHasher::new();
+    //     namespace.hash(&mut s);
+    //     file_name.hash(&mut s);
+    //     if let Some(parent_id) = &parent_id {
+    //         parent_id.hash(&mut s);
+    //     }
+    //     format!("{:x}", s.finish())
+    // }
+    pub fn make_id(namespace: &str, parent_id: &Option<String>, content_hash: &str) -> String {
         let mut s = DefaultHasher::new();
         namespace.hash(&mut s);
-        file_name.hash(&mut s);
         if let Some(parent_id) = &parent_id {
             parent_id.hash(&mut s);
         }
+        content_hash.hash(&mut s);
         format!("{:x}", s.finish())
     }
 
@@ -490,8 +506,6 @@ impl DataManager {
             .as_secs();
         let file_name = DataManager::make_file_name(file_name);
 
-        let id = DataManager::make_id(namespace, &file_name, &parent_id);
-
         let mut hasher = Sha256::new();
         let hashed_stream = data.map(|item| match item {
             Ok(bytes) => {
@@ -507,13 +521,15 @@ impl DataManager {
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
 
         let hash_result = hasher.finalize();
-        let hash = format!("{:x}", hash_result);
+        let content_hash = format!("{:x}", hash_result);
 
         let labels = labels
             .clone()
             .into_iter()
             .map(|(k, v)| (k, v.to_string()))
             .collect();
+
+        let id = DataManager::make_id(namespace, &parent_id, &content_hash);
         Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
@@ -525,7 +541,7 @@ impl DataManager {
             labels,
             source: source.to_string(),
             size_bytes: res.size_bytes,
-            hash,
+            hash: content_hash,
         })
     }
 

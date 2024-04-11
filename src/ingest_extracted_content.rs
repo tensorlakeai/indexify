@@ -27,7 +27,6 @@ struct Writing {
     created_at: i64,
     file_name: String,
     file_size: u64,
-    id: String, // DataManager ID
     writer: StoragePartWriter,
     hasher: CoreWrapper<
         CtVariableCoreWrapper<
@@ -36,6 +35,7 @@ struct Writing {
             OidSha256,
         >,
     >,
+    frame_count: u64,
 }
 
 #[derive(Debug)]
@@ -62,11 +62,14 @@ impl IngestExtractedContentState {
     }
 
     fn begin(&mut self, payload: BeginExtractedContentIngest) {
+        println!("***BEGIN***");
+        println!("begin");
         info!("beginning extraction ingest for task: {}", payload.task_id);
         self.ingest_metadata.replace(payload);
     }
 
     async fn write_content(&mut self, payload: ExtractedContent) -> Result<()> {
+        println!("write_content");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received extracted content without header metadata"
@@ -79,17 +82,13 @@ impl IngestExtractedContentState {
     }
 
     async fn start_content(&mut self) -> Result<()> {
+        println!("start_content");
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
         let file_name = DataManager::make_file_name(None);
         let metadata = self.ingest_metadata.as_ref().unwrap();
-        let id = DataManager::make_id(
-            &metadata.namespace,
-            &file_name,
-            &Some(metadata.parent_content_id.clone()),
-        );
         let writer = self
             .state
             .data_manager
@@ -99,14 +98,15 @@ impl IngestExtractedContentState {
             created_at: ts as i64,
             file_name,
             file_size: 0,
-            id,
             writer,
             hasher: Sha256::new(),
+            frame_count: 0,
         });
         Ok(())
     }
 
     async fn begin_multipart_content(&mut self) -> Result<()> {
+        println!("begin_multipart_content");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!("received begin content without header metadata"));
         }
@@ -128,6 +128,7 @@ impl IngestExtractedContentState {
     }
 
     async fn write_content_frame(&mut self, payload: ContentFrame) -> Result<()> {
+        println!("write_content_frame");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received finished extraction ingest without header metadata"
@@ -138,8 +139,11 @@ impl IngestExtractedContentState {
                 "received content frame without starting multipart content"
             )),
             FrameState::Writing(frame_state) => {
+                let frame_index_bytes = frame_state.frame_count.to_le_bytes(); //  NOTE: doing this so hash is consistent independent of platform
                 frame_state.file_size += payload.bytes.len() as u64;
+                frame_state.hasher.update(frame_index_bytes);
                 frame_state.hasher.update(&payload.bytes);
+                frame_state.frame_count += 1;
                 frame_state
                     .writer
                     .writer
@@ -155,39 +159,41 @@ impl IngestExtractedContentState {
         }
     }
 
-    async fn add_content_feature(&mut self, payload: AddContentFeature) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!(
-                "received finished extraction ingest without header metadata"
-            ));
-        }
-        info!(
-            "received content feature for task: {}",
-            self.ingest_metadata.as_ref().unwrap().task_id
-        );
-        match &self.frame_state {
-            FrameState::New => Err(anyhow!(
-                "received content feature without starting multipart content"
-            )),
-            FrameState::Writing(frame_state) => {
-                self.state
-                    .data_manager
-                    .write_extracted_embedding(
-                        &payload.name,
-                        &payload.values,
-                        &frame_state.id,
-                        &self
-                            .ingest_metadata
-                            .as_ref()
-                            .unwrap()
-                            .output_to_index_table_mapping,
-                    )
-                    .await
-            }
-        }
-    }
+    // async fn add_content_feature(&mut self, payload: AddContentFeature) ->
+    // Result<()> {     println!("add_content_feature");
+    //     if self.ingest_metadata.is_none() {
+    //         return Err(anyhow!(
+    //             "received finished extraction ingest without header metadata"
+    //         ));
+    //     }
+    //     info!(
+    //         "received content feature for task: {}",
+    //         self.ingest_metadata.as_ref().unwrap().task_id
+    //     );
+    //     match &self.frame_state {
+    //         FrameState::New => Err(anyhow!(
+    //             "received content feature without starting multipart content"
+    //         )),
+    //         FrameState::Writing(frame_state) => {
+    //             self.state
+    //                 .data_manager
+    //                 .write_extracted_embedding(
+    //                     &payload.name,
+    //                     &payload.values,
+    //                     &frame_state.id,
+    //                     &self
+    //                         .ingest_metadata
+    //                         .as_ref()
+    //                         .unwrap()
+    //                         .output_to_index_table_mapping,
+    //                 )
+    //                 .await
+    //         }
+    //     }
+    // }
 
     async fn finish_content(&mut self, payload: FinishContent) -> Result<()> {
+        println!("finish_content");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received finished extraction ingest without header metadata"
@@ -205,12 +211,16 @@ impl IngestExtractedContentState {
             }
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
-
                 let metadata = self.ingest_metadata.as_ref().unwrap();
                 let hash_result = frame_state.hasher.clone().finalize();
-                let hash = format!("{:x}", hash_result);
+                let content_hash = format!("{:x}", hash_result);
+                let id = DataManager::make_id(
+                    &metadata.namespace,
+                    &Some(metadata.parent_content_id.clone()),
+                    &content_hash,
+                );
                 let content_metadata = indexify_coordinator::ContentMetadata {
-                    id: frame_state.id.clone(),
+                    id,
                     file_name: frame_state.file_name.clone(),
                     parent_id: metadata.parent_content_id.clone(),
                     namespace: metadata.namespace.clone(),
@@ -220,7 +230,7 @@ impl IngestExtractedContentState {
                     labels: payload.labels,
                     source: metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
-                    hash,
+                    hash: content_hash,
                 };
                 self.state
                     .data_manager
@@ -262,6 +272,7 @@ impl IngestExtractedContentState {
     }
 
     async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
+        println!("write_features");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received extracted features without header metadata"
@@ -287,6 +298,7 @@ impl IngestExtractedContentState {
     }
 
     async fn finish(&mut self) -> Result<()> {
+        println!("finish");
         if self.ingest_metadata.is_none() {
             tracing::error!("received finished extraction ingest without header metadata");
             return Err(anyhow!(
@@ -297,6 +309,7 @@ impl IngestExtractedContentState {
             .data_manager
             .finish_extracted_content_write(self.ingest_metadata.clone().unwrap())
             .await?;
+        println!("***FINISH***");
         Ok(())
     }
 
@@ -333,11 +346,12 @@ impl IngestExtractedContentState {
                             return;
                         }
                     }
-                    IngestExtractedContent::MultipartContentFeature(payload) => {
-                        if let Err(e) = self.add_content_feature(payload).await {
-                            tracing::error!("Error handling content feature: {}", e);
-                            return;
-                        }
+                    IngestExtractedContent::MultipartContentFeature(_payload) => {
+                        // if let Err(e) =
+                        // self.add_content_feature(payload).await {
+                        //     tracing::error!("Error handling content feature:
+                        // {}", e);     return;
+                        // }
                     }
                     IngestExtractedContent::FinishMultipartContent(payload) => {
                         if let Err(e) = self.finish_content(payload).await {

@@ -779,11 +779,25 @@ async fn upload_file(
                 "file_name is not present",
             ))?
             .to_string();
+        info!("user provided file name = {:?}", name);
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let name = nanoid::nanoid!(16);
+        let name = if !ext.is_empty() {
+            format!("{}.{}", name, ext)
+        } else {
+            name
+        };
+        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
         info!("writing to blob store, file name = {:?}", name);
+
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         let content_metadata = state
             .data_manager
-            .upload_file(&namespace, stream, &name)
+            .upload_file(&namespace, stream, &name, content_mime)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
@@ -840,11 +854,25 @@ async fn update_content(
                 "file_name is not present",
             ))?
             .to_string();
+        info!("user provided file name = {:?}", name);
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let name = nanoid::nanoid!(16);
+        let name = if !ext.is_empty() {
+            format!("{}.{}", name, ext)
+        } else {
+            name
+        };
+        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
         info!("writing to blob store, file name = {:?}", name);
+
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         let new_content_metadata = state
             .data_manager
-            .upload_file(&namespace, stream, &name)
+            .upload_file(&namespace, stream, &name, content_mime)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
@@ -854,8 +882,14 @@ async fn update_content(
             })?;
 
         if new_content_metadata.hash == content_metadata.hash {
-            //  the content is the same, undo local writes and don't create metadata
-            info!("the content received is the same, not creating content metadata");
+            info!("the content received is the same, not creating content metadata and removing the created file");
+            let _ = state
+                .data_manager
+                .delete_file(&new_content_metadata.storage_url)
+                .await
+                .map_err(|e| {
+                    tracing::error!("failed to delete file: {}", e);
+                });
             return Ok(());
         }
 
