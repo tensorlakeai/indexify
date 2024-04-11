@@ -15,6 +15,8 @@ use super::{
 };
 use crate::blob_storage::PutResult;
 
+const BUFFER_SIZE: usize = 1024 * 1024 * 2;
+
 #[derive(Debug)]
 pub struct DiskStorage {
     config: DiskStorageConfig,
@@ -49,7 +51,8 @@ impl BlobStorageWriter for DiskStorage {
         data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult, anyhow::Error> {
         let path = format!("{}/{}", self.config.path, key);
-        let mut file = File::create(&path).await?;
+        let file = File::create(&path).await?;
+        let mut file = tokio::io::BufWriter::with_capacity(BUFFER_SIZE, file);
         let mut stream = data;
         // TODO: need to handle partially successful writes
         let mut size_bytes: u64 = 0;
@@ -81,6 +84,7 @@ impl BlobStoragePartWriter for DiskStorage {
     async fn writer(&self, key: &str) -> Result<StoragePartWriter> {
         let path = format!("{}/{}", self.config.path, key);
         let file = File::create(&path).await?;
+        let file = tokio::io::BufWriter::with_capacity(BUFFER_SIZE, file);
         Ok(StoragePartWriter {
             writer: Box::new(file),
             url: format!("file://{}", path),

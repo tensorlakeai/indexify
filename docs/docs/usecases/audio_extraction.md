@@ -52,6 +52,20 @@ On another terminal start a Whisper based Speech To Text Extractor
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/whisper-asr join-server --workers=1 --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501 --listen-port=9501
     ```
 
+On another terminal start the text chunking extractor
+=== "Shell"
+
+    ```bash
+    indexify-extractor download hub://text/chunking
+    indexify-extractor join-server chunking.chunk_extractor:ChunkExtractor
+    ```
+=== "Docker"
+
+    ```shell
+    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9503:9503 tensorlake/chunk-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9503 --listen-port=9503
+    ```
+
+
 
 ### Create Extraction Policies
 Instantiate the Indexify Client 
@@ -65,9 +79,14 @@ First, create a policy to transcribe audio to text.
 client.add_extraction_policy(extractor='tensorlake/whisper-asr', name="audio-transcription")
 ```
 
-Second, from the transcribed audio create an embedding based index.
+The audio transcription can be very long for large audio files. So they have to be splitted into smaller chunks so that they can be embedded by models with smaller context length. So we add a chunking extractor as the next step in the pipeline
 ```python
-client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source="audio-transcription")
+client.add_extraction_policy(extractor='tensorlake/chunk-extractor', name="transcription-chunks", content_source='audio-transcription', input_params={"chunk_size": 2000, "overlap":200})
+```
+
+Lastly, from the chunked transcriptions create a vector embedding index.
+```python
+client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source="transcription-chunks")
 ```
 
 ### Upload an Audio File

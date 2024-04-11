@@ -1133,9 +1133,6 @@ impl IndexifyState {
                         let mut new_task_assignment = HashMap::new();
                         new_task_assignment.insert(executor_id.to_string(), existing_tasks);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
-
-                        self.executor_running_task_count
-                            .decrement_running_task_count(executor_id);
                     }
                 }
 
