@@ -1,12 +1,11 @@
-# Indexify 
+# Indexify - Extraction and Retreival from Videos, PDF and Audio for Interactive AI Applications
 
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
+> **LLM applications backed by Indexify will never answer outdated information.**
 
-Indexify is a reactive structured extraction and indexing engine for un-structured data.
-
-Applications leveraging LLMs for autonomous planning or queries necessitate timely index updates aligned with data changes or new extraction methods. Indexify enables both, by applying feature extractors on data in real-time and updating one or many indexes.
+Indexify is an open-source engine for buidling fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. Extracted metadata and embedding can be queried from LLM Applications and agents by semantic search and SQL queries. Indexify keeps vectordbs, structured databases(postgres) updated by automatically invoking the pipelines as new data is ingested into the system from external data sources. 
 
 ## Why use Indexify
 
