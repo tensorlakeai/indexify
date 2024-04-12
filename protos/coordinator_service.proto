@@ -6,6 +6,8 @@ package indexify_coordinator;
 service CoordinatorService {
     rpc CreateContent(CreateContentRequest) returns (CreateContentResponse) {}
 
+    rpc UpdateContent(UpdateContentRequest) returns (UpdateContentResponse) {}
+
     rpc TombstoneContent(TombstoneContentRequest) returns (TombstoneContentResponse) {}
 
     rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
@@ -362,6 +364,15 @@ message CreateContentRequest {
 
 message CreateContentResponse {
     string id = 1;
+}
+
+message UpdateContentRequest {
+    string old_content_id = 1;
+    ContentMetadata new_content_metadata = 2;
+}
+
+message UpdateContentResponse {
+
 }
 
 message TombstoneContentRequest {

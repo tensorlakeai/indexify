@@ -19,12 +19,16 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
@@ -388,9 +392,8 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source
-                && self
-                    .get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source &&
+                self.get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -494,8 +497,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source
-                && self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source &&
+                self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -1444,14 +1447,18 @@ mod tests {
     };
 
     use indexify_internal_api::{
-        ContentExtractionPolicyMapping, ContentMetadataId, Index, TaskOutcome,
+        ContentExtractionPolicyMapping,
+        ContentMetadataId,
+        Index,
+        TaskOutcome,
     };
 
     use crate::{
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId, TaskId,
+                ExecutorId,
+                TaskId,
             },
             App,
         },
@@ -1714,9 +1721,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1
-                        && tasks_vec.first().unwrap().id == "task_id"
-                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1 &&
+                        tasks_vec.first().unwrap().id == "task_id" &&
+                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

@@ -16,8 +16,15 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
-    StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -752,8 +759,9 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// This method updates existing content. It changes the pointers of the children of the node being updated to
-    /// point to the new node and then creates the new node. It does nothing to the old node
+    /// This method updates existing content. It changes the pointers of the
+    /// children of the node being updated to point to the new node and then
+    /// creates the new node. It does nothing to the old node
     fn update_content(
         &self,
         db: &Arc<OptimisticTransactionDB>,
