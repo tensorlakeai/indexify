@@ -1,8 +1,6 @@
 use core::fmt;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    sync::{Arc, RwLock},
-    time::SystemTime,
+    collections::{HashMap, HashSet, VecDeque}, sync::{Arc, RwLock}, time::SystemTime
 };
 
 use anyhow::Result;
@@ -14,18 +12,7 @@ use serde::de::DeserializeOwned;
 use tracing::{error, warn};
 
 use super::{
-    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest}, serializer::JsonEncode, ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId
 };
 use crate::state::NodeId;
 
@@ -560,6 +547,8 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
+        // content_id -> Set(Extraction Policy Ids)
+        let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
             txn.put_cf(
@@ -568,6 +557,13 @@ impl IndexifyState {
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            self.update_content_extraction_policy_state(
+                db,
+                txn,
+                &task.content_metadata.id,
+                &task.extraction_policy_id,
+                SystemTime::UNIX_EPOCH,
+            )?;
         }
         Ok(())
     }
@@ -577,6 +573,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: Vec<&internal_api::Task>,
+        update_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
@@ -586,6 +583,15 @@ impl IndexifyState {
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            if task.terminal_state() {
+                self.update_content_extraction_policy_state(
+                    db,
+                    txn,
+                    &task.content_metadata.id,
+                    &task.extraction_policy_id,
+                    update_time,
+                )?;
+            }
         }
         Ok(())
     }
@@ -914,75 +920,16 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn set_content_policies_applied_on_content(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        mappings: &[internal_api::ContentExtractionPolicyMapping],
-    ) -> Result<(), StateMachineError> {
-        //  Fetch all keys at once
-        let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
-        let keys_with_cf: Vec<(_, _)> = mappings
-            .iter()
-            .map(|m| (mapping_cf, m.content_id.as_str()))
-            .collect();
-        let values = txn.multi_get_cf(keys_with_cf.clone());
-
-        //  Iterate in memory and update the data
-        let mut updated_mappings = Vec::new();
-        for (index, value) in values.into_iter().enumerate() {
-            let mut existing_mapping: internal_api::ContentExtractionPolicyMapping = match value {
-                Ok(Some(data)) => JsonEncoder::decode(&data)?,
-                Ok(None) => internal_api::ContentExtractionPolicyMapping {
-                    content_id: keys_with_cf[index].1.to_string(),
-                    extraction_policy_ids: HashSet::new(),
-                    time_of_policy_completion: HashMap::new(),
-                },
-                Err(e) => {
-                    return Err(StateMachineError::DatabaseError(format!(
-                        "Error getting the content policies applied on content id {}: {}",
-                        keys_with_cf[index].1, e
-                    )))
-                }
-            };
-
-            let new_mapping = mappings[index].clone();
-            existing_mapping
-                .extraction_policy_ids
-                .extend(new_mapping.extraction_policy_ids);
-            existing_mapping
-                .time_of_policy_completion
-                .extend(new_mapping.time_of_policy_completion);
-
-            updated_mappings.push(existing_mapping);
-        }
-
-        //  Write the data back
-        for updated_mapping in updated_mappings {
-            let data = JsonEncoder::encode(&updated_mapping)?;
-            let key = updated_mapping.content_id;
-            txn.put_cf(mapping_cf, key.clone(), data).map_err(|e| {
-                StateMachineError::DatabaseError(format!(
-                    "Error writing content policies applied on content for id {}: {}",
-                    key, e
-                ))
-            })?;
-        }
-
-        Ok(())
-    }
-
-    pub fn mark_extraction_policy_applied_on_content(
+    pub fn update_content_extraction_policy_state(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &str,
-        extraction_policy_id: &str,
-        policy_completion_time: &SystemTime,
+        _extraction_policy_id: &str,
+        policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
-        let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
         let value = txn
-            .get_cf(mapping_cf, content_id)
+            .get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
                     "Error getting the content policies applied on content id {}: {}",
@@ -995,32 +942,16 @@ impl IndexifyState {
                     content_id
                 ))
             })?;
-        let content_policy_mappings =
-            JsonEncoder::decode::<internal_api::ContentExtractionPolicyMapping>(&value)?;
-
-        //  First ensure that this content has the extraction policy registered against
-        // it
-        if !content_policy_mappings
-            .extraction_policy_ids
-            .contains(extraction_policy_id)
-        {
-            return Err(StateMachineError::DatabaseError(format!(
-                "Extraction policy id {} not applied on content {} because extraction policy was not registered against the content",
-                extraction_policy_id, content_id
-            )));
-        }
-
-        //  Mark the time the content was processed against the extraction policy and
-        // store it back
-        let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
-        time_of_policy_completion.insert(extraction_policy_id.into(), *policy_completion_time);
-        let updated_mapping = internal_api::ContentExtractionPolicyMapping {
-            content_id: content_id.into(),
-            extraction_policy_ids: content_policy_mappings.extraction_policy_ids,
-            time_of_policy_completion,
-        };
-        let data = JsonEncoder::encode(&updated_mapping)?;
-        txn.put_cf(mapping_cf, content_id, data).map_err(|e| {
+        let content_meta =
+            JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+        let _epoch_time = policy_completion_time.duration_since(SystemTime::UNIX_EPOCH).map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error converting policy completion time to u64: {}",
+                e
+            ))
+        })?.as_secs();
+        let data = JsonEncoder::encode(&content_meta)?;
+        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_id, data).map_err(|e| {
             StateMachineError::DatabaseError(format!(
                 "Error writing content policies applied on content for id {}: {}",
                 content_id, e
@@ -1124,21 +1055,20 @@ impl IndexifyState {
             }
             RequestPayload::UpdateTask {
                 task,
-                mark_finished,
                 executor_id,
                 content_metadata,
+                update_time,
             } => {
-                self.update_tasks(db, &txn, vec![task])?;
+                self.update_tasks(db, &txn, vec![task], *update_time)?;
 
-                if *mark_finished {
+                if task.terminal_state(){
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
                         let mut existing_tasks =
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
                         existing_tasks.remove(&task.id);
-                        let mut new_task_assignment = HashMap::new();
-                        new_task_assignment.insert(executor_id.to_string(), existing_tasks);
+                        let new_task_assignment = HashMap::from([(executor_id.to_string(), existing_tasks)]);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
                 }
@@ -1209,28 +1139,6 @@ impl IndexifyState {
                     extraction_policy,
                     updated_structured_data_schema,
                     new_structured_data_schema,
-                )?;
-            }
-            RequestPayload::SetContentExtractionPolicyMappings {
-                content_extraction_policy_mappings,
-            } => {
-                self.set_content_policies_applied_on_content(
-                    db,
-                    &txn,
-                    content_extraction_policy_mappings,
-                )?;
-            }
-            RequestPayload::MarkExtractionPolicyAppliedOnContent {
-                content_id,
-                extraction_policy_id,
-                policy_completion_time,
-            } => {
-                self.mark_extraction_policy_applied_on_content(
-                    db,
-                    &txn,
-                    content_id,
-                    extraction_policy_id,
-                    policy_completion_time,
                 )?;
             }
             RequestPayload::CreateNamespace {
@@ -1346,11 +1254,11 @@ impl IndexifyState {
             }
             RequestPayload::UpdateTask {
                 task,
-                mark_finished,
                 executor_id,
                 content_metadata,
+                update_time: _
             } => {
-                if mark_finished {
+                if task.terminal_state() {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
@@ -1394,28 +1302,6 @@ impl IndexifyState {
             .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
         Ok(Some(result))
-    }
-
-    /// Read method to get the extraction policy id's applied to a piece of
-    /// content
-    pub fn get_content_extraction_policy_mappings_for_content_id(
-        &self,
-        content_id: &str,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>, StateMachineError>
-    {
-        let mapping_bytes = match db
-            .get_cf(
-                StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
-                content_id.as_bytes(),
-            )
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-        {
-            Some(bytes) => bytes,
-            None => return Ok(None),
-        };
-        JsonEncoder::decode::<indexify_internal_api::ContentExtractionPolicyMapping>(&mapping_bytes)
-            .map(Some)
     }
 
     /// This method is used to get the tasks assigned to an executor

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Result};
 use axum_typed_websockets::{Message, WebSocket};
 use indexify_proto::indexify_coordinator;
@@ -170,6 +172,7 @@ impl IngestExtractedContentState {
                     labels: payload.labels,
                     source: metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
+                    extraction_policy_ids: HashMap::new(),
                 };
                 self.state
                     .data_manager

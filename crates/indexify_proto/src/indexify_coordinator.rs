@@ -481,6 +481,11 @@ pub struct ContentMetadata {
     pub source: ::prost::alloc::string::String,
     #[prost(uint64, tag = "10")]
     pub size_bytes: u64,
+    #[prost(map = "string, uint64", tag = "11")]
+    pub extraction_policy_ids: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]

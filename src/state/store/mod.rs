@@ -297,21 +297,6 @@ impl StateMachineStore {
         self.data.indexify_state.get_from_cf(&self.db, column, key)
     }
 
-    pub async fn get_content_extraction_policy_mappings_for_content_id(
-        &self,
-        content_id: &str,
-    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>> {
-        self.data
-            .indexify_state
-            .get_content_extraction_policy_mappings_for_content_id(content_id, &self.db)
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to get content extraction policy mappings for content id: {}",
-                    e
-                )
-            })
-    }
-
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,

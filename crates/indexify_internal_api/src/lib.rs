@@ -3,7 +3,6 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     str::FromStr,
-    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -313,6 +312,12 @@ pub struct Task {
     pub index_tables: Vec<String>, // list of index tables that this content may be present in
 }
 
+impl Task {
+    pub fn terminal_state(&self) -> bool {
+        self.outcome != TaskOutcome::Unknown 
+    }
+}
+
 impl Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -395,12 +400,10 @@ impl GarbageCollectionTask {
         namespace: &str,
         content_metadata: ContentMetadata,
         output_tables: HashSet<String>,
-        policy_id: &str,
     ) -> Self {
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
         content_metadata.id.hash(&mut hasher);
-        policy_id.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         Self {
             namespace: namespace.to_string(),
@@ -462,30 +465,6 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ContentExtractionPolicyMapping {
-    pub content_id: String,
-    pub extraction_policy_ids: HashSet<String>, /*  NOTE: This is a hash set because the
-                                                 * extraction policy should only be applied to
-                                                 * a piece of content once */
-    pub time_of_policy_completion: HashMap<String, SystemTime>, /* policy name -> time instant.
-                                                                 * This will be written to when a task is updated/completed */
-}
-
-impl Default for ContentExtractionPolicyMapping {
-    fn default() -> Self {
-        let mut extraction_policy_ids = HashSet::new();
-        extraction_policy_ids.insert("extraction_policy_id".to_string());
-        let time_of_policy_completion = HashMap::new();
-
-        Self {
-            content_id: "content_id".to_string(),
-            extraction_policy_ids,
-            time_of_policy_completion,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
     pub id: String,
@@ -500,6 +479,7 @@ pub struct ContentMetadata {
     pub source: String,
     pub size_bytes: u64,
     pub tombstoned: bool,
+    pub extraction_policy_ids: HashMap<String, u64>,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -515,6 +495,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             namespace: value.namespace,
             source: value.source,
             size_bytes: value.size_bytes,
+            extraction_policy_ids: value.extraction_policy_ids,
         }
     }
 }
@@ -537,6 +518,7 @@ impl Default for ContentMetadata {
             created_at: 1234567890, // example timestamp
             source: "test_source".to_string(),
             size_bytes: 1234567890,
+            extraction_policy_ids: HashMap::new(),
             tombstoned: false,
         }
     }
@@ -558,6 +540,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             source: value.source,
             size_bytes: value.size_bytes,
             tombstoned: false,
+            extraction_policy_ids: value.extraction_policy_ids,
         })
     }
 }

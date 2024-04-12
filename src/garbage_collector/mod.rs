@@ -69,18 +69,15 @@ impl GarbageCollector {
         &self,
         content_metadata: Vec<ContentMetadata>,
         outputs: HashMap<String, HashSet<String>>,
-        policy_ids: HashMap<String, String>,
     ) -> Result<Vec<GarbageCollectionTask>, anyhow::Error> {
         let mut created_gc_tasks = Vec::new();
         let namespace = content_metadata[0].namespace.clone();
         for content in content_metadata {
             let output_tables = outputs.get(&content.id).cloned().unwrap_or_default();
-            let policy_id = policy_ids.get(&content.id).cloned().unwrap_or_default();
             let mut gc_task = indexify_internal_api::GarbageCollectionTask::new(
                 &namespace,
                 content,
                 output_tables,
-                &policy_id,
             );
 
             //  add and assign the task
@@ -140,9 +137,9 @@ mod tests {
         gc.register_ingestion_server(&server_id).await;
 
         //  Create a task
-        let (content_metadata, outputs, policy_ids) = create_data_for_task(1);
+        let (content_metadata, outputs, _) = create_data_for_task(1);
         let tasks = gc
-            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .create_gc_tasks(content_metadata, outputs)
             .await?;
 
         //  verify task has been stored and assigned
@@ -163,9 +160,9 @@ mod tests {
         gc.register_ingestion_server("server1").await;
 
         // Assign a task to server1
-        let (content_metadata, outputs, policy_ids) = create_data_for_task(1);
+        let (content_metadata, outputs, _policy_ids) = create_data_for_task(1);
         let tasks = gc
-            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .create_gc_tasks(content_metadata, outputs)
             .await?;
 
         //  task should be assigned to server 1
@@ -215,9 +212,9 @@ mod tests {
         let gc = GarbageCollector::new();
 
         //  Create a couple of tasks
-        let (content_metadata, outputs, policy_ids) = create_data_for_task(2);
+        let (content_metadata, outputs, _policy_ids) = create_data_for_task(2);
         let _ = gc
-            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .create_gc_tasks(content_metadata, outputs)
             .await?;
 
         //  all tasks should be unassigned since there are no ingestion servers
@@ -248,9 +245,9 @@ mod tests {
 
         //  Create a couple of tasks
         gc.register_ingestion_server(server_id).await;
-        let (content_metadata, outputs, policy_ids) = create_data_for_task(3);
+        let (content_metadata, outputs, _policy_ids) = create_data_for_task(3);
         let tasks = gc
-            .create_gc_tasks(content_metadata, outputs, policy_ids)
+            .create_gc_tasks(content_metadata, outputs)
             .await?;
 
         //  Mark all tasks as complete and check that they are removed
