@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId,
+    StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -48,6 +40,11 @@ impl UnassignedTasks {
     pub fn inner(&self) -> HashSet<TaskId> {
         let guard = self.unassigned_tasks.read().unwrap();
         guard.clone()
+    }
+
+    pub fn set(&self, tasks: HashSet<TaskId>) {
+        let mut guard = self.unassigned_tasks.write().unwrap();
+        *guard = tasks;
     }
 }
 
@@ -137,7 +134,7 @@ impl ExtractionPoliciesTable {
         guard.get(namespace).cloned().unwrap_or_default()
     }
 
-    pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
+    pub fn insert(&self, namespace: &NamespaceName, extraction_policy_id: &str) {
         let mut guard = self.extraction_policies_table.write().unwrap();
         guard
             .entry(namespace.clone())
@@ -145,7 +142,7 @@ impl ExtractionPoliciesTable {
             .insert(extraction_policy_id.to_owned());
     }
 
-    pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
+    pub fn remove(&self, namespace: &NamespaceName, extraction_policy_id: &str) {
         let mut guard = self.extraction_policies_table.write().unwrap();
         guard
             .entry(namespace.clone())
@@ -174,7 +171,7 @@ pub struct ExtractorExecutorsTable {
 }
 
 impl ExtractorExecutorsTable {
-    pub fn insert(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+    pub fn insert(&self, extractor: &ExtractorName, executor_id: &ExecutorId) {
         let mut guard = self.extractor_executors_table.write().unwrap();
         guard
             .entry(extractor.clone())
@@ -182,7 +179,7 @@ impl ExtractorExecutorsTable {
             .insert(executor_id.clone());
     }
 
-    pub fn remove(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+    pub fn remove(&self, extractor: &ExtractorName, executor_id: &ExecutorId) {
         let mut guard = self.extractor_executors_table.write().unwrap();
         guard
             .entry(extractor.clone())
@@ -375,12 +372,12 @@ impl From<HashMap<NamespaceName, HashSet<SchemaId>>> for SchemasByNamespace {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ContentChildrenTable {
-    content_children: Arc<RwLock<HashMap<ContentId, HashSet<ContentId>>>>,
+    content_children_table: Arc<RwLock<HashMap<ContentId, HashSet<ContentId>>>>,
 }
 
 impl ContentChildrenTable {
     pub fn insert(&self, parent_id: &ContentId, child_id: &ContentId) {
-        let mut guard = self.content_children.write().unwrap();
+        let mut guard = self.content_children_table.write().unwrap();
         guard
             .entry(parent_id.clone())
             .or_default()
@@ -388,7 +385,7 @@ impl ContentChildrenTable {
     }
 
     pub fn remove(&self, parent_id: &ContentId, child_id: &ContentId) {
-        let mut guard = self.content_children.write().unwrap();
+        let mut guard = self.content_children_table.write().unwrap();
         if let Some(children) = guard.get_mut(parent_id) {
             children.remove(child_id);
             if children.is_empty() {
@@ -398,20 +395,22 @@ impl ContentChildrenTable {
     }
 
     pub fn get_children(&self, parent_id: &ContentId) -> HashSet<ContentId> {
-        let guard = self.content_children.read().unwrap();
+        let guard = self.content_children_table.read().unwrap();
         guard.get(parent_id).cloned().unwrap_or_default()
     }
 
     pub fn inner(&self) -> HashMap<ContentId, HashSet<ContentId>> {
-        let guard = self.content_children.read().unwrap();
+        let guard = self.content_children_table.read().unwrap();
         guard.clone()
     }
 }
 
 impl From<HashMap<ContentId, HashSet<ContentId>>> for ContentChildrenTable {
-    fn from(content_children: HashMap<ContentId, HashSet<ContentId>>) -> Self {
-        let content_children = Arc::new(RwLock::new(content_children));
-        Self { content_children }
+    fn from(content_children_table: HashMap<ContentId, HashSet<ContentId>>) -> Self {
+        let content_children_table = Arc::new(RwLock::new(content_children_table));
+        Self {
+            content_children_table,
+        }
     }
 }
 
@@ -1046,7 +1045,7 @@ impl IndexifyState {
     }
 
     pub fn mark_state_changes_processed(
-        &mut self,
+        &self,
         state_change: &StateChangeProcessed,
         _processed_at: u64,
     ) {
@@ -1054,14 +1053,14 @@ impl IndexifyState {
             .remove(&state_change.state_change_id);
     }
 
-    fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
+    fn update_schema_reverse_idx(&self, schema: internal_api::StructuredDataSchema) {
         self.schemas_by_namespace
             .insert(&schema.namespace, &schema.id);
     }
 
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
-        &mut self,
+        &self,
         request: StateMachineUpdateRequest,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<(), StateMachineError> {
@@ -1254,7 +1253,7 @@ impl IndexifyState {
 
     /// This method handles all reverse index writes. All reverse indexes are
     /// written in memory
-    pub fn apply(&mut self, request: StateMachineUpdateRequest) {
+    pub fn apply(&self, request: StateMachineUpdateRequest) {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
@@ -1770,7 +1769,7 @@ impl IndexifyState {
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
-    pub fn insert_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
+    pub fn insert_executor_running_task_count(&self, executor_id: &str, tasks: u64) {
         self.executor_running_task_count
             .insert(&executor_id.to_string(), tasks as usize);
     }
@@ -1793,17 +1792,64 @@ impl IndexifyState {
         }
     }
 
-    pub fn install_snapshot(&mut self, snapshot: IndexifyStateSnapshot) {
-        self.unassigned_tasks = snapshot.unassigned_tasks.into();
-        self.unprocessed_state_changes = snapshot.unprocessed_state_changes.into();
-        self.content_namespace_table = snapshot.content_namespace_table.into();
-        self.extraction_policies_table = snapshot.extraction_policies_table.into();
-        self.extractor_executors_table = snapshot.extractor_executors_table.into();
-        self.namespace_index_table = snapshot.namespace_index_table.into();
-        self.unfinished_tasks_by_extractor = snapshot.unfinished_tasks_by_extractor.into();
-        self.executor_running_task_count = snapshot.executor_running_task_count.into();
-        self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
-        self.content_children_table = snapshot.content_children_table.into();
+    pub fn install_snapshot(&self, snapshot: IndexifyStateSnapshot) {
+        let mut unassigned_tasks_guard = self.unassigned_tasks.unassigned_tasks.write().unwrap();
+        let mut unprocessed_state_changes_guard = self
+            .unprocessed_state_changes
+            .unprocessed_state_changes
+            .write()
+            .unwrap();
+        let mut content_namespace_table_guard = self
+            .content_namespace_table
+            .content_namespace_table
+            .write()
+            .unwrap();
+        let mut extraction_policies_table_guard = self
+            .extraction_policies_table
+            .extraction_policies_table
+            .write()
+            .unwrap();
+        let mut extractor_executors_table_guard = self
+            .extractor_executors_table
+            .extractor_executors_table
+            .write()
+            .unwrap();
+        let mut namespace_index_table_guard = self
+            .namespace_index_table
+            .namespace_index_table
+            .write()
+            .unwrap();
+        let mut unfinished_tasks_by_extractor_guard = self
+            .unfinished_tasks_by_extractor
+            .unfinished_tasks_by_extractor
+            .write()
+            .unwrap();
+        let mut executor_running_task_count_guard = self
+            .executor_running_task_count
+            .executor_running_task_count
+            .write()
+            .unwrap();
+        let mut schemas_by_namespace_guard = self
+            .schemas_by_namespace
+            .schemas_by_namespace
+            .write()
+            .unwrap();
+        let mut content_children_table_guard = self
+            .content_children_table
+            .content_children_table
+            .write()
+            .unwrap();
+
+        *unassigned_tasks_guard = snapshot.unassigned_tasks;
+        *unprocessed_state_changes_guard = snapshot.unprocessed_state_changes;
+        *content_namespace_table_guard = snapshot.content_namespace_table;
+        *extraction_policies_table_guard = snapshot.extraction_policies_table;
+        *extractor_executors_table_guard = snapshot.extractor_executors_table;
+        *namespace_index_table_guard = snapshot.namespace_index_table;
+        *unfinished_tasks_by_extractor_guard = snapshot.unfinished_tasks_by_extractor;
+        *executor_running_task_count_guard = snapshot.executor_running_task_count;
+        *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
+        *content_children_table_guard = snapshot.content_children_table;
     }
     //  END SNAPSHOT METHODS
 }

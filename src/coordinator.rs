@@ -207,7 +207,8 @@ impl Coordinator {
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
             let leader_coord_addr = self
                 .shared_state
-                .get_coordinator_addr(leader_node_id)?
+                .get_coordinator_addr(leader_node_id)
+                .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
                 .register_ingestion_server(&leader_coord_addr, ingestion_server_id)
@@ -227,7 +228,8 @@ impl Coordinator {
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
             let leader_coord_addr = self
                 .shared_state
-                .get_coordinator_addr(leader_node_id)?
+                .get_coordinator_addr(leader_node_id)
+                .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
                 .remove_ingestion_server(&leader_coord_addr, ingestion_server_id)
@@ -249,11 +251,13 @@ impl Coordinator {
             .await
     }
 
-    pub fn get_content_tree_metadata(
+    pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.shared_state.get_content_tree_metadata(content_id)
+        self.shared_state
+            .get_content_tree_metadata(content_id)
+            .await
     }
 
     pub async fn get_extractor(
@@ -312,7 +316,10 @@ impl Coordinator {
     }
 
     pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
-        let content_tree_metadata = self.shared_state.get_content_tree_metadata(content_id)?;
+        let content_tree_metadata = self
+            .shared_state
+            .get_content_tree_metadata(content_id)
+            .await?;
         let mut output_tables = HashMap::new();
         let mut policy_ids = HashMap::new();
 
@@ -377,7 +384,8 @@ impl Coordinator {
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
             let leader_coord_addr = self
                 .shared_state
-                .get_coordinator_addr(leader_id)?
+                .get_coordinator_addr(leader_id)
+                .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
                 .create_gc_tasks(&leader_coord_addr, &change.object_id)
@@ -408,8 +416,8 @@ impl Coordinator {
         Ok(())
     }
 
-    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
-        self.shared_state.subscribe_to_gc_task_events()
+    pub async fn subscribe_to_gc_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
+        self.shared_state.subscribe_to_gc_task_events().await
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {
@@ -1012,7 +1020,8 @@ mod tests {
 
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id)
+            .await?;
         assert_eq!(content_tree.len(), 4);
 
         Ok(())
@@ -1172,10 +1181,12 @@ mod tests {
             .await?;
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id)
+            .await?;
         let content_tree_2 = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content_2.id)?;
+            .get_content_tree_metadata(&parent_content_2.id)
+            .await?;
         for content in &content_tree {
             assert!(
                 content.tombstoned,

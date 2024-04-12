@@ -19,16 +19,12 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
@@ -121,7 +117,7 @@ pub struct App {
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
     pub node_addr: String,
-    pub state_machine: StateMachineStore,
+    pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
 }
 #[derive(Clone)]
@@ -178,7 +174,7 @@ impl App {
             config.clone(),
             network.clone(),
             log_store,
-            state_machine.clone(),
+            Arc::clone(&state_machine),
         )
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
@@ -386,8 +382,9 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source &&
-                self.get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source
+                && self
+                    .get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -491,8 +488,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source &&
-                self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source
+                && self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -1084,11 +1081,13 @@ impl App {
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
-    pub fn get_content_tree_metadata(
+    pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.state_machine.get_content_tree_metadata(content_id)
+        self.state_machine
+            .get_content_tree_metadata(content_id)
+            .await
     }
 
     pub async fn create_tasks(
@@ -1307,18 +1306,18 @@ impl App {
         }
     }
 
-    pub fn subscribe_to_gc_task_events(
+    pub async fn subscribe_to_gc_task_events(
         &self,
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
-        self.state_machine.subscribe_to_gc_task_events()
+        self.state_machine.subscribe_to_gc_task_events().await
     }
 
     pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
         self.forwardable_raft.ensure_leader().await
     }
 
-    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
-        self.state_machine.get_coordinator_addr(node_id)
+    pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+        self.state_machine.get_coordinator_addr(node_id).await
     }
 }
 
@@ -1370,8 +1369,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1632,9 +1630,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
