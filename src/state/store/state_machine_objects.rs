@@ -16,15 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
+    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -429,6 +422,75 @@ impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChi
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ContentTaskMapping {
+    content_task_mapping:
+        Arc<RwLock<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>>,
+}
+
+impl ContentTaskMapping {
+    pub fn insert(
+        &self,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: ExtractionPolicyId,
+        task_ids: HashSet<TaskId>,
+    ) {
+        let mut guard = self.content_task_mapping.write().unwrap();
+        guard
+            .entry(content_id.clone())
+            .or_default()
+            .insert(extraction_policy_id, task_ids);
+    }
+
+    pub fn remove(
+        &self,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: ExtractionPolicyId,
+        task_id: TaskId,
+    ) {
+        let mut guard = self.content_task_mapping.write().unwrap();
+        if let Some(extraction_policies_map) = guard.get_mut(content_id) {
+            if let Some(task_ids) = extraction_policies_map.get_mut(&extraction_policy_id) {
+                task_ids.remove(&task_id);
+                if task_ids.is_empty() {
+                    extraction_policies_map.remove(&extraction_policy_id);
+                }
+            }
+            if extraction_policies_map.is_empty() {
+                guard.remove(content_id);
+            }
+        }
+    }
+
+    pub fn is_content_processed(&self, content_id: &ContentMetadataId) -> bool {
+        let guard = self.content_task_mapping.read().unwrap();
+        !guard.get(content_id).is_some()
+    }
+
+    pub fn inner(
+        &self,
+    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
+        let guard = self.content_task_mapping.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>
+    for ContentTaskMapping
+{
+    fn from(
+        content_task_mapping: HashMap<
+            ContentMetadataId,
+            HashMap<ExtractionPolicyId, HashSet<TaskId>>,
+        >,
+    ) -> Self {
+        let content_task_mapping = Arc::new(RwLock::new(content_task_mapping));
+        Self {
+            content_task_mapping,
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -464,6 +526,9 @@ pub struct IndexifyState {
 
     /// Parent content id -> children content id's
     content_children_table: ContentChildrenTable,
+
+    /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
+    content_task_mapping: ContentTaskMapping,
 }
 
 impl fmt::Display for IndexifyState {
@@ -2061,6 +2126,12 @@ impl IndexifyState {
         self.content_children_table.inner()
     }
 
+    pub fn get_content_task_mapping(
+        &self,
+    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
+        self.content_task_mapping.inner()
+    }
+
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
@@ -2084,6 +2155,7 @@ impl IndexifyState {
             executor_running_task_count: self.get_executor_running_task_count(),
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
+            content_task_mapping: self.get_content_task_mapping(),
         }
     }
 
@@ -2098,6 +2170,7 @@ impl IndexifyState {
         self.executor_running_task_count = snapshot.executor_running_task_count.into();
         self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
         self.content_children_table = snapshot.content_children_table.into();
+        self.content_task_mapping = snapshot.content_task_mapping.into();
     }
     //  END SNAPSHOT METHODS
 }
@@ -2114,6 +2187,7 @@ pub struct IndexifyStateSnapshot {
     executor_running_task_count: HashMap<ExecutorId, usize>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
+    content_task_mapping: HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
 }
 
 #[cfg(test)]
