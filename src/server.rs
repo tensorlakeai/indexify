@@ -202,6 +202,10 @@ impl Server {
                 get(download_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/content/:content_id/content-tree",
+                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/upload_file",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
             )
@@ -693,7 +697,7 @@ async fn get_content_metadata(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/content/{content_id}",
+    path = "/namespaces/{namespace}/content/{content_id}/content-tree",
     tag = "indexify",
     responses(
         (status = 200, description = "Gets a content tree rooted at a specific content id in the namespace"),
