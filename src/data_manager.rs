@@ -569,6 +569,9 @@ impl DataManager {
         output_index_map: &HashMap<String, String>,
         index_tables: &[String],
     ) -> Result<()> {
+        let metadata_updated = features
+            .iter()
+            .any(|feature| matches!(feature.feature_type, api::FeatureType::Metadata));
         let existing_metadata = self
             .metadata_index_manager
             .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
@@ -583,17 +586,19 @@ impl DataManager {
             output_index_map,
         )
         .await?;
-        // For all embeddings not updated with new values, update their metadata
-        for index in index_tables {
-            if !index_in_features(output_index_map, &features, index) {
-                info!(
-                    "updating metadata for content {} index {}",
-                    content_meta.id.clone(),
-                    index
-                );
-                self.vector_index_manager
-                    .update_metadata(index, content_meta.id.clone(), new_metadata.clone())
-                    .await?;
+        if metadata_updated && !new_metadata.as_object().unwrap().is_empty() {
+            // For all embeddings not updated with new values, update their metadata
+            for index in index_tables {
+                if !index_in_features(output_index_map, &features, index) {
+                    info!(
+                        "updating metadata for content {} index {}",
+                        content_meta.id.clone(),
+                        index
+                    );
+                    self.vector_index_manager
+                        .update_metadata(index, content_meta.id.clone(), new_metadata.clone())
+                        .await?;
+                }
             }
         }
         Ok(())
