@@ -287,7 +287,7 @@ mod tests {
     #[ignore]
     async fn test_search_basic() {
         let opensearch: VectorDBTS = Arc::new(initialize_opensearch());
-        opensearch.drop_index(TEST_INDEX_NAME.into()).await.unwrap();
+        opensearch.drop_index(TEST_INDEX_NAME).await.unwrap();
         opensearch
             .create_index(CreateIndexParams {
                 vectordb_index_name: TEST_INDEX_NAME.into(),
