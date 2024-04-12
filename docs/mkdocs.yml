@@ -37,7 +37,8 @@ nav:
   - Extractors:
     - Introduction: 'apis/extractors.md'
     - Develop Extractors: 'apis/develop_extractors.md'
-    - Available Extractors: 
+    - Available Extractors:
+      - Text: 'apis/extractors/text.md'
       - PDF: 'apis/extractors/pdf.md'
       - Image: 'apis/extractors/image.md'
       - Audio: 'apis/extractors/audio.md'
