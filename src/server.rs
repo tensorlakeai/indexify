@@ -201,8 +201,10 @@ impl Server {
                 "/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()),
             )
-            .route("/namespaces/:namespace/content/:content_id/content-tree",
-                get(get_content_tree_metadata).with_state(namespace_endpoint_state).clone())
+            .route(
+                "/namespaces/:namespace/content/:content_id/content-tree",
+                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()),
+            )
             .route(
                 "/namespaces/:namespace/upload_file",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
