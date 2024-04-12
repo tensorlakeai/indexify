@@ -585,14 +585,14 @@ impl DataManager {
         .await?;
         // For all embeddings not updated with new values, update their metadata
         for index in index_tables {
-            if !index_in_features(output_index_map, &features, &index) {
+            if !index_in_features(output_index_map, &features, index) {
                 info!(
                     "updating metadata for content {} index {}",
                     content_meta.id.clone(),
                     index
                 );
                 self.vector_index_manager
-                    .update_metadata(&index, content_meta.id.clone(), new_metadata.clone())
+                    .update_metadata(index, content_meta.id.clone(), new_metadata.clone())
                     .await?;
             }
         }
@@ -619,7 +619,7 @@ impl DataManager {
                         &feature.name,
                         &embedding_payload.values,
                         &content_meta.id,
-                        &output_index_map,
+                        output_index_map,
                         metadata.clone(),
                     )
                     .await?;

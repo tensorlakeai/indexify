@@ -280,7 +280,7 @@ mod tests {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
-        qdrant.drop_index("hello-index".into()).await.unwrap();
+        qdrant.drop_index("hello-index").await.unwrap();
         qdrant
             .create_index(CreateIndexParams {
                 vectordb_index_name: "hello-index".into(),
@@ -317,7 +317,7 @@ mod tests {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
-        qdrant.drop_index("metadata-index".into()).await.unwrap();
+        qdrant.drop_index("metadata-index").await.unwrap();
         qdrant
             .create_index(CreateIndexParams {
                 vectordb_index_name: "metadata-index".into(),
@@ -389,7 +389,7 @@ mod tests {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
-        qdrant.drop_index(index_name.into()).await.unwrap();
+        qdrant.drop_index(index_name).await.unwrap();
         qdrant
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.into(),
@@ -424,7 +424,7 @@ mod tests {
         let qdrant: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
             addr: "http://localhost:6334".into(),
         }));
-        qdrant.drop_index(index_name.into()).await.unwrap();
+        qdrant.drop_index(index_name).await.unwrap();
         qdrant
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.into(),

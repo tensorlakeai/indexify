@@ -121,7 +121,7 @@ pub struct App {
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
     pub node_addr: String,
-    pub state_machine: StateMachineStore,
+    pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
 }
 #[derive(Clone)]
@@ -178,7 +178,7 @@ impl App {
             config.clone(),
             network.clone(),
             log_store,
-            state_machine.clone(),
+            Arc::clone(&state_machine),
         )
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
@@ -1084,11 +1084,13 @@ impl App {
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
-    pub fn get_content_tree_metadata(
+    pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.state_machine.get_content_tree_metadata(content_id)
+        self.state_machine
+            .get_content_tree_metadata(content_id)
+            .await
     }
 
     pub async fn create_tasks(
@@ -1307,18 +1309,18 @@ impl App {
         }
     }
 
-    pub fn subscribe_to_gc_task_events(
+    pub async fn subscribe_to_gc_task_events(
         &self,
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
-        self.state_machine.subscribe_to_gc_task_events()
+        self.state_machine.subscribe_to_gc_task_events().await
     }
 
     pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
         self.forwardable_raft.ensure_leader().await
     }
 
-    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
-        self.state_machine.get_coordinator_addr(node_id)
+    pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+        self.state_machine.get_coordinator_addr(node_id).await
     }
 }
 

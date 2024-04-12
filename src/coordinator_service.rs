@@ -355,7 +355,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
     ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
-        let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events();
+        let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events().await;
         let (tx, rx) = mpsc::channel(4);
 
         let mut inbound = request.into_inner();
@@ -628,6 +628,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let content_tree_metadata = self
             .coordinator
             .get_content_tree_metadata(&req.content_id)
+            .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let parsed_content_tree: Vec<indexify_coordinator::ContentMetadata> = content_tree_metadata
             .iter()

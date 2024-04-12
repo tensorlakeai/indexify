@@ -163,7 +163,7 @@ impl VectorDb for PgVector {
     // TODO: Should change index to &str to keep things uniform across functions
     #[tracing::instrument]
     async fn drop_index(&self, index: &str) -> Result<()> {
-        let index = PostgresIndexName::new(&index);
+        let index = PostgresIndexName::new(index);
         let query = format!("DROP TABLE IF EXISTS \"{index}\";");
         let _ = sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
@@ -214,7 +214,7 @@ mod tests {
             .unwrap(),
         );
         // Drop index (this is idempotent)
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.to_string(),
@@ -261,7 +261,7 @@ mod tests {
             .unwrap(),
         );
         // Drop index (this is idempotent)
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.to_string(),
@@ -280,7 +280,7 @@ mod tests {
             metadata: metadata1.clone(),
         };
         vector_db
-            .add_embedding(&index_name, vec![chunk1])
+            .add_embedding(index_name, vec![chunk1])
             .await
             .unwrap();
         let metadata2 = json!({"key1": "value3", "key2": "value4"});
@@ -290,12 +290,12 @@ mod tests {
             metadata: metadata2.clone(),
         };
         vector_db
-            .add_embedding(&index_name, vec![chunk2])
+            .add_embedding(index_name, vec![chunk2])
             .await
             .unwrap();
 
         let result = vector_db
-            .get_points(&index_name, content_ids.clone())
+            .get_points(index_name, content_ids.clone())
             .await
             .unwrap();
         assert_eq!(result.len(), 2);
@@ -311,11 +311,11 @@ mod tests {
 
         let new_metadata = json!({"key1": "value5", "key2": "value6"});
         vector_db
-            .update_metadata(&index_name, content_ids[0].clone(), new_metadata.clone())
+            .update_metadata(index_name, content_ids[0].clone(), new_metadata.clone())
             .await
             .unwrap();
         let result = vector_db
-            .get_points(&index_name, vec![content_ids[0].clone()])
+            .get_points(index_name, vec![content_ids[0].clone()])
             .await
             .unwrap();
         assert_eq!(result.len(), 1);
@@ -340,7 +340,7 @@ mod tests {
             .unwrap(),
         );
 
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.into(),
@@ -387,7 +387,7 @@ mod tests {
             .unwrap(),
         );
 
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.into(),

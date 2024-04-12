@@ -76,7 +76,7 @@ async fn update_schema_with_missing_fields(
     let mut new_fields = Vec::new();
     let mut schema = tbl.schema().await?;
     for (key, _) in metadata.as_object().unwrap().iter() {
-        if !schema.field_with_name(key).is_ok() {
+        if schema.field_with_name(key).is_err() {
             new_fields.push(Field::new(key, DataType::Utf8, true));
         }
     }
@@ -148,7 +148,7 @@ impl VectorDb for LanceDb {
         let vectors = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
             chunks
                 .iter()
-                .map(|c| Some(c.embedding.iter().map(|e| Some(e.clone())))),
+                .map(|c| Some(c.embedding.iter().map(|e| Some(*e)))),
             vector_dim,
         );
         let metadata = chunks
@@ -166,10 +166,7 @@ impl VectorDb for LanceDb {
             let values = chunks.iter().map(|c| {
                 let metadata = c.metadata.as_object().unwrap();
                 let value = metadata.get(field.name());
-                match value {
-                    Some(value) => Some(value.as_str().unwrap().to_string()),
-                    None => None,
-                }
+                value.map(|value| value.as_str().unwrap().to_string())
             });
             let array = values.collect::<StringArray>();
             arrays.push(Arc::new(array));
