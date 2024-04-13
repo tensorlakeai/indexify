@@ -7,7 +7,7 @@ use indexify_internal_api as internal_api;
 use internal_api::{ContentMetadataId, StateChange};
 use serde::{Deserialize, Serialize};
 
-use super::{ExecutorId, TaskId};
+use super::{ExecutorId, ExtractionPolicyId, TaskId};
 use crate::state::NodeId;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -90,6 +90,9 @@ pub enum RequestPayload {
         mark_finished: bool,
         executor_id: Option<String>,
         content_metadata: Vec<internal_api::ContentMetadata>,
+    },
+    SetContentTaskMappings {
+        content_task_mappings: HashMap<String, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
     },
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,

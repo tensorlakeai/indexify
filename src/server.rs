@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use rust_embed::RustEmbed;
 use tokio::{
@@ -797,7 +792,7 @@ async fn upload_file(
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         let content_metadata = state
             .data_manager
-            .upload_file(&namespace, stream, &name, content_mime)
+            .upload_file(&namespace, stream, &name, content_mime, None)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
@@ -835,6 +830,7 @@ async fn update_content(
     State(state): State<NamespaceEndpointState>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
+    println!("received request to update content {}", content_id);
     //  check that the content exists
     let content_metadata = state
         .data_manager
@@ -872,7 +868,13 @@ async fn update_content(
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         let new_content_metadata = state
             .data_manager
-            .upload_file(&namespace, stream, &name, content_mime)
+            .upload_file(
+                &namespace,
+                stream,
+                &name,
+                content_mime,
+                Some(&content_metadata.id),
+            )
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(

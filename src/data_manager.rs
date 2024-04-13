@@ -25,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -255,6 +253,7 @@ impl DataManager {
                     None,
                     None,
                     "ingestion",
+                    None,
                 )
                 .await?;
 
@@ -422,6 +421,7 @@ impl DataManager {
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
         mime_type: Mime,
+        original_content_id: Option<&str>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let labels = HashMap::new();
 
@@ -434,6 +434,7 @@ impl DataManager {
                 Some(name),
                 None,
                 "ingestion",
+                original_content_id,
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
@@ -484,6 +485,7 @@ impl DataManager {
         file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
+        original_content_id: Option<&str>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -513,7 +515,10 @@ impl DataManager {
             .map(|(k, v)| (k, v.to_string()))
             .collect();
 
-        let id = DataManager::make_id(namespace, &parent_id, &content_hash);
+        let mut id = DataManager::make_id(namespace, &parent_id, &content_hash);
+        if original_content_id.is_some() {
+            id = original_content_id.unwrap().to_string();
+        }
         Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
@@ -665,6 +670,7 @@ impl DataManager {
                     None,
                     Some(ingest_metadata.parent_content_id.to_string()),
                     &ingest_metadata.extraction_policy,
+                    None,
                 )
                 .await?;
             features.insert(content_metadata.id.clone(), content.features);

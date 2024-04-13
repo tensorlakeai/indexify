@@ -7,7 +7,9 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
-use internal_api::{GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema};
+use internal_api::{
+    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
+};
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::info;
@@ -393,6 +395,43 @@ impl Coordinator {
         self.create_gc_tasks(&change.object_id).await
     }
 
+    async fn handle_task_completion_state_change(&self, change: StateChange) -> Result<()> {
+        let content_id: ContentMetadataId = change.object_id.try_into()?;
+        let is_content_processed = self.shared_state.is_content_processed(&content_id).await;
+
+        if !is_content_processed {
+            return Ok(());
+        }
+
+        //  assume that the content id verion's previous version is the one that needs to be tombstoned
+        if content_id.version <= 1 {
+            //  this content was not updated
+            return Ok(());
+        }
+        let previous_version = ContentMetadataId {
+            id: content_id.id,
+            version: content_id.version - 1,
+        };
+        let content_metadata = self
+            .shared_state
+            .get_content_metadata_with_version(&previous_version)
+            .await?;
+        let content_metadata = content_metadata.get(0).ok_or_else(|| {
+            anyhow!(
+                "unable to find content metadata for content id: {}",
+                &previous_version.id
+            )
+        })?;
+        self.shared_state
+            .tombstone_content_batch_with_version(
+                &content_metadata.namespace,
+                &vec![content_metadata.id.clone()],
+            )
+            .await?;
+
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn run_scheduler(&self) -> Result<()> {
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
@@ -407,6 +446,10 @@ impl Coordinator {
                     let _ = self
                         .handle_tombstone_content_tree_state_change(change)
                         .await?;
+                    return Ok(());
+                }
+                indexify_internal_api::ChangeType::TaskCompleted => {
+                    let _ = self.handle_task_completion_state_change(change).await?;
                     return Ok(());
                 }
                 _ => self.scheduler.handle_change_event(change).await?,

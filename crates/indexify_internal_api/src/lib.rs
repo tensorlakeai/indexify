@@ -721,6 +721,7 @@ pub enum ChangeType {
     ExecutorAdded,
     ExecutorRemoved,
     NewGargabeCollectionTask,
+    TaskCompleted,
 }
 
 impl fmt::Display for ChangeType {
@@ -733,6 +734,7 @@ impl fmt::Display for ChangeType {
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
             ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
+            ChangeType::TaskCompleted => write!(f, "TaskCompleted"),
         }
     }
 }
