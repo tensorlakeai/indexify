@@ -386,7 +386,7 @@ impl Coordinator {
     }
 
     async fn handle_task_completion_state_change(&self, change: StateChange) -> Result<()> {
-        let content_id: ContentMetadataId = change.object_id.try_into()?;
+        let content_id: ContentMetadataId = change.object_id.clone().try_into()?;
         let is_content_processed = self.shared_state.is_content_processed(&content_id).await;
 
         if !is_content_processed {
@@ -396,6 +396,9 @@ impl Coordinator {
         //  assume that the content id verion's previous version is the one that needs to be tombstoned
         if content_id.version <= 1 {
             //  this content was not updated
+            self.shared_state
+                .mark_change_events_as_processed(vec![change])
+                .await?;
             return Ok(());
         }
         let previous_version = ContentMetadataId {
@@ -417,6 +420,9 @@ impl Coordinator {
                 &content_metadata.namespace,
                 &vec![content_metadata.id.clone()],
             )
+            .await?;
+        self.shared_state
+            .mark_change_events_as_processed(vec![change])
             .await?;
 
         Ok(())
