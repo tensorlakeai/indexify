@@ -99,7 +99,7 @@ impl Scheduler {
                 self.create_task_list(&state_change.object_id, content_list)
                     .await?
             }
-            internal_api::ChangeType::NewContent | internal_api::ChangeType::UpdateContent => {
+            internal_api::ChangeType::NewContent => {
                 let extraction_policies = self
                     .shared_state
                     .filter_extraction_policy_for_content(

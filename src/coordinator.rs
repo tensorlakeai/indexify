@@ -393,7 +393,7 @@ impl Coordinator {
             return Ok(());
         }
 
-        //  assume that the content id verion's previous version is the one that needs to be tombstoned
+        //  previous version needs to be tombstoned
         if content_id.version <= 1 {
             //  this content was not updated
             self.shared_state

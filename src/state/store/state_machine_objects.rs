@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use internal_api::{ContentMetadataId, ExtractorDescription, StateChange};
+use internal_api::{ContentMetadataId, ExtractorDescription, GarbageCollectionTaskId, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -501,6 +501,37 @@ impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct GCTaskContentMapping {
+    gc_task_content_mapping: Arc<RwLock<HashMap<GarbageCollectionTaskId, ContentMetadataId>>>,
+}
+
+impl GCTaskContentMapping {
+    pub fn insert(&self, gc_task_id: &GarbageCollectionTaskId, content_id: &ContentMetadataId) {
+        let mut guard = self.gc_task_content_mapping.write().unwrap();
+        guard.insert(gc_task_id.clone(), content_id.clone());
+    }
+
+    pub fn remove(&self, gc_task_id: &GarbageCollectionTaskId) {
+        let mut guard = self.gc_task_content_mapping.write().unwrap();
+        guard.remove(gc_task_id);
+    }
+
+    pub fn inner(&self) -> HashMap<GarbageCollectionTaskId, ContentMetadataId> {
+        let guard = self.gc_task_content_mapping.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<GarbageCollectionTaskId, ContentMetadataId>> for GCTaskContentMapping {
+    fn from(gc_task_content_mapping: HashMap<GarbageCollectionTaskId, ContentMetadataId>) -> Self {
+        let gc_task_content_mapping = Arc::new(RwLock::new(gc_task_content_mapping));
+        Self {
+            gc_task_content_mapping,
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -539,13 +570,16 @@ pub struct IndexifyState {
 
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
     content_task_mapping: ContentTaskMapping,
+
+    /// gc task id -> content metadata id
+    gc_task_content_mapping: GCTaskContentMapping,
 }
 
 impl fmt::Display for IndexifyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}, gc_task_content_mapping: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
             self.content_namespace_table,
@@ -555,7 +589,8 @@ impl fmt::Display for IndexifyState {
             self.unfinished_tasks_by_extractor,
             self.executor_running_task_count,
             self.schemas_by_namespace,
-            self.content_children_table
+            self.content_children_table,
+            self.gc_task_content_mapping
         )
     }
 }
@@ -1017,13 +1052,12 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: Vec<String>,
+        content_ids: Vec<ContentMetadataId>,
     ) -> Result<(), StateMachineError> {
         for content_id in content_ids {
-            let latest_version = self.get_latest_version_of_content(&content_id, db, txn)?;
             txn.delete_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                &format!("{}::v{}", content_id, latest_version),
+                &format!("{}::v{}", content_id.id, content_id.version),
             )
             .map_err(|e| {
                 StateMachineError::TransactionError(format!(
@@ -1266,26 +1300,10 @@ impl IndexifyState {
                 gc_task,
                 mark_finished,
             } => {
-                //  NOTE: Special case where forward and reverse indexes are updated together
-                // because get_latest_version_of_content requires a txn
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
                     self.delete_content(db, &txn, vec![gc_task.content_id.clone()])?;
-                    let latest_parent_id =
-                        self.get_latest_version_of_content(&gc_task.parent_content_id, db, &txn)?;
-                    let parent_content_metadata_id = ContentMetadataId {
-                        id: gc_task.parent_content_id.clone(),
-                        version: latest_parent_id,
-                    };
-                    let latest_content_id =
-                        self.get_latest_version_of_content(&gc_task.content_id, db, &txn)?;
-                    let content_metadata_id = ContentMetadataId {
-                        id: gc_task.content_id.clone(),
-                        version: latest_content_id,
-                    };
-                    self.content_children_table
-                        .remove(&parent_content_metadata_id, &content_metadata_id);
                 }
             }
             RequestPayload::AssignTask { assignments } => {
@@ -1513,6 +1531,23 @@ impl IndexifyState {
 
                     self.executor_running_task_count
                         .increment_running_task_count(&executor_id);
+                }
+                Ok(())
+            }
+            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
+                for gc_task in gc_tasks {
+                    self.gc_task_content_mapping
+                        .insert(&gc_task.id, &gc_task.content_id);
+                }
+                Ok(())
+            }
+            RequestPayload::UpdateGarbageCollectionTask {
+                gc_task,
+                mark_finished,
+            } => {
+                if mark_finished {
+                    self.gc_task_content_mapping.remove(&gc_task.id);
+                    self.content_children_table.remove_all(&gc_task.content_id);
                 }
                 Ok(())
             }

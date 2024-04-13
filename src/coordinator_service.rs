@@ -397,17 +397,8 @@ impl CoordinatorService for CoordinatorServiceServer {
                     Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
                         let task = task_allocation;
                         if let Some(ref server_id) = ingestion_server_id {
-                            if task.assigned_to.is_some() && &task.assigned_to.unwrap() == server_id {
-                                let serialized_task = GcTask {
-                                    task_id: task.id,
-                                    namespace: task.namespace,
-                                    content_id: task.content_id.to_string(),
-                                    output_tables: task
-                                        .output_tables
-                                        .into_iter()
-                                        .collect::<Vec<String>>(),
-                                    blob_store_path: task.blob_store_path,
-                                };
+                            if task.assigned_to.is_some() && &task.assigned_to.clone().unwrap() == server_id {
+                                let serialized_task: GcTask = task.into();
                                 let command = CoordinatorCommand {
                                     gc_task: Some(serialized_task)
                                 };

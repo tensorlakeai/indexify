@@ -366,13 +366,15 @@ impl TryFrom<indexify_coordinator::Task> for Task {
     }
 }
 
+pub type GarbageCollectionTaskId = String;
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[schema(as=internal_api::GarbageCollectionTask)]
 pub struct GarbageCollectionTask {
     pub namespace: String,
-    pub id: String,
-    pub content_id: String,
-    pub parent_content_id: String,
+    pub id: GarbageCollectionTaskId,
+    pub content_id: ContentMetadataId,
+    pub parent_content_id: ContentMetadataId,
     pub output_tables: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
@@ -385,8 +387,14 @@ impl Default for GarbageCollectionTask {
         Self {
             namespace: "test_namespace".to_string(),
             id: "test_id".to_string(),
-            content_id: "test_content_id".to_string(),
-            parent_content_id: "test_parent_content_id".to_string(),
+            content_id: ContentMetadataId {
+                id: "test_content_id".to_string(),
+                version: 1,
+            },
+            parent_content_id: ContentMetadataId {
+                id: "test_parent_content_id".to_string(),
+                version: 1,
+            },
             output_tables: HashSet::new(),
             outcome: TaskOutcome::Unknown,
             blob_store_path: "test_blob_store_path".to_string(),
@@ -408,12 +416,24 @@ impl GarbageCollectionTask {
         Self {
             namespace: namespace.to_string(),
             id,
-            content_id: content_metadata.id.id,
-            parent_content_id: content_metadata.parent_id.id,
+            content_id: content_metadata.id,
+            parent_content_id: content_metadata.parent_id,
             output_tables,
             outcome: TaskOutcome::Unknown,
             blob_store_path: content_metadata.storage_url,
             assigned_to: None,
+        }
+    }
+}
+
+impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
+    fn from(value: GarbageCollectionTask) -> Self {
+        Self {
+            task_id: value.id,
+            namespace: value.namespace,
+            content_id: value.content_id.id,
+            output_tables: value.output_tables.into_iter().collect::<Vec<String>>(),
+            blob_store_path: value.blob_store_path,
         }
     }
 }
