@@ -6,14 +6,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use arrow_array::{
-    cast::as_string_array,
-    types::Float32Type,
-    Array,
-    FixedSizeListArray,
-    PrimitiveArray,
-    RecordBatch,
-    RecordBatchIterator,
-    StringArray,
+    cast::as_string_array, types::Float32Type, Array, FixedSizeListArray, PrimitiveArray,
+    RecordBatch, RecordBatchIterator, StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
@@ -22,8 +16,7 @@ use lance::dataset::BatchUDF;
 use lancedb::{
     query::{ExecutableQuery, QueryBase},
     table::NewColumnTransform,
-    Connection,
-    Table,
+    Connection, Table,
 };
 use tracing;
 
@@ -415,7 +408,7 @@ mod tests {
     }
 
     fn make_id() -> String {
-        DataManager::make_id("namespace", &nanoid::nanoid!(), &None)
+        DataManager::make_id("namespace", &None, &nanoid::nanoid!())
     }
 
     #[tokio::test]

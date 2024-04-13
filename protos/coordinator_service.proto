@@ -359,7 +359,7 @@ message ContentMetadata {
     string source = 9;
     uint64 size_bytes = 10;
     string hash = 11;
-    map<string, uint64> extraction_policy_ids = 11;
+    map<string, uint64> extraction_policy_ids = 12;
 }
 
 message CreateContentRequest {

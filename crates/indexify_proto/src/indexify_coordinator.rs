@@ -9,7 +9,10 @@ pub struct GetContentMetadataRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetContentMetadataResponse {
     #[prost(map = "string, message", tag = "1")]
-    pub content_list: ::std::collections::HashMap<::prost::alloc::string::String, ContentMetadata>,
+    pub content_list: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ContentMetadata,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -280,8 +283,10 @@ pub struct Task {
     pub extraction_policy_id: ::prost::alloc::string::String,
     /// mapping of extractor names to index tables
     #[prost(map = "string, string", tag = "7")]
-    pub output_index_mapping:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub output_index_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(enumeration = "TaskOutcome", tag = "8")]
     pub outcome: i32,
     /// list of all tables that the content may belong to
@@ -307,11 +312,15 @@ pub struct Extractor {
     #[prost(string, tag = "3")]
     pub input_params: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "4")]
-    pub embedding_schemas:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub embedding_schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(map = "string, string", tag = "5")]
-    pub metadata_schemas:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub metadata_schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(string, repeated, tag = "6")]
     pub input_mime_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
@@ -337,8 +346,10 @@ pub struct ListContentRequest {
     #[prost(string, tag = "3")]
     pub parent_id: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "4")]
-    pub labels_eq:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub labels_eq: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -395,8 +406,10 @@ pub struct ExtractionPolicy {
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "5")]
-    pub filters:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub filters: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,
 }
@@ -412,8 +425,10 @@ pub struct ExtractionPolicyRequest {
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "5")]
-    pub filters:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub filters: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,
     #[prost(int64, tag = "7")]
@@ -429,11 +444,15 @@ pub struct ExtractionPolicyResponse {
     #[prost(message, optional, tag = "3")]
     pub extraction_policy: ::core::option::Option<ExtractionPolicy>,
     #[prost(map = "string, string", tag = "4")]
-    pub index_name_table_mapping:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub index_name_table_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(map = "string, string", tag = "5")]
-    pub output_index_name_mapping:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub output_index_name_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -448,8 +467,10 @@ pub struct ContentMetadata {
     #[prost(string, tag = "4")]
     pub mime: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "5")]
-    pub labels:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub labels: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(string, tag = "6")]
     pub storage_url: ::prost::alloc::string::String,
     #[prost(int64, tag = "7")]
@@ -462,8 +483,11 @@ pub struct ContentMetadata {
     pub size_bytes: u64,
     #[prost(string, tag = "11")]
     pub hash: ::prost::alloc::string::String,
-    #[prost(map = "string, uint64", tag = "11")]
-    pub extraction_policy_ids: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    #[prost(map = "string, uint64", tag = "12")]
+    pub extraction_policy_ids: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -557,7 +581,10 @@ pub struct Uint64List {
 pub struct RaftMetricsSnapshotResponse {
     ///   indexify metrics
     #[prost(map = "string, uint64", tag = "1")]
-    pub fail_connect_to_peer: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub fail_connect_to_peer: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, uint64", tag = "2")]
     pub sent_bytes: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
     #[prost(map = "string, uint64", tag = "3")]
@@ -565,23 +592,45 @@ pub struct RaftMetricsSnapshotResponse {
     #[prost(map = "string, uint64", tag = "4")]
     pub sent_failures: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
     #[prost(map = "string, uint64", tag = "5")]
-    pub snapshot_send_success: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub snapshot_send_success: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, uint64", tag = "6")]
-    pub snapshot_send_failure: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub snapshot_send_failure: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, uint64", tag = "7")]
-    pub snapshot_recv_success: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub snapshot_recv_success: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, uint64", tag = "8")]
-    pub snapshot_recv_failure: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub snapshot_recv_failure: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, uint64", tag = "9")]
-    pub snapshot_send_inflights: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub snapshot_send_inflights: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, uint64", tag = "10")]
-    pub snapshot_recv_inflights: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    pub snapshot_recv_inflights: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        u64,
+    >,
     #[prost(map = "string, message", tag = "11")]
-    pub snapshot_sent_seconds:
-        ::std::collections::HashMap<::prost::alloc::string::String, Uint64List>,
+    pub snapshot_sent_seconds: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        Uint64List,
+    >,
     #[prost(map = "string, message", tag = "12")]
-    pub snapshot_recv_seconds:
-        ::std::collections::HashMap<::prost::alloc::string::String, Uint64List>,
+    pub snapshot_recv_seconds: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        Uint64List,
+    >,
     #[prost(uint64, repeated, tag = "13")]
     pub snapshot_size: ::prost::alloc::vec::Vec<u64>,
     #[prost(uint64, tag = "14")]
@@ -607,8 +656,10 @@ pub struct GetAllTaskAssignmentRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TaskAssignments {
     #[prost(map = "string, string", tag = "1")]
-    pub assignments:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub assignments: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -642,8 +693,8 @@ impl TaskOutcome {
 /// Generated client implementations.
 pub mod coordinator_service_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct CoordinatorServiceClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -687,8 +738,9 @@ pub mod coordinator_service_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             CoordinatorServiceClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -726,89 +778,121 @@ pub mod coordinator_service_client {
         pub async fn create_content(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateContentResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateContentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/CreateContent",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "CreateContent",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "CreateContent",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn update_content(
             &mut self,
             request: impl tonic::IntoRequest<super::UpdateContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::UpdateContentResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::UpdateContentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/UpdateContent",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "UpdateContent",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "UpdateContent",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn tombstone_content(
             &mut self,
             request: impl tonic::IntoRequest<super::TombstoneContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::TombstoneContentResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::TombstoneContentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/TombstoneContent",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "TombstoneContent",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "TombstoneContent",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_content_metadata(
             &mut self,
             request: impl tonic::IntoRequest<super::GetContentMetadataRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetContentMetadataResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetContentMetadataResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetContentMetadata",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetContentMetadata",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetContentMetadata",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_content_tree_metadata(
@@ -818,65 +902,87 @@ pub mod coordinator_service_client {
             tonic::Response<super::GetContentTreeMetadataResponse>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetContentTreeMetadata",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetContentTreeMetadata",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetContentTreeMetadata",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_content(
             &mut self,
             request: impl tonic::IntoRequest<super::ListContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListContentResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ListContentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListContent",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListContent",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListContent",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn create_extraction_policy(
             &mut self,
             request: impl tonic::IntoRequest<super::ExtractionPolicyRequest>,
-        ) -> std::result::Result<tonic::Response<super::ExtractionPolicyResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ExtractionPolicyResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/CreateExtractionPolicy",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "CreateExtractionPolicy",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "CreateExtractionPolicy",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_extraction_policies(
@@ -886,131 +992,171 @@ pub mod coordinator_service_client {
             tonic::Response<super::ListExtractionPoliciesResponse>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListExtractionPolicies",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListExtractionPolicies",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListExtractionPolicies",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn create_ns(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateNamespaceRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateNamespaceResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateNamespaceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/CreateNS",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "CreateNS",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "CreateNS",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_ns(
             &mut self,
             request: impl tonic::IntoRequest<super::ListNamespaceRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListNamespaceResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ListNamespaceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListNS",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListNS",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("indexify_coordinator.CoordinatorService", "ListNS"),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_ns(
             &mut self,
             request: impl tonic::IntoRequest<super::GetNamespaceRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetNamespaceResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetNamespaceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetNS",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetNS",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("indexify_coordinator.CoordinatorService", "GetNS"),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_extractors(
             &mut self,
             request: impl tonic::IntoRequest<super::ListExtractorsRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListExtractorsResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ListExtractorsResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListExtractors",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListExtractors",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListExtractors",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn register_executor(
             &mut self,
             request: impl tonic::IntoRequest<super::RegisterExecutorRequest>,
-        ) -> std::result::Result<tonic::Response<super::RegisterExecutorResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::RegisterExecutorResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/RegisterExecutor",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "RegisterExecutor",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "RegisterExecutor",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn register_ingestion_server(
@@ -1020,89 +1166,119 @@ pub mod coordinator_service_client {
             tonic::Response<super::RegisterIngestionServerResponse>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/RegisterIngestionServer",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "RegisterIngestionServer",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "RegisterIngestionServer",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn remove_ingestion_server(
             &mut self,
             request: impl tonic::IntoRequest<super::RemoveIngestionServerRequest>,
-        ) -> std::result::Result<tonic::Response<super::RemoveIngestionServerResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveIngestionServerResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/RemoveIngestionServer",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "RemoveIngestionServer",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "RemoveIngestionServer",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn create_gc_tasks(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateGcTasksRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateGcTasksResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateGcTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/CreateGCTasks",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "CreateGCTasks",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "CreateGCTasks",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn gc_tasks_stream(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::GcTaskAcknowledgement>,
+            request: impl tonic::IntoStreamingRequest<
+                Message = super::GcTaskAcknowledgement,
+            >,
         ) -> std::result::Result<
             tonic::Response<tonic::codec::Streaming<super::CoordinatorCommand>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GCTasksStream",
             );
             let mut req = request.into_streaming_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GCTasksStream",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GCTasksStream",
+                    ),
+                );
             self.inner.streaming(req, path, codec).await
         }
         pub async fn heartbeat(
@@ -1112,86 +1288,117 @@ pub mod coordinator_service_client {
             tonic::Response<tonic::codec::Streaming<super::HeartbeatResponse>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/Heartbeat",
             );
             let mut req = request.into_streaming_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "Heartbeat",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "Heartbeat",
+                    ),
+                );
             self.inner.streaming(req, path, codec).await
         }
         pub async fn list_indexes(
             &mut self,
             request: impl tonic::IntoRequest<super::ListIndexesRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListIndexesResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ListIndexesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListIndexes",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListIndexes",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListIndexes",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_index(
             &mut self,
             request: impl tonic::IntoRequest<super::GetIndexRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetIndexResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetIndexResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetIndex",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetIndex",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetIndex",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn create_index(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateIndexRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateIndexResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateIndexResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/CreateIndex",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "CreateIndex",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "CreateIndex",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_extractor_coordinates(
@@ -1201,172 +1408,237 @@ pub mod coordinator_service_client {
             tonic::Response<super::GetExtractorCoordinatesResponse>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetExtractorCoordinates",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetExtractorCoordinates",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetExtractorCoordinates",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn update_task(
             &mut self,
             request: impl tonic::IntoRequest<super::UpdateTaskRequest>,
-        ) -> std::result::Result<tonic::Response<super::UpdateTaskResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::UpdateTaskResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/UpdateTask",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "UpdateTask",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "UpdateTask",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_state_changes(
             &mut self,
             request: impl tonic::IntoRequest<super::ListStateChangesRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListStateChangesResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ListStateChangesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListStateChanges",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListStateChanges",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListStateChanges",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_tasks(
             &mut self,
             request: impl tonic::IntoRequest<super::ListTasksRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListTasksResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ListTasksResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListTasks",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListTasks",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListTasks",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_schema(
             &mut self,
             request: impl tonic::IntoRequest<super::GetSchemaRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetSchemaResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetSchemaResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetSchema",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetSchema",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetSchema",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn list_schemas(
             &mut self,
             request: impl tonic::IntoRequest<super::GetAllSchemaRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetAllSchemaResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetAllSchemaResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/ListSchemas",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "ListSchemas",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "ListSchemas",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_raft_metrics_snapshot(
             &mut self,
             request: impl tonic::IntoRequest<super::GetRaftMetricsSnapshotRequest>,
-        ) -> std::result::Result<tonic::Response<super::RaftMetricsSnapshotResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::RaftMetricsSnapshotResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetRaftMetricsSnapshot",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetRaftMetricsSnapshot",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetRaftMetricsSnapshot",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_all_task_assignments(
             &mut self,
             request: impl tonic::IntoRequest<super::GetAllTaskAssignmentRequest>,
-        ) -> std::result::Result<tonic::Response<super::TaskAssignments>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::TaskAssignments>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/indexify_coordinator.CoordinatorService/GetAllTaskAssignments",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "indexify_coordinator.CoordinatorService",
-                "GetAllTaskAssignments",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetAllTaskAssignments",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
     }
@@ -1381,19 +1653,31 @@ pub mod coordinator_service_server {
         async fn create_content(
             &self,
             request: tonic::Request<super::CreateContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateContentResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateContentResponse>,
+            tonic::Status,
+        >;
         async fn update_content(
             &self,
             request: tonic::Request<super::UpdateContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::UpdateContentResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::UpdateContentResponse>,
+            tonic::Status,
+        >;
         async fn tombstone_content(
             &self,
             request: tonic::Request<super::TombstoneContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::TombstoneContentResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::TombstoneContentResponse>,
+            tonic::Status,
+        >;
         async fn get_content_metadata(
             &self,
             request: tonic::Request<super::GetContentMetadataRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetContentMetadataResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetContentMetadataResponse>,
+            tonic::Status,
+        >;
         async fn get_content_tree_metadata(
             &self,
             request: tonic::Request<super::GetContentTreeMetadataRequest>,
@@ -1404,11 +1688,17 @@ pub mod coordinator_service_server {
         async fn list_content(
             &self,
             request: tonic::Request<super::ListContentRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListContentResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListContentResponse>,
+            tonic::Status,
+        >;
         async fn create_extraction_policy(
             &self,
             request: tonic::Request<super::ExtractionPolicyRequest>,
-        ) -> std::result::Result<tonic::Response<super::ExtractionPolicyResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ExtractionPolicyResponse>,
+            tonic::Status,
+        >;
         async fn list_extraction_policies(
             &self,
             request: tonic::Request<super::ListExtractionPoliciesRequest>,
@@ -1419,23 +1709,38 @@ pub mod coordinator_service_server {
         async fn create_ns(
             &self,
             request: tonic::Request<super::CreateNamespaceRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateNamespaceResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateNamespaceResponse>,
+            tonic::Status,
+        >;
         async fn list_ns(
             &self,
             request: tonic::Request<super::ListNamespaceRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListNamespaceResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListNamespaceResponse>,
+            tonic::Status,
+        >;
         async fn get_ns(
             &self,
             request: tonic::Request<super::GetNamespaceRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetNamespaceResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetNamespaceResponse>,
+            tonic::Status,
+        >;
         async fn list_extractors(
             &self,
             request: tonic::Request<super::ListExtractorsRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListExtractorsResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListExtractorsResponse>,
+            tonic::Status,
+        >;
         async fn register_executor(
             &self,
             request: tonic::Request<super::RegisterExecutorRequest>,
-        ) -> std::result::Result<tonic::Response<super::RegisterExecutorResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::RegisterExecutorResponse>,
+            tonic::Status,
+        >;
         async fn register_ingestion_server(
             &self,
             request: tonic::Request<super::RegisterIngestionServerRequest>,
@@ -1446,24 +1751,35 @@ pub mod coordinator_service_server {
         async fn remove_ingestion_server(
             &self,
             request: tonic::Request<super::RemoveIngestionServerRequest>,
-        ) -> std::result::Result<tonic::Response<super::RemoveIngestionServerResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveIngestionServerResponse>,
+            tonic::Status,
+        >;
         async fn create_gc_tasks(
             &self,
             request: tonic::Request<super::CreateGcTasksRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateGcTasksResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateGcTasksResponse>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the GCTasksStream method.
         type GCTasksStreamStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::CoordinatorCommand, tonic::Status>,
-            > + Send
+            >
+            + Send
             + 'static;
         async fn gc_tasks_stream(
             &self,
             request: tonic::Request<tonic::Streaming<super::GcTaskAcknowledgement>>,
-        ) -> std::result::Result<tonic::Response<Self::GCTasksStreamStream>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<Self::GCTasksStreamStream>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the Heartbeat method.
         type HeartbeatStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::HeartbeatResponse, tonic::Status>,
-            > + Send
+            >
+            + Send
             + 'static;
         async fn heartbeat(
             &self,
@@ -1472,15 +1788,24 @@ pub mod coordinator_service_server {
         async fn list_indexes(
             &self,
             request: tonic::Request<super::ListIndexesRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListIndexesResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListIndexesResponse>,
+            tonic::Status,
+        >;
         async fn get_index(
             &self,
             request: tonic::Request<super::GetIndexRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetIndexResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetIndexResponse>,
+            tonic::Status,
+        >;
         async fn create_index(
             &self,
             request: tonic::Request<super::CreateIndexRequest>,
-        ) -> std::result::Result<tonic::Response<super::CreateIndexResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::CreateIndexResponse>,
+            tonic::Status,
+        >;
         async fn get_extractor_coordinates(
             &self,
             request: tonic::Request<super::GetExtractorCoordinatesRequest>,
@@ -1491,27 +1816,45 @@ pub mod coordinator_service_server {
         async fn update_task(
             &self,
             request: tonic::Request<super::UpdateTaskRequest>,
-        ) -> std::result::Result<tonic::Response<super::UpdateTaskResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::UpdateTaskResponse>,
+            tonic::Status,
+        >;
         async fn list_state_changes(
             &self,
             request: tonic::Request<super::ListStateChangesRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListStateChangesResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListStateChangesResponse>,
+            tonic::Status,
+        >;
         async fn list_tasks(
             &self,
             request: tonic::Request<super::ListTasksRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListTasksResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListTasksResponse>,
+            tonic::Status,
+        >;
         async fn get_schema(
             &self,
             request: tonic::Request<super::GetSchemaRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetSchemaResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetSchemaResponse>,
+            tonic::Status,
+        >;
         async fn list_schemas(
             &self,
             request: tonic::Request<super::GetAllSchemaRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetAllSchemaResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetAllSchemaResponse>,
+            tonic::Status,
+        >;
         async fn get_raft_metrics_snapshot(
             &self,
             request: tonic::Request<super::GetRaftMetricsSnapshotRequest>,
-        ) -> std::result::Result<tonic::Response<super::RaftMetricsSnapshotResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::RaftMetricsSnapshotResponse>,
+            tonic::Status,
+        >;
         async fn get_all_task_assignments(
             &self,
             request: tonic::Request<super::GetAllTaskAssignmentRequest>,
@@ -1540,7 +1883,10 @@ pub mod coordinator_service_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -1596,19 +1942,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/CreateContent" => {
                     #[allow(non_camel_case_types)]
                     struct CreateContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::CreateContentRequest>
-                        for CreateContentSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::CreateContentRequest>
+                    for CreateContentSvc<T> {
                         type Response = super::CreateContentResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CreateContentRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_content(&inner, request).await
+                                <T as CoordinatorService>::create_content(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1639,19 +1989,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/UpdateContent" => {
                     #[allow(non_camel_case_types)]
                     struct UpdateContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::UpdateContentRequest>
-                        for UpdateContentSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::UpdateContentRequest>
+                    for UpdateContentSvc<T> {
                         type Response = super::UpdateContentResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::UpdateContentRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::update_content(&inner, request).await
+                                <T as CoordinatorService>::update_content(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1682,19 +2036,26 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/TombstoneContent" => {
                     #[allow(non_camel_case_types)]
                     struct TombstoneContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::TombstoneContentRequest>
-                        for TombstoneContentSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::TombstoneContentRequest>
+                    for TombstoneContentSvc<T> {
                         type Response = super::TombstoneContentResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::TombstoneContentRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::tombstone_content(&inner, request).await
+                                <T as CoordinatorService>::tombstone_content(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1725,19 +2086,25 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetContentMetadata" => {
                     #[allow(non_camel_case_types)]
                     struct GetContentMetadataSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetContentMetadataRequest>
-                        for GetContentMetadataSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetContentMetadataRequest>
+                    for GetContentMetadataSvc<T> {
                         type Response = super::GetContentMetadataResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetContentMetadataRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::get_content_metadata(&inner, request)
+                                <T as CoordinatorService>::get_content_metadata(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1769,12 +2136,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetContentTreeMetadata" => {
                     #[allow(non_camel_case_types)]
                     struct GetContentTreeMetadataSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetContentTreeMetadataRequest>
-                        for GetContentTreeMetadataSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetContentTreeMetadataRequest>
+                    for GetContentTreeMetadataSvc<T> {
                         type Response = super::GetContentTreeMetadataResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetContentTreeMetadataRequest>,
@@ -1782,9 +2152,10 @@ pub mod coordinator_service_server {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 <T as CoordinatorService>::get_content_tree_metadata(
-                                    &inner, request,
-                                )
-                                .await
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1815,19 +2186,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListContent" => {
                     #[allow(non_camel_case_types)]
                     struct ListContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ListContentRequest>
-                        for ListContentSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListContentRequest>
+                    for ListContentSvc<T> {
                         type Response = super::ListContentResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListContentRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_content(&inner, request).await
+                                <T as CoordinatorService>::list_content(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1858,19 +2233,25 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/CreateExtractionPolicy" => {
                     #[allow(non_camel_case_types)]
                     struct CreateExtractionPolicySvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ExtractionPolicyRequest>
-                        for CreateExtractionPolicySvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ExtractionPolicyRequest>
+                    for CreateExtractionPolicySvc<T> {
                         type Response = super::ExtractionPolicyResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ExtractionPolicyRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_extraction_policy(&inner, request)
+                                <T as CoordinatorService>::create_extraction_policy(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1902,19 +2283,25 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListExtractionPolicies" => {
                     #[allow(non_camel_case_types)]
                     struct ListExtractionPoliciesSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ListExtractionPoliciesRequest>
-                        for ListExtractionPoliciesSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListExtractionPoliciesRequest>
+                    for ListExtractionPoliciesSvc<T> {
                         type Response = super::ListExtractionPoliciesResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListExtractionPoliciesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_extraction_policies(&inner, request)
+                                <T as CoordinatorService>::list_extraction_policies(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1946,12 +2333,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/CreateNS" => {
                     #[allow(non_camel_case_types)]
                     struct CreateNSSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::CreateNamespaceRequest>
-                        for CreateNSSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::CreateNamespaceRequest>
+                    for CreateNSSvc<T> {
                         type Response = super::CreateNamespaceResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CreateNamespaceRequest>,
@@ -1989,11 +2379,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListNS" => {
                     #[allow(non_camel_case_types)]
                     struct ListNSSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ListNamespaceRequest> for ListNSSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListNamespaceRequest>
+                    for ListNSSvc<T> {
                         type Response = super::ListNamespaceResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListNamespaceRequest>,
@@ -2031,11 +2425,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetNS" => {
                     #[allow(non_camel_case_types)]
                     struct GetNSSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetNamespaceRequest> for GetNSSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetNamespaceRequest>
+                    for GetNSSvc<T> {
                         type Response = super::GetNamespaceResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetNamespaceRequest>,
@@ -2073,19 +2471,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListExtractors" => {
                     #[allow(non_camel_case_types)]
                     struct ListExtractorsSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ListExtractorsRequest>
-                        for ListExtractorsSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListExtractorsRequest>
+                    for ListExtractorsSvc<T> {
                         type Response = super::ListExtractorsResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListExtractorsRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_extractors(&inner, request).await
+                                <T as CoordinatorService>::list_extractors(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2116,19 +2518,26 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/RegisterExecutor" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterExecutorSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::RegisterExecutorRequest>
-                        for RegisterExecutorSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::RegisterExecutorRequest>
+                    for RegisterExecutorSvc<T> {
                         type Response = super::RegisterExecutorResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RegisterExecutorRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::register_executor(&inner, request).await
+                                <T as CoordinatorService>::register_executor(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2159,22 +2568,28 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/RegisterIngestionServer" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterIngestionServerSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::RegisterIngestionServerRequest>
-                        for RegisterIngestionServerSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::RegisterIngestionServerRequest>
+                    for RegisterIngestionServerSvc<T> {
                         type Response = super::RegisterIngestionServerResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RegisterIngestionServerRequest>,
+                            request: tonic::Request<
+                                super::RegisterIngestionServerRequest,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 <T as CoordinatorService>::register_ingestion_server(
-                                    &inner, request,
-                                )
-                                .await
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2205,19 +2620,25 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/RemoveIngestionServer" => {
                     #[allow(non_camel_case_types)]
                     struct RemoveIngestionServerSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::RemoveIngestionServerRequest>
-                        for RemoveIngestionServerSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::RemoveIngestionServerRequest>
+                    for RemoveIngestionServerSvc<T> {
                         type Response = super::RemoveIngestionServerResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RemoveIngestionServerRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::remove_ingestion_server(&inner, request)
+                                <T as CoordinatorService>::remove_ingestion_server(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -2249,19 +2670,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/CreateGCTasks" => {
                     #[allow(non_camel_case_types)]
                     struct CreateGCTasksSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::CreateGcTasksRequest>
-                        for CreateGCTasksSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::CreateGcTasksRequest>
+                    for CreateGCTasksSvc<T> {
                         type Response = super::CreateGcTasksResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CreateGcTasksRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_gc_tasks(&inner, request).await
+                                <T as CoordinatorService>::create_gc_tasks(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2292,21 +2717,26 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GCTasksStream" => {
                     #[allow(non_camel_case_types)]
                     struct GCTasksStreamSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::StreamingService<super::GcTaskAcknowledgement>
-                        for GCTasksStreamSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::StreamingService<super::GcTaskAcknowledgement>
+                    for GCTasksStreamSvc<T> {
                         type Response = super::CoordinatorCommand;
                         type ResponseStream = T::GCTasksStreamStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<tonic::Streaming<super::GcTaskAcknowledgement>>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::GcTaskAcknowledgement>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::gc_tasks_stream(&inner, request).await
+                                <T as CoordinatorService>::gc_tasks_stream(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2337,17 +2767,21 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/Heartbeat" => {
                     #[allow(non_camel_case_types)]
                     struct HeartbeatSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::StreamingService<super::HeartbeatRequest>
-                        for HeartbeatSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::StreamingService<super::HeartbeatRequest>
+                    for HeartbeatSvc<T> {
                         type Response = super::HeartbeatResponse;
                         type ResponseStream = T::HeartbeatStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<tonic::Streaming<super::HeartbeatRequest>>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::HeartbeatRequest>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -2382,19 +2816,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListIndexes" => {
                     #[allow(non_camel_case_types)]
                     struct ListIndexesSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ListIndexesRequest>
-                        for ListIndexesSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListIndexesRequest>
+                    for ListIndexesSvc<T> {
                         type Response = super::ListIndexesResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListIndexesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_indexes(&inner, request).await
+                                <T as CoordinatorService>::list_indexes(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2425,9 +2863,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetIndex" => {
                     #[allow(non_camel_case_types)]
                     struct GetIndexSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService> tonic::server::UnaryService<super::GetIndexRequest> for GetIndexSvc<T> {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetIndexRequest>
+                    for GetIndexSvc<T> {
                         type Response = super::GetIndexResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetIndexRequest>,
@@ -2465,19 +2909,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/CreateIndex" => {
                     #[allow(non_camel_case_types)]
                     struct CreateIndexSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::CreateIndexRequest>
-                        for CreateIndexSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::CreateIndexRequest>
+                    for CreateIndexSvc<T> {
                         type Response = super::CreateIndexResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CreateIndexRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_index(&inner, request).await
+                                <T as CoordinatorService>::create_index(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2508,22 +2956,28 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetExtractorCoordinates" => {
                     #[allow(non_camel_case_types)]
                     struct GetExtractorCoordinatesSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetExtractorCoordinatesRequest>
-                        for GetExtractorCoordinatesSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetExtractorCoordinatesRequest>
+                    for GetExtractorCoordinatesSvc<T> {
                         type Response = super::GetExtractorCoordinatesResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::GetExtractorCoordinatesRequest>,
+                            request: tonic::Request<
+                                super::GetExtractorCoordinatesRequest,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 <T as CoordinatorService>::get_extractor_coordinates(
-                                    &inner, request,
-                                )
-                                .await
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2554,18 +3008,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/UpdateTask" => {
                     #[allow(non_camel_case_types)]
                     struct UpdateTaskSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::UpdateTaskRequest> for UpdateTaskSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::UpdateTaskRequest>
+                    for UpdateTaskSvc<T> {
                         type Response = super::UpdateTaskResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::UpdateTaskRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::update_task(&inner, request).await
+                                <T as CoordinatorService>::update_task(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2596,19 +3055,26 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListStateChanges" => {
                     #[allow(non_camel_case_types)]
                     struct ListStateChangesSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::ListStateChangesRequest>
-                        for ListStateChangesSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListStateChangesRequest>
+                    for ListStateChangesSvc<T> {
                         type Response = super::ListStateChangesResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListStateChangesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_state_changes(&inner, request).await
+                                <T as CoordinatorService>::list_state_changes(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2639,11 +3105,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListTasks" => {
                     #[allow(non_camel_case_types)]
                     struct ListTasksSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService> tonic::server::UnaryService<super::ListTasksRequest>
-                        for ListTasksSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::ListTasksRequest>
+                    for ListTasksSvc<T> {
                         type Response = super::ListTasksResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListTasksRequest>,
@@ -2681,11 +3151,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetSchema" => {
                     #[allow(non_camel_case_types)]
                     struct GetSchemaSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService> tonic::server::UnaryService<super::GetSchemaRequest>
-                        for GetSchemaSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetSchemaRequest>
+                    for GetSchemaSvc<T> {
                         type Response = super::GetSchemaResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetSchemaRequest>,
@@ -2723,19 +3197,23 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/ListSchemas" => {
                     #[allow(non_camel_case_types)]
                     struct ListSchemasSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetAllSchemaRequest>
-                        for ListSchemasSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetAllSchemaRequest>
+                    for ListSchemasSvc<T> {
                         type Response = super::GetAllSchemaResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetAllSchemaRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::list_schemas(&inner, request).await
+                                <T as CoordinatorService>::list_schemas(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2766,12 +3244,15 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetRaftMetricsSnapshot" => {
                     #[allow(non_camel_case_types)]
                     struct GetRaftMetricsSnapshotSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetRaftMetricsSnapshotRequest>
-                        for GetRaftMetricsSnapshotSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetRaftMetricsSnapshotRequest>
+                    for GetRaftMetricsSnapshotSvc<T> {
                         type Response = super::RaftMetricsSnapshotResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetRaftMetricsSnapshotRequest>,
@@ -2779,9 +3260,10 @@ pub mod coordinator_service_server {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 <T as CoordinatorService>::get_raft_metrics_snapshot(
-                                    &inner, request,
-                                )
-                                .await
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -2812,19 +3294,25 @@ pub mod coordinator_service_server {
                 "/indexify_coordinator.CoordinatorService/GetAllTaskAssignments" => {
                     #[allow(non_camel_case_types)]
                     struct GetAllTaskAssignmentsSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<T: CoordinatorService>
-                        tonic::server::UnaryService<super::GetAllTaskAssignmentRequest>
-                        for GetAllTaskAssignmentsSvc<T>
-                    {
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetAllTaskAssignmentRequest>
+                    for GetAllTaskAssignmentsSvc<T> {
                         type Response = super::TaskAssignments;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetAllTaskAssignmentRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::get_all_task_assignments(&inner, request)
+                                <T as CoordinatorService>::get_all_task_assignments(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -2853,14 +3341,18 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }
@@ -2886,7 +3378,8 @@ pub mod coordinator_service_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: CoordinatorService> tonic::server::NamedService for CoordinatorServiceServer<T> {
+    impl<T: CoordinatorService> tonic::server::NamedService
+    for CoordinatorServiceServer<T> {
         const NAME: &'static str = "indexify_coordinator.CoordinatorService";
     }
 }

@@ -265,27 +265,6 @@ impl DataManager {
                 )
                 .await?;
 
-            //  Check if the content id with the hash already exists, if it does don't
-            // create metadata and remove the written file
-            if content_id.is_some() {
-                let retrieved_content_metadata = self
-                    .get_content_metadata(namespace, vec![content_id.unwrap().into()])
-                    .await?;
-                if let Some(retrieved_content_metadata) = retrieved_content_metadata.first() {
-                    if retrieved_content_metadata.hash == content_metadata.hash {
-                        self.blob_storage
-                            .delete(&content_metadata.file_name)
-                            .await?;
-                        return Ok(());
-                    }
-                } else {
-                    self.blob_storage
-                        .delete(&content_metadata.file_name)
-                        .await?;
-                    return Err(anyhow::anyhow!("Failed to retrieve content metadata with id {} when trying to compare hashes", content_id.unwrap()));
-                }
-            }
-
             //  Content id either does not exist or hash is different
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),

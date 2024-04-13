@@ -9,10 +9,7 @@ use indexify_internal_api::StateChange;
 use tracing::info;
 
 use crate::{
-    state::{
-        store::{ExtractionPolicyId, TaskId},
-        SharedState,
-    },
+    state::SharedState,
     task_allocator::{planner::plan::TaskAllocationPlan, TaskAllocator},
 };
 

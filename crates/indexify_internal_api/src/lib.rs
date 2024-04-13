@@ -465,33 +465,6 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ContentExtractionPolicyMapping {
-    pub content_id: ContentMetadataId,
-    pub extraction_policy_ids: HashSet<String>, /*  NOTE: This is a hash set because the
-                                                 * extraction policy should only be applied to
-                                                 * a piece of content once */
-    pub time_of_policy_completion: HashMap<String, SystemTime>, /* policy name -> time instant.
-                                                                 * This will be written to when a task is updated/completed */
-}
-
-impl Default for ContentExtractionPolicyMapping {
-    fn default() -> Self {
-        let mut extraction_policy_ids = HashSet::new();
-        extraction_policy_ids.insert("extraction_policy_id".to_string());
-        let time_of_policy_completion = HashMap::new();
-
-        Self {
-            content_id: ContentMetadataId {
-                id: "test_content_id".to_string(),
-                version: 1,
-            },
-            extraction_policy_ids,
-            time_of_policy_completion,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ContentMetadataId {
     pub id: String,
@@ -623,6 +596,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             size_bytes: value.size_bytes,
             tombstoned: false,
             hash: value.hash,
+            extraction_policy_ids: value.extraction_policy_ids,
         })
     }
 }
@@ -652,28 +626,6 @@ impl Default for ContentMetadata {
             tombstoned: false,
             hash: "test_hash".to_string(),
         }
-        }
-    }
-}
-
-impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: value.id,
-            parent_id: value.parent_id,
-            name: value.file_name,
-            content_type: value.mime,
-            labels: value.labels,
-            storage_url: value.storage_url,
-            created_at: value.created_at,
-            namespace: value.namespace,
-            source: value.source,
-            size_bytes: value.size_bytes,
-            tombstoned: false,
-            extraction_policy_ids: value.extraction_policy_ids,
-        })
     }
 }
 

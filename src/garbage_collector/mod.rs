@@ -73,7 +73,7 @@ impl GarbageCollector {
         let mut created_gc_tasks = Vec::new();
         let namespace = content_metadata[0].namespace.clone();
         for content in content_metadata {
-            let output_tables = outputs.get(&content.id).cloned().unwrap_or_default();
+            let output_tables = outputs.get(&content.id.id).cloned().unwrap_or_default();
             let mut gc_task = indexify_internal_api::GarbageCollectionTask::new(
                 &namespace,
                 content,

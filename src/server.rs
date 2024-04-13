@@ -564,7 +564,7 @@ async fn add_texts(
         .collect();
     state
         .data_manager
-        .add_texts(&namespace, content, None)
+        .add_texts(&namespace, content)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(

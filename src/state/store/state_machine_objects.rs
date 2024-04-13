@@ -372,12 +372,12 @@ impl From<HashMap<NamespaceName, HashSet<SchemaId>>> for SchemasByNamespace {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ContentChildrenTable {
-    content_children: Arc<RwLock<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>>>,
+    content_children_table: Arc<RwLock<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>>>,
 }
 
 impl ContentChildrenTable {
     pub fn insert(&self, parent_id: &ContentMetadataId, child_id: &ContentMetadataId) {
-        let mut guard = self.content_children.write().unwrap();
+        let mut guard = self.content_children_table.write().unwrap();
         guard
             .entry(parent_id.clone())
             .or_default()
@@ -385,7 +385,7 @@ impl ContentChildrenTable {
     }
 
     pub fn remove(&self, parent_id: &ContentMetadataId, child_id: &ContentMetadataId) {
-        let mut guard = self.content_children.write().unwrap();
+        let mut guard = self.content_children_table.write().unwrap();
         if let Some(children) = guard.get_mut(parent_id) {
             children.remove(child_id);
             if children.is_empty() {
@@ -395,12 +395,12 @@ impl ContentChildrenTable {
     }
 
     pub fn remove_all(&self, parent_id: &ContentMetadataId) {
-        let mut guard = self.content_children.write().unwrap();
+        let mut guard = self.content_children_table.write().unwrap();
         guard.remove(parent_id);
     }
 
     pub fn get_children(&self, parent_id: &ContentMetadataId) -> HashSet<ContentMetadataId> {
-        let guard = self.content_children.read().unwrap();
+        let guard = self.content_children_table.read().unwrap();
         guard.get(parent_id).cloned().unwrap_or_default()
     }
 
@@ -409,21 +409,25 @@ impl ContentChildrenTable {
         old_parent_id: &ContentMetadataId,
         new_parent_id: &ContentMetadataId,
     ) {
-        let mut guard = self.content_children.write().unwrap();
+        let mut guard = self.content_children_table.write().unwrap();
         let children = guard.remove(old_parent_id).unwrap_or_default();
         guard.insert(new_parent_id.clone(), children);
     }
 
     pub fn inner(&self) -> HashMap<ContentMetadataId, HashSet<ContentMetadataId>> {
-        let guard = self.content_children.read().unwrap();
+        let guard = self.content_children_table.read().unwrap();
         guard.clone()
     }
 }
 
 impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChildrenTable {
-    fn from(content_children: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>) -> Self {
-        let content_children = Arc::new(RwLock::new(content_children));
-        Self { content_children }
+    fn from(
+        content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
+    ) -> Self {
+        let content_children_table = Arc::new(RwLock::new(content_children_table));
+        Self {
+            content_children_table,
+        }
     }
 }
 
@@ -651,7 +655,7 @@ impl IndexifyState {
             self.update_content_extraction_policy_state(
                 db,
                 txn,
-                &task.content_metadata.id,
+                &task.content_metadata.id.id,
                 &task.extraction_policy_id,
                 SystemTime::UNIX_EPOCH,
             )?;
@@ -678,7 +682,7 @@ impl IndexifyState {
                 self.update_content_extraction_policy_state(
                     db,
                     txn,
-                    &task.content_metadata.id,
+                    &task.content_metadata.id.id,
                     &task.extraction_policy_id,
                     update_time,
                 )?;
@@ -704,14 +708,14 @@ impl IndexifyState {
             .intersection(&new_children)
             .cloned()
             .collect::<HashSet<_>>();
-        let to_remove_ids = old_children
-            .difference(&new_children)
-            .cloned()
-            .collect::<HashSet<_>>();
-        let to_add_ids = new_children
-            .difference(&old_children)
-            .cloned()
-            .collect::<HashSet<_>>();
+        // let to_remove_ids = old_children
+        //     .difference(&new_children)
+        //     .cloned()
+        //     .collect::<HashSet<_>>();
+        // let to_add_ids = new_children
+        //     .difference(&old_children)
+        //     .cloned()
+        //     .collect::<HashSet<_>>();
 
         for child_id in preserved_ids {
             let child_metadata = txn
@@ -1162,17 +1166,17 @@ impl IndexifyState {
         policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         let value = txn
-            .get_cf(mapping_cf, content_key.clone())
+            .get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
                     "Error getting the content policies applied on content id {}: {}",
-                    content_key, e
+                    content_id, e
                 ))
             })?
             .ok_or_else(|| {
                 StateMachineError::DatabaseError(format!(
                     "No content policies applied on content found for id {}",
-                    content_key
+                    content_id
                 ))
             })?;
         let content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
@@ -1311,8 +1315,8 @@ impl IndexifyState {
                 content_metadata,
                 update_time,
             } => {
-                println!("Marking task {} as {}", task.id, mark_finished);
-                self.update_tasks(db, &txn, vec![task])?;
+                println!("Marking task {} as {}", task.id, task.terminal_state());
+                self.update_tasks(db, &txn, vec![task], *update_time)?;
                 self.set_content(db, &txn, content_metadata)?;
 
                 if task.terminal_state() {
@@ -1469,7 +1473,7 @@ impl IndexifyState {
 
     /// This method handles all reverse index writes. All reverse indexes are
     /// written in memory
-    pub fn apply(&mut self, request: StateMachineUpdateRequest) -> Result<()> {
+    pub fn apply(&self, request: StateMachineUpdateRequest) -> Result<()> {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
