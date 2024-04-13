@@ -951,67 +951,6 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// This method updates existing content. It changes the pointers of the
-    /// children of the node being updated to point to the new node and then
-    /// creates the new node. It does nothing to the old node
-    fn update_content(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        updated_content_map: &HashMap<String, internal_api::ContentMetadata>,
-    ) -> Result<(), StateMachineError> {
-        for (old_content_key, new_content_data) in updated_content_map.iter() {
-            let old_content_key: ContentMetadataId = old_content_key.clone().try_into()?;
-            let serialized_content = JsonEncoder::encode(new_content_data)?;
-
-            //  update the children so that they point to the new node
-            for child in self.content_children_table.get_children(&old_content_key) {
-                let child_content_key = format!("{}::v{}", child.id, child.version);
-                let child_content = txn
-                    .get_cf(StateMachineColumns::ContentTable.cf(db), &child_content_key)
-                    .map_err(|e| {
-                        StateMachineError::DatabaseError(format!(
-                            "Error reading child content: {}",
-                            e
-                        ))
-                    })?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!(
-                            "Child content {} not found",
-                            child_content_key
-                        ))
-                    })?;
-                let mut child_content =
-                    JsonEncoder::decode::<internal_api::ContentMetadata>(&child_content)?;
-                child_content.parent_id = new_content_data.id.clone();
-                let serialized_child_content = JsonEncoder::encode(&child_content)?;
-                txn.put_cf(
-                    StateMachineColumns::ContentTable.cf(db),
-                    child_content_key,
-                    &serialized_child_content,
-                )
-                .map_err(|e| {
-                    StateMachineError::DatabaseError(format!("Error writing child content: {}", e))
-                })?;
-            }
-
-            //  create the new node
-            let new_content_key = format!(
-                "{}::v{}",
-                new_content_data.id.id, new_content_data.id.version
-            );
-            txn.put_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                new_content_key,
-                &serialized_content,
-            )
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!("error writing updated content: {}", e))
-            })?;
-        }
-        Ok(())
-    }
-
     fn tombstone_content_tree(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -1434,21 +1373,6 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
-            }
-            RequestPayload::UpdateContent { updated_content } => {
-                //  TODO: Remove this
-                //  NOTE: Special case where forward and reverse indexes are updated together so
-                // errors can be handled
-                // self.update_content(db, &txn, updated_content)?;
-                // for (old_content_key, new_content_data) in updated_content.iter() {
-                //     let old_content_key: ContentMetadataId = old_content_key.try_into()?;
-                //     self.content_namespace_table
-                //         .remove(&new_content_data.namespace, &old_content_key);
-                //     self.content_namespace_table
-                //         .insert(&new_content_data.namespace, &new_content_data.id);
-                //     self.content_children_table
-                //         .replace_parent(&old_content_key, &new_content_data.id);
-                // }
             }
             RequestPayload::TombstoneContentTree {
                 namespace: _,

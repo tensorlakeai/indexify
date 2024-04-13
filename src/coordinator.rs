@@ -478,10 +478,10 @@ impl Coordinator {
         old_content_id: &str,
         new_content_metadata: indexify_coordinator::ContentMetadata,
     ) -> Result<()> {
-        let content_meta = new_content_metadata.try_into()?;
-        self.shared_state
-            .update_content(old_content_id, content_meta)
-            .await?;
+        // let content_meta = new_content_metadata.try_into()?;
+        // self.shared_state
+        //     .update_content(old_content_id, content_meta)
+        //     .await?;
         Ok(())
     }
 

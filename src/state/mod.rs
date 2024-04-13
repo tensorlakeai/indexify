@@ -955,124 +955,73 @@ impl App {
         }
 
         //  write identical content and don't create state changes for it
-        println!("The identical content {:?}", identical_content);
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateContent {
-                content_metadata: identical_content,
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await.map_err(|e| {
-            anyhow!(
-                "unable to create identical content metadata: {}",
-                e.to_string()
-            )
-        })?;
+        if identical_content.len() > 0 {
+            println!("The identical content {:?}", identical_content);
+            let req = StateMachineUpdateRequest {
+                payload: RequestPayload::CreateContent {
+                    content_metadata: identical_content,
+                },
+                new_state_changes: vec![],
+                state_changes_processed: vec![],
+            };
+            self.forwardable_raft.client_write(req).await.map_err(|e| {
+                anyhow!(
+                    "unable to create identical content metadata: {}",
+                    e.to_string()
+                )
+            })?;
+        }
 
         //  write the updated content
-        println!("The content to update {:?}", content_to_be_updated);
-        let mut state_changes = Vec::new();
-        for content in &content_to_be_updated {
-            state_changes.push(StateChange::new(
-                content.id.to_string(),
-                internal_api::ChangeType::NewContent,
-                timestamp_secs(),
-            ));
+        if content_to_be_updated.len() > 0 {
+            println!("The content to update {:?}", content_to_be_updated);
+            let mut state_changes = Vec::new();
+            for content in &content_to_be_updated {
+                state_changes.push(StateChange::new(
+                    content.id.to_string(),
+                    internal_api::ChangeType::NewContent,
+                    timestamp_secs(),
+                ));
+            }
+            let req = StateMachineUpdateRequest {
+                payload: RequestPayload::CreateContent {
+                    content_metadata: content_to_be_updated,
+                },
+                new_state_changes: state_changes,
+                state_changes_processed: vec![],
+            };
+            let _ = self.forwardable_raft.client_write(req).await.map_err(|e| {
+                anyhow!(
+                    "unable to create updated content metadata: {}",
+                    e.to_string()
+                )
+            })?;
         }
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateContent {
-                content_metadata: content_to_be_updated,
-            },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-        let _ = self.forwardable_raft.client_write(req).await.map_err(|e| {
-            anyhow!(
-                "unable to create updated content metadata: {}",
-                e.to_string()
-            )
-        })?;
 
         //  write the new content
-        println!("The new content {:?}", new_incoming_content);
-        let mut state_changes = Vec::new();
-        for content in &new_incoming_content {
-            state_changes.push(StateChange::new(
-                content.id.to_string(),
-                internal_api::ChangeType::NewContent,
-                timestamp_secs(),
-            ));
+        if new_incoming_content.len() > 0 {
+            println!("The new content {:?}", new_incoming_content);
+            let mut state_changes = Vec::new();
+            for content in &new_incoming_content {
+                state_changes.push(StateChange::new(
+                    content.id.to_string(),
+                    internal_api::ChangeType::NewContent,
+                    timestamp_secs(),
+                ));
+            }
+            let req = StateMachineUpdateRequest {
+                payload: RequestPayload::CreateContent {
+                    content_metadata: new_incoming_content,
+                },
+                new_state_changes: state_changes,
+                state_changes_processed: vec![],
+            };
+            println!("the req {:?}", req);
+            let _ =
+                self.forwardable_raft.client_write(req).await.map_err(|e| {
+                    anyhow!("unable to create new content metadata: {}", e.to_string())
+                })?;
         }
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateContent {
-                content_metadata: new_incoming_content,
-            },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-        let _ = self
-            .forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("unable to create new content metadata: {}", e.to_string()))?;
-
-        Ok(())
-    }
-
-    pub async fn update_content(
-        &self,
-        old_content_id: &str,
-        new_content_metadata: internal_api::ContentMetadata,
-    ) -> Result<()> {
-        let old_content = self
-            .get_content_metadata_batch(vec![old_content_id.to_string()])
-            .await?;
-        let old_content = old_content.first().ok_or_else(|| {
-            anyhow!(
-                "Content metadata with id {} not found",
-                old_content_id.to_string()
-            )
-        })?;
-
-        //  Update the old content first
-        let state_changes = vec![StateChange::new(
-            new_content_metadata.id.to_string(),
-            internal_api::ChangeType::UpdateContent,
-            timestamp_secs(),
-        )];
-        let mut updated_content = HashMap::new();
-        updated_content.insert(old_content.id.to_string(), new_content_metadata);
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpdateContent { updated_content },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-        let _ = self
-            .forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("unable to update content metadata: {}", e.to_string()));
-
-        //  tombstone the old content
-        let state_changes = vec![StateChange::new(
-            old_content.id.to_string(),
-            internal_api::ChangeType::TombstoneContentTree,
-            timestamp_secs(),
-        )];
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::TombstoneContentTree {
-                namespace: old_content.namespace.clone(),
-                content_ids: HashSet::from([old_content.id.clone()]),
-            },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-        let _ = self
-            .forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("unable to tombstone content metadata: {}", e.to_string()))?;
 
         Ok(())
     }
@@ -1467,7 +1416,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{ContentMetadataId, Index, TaskOutcome};
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1559,28 +1508,30 @@ mod tests {
     async fn test_write_read_task() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let task = indexify_internal_api::Task {
-            id: "id".into(),
+        let node = cluster.get_raft_node(0)?;
+
+        let content = ContentMetadata {
+            id: ContentMetadataId {
+                id: "content_id".to_string(),
+                ..Default::default()
+            },
             ..Default::default()
         };
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateTasks {
-                tasks: vec![task.clone()],
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
+        node.create_content_batch(vec![content.clone()]).await?;
 
-        let read_back = {
-            move |node: Arc<App>| async move {
-                match node.task_with_id("id").await {
-                    Ok(read_result) if read_result.id == "id" => Ok(true),
-                    Ok(_) => Ok(false),
-                    Err(_) => Ok(false),
-                }
-            }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let state_change = node.unprocessed_state_change_events().await?;
+        let state_change = state_change.get(0).unwrap();
+        let task = indexify_internal_api::Task {
+            id: "id".into(),
+            content_metadata: content.clone(),
+            ..Default::default()
         };
-        cluster.read_own_write(request, read_back, true).await?;
+        node.create_tasks(vec![task.clone()], &state_change.id)
+            .await?;
+        let retr_task = node.task_with_id(&task.id).await?;
+        assert_eq!(retr_task, task);
         Ok(())
     }
 
@@ -1590,10 +1541,23 @@ mod tests {
     async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
+
+        let content = ContentMetadata {
+            id: ContentMetadataId {
+                id: "content_id".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         //  First create a task and ensure it's written
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
+            content_metadata: content.clone(),
             ..Default::default()
         };
         let request = StateMachineUpdateRequest {
@@ -1615,7 +1579,7 @@ mod tests {
         };
         cluster.read_own_write(request, read_back, true).await?;
 
-        //  Second, assign the task to some executor
+        //  assign the task to some executor
         let assignments: HashMap<TaskId, ExecutorId> =
             vec![("task_id".into(), "executor_id".into())]
                 .into_iter()
@@ -1643,14 +1607,14 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
         //  Create a piece of content
-        let content_metadata = indexify_internal_api::ContentMetadata {
+        let content_metadata = ContentMetadata {
             id: ContentMetadataId {
                 id: "content_id".to_string(),
                 ..Default::default()
@@ -1689,83 +1653,6 @@ mod tests {
         let _tasks = node
             .list_tasks(namespace, Some(extraction_policy.id))
             .await?;
-
-        Ok(())
-    }
-
-    /// Test to determine that updating a task works correctly
-    #[tokio::test]
-    // #[tracing_test::traced_test]
-    async fn test_update_task_and_read() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-
-        //  Create a task and ensure that it can be read back
-        let task = indexify_internal_api::Task {
-            id: "task_id".into(),
-            ..Default::default()
-        };
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateTasks {
-                tasks: vec![task.clone()],
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        let read_back = {
-            move |node: Arc<App>| async move {
-                match node.task_with_id("task_id").await {
-                    Ok(read_result) if read_result.id == "task_id" => Ok(true),
-                    Ok(_) => Ok(false),
-                    Err(_) => Ok(false),
-                }
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-
-        //  Assign the task to an executor
-        let assignments: HashMap<TaskId, ExecutorId> =
-            vec![("task_id".into(), "executor_id".into())]
-                .into_iter()
-                .collect();
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::AssignTask { assignments },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        let read_back = |node: Arc<App>| async move {
-            match node.tasks_for_executor("executor_id", None).await {
-                Ok(tasks_vec)
-                    if tasks_vec.len() == 1
-                        && tasks_vec.first().unwrap().id == "task_id"
-                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
-                {
-                    Ok(true)
-                }
-                Ok(_) => Ok(false),
-                Err(_) => Ok(false),
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-
-        //  Update the task and mark it as complete by calling the update_task method
-        let task = indexify_internal_api::Task {
-            id: "task_id".into(),
-            outcome: indexify_internal_api::TaskOutcome::Success,
-            ..Default::default()
-        };
-        let executor_id = "executor_id";
-        let content_meta_list: Vec<indexify_internal_api::ContentMetadata> =
-            std::iter::repeat(indexify_internal_api::ContentMetadata::default())
-                .take(3)
-                .collect();
-        let node = cluster.get_raft_node(0)?;
-        node.update_task(task, Some(executor_id.into()), content_meta_list)
-            .await?;
-
-        //  Read the task back and expect to find the outcome of the task set to Success
-        let retrieved_task = node.task_with_id("task_id").await?;
-        assert_eq!(retrieved_task.outcome, TaskOutcome::Success);
 
         Ok(())
     }
@@ -1826,9 +1713,9 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         //  Create some content
-        let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
+        let mut content_metadata_vec: Vec<ContentMetadata> = Vec::new();
         for i in 0..content_size {
-            let content_metadata = indexify_internal_api::ContentMetadata {
+            let content_metadata = ContentMetadata {
                 id: ContentMetadataId {
                     id: format!("id{}", i),
                     ..Default::default()
@@ -1879,7 +1766,7 @@ mod tests {
             ("label2".to_string(), "value2".to_string()),
             ("label3".to_string(), "value3".to_string()),
         ];
-        let content_metadata = indexify_internal_api::ContentMetadata {
+        let content_metadata = ContentMetadata {
             namespace: "namespace".into(),
             name: "name".into(),
             labels: content_labels.into_iter().collect(),
