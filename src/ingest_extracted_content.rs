@@ -64,8 +64,6 @@ impl IngestExtractedContentState {
     }
 
     fn begin(&mut self, payload: BeginExtractedContentIngest) {
-        println!("***BEGIN***");
-        println!("begin");
         info!(
             "beginning extraction ingest for task: {} index_tables: {}",
             payload.task_id,
@@ -75,7 +73,6 @@ impl IngestExtractedContentState {
     }
 
     async fn write_content(&mut self, payload: ExtractedContent) -> Result<()> {
-        println!("write_content");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received extracted content without header metadata"
@@ -88,7 +85,6 @@ impl IngestExtractedContentState {
     }
 
     async fn start_content(&mut self) -> Result<()> {
-        println!("start_content");
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -112,7 +108,6 @@ impl IngestExtractedContentState {
     }
 
     async fn begin_multipart_content(&mut self) -> Result<()> {
-        println!("begin_multipart_content");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!("received begin content without header metadata"));
         }
@@ -134,7 +129,6 @@ impl IngestExtractedContentState {
     }
 
     async fn write_content_frame(&mut self, payload: ContentFrame) -> Result<()> {
-        println!("write_content_frame");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received finished extraction ingest without header metadata"
@@ -166,7 +160,6 @@ impl IngestExtractedContentState {
     }
 
     async fn finish_content(&mut self, payload: FinishContent) -> Result<()> {
-        println!("finish_content");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received finished extraction ingest without header metadata"
@@ -246,7 +239,6 @@ impl IngestExtractedContentState {
     }
 
     async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
-        println!("write_features");
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received extracted features without header metadata"
@@ -273,7 +265,6 @@ impl IngestExtractedContentState {
     }
 
     async fn finish(&mut self) -> Result<()> {
-        println!("finish");
         if self.ingest_metadata.is_none() {
             tracing::error!("received finished extraction ingest without header metadata");
             return Err(anyhow!(
@@ -284,7 +275,6 @@ impl IngestExtractedContentState {
             .data_manager
             .finish_extracted_content_write(self.ingest_metadata.clone().unwrap())
             .await?;
-        println!("***FINISH***");
         Ok(())
     }
 

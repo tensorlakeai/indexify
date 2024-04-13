@@ -839,7 +839,6 @@ async fn update_content(
     State(state): State<NamespaceEndpointState>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
-    println!("received request to update content {}", content_id);
     //  check that the content exists
     let content_metadata = state
         .data_manager

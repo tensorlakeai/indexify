@@ -43,7 +43,7 @@ use tracing::{error, info, warn};
 
 use self::{
     forwardable_raft::ForwardableRaft,
-    store::{ExtractionPolicyId, StateMachineColumns, StateMachineStore},
+    store::{StateMachineColumns, StateMachineStore},
 };
 use crate::{
     coordinator_filters::matches_mime_type,
@@ -664,31 +664,12 @@ impl App {
         Ok(())
     }
 
-    pub async fn set_content_task_mappings(
-        &self,
-        mappings: HashMap<String, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
-    ) -> Result<()> {
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::SetContentTaskMappings {
-                content_task_mappings: mappings,
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
     pub async fn update_task(
         &self,
         task: internal_api::Task,
         executor_id: Option<String>,
         content_meta_list: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
-        println!(
-            "updating task {:?} and content_meta_list {:?} with executor_id {:?}",
-            task, content_meta_list, executor_id
-        );
         let mut state_changes = vec![];
         for content in &content_meta_list {
             state_changes.push(StateChange::new(
@@ -698,16 +679,9 @@ impl App {
             ));
         }
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
-        let latest_version = self
-            .state_machine
-            .get_latest_version_of_content(&task.content_metadata.id.id)?;
-        let content_id = ContentMetadataId {
-            id: task.content_metadata.id.id.clone(),
-            version: latest_version,
-        };
         if mark_finished && task.outcome == internal_api::TaskOutcome::Success {
             state_changes.push(StateChange::new(
-                content_id.to_string(),
+                task.content_metadata.id.to_string(),
                 internal_api::ChangeType::TaskCompleted,
                 timestamp_secs(),
             ));
@@ -1198,13 +1172,14 @@ impl App {
     }
 
     #[cfg(test)]
-    pub async fn list_all_tasks(&self) -> Result<Vec<internal_api::Task>> {
+    pub async fn list_all_unfinished_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let tasks: Vec<internal_api::Task> = self
             .state_machine
             .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
             .await?
             .into_iter()
             .map(|(_, value)| value)
+            .filter(|task| task.outcome != internal_api::TaskOutcome::Success)
             .collect();
         Ok(tasks)
     }

@@ -725,7 +725,6 @@ impl IndexifyState {
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         // content_id -> Set(Extraction Policy Ids)
-        println!("setting tasks {}", tasks.len());
         let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
@@ -785,25 +784,13 @@ impl IndexifyState {
         new_content_id: &ContentMetadataId,
     ) -> Result<(), StateMachineError> {
         //  get the children of the old and new nodes
-        println!("Merging {} and {}", old_content_id, new_content_id);
         let old_children = self.content_children_table.get_children(old_content_id);
         let new_children = self.content_children_table.get_children(new_content_id);
-        println!("The old node's children {:?}", old_children);
-        println!("The new node's children {:?}", new_children);
 
         let preserved_ids = old_children
             .intersection(&new_children)
             .cloned()
             .collect::<HashSet<_>>();
-        println!("The ids to preserve {:?}", preserved_ids);
-        // let to_remove_ids = old_children
-        //     .difference(&new_children)
-        //     .cloned()
-        //     .collect::<HashSet<_>>();
-        // let to_add_ids = new_children
-        //     .difference(&old_children)
-        //     .cloned()
-        //     .collect::<HashSet<_>>();
 
         for child_id in preserved_ids {
             let child_metadata = txn
@@ -956,20 +943,14 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        println!("setting content in db");
         let mut updated_contents = Vec::new();
 
         //  Update the parents of all the contents to point to the latest version
         for content in contents_vec.iter().cloned() {
-            println!("setting content {}", content.id);
             let mut updated_content = content;
             if !updated_content.parent_id.id.is_empty() {
                 let parent_latest_version =
                     self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)?;
-                println!(
-                    "latest version of parent {}: {}",
-                    updated_content.parent_id.id, parent_latest_version
-                );
                 if parent_latest_version == 0 {
                     return Err(StateMachineError::DatabaseError(format!(
                         "Parent content {} not found",
@@ -982,7 +963,6 @@ impl IndexifyState {
 
             updated_contents.push(updated_content);
         }
-        println!("The updated contents to write {:?}", updated_contents);
 
         for updated_content in updated_contents {
             let content_key = format!("{}::v{}", updated_content.id.id, updated_content.id.version);
@@ -1198,10 +1178,6 @@ impl IndexifyState {
         extraction_policy_id: &str,
         policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
-        println!(
-            "setting policy {} on content {}",
-            extraction_policy_id, content_id
-        );
         let value = txn
             .get_cf(
                 StateMachineColumns::ContentTable.cf(db),
@@ -1346,7 +1322,6 @@ impl IndexifyState {
                 content_metadata,
                 update_time,
             } => {
-                println!("Marking task {} as {}", task.id, task.terminal_state());
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
                 self.set_content(db, &txn, content_metadata)?;
 
@@ -1361,38 +1336,6 @@ impl IndexifyState {
                             HashMap::from([(executor_id.to_string(), existing_tasks)]);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
-
-                    //  remove the task from the content -> extraction_policy_id
-                    // -> task_ids mapping reverse index
-                    // let latest_version =
-                    //     self.get_latest_version_of_content(&task.
-                    // content_metadata.id.id, db, &txn)?;
-                    // let content_id = ContentMetadataId {
-                    //     id: task.content_metadata.id.id.clone(),
-                    //     version: latest_version,
-                    // };
-                    // self.content_task_mapping.remove(
-                    //     &content_id,
-                    //     &task.extraction_policy_id,
-                    //     &task.id,
-                    // );
-                    // if self.content_task_mapping.is_content_processed(&
-                    // content_id) {     println!("The
-                    // content is processed");     //  compare
-                    // the two sub-trees here
-                    //     if latest_version > 1 {
-                    //         println!("There is a previous version, merge the
-                    // two sub-trees");         self.
-                    // merge_content_trees(             db,
-                    //             &txn,
-                    //             &ContentMetadataId {
-                    //                 id: content_id.id.clone(),
-                    //                 version: content_id.version - 1,
-                    //             },
-                    //             &content_id,
-                    //         )?;
-                    //     }
-                    // }
                 }
             }
             RequestPayload::RegisterExecutor {
@@ -1471,11 +1414,6 @@ impl IndexifyState {
             } => {
                 self.set_coordinator_addr(db, &txn, *node_id, coordinator_addr)?;
             }
-            RequestPayload::SetContentTaskMappings {
-                content_task_mappings: _,
-            } => {
-                //  no forward index writes here
-            }
         };
 
         self.apply(request, db, &txn).map_err(|e| {
@@ -1529,8 +1467,6 @@ impl IndexifyState {
                     self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
-                    self.task_content_id_mapping
-                        .insert(&task.id, &task.content_metadata.id);
                     self.content_task_mapping.insert(
                         &task.content_metadata.id,
                         &task.extraction_policy_id,
@@ -1621,34 +1557,23 @@ impl IndexifyState {
                         self.executor_running_task_count
                             .decrement_running_task_count(&executor_id);
                     }
-
-                    let content_id =
-                        self.task_content_id_mapping.get(&task.id).ok_or_else(|| {
-                            StateMachineError::ExternalError(anyhow!(
-                                "Task content id not found in reverse index"
-                            ))
-                        })?;
+                    let content_id = task.content_metadata.id;
                     self.content_task_mapping.remove(
                         &content_id,
                         &task.extraction_policy_id,
                         &task.id,
                     );
-                    if self.content_task_mapping.is_content_processed(&content_id) {
-                        println!("The content is processed");
-                        if content_id.version > 1 {
-                            println!("There is a previous version, merging the two sub-trees");
-                            self.merge_content_trees(
-                                db,
-                                txn,
-                                &ContentMetadataId {
-                                    id: content_id.id.clone(),
-                                    version: content_id.version - 1,
-                                },
-                                &content_id,
-                            )?;
-                        }
+                    if self.content_task_mapping.is_content_processed(&content_id) && content_id.version > 1 {
+                        self.merge_content_trees(
+                            db,
+                            txn,
+                            &ContentMetadataId {
+                                id: content_id.id.clone(),
+                                version: content_id.version - 1,
+                            },
+                            &content_id,
+                        )?;
                     }
-                    self.task_content_id_mapping.remove(&task.id);
                 }
                 for content in content_metadata {
                     self.content_namespace_table
