@@ -436,11 +436,11 @@ impl Coordinator {
                     let _ = self
                         .handle_tombstone_content_tree_state_change(change)
                         .await?;
-                    return Ok(());
+                    continue;
                 }
                 indexify_internal_api::ChangeType::TaskCompleted => {
                     let _ = self.handle_task_completion_state_change(change).await?;
-                    return Ok(());
+                    continue;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
             }
