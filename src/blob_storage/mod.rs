@@ -214,10 +214,10 @@ impl ContentReader {
 
     pub fn get(&self, key: &str) -> BlobStorageReaderTS {
         if key.starts_with("s3://") {
-            let (bucket, _key) = parse_s3_url(key)
+            let (bucket, key) = parse_s3_url(key)
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))
                 .unwrap();
-            return Arc::new(S3FileReader::new(bucket));
+            return Arc::new(S3FileReader::new(bucket, key));
         }
 
         if key.starts_with("http") {

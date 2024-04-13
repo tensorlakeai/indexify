@@ -72,27 +72,28 @@ impl BlobStoragePartWriter for S3Storage {
 
 pub struct S3FileReader {
     client: Arc<dyn ObjectStore>,
+    key: String,
 }
 
 impl S3FileReader {
-    pub fn new(bucket: &str) -> Self {
+    pub fn new(bucket: &str, key: &str) -> Self {
         let client = AmazonS3Builder::from_env()
             .with_bucket_name(bucket)
-            .with_region("us-west-2")
             .build()
             .unwrap();
         S3FileReader {
             client: Arc::new(client),
+            key: key.to_string(),
         }
     }
 }
 
 #[async_trait]
 impl BlobStorageReader for S3FileReader {
-    fn get(&self, key: &str) -> BoxStream<Result<Bytes>> {
+    fn get(&self, _key: &str) -> BoxStream<Result<Bytes>> {
         let client_clone = self.client.clone();
         let (tx, rx) = mpsc::unbounded_channel();
-        let key = key.to_string();
+        let key = self.key.clone();
         tokio::spawn(async move {
             let mut stream = client_clone.get(&key.into()).await.unwrap().into_stream();
             while let Some(chunk) = stream.next().await {
