@@ -26,7 +26,7 @@ use indexify_proto::indexify_coordinator::{
     RegisterExecutorRequest, RegisterExecutorResponse, RegisterIngestionServerRequest,
     RegisterIngestionServerResponse, RemoveIngestionServerRequest, RemoveIngestionServerResponse,
     TaskAssignments, TombstoneContentRequest, TombstoneContentResponse, Uint64List,
-    UpdateContentRequest, UpdateContentResponse, UpdateTaskRequest, UpdateTaskResponse,
+    UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::StateChange;
 use tokio::{
@@ -76,23 +76,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateContentResponse { id }))
-    }
-
-    async fn update_content(
-        &self,
-        request: tonic::Request<UpdateContentRequest>,
-    ) -> Result<tonic::Response<UpdateContentResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let old_content_id = request.old_content_id;
-        let new_content_metadata = request
-            .new_content_metadata
-            .ok_or(tonic::Status::aborted("content is missing"))?;
-        let _ = self
-            .coordinator
-            .update_content_metadata(&old_content_id, new_content_metadata)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(UpdateContentResponse {}))
     }
 
     async fn tombstone_content(

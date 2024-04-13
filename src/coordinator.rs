@@ -483,18 +483,6 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn update_content_metadata(
-        &self,
-        old_content_id: &str,
-        new_content_metadata: indexify_coordinator::ContentMetadata,
-    ) -> Result<()> {
-        // let content_meta = new_content_metadata.try_into()?;
-        // self.shared_state
-        //     .update_content(old_content_id, content_meta)
-        //     .await?;
-        Ok(())
-    }
-
     pub async fn tombstone_content_metadatas(
         &self,
         namespace: &str,
