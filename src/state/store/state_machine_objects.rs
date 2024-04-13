@@ -16,8 +16,16 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
-    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId,
+    ExtractionPolicyId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -442,14 +450,14 @@ impl ContentTaskMapping {
         &self,
         content_id: &ContentMetadataId,
         extraction_policy_id: &ExtractionPolicyId,
-        new_task_ids: &HashSet<TaskId>,
+        task_id: &TaskId,
     ) {
         let mut guard = self.content_task_mapping.write().unwrap();
         let policies_map = guard.entry(content_id.clone()).or_default();
         let tasks_set = policies_map
             .entry(extraction_policy_id.clone())
             .or_default();
-        tasks_set.extend(new_task_ids.iter().cloned());
+        tasks_set.insert(task_id.clone());
     }
 
     pub fn remove(
@@ -474,7 +482,7 @@ impl ContentTaskMapping {
 
     pub fn is_content_processed(&self, content_id: &ContentMetadataId) -> bool {
         let guard = self.content_task_mapping.read().unwrap();
-        !guard.get(content_id).is_some()
+        guard.get(content_id).is_none()
     }
 
     pub fn inner(
@@ -503,22 +511,22 @@ impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct GCTaskContentMapping {
-    gc_task_content_mapping: Arc<RwLock<HashMap<GarbageCollectionTaskId, ContentMetadataId>>>,
+    gc_task_content_id_mapping: Arc<RwLock<HashMap<GarbageCollectionTaskId, ContentMetadataId>>>,
 }
 
 impl GCTaskContentMapping {
     pub fn insert(&self, gc_task_id: &GarbageCollectionTaskId, content_id: &ContentMetadataId) {
-        let mut guard = self.gc_task_content_mapping.write().unwrap();
+        let mut guard = self.gc_task_content_id_mapping.write().unwrap();
         guard.insert(gc_task_id.clone(), content_id.clone());
     }
 
     pub fn remove(&self, gc_task_id: &GarbageCollectionTaskId) {
-        let mut guard = self.gc_task_content_mapping.write().unwrap();
+        let mut guard = self.gc_task_content_id_mapping.write().unwrap();
         guard.remove(gc_task_id);
     }
 
     pub fn inner(&self) -> HashMap<GarbageCollectionTaskId, ContentMetadataId> {
-        let guard = self.gc_task_content_mapping.read().unwrap();
+        let guard = self.gc_task_content_id_mapping.read().unwrap();
         guard.clone()
     }
 }
@@ -527,7 +535,43 @@ impl From<HashMap<GarbageCollectionTaskId, ContentMetadataId>> for GCTaskContent
     fn from(gc_task_content_mapping: HashMap<GarbageCollectionTaskId, ContentMetadataId>) -> Self {
         let gc_task_content_mapping = Arc::new(RwLock::new(gc_task_content_mapping));
         Self {
-            gc_task_content_mapping,
+            gc_task_content_id_mapping: gc_task_content_mapping,
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct TaskContentIdMapping {
+    task_content_id_mapping: Arc<RwLock<HashMap<TaskId, ContentMetadataId>>>,
+}
+
+impl TaskContentIdMapping {
+    pub fn get(&self, task_id: &TaskId) -> Option<ContentMetadataId> {
+        let guard = self.task_content_id_mapping.read().unwrap();
+        guard.get(task_id).cloned()
+    }
+
+    pub fn insert(&self, task_id: &TaskId, content_id: &ContentMetadataId) {
+        let mut guard = self.task_content_id_mapping.write().unwrap();
+        guard.insert(task_id.clone(), content_id.clone());
+    }
+
+    pub fn remove(&self, task_id: &TaskId) {
+        let mut guard = self.task_content_id_mapping.write().unwrap();
+        guard.remove(task_id);
+    }
+
+    pub fn inner(&self) -> HashMap<TaskId, ContentMetadataId> {
+        let guard = self.task_content_id_mapping.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<TaskId, ContentMetadataId>> for TaskContentIdMapping {
+    fn from(task_content_mapping: HashMap<TaskId, ContentMetadataId>) -> Self {
+        let task_content_mapping = Arc::new(RwLock::new(task_content_mapping));
+        Self {
+            task_content_id_mapping: task_content_mapping,
         }
     }
 }
@@ -572,7 +616,10 @@ pub struct IndexifyState {
     content_task_mapping: ContentTaskMapping,
 
     /// gc task id -> content metadata id
-    gc_task_content_mapping: GCTaskContentMapping,
+    gc_task_content_id_mapping: GCTaskContentMapping,
+
+    /// task id -> content metadata id
+    task_content_id_mapping: TaskContentIdMapping,
 }
 
 impl fmt::Display for IndexifyState {
@@ -590,7 +637,7 @@ impl fmt::Display for IndexifyState {
             self.executor_running_task_count,
             self.schemas_by_namespace,
             self.content_children_table,
-            self.gc_task_content_mapping
+            self.gc_task_content_id_mapping
         )
     }
 }
@@ -727,7 +774,8 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// This method will merge two content trees. It does this by swapping the parent pointers of all children of the old node to the new node
+    /// This method will merge two content trees. It does this by swapping the
+    /// parent pointers of all children of the old node to the new node
     /// It also updates reverse index invariants
     fn merge_content_trees(
         &self,
@@ -1314,34 +1362,37 @@ impl IndexifyState {
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
 
-                    //  remove the task from the content -> extraction_policy_id -> task_ids mapping reverse index
-                    let latest_version =
-                        self.get_latest_version_of_content(&task.content_metadata.id.id, db, &txn)?;
-                    let content_id = ContentMetadataId {
-                        id: task.content_metadata.id.id.clone(),
-                        version: latest_version,
-                    };
-                    self.content_task_mapping.remove(
-                        &content_id,
-                        &task.extraction_policy_id,
-                        &task.id,
-                    );
-                    if self.content_task_mapping.is_content_processed(&content_id) {
-                        println!("The content is processed");
-                        //  compare the two sub-trees here
-                        if latest_version > 1 {
-                            println!("There is a previous version, merge the two sub-trees");
-                            self.merge_content_trees(
-                                db,
-                                &txn,
-                                &ContentMetadataId {
-                                    id: content_id.id.clone(),
-                                    version: content_id.version - 1,
-                                },
-                                &content_id,
-                            )?;
-                        }
-                    }
+                    //  remove the task from the content -> extraction_policy_id
+                    // -> task_ids mapping reverse index
+                    // let latest_version =
+                    //     self.get_latest_version_of_content(&task.
+                    // content_metadata.id.id, db, &txn)?;
+                    // let content_id = ContentMetadataId {
+                    //     id: task.content_metadata.id.id.clone(),
+                    //     version: latest_version,
+                    // };
+                    // self.content_task_mapping.remove(
+                    //     &content_id,
+                    //     &task.extraction_policy_id,
+                    //     &task.id,
+                    // );
+                    // if self.content_task_mapping.is_content_processed(&
+                    // content_id) {     println!("The
+                    // content is processed");     //  compare
+                    // the two sub-trees here
+                    //     if latest_version > 1 {
+                    //         println!("There is a previous version, merge the
+                    // two sub-trees");         self.
+                    // merge_content_trees(             db,
+                    //             &txn,
+                    //             &ContentMetadataId {
+                    //                 id: content_id.id.clone(),
+                    //                 version: content_id.version - 1,
+                    //             },
+                    //             &content_id,
+                    //         )?;
+                    //     }
+                    // }
                 }
             }
             RequestPayload::RegisterExecutor {
@@ -1478,6 +1529,13 @@ impl IndexifyState {
                     self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
+                    self.task_content_id_mapping
+                        .insert(&task.id, &task.content_metadata.id);
+                    self.content_task_mapping.insert(
+                        &task.content_metadata.id,
+                        &task.extraction_policy_id,
+                        &task.id,
+                    );
                 }
                 Ok(())
             }
@@ -1492,7 +1550,7 @@ impl IndexifyState {
             }
             RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
                 for gc_task in gc_tasks {
-                    self.gc_task_content_mapping
+                    self.gc_task_content_id_mapping
                         .insert(&gc_task.id, &gc_task.content_id);
                 }
                 Ok(())
@@ -1502,7 +1560,7 @@ impl IndexifyState {
                 mark_finished,
             } => {
                 if mark_finished {
-                    self.gc_task_content_mapping.remove(&gc_task.id);
+                    self.gc_task_content_id_mapping.remove(&gc_task.id);
                     self.content_children_table.remove_all(&gc_task.content_id);
                 }
                 Ok(())
@@ -1563,25 +1621,38 @@ impl IndexifyState {
                         self.executor_running_task_count
                             .decrement_running_task_count(&executor_id);
                     }
+
+                    let content_id =
+                        self.task_content_id_mapping.get(&task.id).ok_or_else(|| {
+                            StateMachineError::ExternalError(anyhow!(
+                                "Task content id not found in reverse index"
+                            ))
+                        })?;
+                    self.content_task_mapping.remove(
+                        &content_id,
+                        &task.extraction_policy_id,
+                        &task.id,
+                    );
+                    if self.content_task_mapping.is_content_processed(&content_id) {
+                        println!("The content is processed");
+                        if content_id.version > 1 {
+                            println!("There is a previous version, merging the two sub-trees");
+                            self.merge_content_trees(
+                                db,
+                                txn,
+                                &ContentMetadataId {
+                                    id: content_id.id.clone(),
+                                    version: content_id.version - 1,
+                                },
+                                &content_id,
+                            )?;
+                        }
+                    }
+                    self.task_content_id_mapping.remove(&task.id);
                 }
-                //  TODO: Why do we need this?
                 for content in content_metadata {
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
-                }
-                Ok(())
-            }
-            RequestPayload::SetContentTaskMappings {
-                content_task_mappings,
-            } => {
-                for (content_id, policy_task_mapping) in content_task_mappings {
-                    for (extraction_policy_id, task_ids) in policy_task_mapping {
-                        self.content_task_mapping.insert(
-                            &content_id.clone().try_into()?,
-                            &extraction_policy_id,
-                            &task_ids,
-                        );
-                    }
                 }
                 Ok(())
             }
@@ -2152,6 +2223,8 @@ impl IndexifyState {
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
             content_task_mapping: self.get_content_task_mapping(),
+            gc_task_content_id_mapping: self.gc_task_content_id_mapping.inner(),
+            task_content_id_mapping: self.task_content_id_mapping.inner(),
         }
     }
 
@@ -2202,6 +2275,16 @@ impl IndexifyState {
             .content_children_table
             .write()
             .unwrap();
+        let mut gc_task_content_id_mapping_guard = self
+            .gc_task_content_id_mapping
+            .gc_task_content_id_mapping
+            .write()
+            .unwrap();
+        let mut task_content_id_mapping_guard = self
+            .task_content_id_mapping
+            .task_content_id_mapping
+            .write()
+            .unwrap();
 
         *unassigned_tasks_guard = snapshot.unassigned_tasks;
         *unprocessed_state_changes_guard = snapshot.unprocessed_state_changes;
@@ -2213,6 +2296,8 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
+        *gc_task_content_id_mapping_guard = snapshot.gc_task_content_id_mapping;
+        *task_content_id_mapping_guard = snapshot.task_content_id_mapping;
     }
     //  END SNAPSHOT METHODS
 }
@@ -2230,6 +2315,8 @@ pub struct IndexifyStateSnapshot {
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     content_task_mapping: HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
+    gc_task_content_id_mapping: HashMap<GarbageCollectionTaskId, ContentMetadataId>,
+    task_content_id_mapping: HashMap<TaskId, ContentMetadataId>,
 }
 
 #[cfg(test)]

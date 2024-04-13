@@ -121,7 +121,7 @@ impl Scheduler {
                 let tables = self.tables_for_policies(&extraction_policies).await?;
                 for extraction_policy in extraction_policies {
                     let task = self
-                        .create_task(&extraction_policy.id, &content, &tables)
+                        .create_task(&extraction_policy.id, content, &tables)
                         .await?;
                     tasks.push(task);
                 }

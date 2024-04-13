@@ -8,7 +8,11 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
+    ContentMetadataId,
+    GarbageCollectionTask,
+    OutputSchema,
+    StateChange,
+    StructuredDataSchema,
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -416,7 +420,7 @@ impl Coordinator {
             .shared_state
             .get_content_metadata_with_version(&previous_version)
             .await?;
-        let content_metadata = content_metadata.get(0).ok_or_else(|| {
+        let content_metadata = content_metadata.first().ok_or_else(|| {
             anyhow!(
                 "unable to find content metadata for content id: {}",
                 &previous_version.id
@@ -425,7 +429,7 @@ impl Coordinator {
         self.shared_state
             .tombstone_content_batch_with_version(
                 &content_metadata.namespace,
-                &vec![content_metadata.id.clone()],
+                &[content_metadata.id.clone()],
             )
             .await?;
         self.shared_state
@@ -455,7 +459,7 @@ impl Coordinator {
                     continue;
                 }
                 indexify_internal_api::ChangeType::TaskCompleted => {
-                    let _ = self.handle_task_completion_state_change(change).await?;
+                    self.handle_task_completion_state_change(change).await?;
                     continue;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
@@ -1566,7 +1570,7 @@ mod tests {
 
         //  create a state change for tombstoning the content tree
         coordinator
-            .tombstone_content_metadatas(&parent_content.namespace, &vec![parent_content.id])
+            .tombstone_content_metadatas(&parent_content.namespace, &[parent_content.id])
             .await?;
 
         coordinator.run_scheduler().await?;

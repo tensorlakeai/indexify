@@ -9,13 +9,18 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest, OidSha256, Sha256, Sha256VarCore,
+    Digest,
+    OidSha256,
+    Sha256,
+    Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
+    api::*,
+    blob_storage::StoragePartWriter,
+    data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -344,9 +349,8 @@ impl IngestExtractedContentState {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, sync::Arc};
+    use std::sync::Arc;
 
-    use indexify_internal_api::TaskOutcome;
     use tokio::task::JoinHandle;
 
     use super::*;
@@ -526,7 +530,8 @@ mod tests {
     //     }
 
     //     // compare file content with written content
-    //     let content = ingest_state.state.content_reader.bytes(&url).await.unwrap();
+    //     let content =
+    // ingest_state.state.content_reader.bytes(&url).await.unwrap();
     //     assert_eq!(content, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     //     coordinator.stop().await;
@@ -741,8 +746,8 @@ mod tests {
     //         features: vec![Feature {
     //             feature_type: FeatureType::Embedding,
     //             name: "name1".to_string(),
-    //             data: json!({"values" : [1.0, 2.0, 3.0], "distance" : "cosine"}),
-    //         }],
+    //             data: json!({"values" : [1.0, 2.0, 3.0], "distance" :
+    // "cosine"}),         }],
     //     };
 
     //     ingest_state.write_features(payload).await.unwrap();

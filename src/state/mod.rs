@@ -20,12 +20,16 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
@@ -389,9 +393,8 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source
-                && self
-                    .get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source &&
+                self.get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -495,8 +498,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source
-                && self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source &&
+                self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -954,7 +957,7 @@ impl App {
         }
 
         //  write identical content and don't create state changes for it
-        if identical_content.len() > 0 {
+        if !identical_content.is_empty() {
             let req = StateMachineUpdateRequest {
                 payload: RequestPayload::CreateContent {
                     content_metadata: identical_content,
@@ -971,7 +974,7 @@ impl App {
         }
 
         //  write the updated content
-        if content_to_be_updated.len() > 0 {
+        if !content_to_be_updated.is_empty() {
             let mut state_changes = Vec::new();
             for content in &content_to_be_updated {
                 state_changes.push(StateChange::new(
@@ -996,7 +999,7 @@ impl App {
         }
 
         //  write the new content
-        if new_incoming_content.len() > 0 {
+        if !new_incoming_content.is_empty() {
             let mut state_changes = Vec::new();
             for content in &new_incoming_content {
                 state_changes.push(StateChange::new(
@@ -1103,7 +1106,8 @@ impl App {
         Ok(())
     }
 
-    /// Get content based on id's without version. Will fetch the latest version for each one
+    /// Get content based on id's without version. Will fetch the latest version
+    /// for each one
     pub async fn get_content_metadata_batch(
         &self,
         content_ids: Vec<String>,
@@ -1429,7 +1433,8 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId, TaskId,
+                ExecutorId,
+                TaskId,
             },
             App,
         },
@@ -1529,7 +1534,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let state_change = node.unprocessed_state_change_events().await?;
-        let state_change = state_change.get(0).unwrap();
+        let state_change = state_change.first().unwrap();
         let task = indexify_internal_api::Task {
             id: "id".into(),
             content_metadata: content.clone(),

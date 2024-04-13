@@ -7,7 +7,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension, Json, Router,
+    Extension,
+    Json,
+    Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -16,7 +18,10 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
+    self,
+    GcTaskAcknowledgement,
+    ListStateChangesRequest,
+    ListTasksRequest,
 };
 use rust_embed::RustEmbed;
 use tokio::{
