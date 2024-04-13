@@ -534,7 +534,7 @@ async fn create_extraction_policy(
     Ok(Json(ExtractionPolicyResponse { index_names }))
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(state, payload))]
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/add_texts",

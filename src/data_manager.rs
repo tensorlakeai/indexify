@@ -249,7 +249,7 @@ impl DataManager {
         Ok(content_list)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self, content_list))]
     pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });

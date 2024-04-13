@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use futures::future::join_all;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
 use internal_api::ExtractedEmbeddings;
@@ -159,14 +160,24 @@ impl VectorIndexManager {
             ));
         }
 
-        let mut content_byte_map = HashMap::new();
+        let mut content_bytes_list = Vec::new();
+        let mut content_ids = Vec::new();
         for (id, content_meta) in &content_metadata_list {
-            let content = self
-                .content_reader
-                .bytes(&content_meta.storage_url)
-                .await
-                .map_err(|e| anyhow!("unable to get content: {}", e.to_string()))?;
-            content_byte_map.insert(id.clone(), content);
+            let content = self.content_reader.bytes(&content_meta.storage_url);
+            content_bytes_list.push(content);
+            content_ids.push(id.clone());
+        }
+        let bytes = join_all(content_bytes_list).await;
+        let mut content_byte_map = HashMap::new();
+        for (id, content) in content_ids.iter().zip(bytes) {
+            let bytes = content.map_err(|e| {
+                anyhow!(
+                    "unable to read content bytes for id: {}, {}",
+                    id,
+                    e.to_string()
+                )
+            })?;
+            content_byte_map.insert(id.clone(), bytes);
         }
 
         let mut index_search_results = Vec::new();

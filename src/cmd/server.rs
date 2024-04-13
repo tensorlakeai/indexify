@@ -29,8 +29,13 @@ impl Args {
 
         info!("starting indexify server, version: {}", crate::VERSION);
         let config = if let Some(config_path) = config_path {
-            ServerConfig::from_path(&config_path)
-                .unwrap_or_else(|e| panic!("failed to load config file `{}`: {}", config_path, e.to_string()))
+            ServerConfig::from_path(&config_path).unwrap_or_else(|e| {
+                panic!(
+                    "failed to load config file `{}`: {}",
+                    config_path,
+                    e.to_string()
+                )
+            })
         } else {
             info!("No config file provided. Using defaults");
             ServerConfig::default()
