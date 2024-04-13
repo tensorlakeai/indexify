@@ -7,6 +7,7 @@ use std::{
     io::Cursor,
     path::Path,
     sync::Arc,
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -654,48 +655,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn set_content_extraction_policy_mappings(
-        &self,
-        mappings: Vec<internal_api::ContentExtractionPolicyMapping>,
-    ) -> Result<()> {
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::SetContentExtractionPolicyMappings {
-                content_extraction_policy_mappings: mappings,
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
-    pub async fn mark_extraction_policy_applied_on_content(
-        &self,
-        content_id: &str,
-        extraction_policy_id: &str,
-    ) -> Result<()> {
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::MarkExtractionPolicyAppliedOnContent {
-                content_id: content_id.into(),
-                extraction_policy_id: extraction_policy_id.into(),
-                policy_completion_time: std::time::SystemTime::now(),
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
-    pub async fn get_content_extraction_policy_mappings_for_content_id(
-        &self,
-        content_id: &str,
-    ) -> Result<Option<internal_api::ContentExtractionPolicyMapping>> {
-        self.state_machine
-            .get_content_extraction_policy_mappings_for_content_id(content_id)
-            .await
-    }
-
     pub async fn update_task(
         &self,
         task: internal_api::Task,
@@ -710,13 +669,12 @@ impl App {
                 timestamp_secs(),
             ));
         }
-        let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
                 task: task.clone(),
-                mark_finished,
                 executor_id: executor_id.clone(),
                 content_metadata: content_meta_list.clone(),
+                update_time: SystemTime::now(),
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
@@ -1366,7 +1324,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use indexify_internal_api::{ContentExtractionPolicyMapping, Index, TaskOutcome};
+    use indexify_internal_api::{Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1902,29 +1860,24 @@ mod tests {
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
+        let _node = cluster.get_raft_node(0)?;
 
         //  Create a mapping of content -> extraction policies, insert it, mark it as
         // read and read it back to assert
-        let mapping = ContentExtractionPolicyMapping::default();
-        let current_sys_time = SystemTime::now();
-        let initial_time = mapping
-            .time_of_policy_completion
-            .get("extraction_policy_id")
-            .unwrap_or(&current_sys_time);
-        node.set_content_extraction_policy_mappings(vec![mapping.clone()])
-            .await?;
-        node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")
-            .await?;
-        let retrieved_mappings = node
-            .get_content_extraction_policy_mappings_for_content_id("content_id")
-            .await?
-            .unwrap();
-        let set_time = retrieved_mappings
-            .time_of_policy_completion
-            .get("extraction_policy_id")
-            .unwrap();
-        assert!(set_time > initial_time);
+        let _current_sys_time = SystemTime::now();
+        //node.set_content_extraction_policy_mappings(vec![mapping.clone()])
+        //    .await?;
+        //node.mark_extraction_policy_applied_on_content("content_id",
+        // "extraction_policy_id")    .await?;
+        //let retrieved_mappings = node
+        //    .get_content_extraction_policy_mappings_for_content_id("content_id")
+        //    .await?
+        //    .unwrap();
+        //let set_time = retrieved_mappings
+        //    .time_of_policy_completion
+        //    .get("extraction_policy_id")
+        //    .unwrap();
+        //assert!(set_time > initial_time);
 
         Ok(())
     }

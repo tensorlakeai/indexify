@@ -331,6 +331,7 @@ impl DataManager {
             labels,
             source: "ingestion".to_string(),
             size_bytes: 0,
+            ..Default::default()
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -489,6 +490,7 @@ impl DataManager {
             labels,
             source: source.to_string(),
             size_bytes: res.size_bytes,
+            extraction_policy_ids: HashMap::new(),
         })
     }
 

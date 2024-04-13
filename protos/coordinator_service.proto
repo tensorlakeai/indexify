@@ -356,6 +356,7 @@ message ContentMetadata {
     string namespace = 8;
     string source = 9;
     uint64 size_bytes = 10;
+    map<string, uint64> extraction_policy_ids = 11;
 }
 
 message CreateContentRequest {
