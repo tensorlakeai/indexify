@@ -678,6 +678,7 @@ impl IndexifyState {
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         // content_id -> Set(Extraction Policy Ids)
+        println!("setting tasks");
         let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
@@ -690,7 +691,7 @@ impl IndexifyState {
             self.update_content_extraction_policy_state(
                 db,
                 txn,
-                &task.content_metadata.id.id,
+                &task.content_metadata.id,
                 &task.extraction_policy_id,
                 SystemTime::UNIX_EPOCH,
             )?;
@@ -717,7 +718,7 @@ impl IndexifyState {
                 self.update_content_extraction_policy_state(
                     db,
                     txn,
-                    &task.content_metadata.id.id,
+                    &task.content_metadata.id,
                     &task.extraction_policy_id,
                     update_time,
                 )?;
@@ -736,13 +737,17 @@ impl IndexifyState {
         new_content_id: &ContentMetadataId,
     ) -> Result<(), StateMachineError> {
         //  get the children of the old and new nodes
+        println!("Merging {} and {}", old_content_id, new_content_id);
         let old_children = self.content_children_table.get_children(old_content_id);
         let new_children = self.content_children_table.get_children(new_content_id);
+        println!("The old node's children {:?}", old_children);
+        println!("The new node's children {:?}", new_children);
 
         let preserved_ids = old_children
             .intersection(&new_children)
             .cloned()
             .collect::<HashSet<_>>();
+        println!("The ids to preserve {:?}", preserved_ids);
         // let to_remove_ids = old_children
         //     .difference(&new_children)
         //     .cloned()
@@ -903,14 +908,20 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
+        println!("setting content in db");
         let mut updated_contents = Vec::new();
 
         //  Update the parents of all the contents to point to the latest version
         for content in contents_vec.iter().cloned() {
+            println!("setting content {}", content.id);
             let mut updated_content = content;
             if !updated_content.parent_id.id.is_empty() {
                 let parent_latest_version =
                     self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)?;
+                println!(
+                    "latest version of parent {}: {}",
+                    updated_content.parent_id.id, parent_latest_version
+                );
                 if parent_latest_version == 0 {
                     return Err(StateMachineError::DatabaseError(format!(
                         "Parent content {} not found",
@@ -923,6 +934,7 @@ impl IndexifyState {
 
             updated_contents.push(updated_content);
         }
+        println!("The updated contents to write {:?}", updated_contents);
 
         for updated_content in updated_contents {
             let content_key = format!("{}::v{}", updated_content.id.id, updated_content.id.version);
@@ -1195,12 +1207,15 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_id: &str,
+        content_id: &ContentMetadataId,
         _extraction_policy_id: &str,
         policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         let value = txn
-            .get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
+            .get_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                format!("{}::v{}", content_id.id, content_id.version),
+            )
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
                     "Error getting the content policies applied on content id {}: {}",
@@ -1209,7 +1224,7 @@ impl IndexifyState {
             })?
             .ok_or_else(|| {
                 StateMachineError::DatabaseError(format!(
-                    "No content policies applied on content found for id {}",
+                    "Content not found while updating applied extraction policies {}",
                     content_id
                 ))
             })?;
@@ -1421,18 +1436,19 @@ impl IndexifyState {
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::UpdateContent { updated_content } => {
+                //  TODO: Remove this
                 //  NOTE: Special case where forward and reverse indexes are updated together so
                 // errors can be handled
-                self.update_content(db, &txn, updated_content)?;
-                for (old_content_key, new_content_data) in updated_content.iter() {
-                    let old_content_key: ContentMetadataId = old_content_key.try_into()?;
-                    self.content_namespace_table
-                        .remove(&new_content_data.namespace, &old_content_key);
-                    self.content_namespace_table
-                        .insert(&new_content_data.namespace, &new_content_data.id);
-                    self.content_children_table
-                        .replace_parent(&old_content_key, &new_content_data.id);
-                }
+                // self.update_content(db, &txn, updated_content)?;
+                // for (old_content_key, new_content_data) in updated_content.iter() {
+                //     let old_content_key: ContentMetadataId = old_content_key.try_into()?;
+                //     self.content_namespace_table
+                //         .remove(&new_content_data.namespace, &old_content_key);
+                //     self.content_namespace_table
+                //         .insert(&new_content_data.namespace, &new_content_data.id);
+                //     self.content_children_table
+                //         .replace_parent(&old_content_key, &new_content_data.id);
+                // }
             }
             RequestPayload::TombstoneContentTree {
                 namespace: _,
@@ -1476,7 +1492,7 @@ impl IndexifyState {
             }
         };
 
-        self.apply(request).map_err(|e| {
+        self.apply(request, db, &txn).map_err(|e| {
             StateMachineError::ExternalError(anyhow!(
                 "Error while applying reverse index updates: {}",
                 e
@@ -1491,7 +1507,12 @@ impl IndexifyState {
 
     /// This method handles all reverse index writes. All reverse indexes are
     /// written in memory
-    pub fn apply(&self, request: StateMachineUpdateRequest) -> Result<()> {
+    pub fn apply(
+        &self,
+        request: StateMachineUpdateRequest,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+    ) -> Result<()> {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
@@ -1553,10 +1574,15 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
+                    let parent_latest_version =
+                        self.get_latest_version_of_content(&content.parent_id.id, db, txn)?;
+                    let parent_id = ContentMetadataId {
+                        id: content.parent_id.id,
+                        version: parent_latest_version,
+                    };
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
-                    self.content_children_table
-                        .insert(&content.parent_id, &content.id);
+                    self.content_children_table.insert(&parent_id, &content.id);
                 }
                 Ok(())
             }
