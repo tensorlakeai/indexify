@@ -214,8 +214,8 @@ pub struct RemoveIngestionServerResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateGcTasksRequest {
-    #[prost(string, tag = "1")]
-    pub content_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub state_change: ::core::option::Option<StateChange>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

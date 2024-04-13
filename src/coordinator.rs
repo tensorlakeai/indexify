@@ -310,8 +310,14 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
-        let content_tree_metadata = self.shared_state.get_content_tree_metadata(content_id)?;
+    pub async fn create_gc_tasks(
+        &self,
+        state_change: &StateChange,
+    ) -> Result<Vec<GarbageCollectionTask>> {
+        let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
+        let content_tree_metadata = self
+            .shared_state
+            .get_content_tree_metadata_with_version(&content_id)?;
         let mut output_tables = HashMap::new();
 
         for content_metadata in &content_tree_metadata {
@@ -350,6 +356,9 @@ impl Coordinator {
             .create_gc_tasks(content_tree_metadata, output_tables)
             .await?;
         self.shared_state.create_gc_tasks(tasks.clone()).await?;
+        self.shared_state
+            .mark_change_events_as_processed(vec![state_change.clone()])
+            .await?;
         Ok(tasks)
     }
 
@@ -367,13 +376,13 @@ impl Coordinator {
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
-                .create_gc_tasks(&leader_coord_addr, &change.object_id)
+                .create_gc_tasks(&leader_coord_addr, &change)
                 .await?;
             return Ok(Vec::new());
         }
 
         //  this coordinator node is the leader
-        self.create_gc_tasks(&change.object_id).await
+        self.create_gc_tasks(&change).await
     }
 
     async fn handle_task_completion_state_change(&self, change: StateChange) -> Result<()> {
@@ -1701,7 +1710,7 @@ mod tests {
             })
             .unwrap();
         let tasks = coordinator
-            .create_gc_tasks(&tombstone_content_tree_change.object_id)
+            .create_gc_tasks(&tombstone_content_tree_change)
             .await?;
         assert_eq!(tasks.len(), 1);
 

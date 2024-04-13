@@ -209,7 +209,7 @@ message RemoveIngestionServerResponse {
 }
 
 message CreateGCTasksRequest {
-    string content_id = 1;
+    StateChange state_change = 1;
 }
 
 message CreateGCTasksResponse {
