@@ -287,20 +287,25 @@ mod tests {
     use std::{collections::HashMap, sync::Arc, time::Instant};
 
     use indexify_internal_api as internal_api;
-    use internal_api::ContentMetadata;
+    use internal_api::{ContentMetadata, ContentMetadataId};
     use serde_json::json;
 
     use super::*;
     use crate::{server_config::ServerConfig, state::App, test_util::db_utils::mock_extractor};
 
-    fn create_task(id: &str, extractor: &str, policy: &str) -> internal_api::Task {
+    fn create_task(
+        id: &str,
+        extractor: &str,
+        policy: &str,
+        content: ContentMetadata,
+    ) -> internal_api::Task {
         internal_api::Task {
             id: id.to_string(),
             extractor: extractor.to_string(),
             extraction_policy_id: policy.to_string(),
             output_index_table_mapping: HashMap::new(),
             namespace: "default".to_string(),
-            content_metadata: ContentMetadata::default(),
+            content_metadata: content,
             input_params: json!(null),
             outcome: internal_api::TaskOutcome::Unknown,
             index_tables: vec![],
@@ -425,7 +430,18 @@ mod tests {
             .register_executor("localhost:8956", "test_executor_id", mock_extractor())
             .await?;
 
-        let task = create_task("test-task", &mock_extractor().name, "test-binding");
+        let content = ContentMetadata {
+            id: ContentMetadataId {
+                id: "content_id".to_string(),
+                version: 1,
+            },
+            ..Default::default()
+        };
+        shared_state
+            .create_content_batch(vec![content.clone()])
+            .await?;
+
+        let task = create_task("test-task", &mock_extractor().name, "test-binding", content);
         shared_state
             .create_tasks(vec![task.clone()], &state_change_id)
             .await?;
@@ -494,21 +510,43 @@ mod tests {
         }
 
         let mut tasks = Vec::new();
+        let mut content = Vec::new();
         // Crate the tasks
         for i in 1..=50 {
+            let content1 = ContentMetadata {
+                id: ContentMetadataId {
+                    id: format!("content_id_{}", i),
+                    version: 1,
+                },
+                ..Default::default()
+            };
             let task1 = create_task(
                 &format!("test-text-task-{}", i),
                 "MockTextExtractor",
                 "text-binding",
+                content1.clone(),
             );
+
+            let content2 = ContentMetadata {
+                id: ContentMetadataId {
+                    id: format!("content_id_{}", i + 50),
+                    version: 1,
+                },
+                ..Default::default()
+            };
             let task2 = create_task(
                 &format!("test-json-task-{}", i),
                 "MockJsonExtractor",
                 "json-binding",
+                content2.clone(),
             );
             tasks.push(task1);
             tasks.push(task2);
+            content.push(content1);
+            content.push(content2);
         }
+        shared_state.create_content_batch(content).await?;
+
         shared_state
             .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
@@ -731,21 +769,43 @@ mod tests {
         .await;
 
         let mut tasks = Vec::new();
+        let mut content = Vec::new();
         // Crate the tasks
         for i in 1..=500 {
+            let content1 = ContentMetadata {
+                id: ContentMetadataId {
+                    id: format!("content_id_{}", i),
+                    version: 1,
+                },
+                ..Default::default()
+            };
             let task1 = create_task(
                 &format!("test-text-task-{}", i),
                 "MockTextExtractor",
                 "text-binding",
+                content1.clone(),
             );
+
+            let content2 = ContentMetadata {
+                id: ContentMetadataId {
+                    id: format!("content_id_{}", i + 500),
+                    version: 1,
+                },
+                ..Default::default()
+            };
             let task2 = create_task(
                 &format!("test-json-task-{}", i),
                 "MockJsonExtractor",
                 "json-binding",
+                content2.clone(),
             );
             tasks.push(task1);
             tasks.push(task2);
+            content.push(content1);
+            content.push(content2);
         }
+        shared_state.create_content_batch(content).await?;
+
         shared_state
             .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
