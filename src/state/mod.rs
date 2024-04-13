@@ -1465,11 +1465,7 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::Arc,
-        time::{Duration, SystemTime},
-    };
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use indexify_internal_api::{ContentMetadataId, Index, TaskOutcome};
 
