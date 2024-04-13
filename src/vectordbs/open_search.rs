@@ -135,6 +135,21 @@ impl VectorDb for OpenSearchKnn {
         }
     }
 
+    async fn get_points(&self, _index: &str, _ids: Vec<String>) -> Result<Vec<VectorChunk>> {
+        // TODO: return empty vector for now
+        Ok(vec![])
+    }
+
+    // TODO: implementation of update_metadata
+    async fn update_metadata(
+        &self,
+        _index: &str,
+        _content_id: String,
+        _metadata: serde_json::Value,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn search(
         &self,
         index_name: String,
@@ -200,7 +215,7 @@ impl VectorDb for OpenSearchKnn {
         }
     }
 
-    async fn drop_index(&self, index: String) -> Result<()> {
+    async fn drop_index(&self, index: &str) -> Result<()> {
         let response = self
             .create_client()?
             .indices()
@@ -272,7 +287,7 @@ mod tests {
     #[ignore]
     async fn test_search_basic() {
         let opensearch: VectorDBTS = Arc::new(initialize_opensearch());
-        opensearch.drop_index(TEST_INDEX_NAME.into()).await.unwrap();
+        opensearch.drop_index(TEST_INDEX_NAME).await.unwrap();
         opensearch
             .create_index(CreateIndexParams {
                 vectordb_index_name: TEST_INDEX_NAME.into(),
@@ -285,6 +300,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: serde_json::Value::Null,
         };
         opensearch
             .add_embedding(TEST_INDEX_NAME, vec![chunk])

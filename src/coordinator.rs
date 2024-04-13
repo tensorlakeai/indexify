@@ -74,8 +74,6 @@ impl Coordinator {
         executor_id: &str,
         outcome: internal_api::TaskOutcome,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
-        content_id: &str,
-        extraction_policy_name: &str,
     ) -> Result<()> {
         info!(
             "updating task: {}, executor_id: {}, outcome: {:?}",
@@ -86,9 +84,6 @@ impl Coordinator {
         task.outcome = outcome;
         self.shared_state
             .update_task(task, Some(executor_id.to_string()), content_meta_list)
-            .await?;
-        self.shared_state
-            .mark_extraction_policy_applied_on_content(content_id, extraction_policy_name)
             .await?;
         Ok(())
     }
@@ -209,7 +204,8 @@ impl Coordinator {
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
             let leader_coord_addr = self
                 .shared_state
-                .get_coordinator_addr(leader_node_id)?
+                .get_coordinator_addr(leader_node_id)
+                .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
                 .register_ingestion_server(&leader_coord_addr, ingestion_server_id)
@@ -229,7 +225,8 @@ impl Coordinator {
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
             let leader_coord_addr = self
                 .shared_state
-                .get_coordinator_addr(leader_node_id)?
+                .get_coordinator_addr(leader_node_id)
+                .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
                 .remove_ingestion_server(&leader_coord_addr, ingestion_server_id)
@@ -251,11 +248,13 @@ impl Coordinator {
             .await
     }
 
-    pub fn get_content_tree_metadata(
+    pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.shared_state.get_content_tree_metadata(content_id)
+        self.shared_state
+            .get_content_tree_metadata(content_id)
+            .await
     }
 
     pub async fn get_extractor(
@@ -316,43 +315,29 @@ impl Coordinator {
     pub async fn create_gc_tasks(&self, content_id: &str) -> Result<Vec<GarbageCollectionTask>> {
         let content_tree_metadata = self
             .shared_state
-            .get_content_tree_metadata_with_version(&content_id.to_string().try_into()?)?;
+            .get_content_tree_metadata(content_id)
+            .await?;
         let mut output_tables = HashMap::new();
-        let mut policy_ids = HashMap::new();
 
         for content_metadata in &content_tree_metadata {
-            let content_extraction_policy_mappings = self
-                .shared_state
-                .get_content_extraction_policy_mappings_for_content_id(
-                    &content_metadata.id.id.to_string(),
-                )
-                .await?;
-
-            if content_extraction_policy_mappings.is_none() {
+            if content_metadata.extraction_policy_ids.keys().len() == 0 {
                 continue;
             }
+            let applied_extraction_policy_ids: HashSet<String> = content_metadata
+                .extraction_policy_ids
+                .clone()
+                .into_iter()
+                .filter(|(_, completion_time)| *completion_time > 0)
+                .map(|(extraction_policy_id, _)| extraction_policy_id)
+                .collect();
 
-            let mappings = content_extraction_policy_mappings.unwrap();
-            let applied_extraction_policy_ids: HashSet<String> =
-                mappings.time_of_policy_completion.keys().cloned().collect();
+            if applied_extraction_policy_ids.is_empty() {
+                continue;
+            }
             let applied_extraction_policies = self
                 .shared_state
                 .get_extraction_policies_from_ids(applied_extraction_policy_ids)
                 .await?;
-
-            if applied_extraction_policies.is_none() {
-                continue;
-            }
-
-            let policy_id = &applied_extraction_policies
-                .as_ref()
-                .unwrap()
-                .iter()
-                .next()
-                .map(|policy| policy.id.clone())
-                .unwrap_or("".to_string());
-            policy_ids.insert(content_metadata.id.to_string(), policy_id.to_string());
-
             for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
                 output_tables.insert(
                     content_metadata.id.to_string().clone(),
@@ -367,7 +352,7 @@ impl Coordinator {
 
         let tasks = self
             .garbage_collector
-            .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
+            .create_gc_tasks(content_tree_metadata, output_tables)
             .await?;
         self.shared_state.create_gc_tasks(tasks.clone()).await?;
         Ok(tasks)
@@ -383,7 +368,8 @@ impl Coordinator {
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
             let leader_coord_addr = self
                 .shared_state
-                .get_coordinator_addr(leader_id)?
+                .get_coordinator_addr(leader_id)
+                .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
                 .create_gc_tasks(&leader_coord_addr, &change.object_id)
@@ -458,8 +444,8 @@ impl Coordinator {
         Ok(())
     }
 
-    pub fn subscribe_to_gc_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
-        self.shared_state.subscribe_to_gc_task_events()
+    pub async fn subscribe_to_gc_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
+        self.shared_state.subscribe_to_gc_task_events().await
     }
 
     pub fn get_state_watcher(&self) -> Receiver<StateChange> {
@@ -536,12 +522,7 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        fs,
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;
@@ -600,6 +581,7 @@ mod tests {
                 source: "ingestion".to_string(),
                 size_bytes: 100,
                 hash: "".to_string(),
+                extraction_policy_ids: HashMap::new(),
             }])
             .await?;
 
@@ -672,6 +654,7 @@ mod tests {
                 source: "some_extractor_produced_this".to_string(),
                 size_bytes: 100,
                 hash: "".to_string(),
+                extraction_policy_ids: HashMap::new(),
             }])
             .await?;
         coordinator.run_scheduler().await?;
@@ -746,6 +729,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "".to_string(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![content_metadata_1])
@@ -798,6 +782,7 @@ mod tests {
             source: extraction_policy_1.id,
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![content_metadata_2])
@@ -835,6 +820,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![content_metadata_1])
@@ -888,6 +874,7 @@ mod tests {
             source: extraction_policy_1.id,
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![content_metadata_2])
@@ -1033,6 +1020,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "123".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![parent_content.clone()])
@@ -1049,6 +1037,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "456".into(),
+            ..Default::default()
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1062,6 +1051,7 @@ mod tests {
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
             hash: "789".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
@@ -1078,6 +1068,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "987".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1_child.clone()])
@@ -1085,7 +1076,8 @@ mod tests {
 
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id)
+            .await?;
         assert_eq!(content_tree.len(), 4);
 
         Ok(())
@@ -1163,6 +1155,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![parent_content.clone()])
@@ -1180,6 +1173,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1193,6 +1187,7 @@ mod tests {
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
@@ -1210,6 +1205,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1_child.clone()])
@@ -1228,6 +1224,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![parent_content_2.clone()])
@@ -1245,6 +1242,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_2_1.clone()])
@@ -1260,10 +1258,12 @@ mod tests {
         //  Check that content has been correctly tombstoned
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id)
+            .await?;
         let content_tree_2 = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content_2.id)?;
+            .get_content_tree_metadata(&parent_content_2.id)
+            .await?;
         for content in &content_tree {
             assert!(
                 content.tombstoned,
@@ -1327,6 +1327,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![parent_content.clone()])
@@ -1344,6 +1345,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1357,6 +1359,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
@@ -1469,6 +1472,7 @@ mod tests {
             source: "ingestion".to_string(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![parent_content.clone()])
@@ -1486,6 +1490,7 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_2".to_string(),
@@ -1499,6 +1504,7 @@ mod tests {
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
@@ -1516,59 +1522,10 @@ mod tests {
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
             hash: "".into(),
+            ..Default::default()
         };
         coordinator
             .create_content_metadata(vec![child_content_1_child.clone()])
-            .await?;
-
-        //  Create mappings of the extraction policies applied to first two pieces of
-        // content and mark them complete
-        let stored_parent_content = coordinator
-            .get_content_metadata(vec![parent_content.id.clone()])
-            .await?;
-        let stored_parent_content = stored_parent_content.first().unwrap();
-        let content_extraction_policy_mappings_parent_content =
-            internal_api::ContentExtractionPolicyMapping {
-                content_id: stored_parent_content.id.clone(),
-                extraction_policy_ids: HashSet::from([extraction_policy_1.id.clone()]),
-                time_of_policy_completion: HashMap::new(),
-            };
-        let stored_child_content = coordinator
-            .get_content_metadata(vec![child_content_1.id.clone()])
-            .await?;
-        let stored_child_content = stored_child_content.first().unwrap();
-        let content_extraction_policy_mappings_child_content_1 =
-            internal_api::ContentExtractionPolicyMapping {
-                content_id: stored_child_content.id.clone(),
-                extraction_policy_ids: HashSet::from([extraction_policy_1.id.clone()]),
-                time_of_policy_completion: HashMap::new(),
-            };
-
-        coordinator
-            .shared_state
-            .set_content_extraction_policy_mappings(vec![
-                content_extraction_policy_mappings_parent_content,
-                content_extraction_policy_mappings_child_content_1,
-            ])
-            .await?;
-
-        coordinator
-            .shared_state
-            .mark_extraction_policy_applied_on_content(&parent_content.id, &extraction_policy_1.id)
-            .await?;
-        coordinator
-            .shared_state
-            .mark_extraction_policy_applied_on_content(&child_content_1.id, &extraction_policy_1.id)
-            .await?;
-
-        let retrieved_parent_content = coordinator
-            .shared_state
-            .get_content_metadata_batch(vec![parent_content.id.clone()])
-            .await?;
-        let retrieved_parent_content = retrieved_parent_content.first().unwrap();
-
-        coordinator
-            .tombstone_content_metadatas(DEFAULT_TEST_NAMESPACE, &[parent_content.id.clone()])
             .await?;
 
         let state_change = internal_api::StateChange {

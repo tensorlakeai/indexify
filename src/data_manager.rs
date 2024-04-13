@@ -30,8 +30,21 @@ use crate::{
     vector_index::{ScoredText, VectorIndexManager},
 };
 
+fn index_in_features(
+    output_index_map: &HashMap<String, String>,
+    features: &[api::Feature],
+    index_name: &str,
+) -> bool {
+    features.iter().any(|f| match f.feature_type {
+        api::FeatureType::Embedding => output_index_map
+            .get(&f.name)
+            .map_or(false, |index| index == index_name),
+        _ => false,
+    })
+}
+
 pub struct DataManager {
-    vector_index_manager: Arc<VectorIndexManager>,
+    pub vector_index_manager: Arc<VectorIndexManager>,
     metadata_index_manager: MetadataStorageTS,
     metadata_reader: MetadataReaderTS,
     blob_storage: Arc<BlobStorage>,
@@ -235,13 +248,8 @@ impl DataManager {
         Ok(content_list)
     }
 
-    #[tracing::instrument]
-    pub async fn add_texts(
-        &self,
-        namespace: &str,
-        content_list: Vec<api::Content>,
-        content_id: Option<&str>,
-    ) -> Result<()> {
+    #[tracing::instrument(skip(self, content_list))]
+    pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
         for text in content_list {
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
             let content_metadata = self
@@ -352,6 +360,7 @@ impl DataManager {
             source: "ingestion".to_string(),
             size_bytes: 0,
             hash: "".to_string(),
+            ..Default::default()
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -531,6 +540,7 @@ impl DataManager {
             source: source.to_string(),
             size_bytes: res.size_bytes,
             hash: content_hash,
+            extraction_policy_ids: HashMap::new(),
         })
     }
 
@@ -561,10 +571,12 @@ impl DataManager {
         embedding: &[f32],
         content_id: &str,
         output_index_map: &HashMap<String, String>,
+        metadata: serde_json::Value,
     ) -> Result<()> {
         let embeddings = internal_api::ExtractedEmbeddings {
             content_id: content_id.to_string(),
             embedding: embedding.to_vec(),
+            metadata,
         };
         let index_table = output_index_map
             .get(name)
@@ -576,15 +588,84 @@ impl DataManager {
         Ok(())
     }
 
-    pub async fn write_extracted_features(
+    // Combine metadata from existing metadata and new features into single json
+    // object
+    fn combine_metadata(
+        metadata: Vec<ExtractedMetadata>,
+        features: &[api::Feature],
+    ) -> serde_json::Value {
+        let mut combined_metadata = serde_json::Map::new();
+        for m in metadata {
+            for (k, v) in m.metadata.as_object().unwrap() {
+                combined_metadata.insert(k.clone(), v.clone());
+            }
+        }
+        for feature in features {
+            if let api::FeatureType::Metadata = feature.feature_type {
+                if let serde_json::Value::Object(data) = &feature.data {
+                    for (k, v) in data {
+                        combined_metadata.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        serde_json::Value::Object(combined_metadata)
+    }
+
+    pub async fn write_existing_content_features(
         &self,
         extractor_name: &str,
         extraction_policy: &str,
         content_meta: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
+        index_tables: &[String],
     ) -> Result<()> {
-        for feature in features {
+        let metadata_updated = features
+            .iter()
+            .any(|feature| matches!(feature.feature_type, api::FeatureType::Metadata));
+        let existing_metadata = self
+            .metadata_index_manager
+            .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
+            .await?;
+        let new_metadata = Self::combine_metadata(existing_metadata, &features);
+        self.write_extracted_features(
+            extractor_name,
+            extraction_policy,
+            content_meta,
+            features.clone(),
+            &new_metadata,
+            output_index_map,
+        )
+        .await?;
+        if metadata_updated && !new_metadata.as_object().unwrap().is_empty() {
+            // For all embeddings not updated with new values, update their metadata
+            for index in index_tables {
+                if !index_in_features(output_index_map, &features, index) {
+                    info!(
+                        "updating metadata for content {} index {}",
+                        content_meta.id.clone(),
+                        index
+                    );
+                    self.vector_index_manager
+                        .update_metadata(index, content_meta.id.clone(), new_metadata.clone())
+                        .await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn write_extracted_features(
+        &self,
+        extractor_name: &str,
+        extraction_policy: &str,
+        content_meta: &indexify_coordinator::ContentMetadata,
+        features: Vec<api::Feature>,
+        metadata: &serde_json::Value,
+        output_index_map: &HashMap<String, String>,
+    ) -> Result<()> {
+        for feature in &features {
             match feature.feature_type {
                 api::FeatureType::Embedding => {
                     let embedding_payload: internal_api::Embedding =
@@ -596,6 +677,7 @@ impl DataManager {
                         &embedding_payload.values,
                         &content_meta.id,
                         output_index_map,
+                        metadata.clone(),
                     )
                     .await?;
                 }
@@ -641,11 +723,13 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
+        let combined_metadata = Self::combine_metadata(Vec::new(), &features);
         self.write_extracted_features(
             &ingest_metadata.extractor,
             &ingest_metadata.extraction_policy,
             content_meta,
             features,
+            &combined_metadata,
             &ingest_metadata.output_to_index_table_mapping,
         )
         .await
@@ -789,10 +873,52 @@ impl DataManager {
         name: &str,
         file: impl Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult> {
-        self.blob_storage.put_stream(name, file).await
+        self.blob_storage.put(name, file).await
     }
 
     pub async fn blob_store_writer(&self, namespace: &str, key: &str) -> Result<StoragePartWriter> {
         self.blob_storage.writer(namespace, key).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_combine_metadata() {
+        let features = vec![
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Metadata,
+                data: json!({"key1": "value1"}),
+            },
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Metadata,
+                data: json!({"key2": "value2"}),
+            },
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Embedding,
+                data: json!({"values": "[0.1, 0.2, 0.3]"}),
+            },
+            api::Feature {
+                name: String::from(""),
+                feature_type: api::FeatureType::Metadata,
+                data: json!({"key3": "value3"}),
+            },
+        ];
+
+        let combined = DataManager::combine_metadata(Vec::new(), &features);
+        let expected = json!({
+            "key1": "value1",
+            "key2": "value2",
+            "key3": "value3",
+        });
+
+        assert_eq!(combined, expected);
     }
 }

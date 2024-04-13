@@ -30,16 +30,7 @@ impl S3Storage {
 
 #[async_trait]
 impl BlobStorageWriter for S3Storage {
-    async fn put(&self, key: &str, data: Bytes) -> Result<PutResult> {
-        let size_bytes = data.len() as u64;
-        self.client.put(&key.into(), data).await?;
-        Ok(PutResult {
-            url: format!("s3://{}/{}", self.bucket, key),
-            size_bytes,
-        })
-    }
-
-    async fn put_stream(
+    async fn put(
         &self,
         key: &str,
         mut data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
@@ -81,27 +72,28 @@ impl BlobStoragePartWriter for S3Storage {
 
 pub struct S3FileReader {
     client: Arc<dyn ObjectStore>,
+    key: String,
 }
 
 impl S3FileReader {
-    pub fn new(bucket: &str) -> Self {
+    pub fn new(bucket: &str, key: &str) -> Self {
         let client = AmazonS3Builder::from_env()
             .with_bucket_name(bucket)
-            .with_region("us-west-2")
             .build()
             .unwrap();
         S3FileReader {
             client: Arc::new(client),
+            key: key.to_string(),
         }
     }
 }
 
 #[async_trait]
 impl BlobStorageReader for S3FileReader {
-    fn get(&self, key: &str) -> BoxStream<Result<Bytes>> {
+    fn get(&self, _key: &str) -> BoxStream<Result<Bytes>> {
         let client_clone = self.client.clone();
         let (tx, rx) = mpsc::unbounded_channel();
-        let key = key.to_string();
+        let key = self.key.clone();
         tokio::spawn(async move {
             let mut stream = client_clone.get(&key.into()).await.unwrap().into_stream();
             while let Some(chunk) = stream.next().await {
@@ -147,28 +139,6 @@ mod tests {
             println!("localstack not configured skipping test");
             return;
         }
-
-        let storage = S3Storage::new("test-bucket", client);
-        let result = storage.put("test-key-1", Bytes::from("test_data")).await;
-        assert!(result.is_ok());
-
-        let read_client = test_client();
-        let path = object_store::path::Path::from("test-key-1");
-        let res = read_client.get(&path).await.unwrap().bytes().await.unwrap();
-        assert_eq!(res, "test_data");
-
-        storage.delete("test-key-1").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_put_stream() {
-        let client = test_client();
-
-        let list_result = client.list(None).try_collect::<Vec<_>>().await;
-        if list_result.is_err() {
-            println!("localstack not configured skipping test");
-            return;
-        }
         let storage = S3Storage::new("test-bucket", client);
         let data = vec![
             Bytes::from("test_data_1"),
@@ -176,7 +146,7 @@ mod tests {
             Bytes::from("test_data_3"),
         ];
         let stream = stream::iter(data.into_iter().map(Ok));
-        let result = storage.put_stream("test-key-2", pin!(stream)).await;
+        let result = storage.put("test-key-2", pin!(stream)).await;
         assert!(result.is_ok());
 
         let read_client = test_client();

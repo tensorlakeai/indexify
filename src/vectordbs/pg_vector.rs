@@ -44,8 +44,7 @@ impl VectorDb for PgVector {
             crate::vectordbs::IndexDistance::Dot => "vector_ip_ops",
         };
 
-        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY , embedding vector({vector_dim}));",);
-
+        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY, embedding vector({vector_dim}), metadata JSONB);", index_name = index_name, vector_dim = vector_dim);
         if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
             tracing::error!("Failed to create table: {}, query: {}", err, query);
             return Err(anyhow!("Failed to create table {}", err));
@@ -66,13 +65,55 @@ impl VectorDb for PgVector {
 
         for chunk in chunks {
             let embedding = Vector::from(chunk.embedding);
-            let query = format!("INSERT INTO \"{index}\"(content_id, embedding) VALUES ($1, $2) ON CONFLICT (content_id) DO UPDATE SET embedding = $2;",);
+            let query = format!("INSERT INTO \"{index}\"(content_id, embedding, metadata) VALUES ($1, $2, $3) ON CONFLICT (content_id) DO UPDATE SET embedding = $2, metadata = $3;",);
             let _ = sqlx::query(&query)
                 .bind(chunk.content_id)
                 .bind(embedding)
+                .bind(chunk.metadata)
                 .execute(&self.pool)
                 .await?;
         }
+        Ok(())
+    }
+
+    async fn get_points(&self, index: &str, ids: Vec<String>) -> Result<Vec<VectorChunk>> {
+        let index = PostgresIndexName::new(index);
+        let mut chunks = Vec::new();
+
+        for id in ids {
+            let query = format!(
+                "SELECT content_id, embedding, metadata FROM \"{index}\" WHERE content_id = $1;"
+            );
+            let row: Option<(String, Vector, Option<serde_json::Value>)> = sqlx::query_as(&query)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+
+            if let Some(row) = row {
+                chunks.push(VectorChunk {
+                    content_id: row.0,
+                    embedding: row.1.into(),
+                    metadata: row.2.unwrap_or_default(),
+                });
+            }
+        }
+
+        Ok(chunks)
+    }
+
+    async fn update_metadata(
+        &self,
+        index: &str,
+        content_id: String,
+        metadata: serde_json::Value,
+    ) -> Result<()> {
+        let index = PostgresIndexName::new(index);
+        let query = format!("UPDATE {} SET metadata = $2 WHERE content_id = $1", index);
+        let _rows_affected = sqlx::query(&query)
+            .bind(content_id)
+            .bind(metadata)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -121,8 +162,8 @@ impl VectorDb for PgVector {
 
     // TODO: Should change index to &str to keep things uniform across functions
     #[tracing::instrument]
-    async fn drop_index(&self, index: String) -> Result<()> {
-        let index = PostgresIndexName::new(&index);
+    async fn drop_index(&self, index: &str) -> Result<()> {
+        let index = PostgresIndexName::new(index);
         let query = format!("DROP TABLE IF EXISTS \"{index}\";");
         let _ = sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
@@ -146,8 +187,11 @@ impl VectorDb for PgVector {
 mod tests {
     use std::sync::Arc;
 
+    use serde_json::json;
+
     use super::CreateIndexParams;
     use crate::{
+        data_manager::DataManager,
         server_config::PgVectorConfig,
         vectordbs::{pg_vector::PgVector, IndexDistance, VectorChunk, VectorDBTS},
     };
@@ -170,7 +214,7 @@ mod tests {
             .unwrap(),
         );
         // Drop index (this is idempotent)
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.to_string(),
@@ -180,9 +224,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1.clone(),
         };
         vector_db
             .add_embedding(index_name, vec![chunk])
@@ -194,6 +240,86 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
+    }
+
+    fn make_id() -> String {
+        DataManager::make_id("namespace", &nanoid::nanoid!(), &None)
+    }
+
+    #[tokio::test]
+    async fn test_store_metadata() {
+        let index_name = "index_default.minil6.embedding";
+        let database_url = "postgres://postgres:postgres@localhost/indexify";
+        let vector_db: VectorDBTS = Arc::new(
+            PgVector::new(PgVectorConfig {
+                addr: database_url.to_string(),
+                m: 16,
+                efconstruction: 64,
+                efsearch: 40,
+            })
+            .await
+            .unwrap(),
+        );
+        // Drop index (this is idempotent)
+        vector_db.drop_index(index_name).await.unwrap();
+        vector_db
+            .create_index(CreateIndexParams {
+                vectordb_index_name: index_name.to_string(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+
+        let content_ids = vec![make_id(), make_id()];
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
+        let chunk1 = VectorChunk {
+            content_id: content_ids[0].clone(),
+            embedding: vec![0.1, 0.2],
+            metadata: metadata1.clone(),
+        };
+        vector_db
+            .add_embedding(index_name, vec![chunk1])
+            .await
+            .unwrap();
+        let metadata2 = json!({"key1": "value3", "key2": "value4"});
+        let chunk2 = VectorChunk {
+            content_id: content_ids[1].clone(),
+            embedding: vec![0.3, 0.4],
+            metadata: metadata2.clone(),
+        };
+        vector_db
+            .add_embedding(index_name, vec![chunk2])
+            .await
+            .unwrap();
+
+        let result = vector_db
+            .get_points(index_name, content_ids.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 2);
+        for chunk in result {
+            if chunk.content_id == content_ids[0] {
+                assert_eq!(chunk.metadata, metadata1);
+            } else if chunk.content_id == content_ids[1] {
+                assert_eq!(chunk.metadata, metadata2);
+            } else {
+                panic!("unexpected content_id: {}", chunk.content_id);
+            }
+        }
+
+        let new_metadata = json!({"key1": "value5", "key2": "value6"});
+        vector_db
+            .update_metadata(index_name, content_ids[0].clone(), new_metadata.clone())
+            .await
+            .unwrap();
+        let result = vector_db
+            .get_points(index_name, vec![content_ids[0].clone()])
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].metadata, new_metadata);
     }
 
     #[tokio::test]
@@ -214,7 +340,7 @@ mod tests {
             .unwrap(),
         );
 
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.into(),
@@ -224,9 +350,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
+            metadata: metadata1.clone(),
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])
@@ -259,7 +387,7 @@ mod tests {
             .unwrap(),
         );
 
-        vector_db.drop_index(index_name.into()).await.unwrap();
+        vector_db.drop_index(index_name).await.unwrap();
         vector_db
             .create_index(CreateIndexParams {
                 vectordb_index_name: index_name.into(),
@@ -273,6 +401,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: content_id.into(),
             embedding: vec![0., 2.],
+            metadata: json!({"key1": "value1", "key2": "value2"}),
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])

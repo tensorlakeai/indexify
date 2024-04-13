@@ -3,7 +3,6 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     str::FromStr,
-    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -310,6 +309,13 @@ pub struct Task {
     pub input_params: serde_json::Value,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
+    pub index_tables: Vec<String>, // list of index tables that this content may be present in
+}
+
+impl Task {
+    pub fn terminal_state(&self) -> bool {
+        self.outcome != TaskOutcome::Unknown
+    }
 }
 
 impl Display for Task {
@@ -334,6 +340,7 @@ impl From<Task> for indexify_coordinator::Task {
             extraction_policy_id: value.extraction_policy_id,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
+            index_tables: value.index_tables,
         }
     }
 }
@@ -354,6 +361,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
             extraction_policy_id: value.extraction_policy_id,
             output_index_table_mapping: value.output_index_mapping,
             outcome,
+            index_tables: value.index_tables,
         })
     }
 }
@@ -392,12 +400,10 @@ impl GarbageCollectionTask {
         namespace: &str,
         content_metadata: ContentMetadata,
         output_tables: HashSet<String>,
-        policy_id: &str,
     ) -> Self {
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
         content_metadata.id.hash(&mut hasher);
-        policy_id.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         Self {
             namespace: namespace.to_string(),
@@ -572,6 +578,7 @@ pub struct ContentMetadata {
     pub size_bytes: u64,
     pub tombstoned: bool,
     pub hash: String,
+    pub extraction_policy_ids: HashMap<String, u64>,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -588,6 +595,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             source: value.source,
             size_bytes: value.size_bytes,
             hash: value.hash,
+            extraction_policy_ids: value.extraction_policy_ids,
         }
     }
 }
@@ -640,9 +648,32 @@ impl Default for ContentMetadata {
             created_at: 1234567890, // example timestamp
             source: "test_source".to_string(),
             size_bytes: 1234567890,
+            extraction_policy_ids: HashMap::new(),
             tombstoned: false,
             hash: "test_hash".to_string(),
         }
+        }
+    }
+}
+
+impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            name: value.file_name,
+            content_type: value.mime,
+            labels: value.labels,
+            storage_url: value.storage_url,
+            created_at: value.created_at,
+            namespace: value.namespace,
+            source: value.source,
+            size_bytes: value.size_bytes,
+            tombstoned: false,
+            extraction_policy_ids: value.extraction_policy_ids,
+        })
     }
 }
 
@@ -809,6 +840,7 @@ impl From<StateChange> for indexify_coordinator::StateChange {
 pub struct ExtractedEmbeddings {
     pub content_id: String,
     pub embedding: Vec<f32>,
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

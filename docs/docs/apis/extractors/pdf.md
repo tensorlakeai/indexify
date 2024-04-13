@@ -1,5 +1,8 @@
 # PDF Extractors
 
+#### [PDFExtractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor)
+Extract text, images and tables as strings, bytes and json respectively using this extractor.
+
 #### [OCRMyPdf](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf)
 Extract text content from image based pdf files using this ocrmypdf based extractor.
 

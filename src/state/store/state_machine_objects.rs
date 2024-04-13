@@ -41,6 +41,11 @@ impl UnassignedTasks {
         let guard = self.unassigned_tasks.read().unwrap();
         guard.clone()
     }
+
+    pub fn set(&self, tasks: HashSet<TaskId>) {
+        let mut guard = self.unassigned_tasks.write().unwrap();
+        *guard = tasks;
+    }
 }
 
 impl From<HashSet<TaskId>> for UnassignedTasks {
@@ -129,7 +134,7 @@ impl ExtractionPoliciesTable {
         guard.get(namespace).cloned().unwrap_or_default()
     }
 
-    pub fn insert(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
+    pub fn insert(&self, namespace: &NamespaceName, extraction_policy_id: &str) {
         let mut guard = self.extraction_policies_table.write().unwrap();
         guard
             .entry(namespace.clone())
@@ -137,7 +142,7 @@ impl ExtractionPoliciesTable {
             .insert(extraction_policy_id.to_owned());
     }
 
-    pub fn remove(&mut self, namespace: &NamespaceName, extraction_policy_id: &str) {
+    pub fn remove(&self, namespace: &NamespaceName, extraction_policy_id: &str) {
         let mut guard = self.extraction_policies_table.write().unwrap();
         guard
             .entry(namespace.clone())
@@ -166,7 +171,7 @@ pub struct ExtractorExecutorsTable {
 }
 
 impl ExtractorExecutorsTable {
-    pub fn insert(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+    pub fn insert(&self, extractor: &ExtractorName, executor_id: &ExecutorId) {
         let mut guard = self.extractor_executors_table.write().unwrap();
         guard
             .entry(extractor.clone())
@@ -174,7 +179,7 @@ impl ExtractorExecutorsTable {
             .insert(executor_id.clone());
     }
 
-    pub fn remove(&mut self, extractor: &ExtractorName, executor_id: &ExecutorId) {
+    pub fn remove(&self, extractor: &ExtractorName, executor_id: &ExecutorId) {
         let mut guard = self.extractor_executors_table.write().unwrap();
         guard
             .entry(extractor.clone())
@@ -633,6 +638,8 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
+        // content_id -> Set(Extraction Policy Ids)
+        let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
             txn.put_cf(
@@ -641,6 +648,13 @@ impl IndexifyState {
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            self.update_content_extraction_policy_state(
+                db,
+                txn,
+                &task.content_metadata.id,
+                &task.extraction_policy_id,
+                SystemTime::UNIX_EPOCH,
+            )?;
         }
         Ok(())
     }
@@ -650,6 +664,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: Vec<&internal_api::Task>,
+        update_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
@@ -659,6 +674,15 @@ impl IndexifyState {
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            if task.terminal_state() {
+                self.update_content_extraction_policy_state(
+                    db,
+                    txn,
+                    &task.content_metadata.id,
+                    &task.extraction_policy_id,
+                    update_time,
+                )?;
+            }
         }
         Ok(())
     }
@@ -1129,93 +1153,14 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn set_content_policies_applied_on_content(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        mappings: &[internal_api::ContentExtractionPolicyMapping],
-    ) -> Result<(), StateMachineError> {
-        //  Fetch all keys at once
-        let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
-        let keys_with_cf: Vec<(_, _)> = mappings
-            .iter()
-            .map(|m| {
-                (
-                    mapping_cf,
-                    format!("{}::v{}", m.content_id.id, m.content_id.version),
-                )
-            })
-            .collect();
-        let values = txn.multi_get_cf(keys_with_cf.clone());
-
-        //  Iterate in memory and update the data
-        let mut updated_mappings = Vec::new();
-        for (index, value) in values.into_iter().enumerate() {
-            let mut existing_mapping: internal_api::ContentExtractionPolicyMapping = match value {
-                Ok(Some(data)) => JsonEncoder::decode(&data)?,
-                Ok(None) => internal_api::ContentExtractionPolicyMapping {
-                    content_id: keys_with_cf[index].1.clone().try_into()?,
-                    extraction_policy_ids: HashSet::new(),
-                    time_of_policy_completion: HashMap::new(),
-                },
-                Err(e) => {
-                    return Err(StateMachineError::DatabaseError(format!(
-                        "Error getting the content policies applied on content id {}: {}",
-                        keys_with_cf[index].1, e
-                    )))
-                }
-            };
-
-            let new_mapping = mappings[index].clone();
-            existing_mapping
-                .extraction_policy_ids
-                .extend(new_mapping.extraction_policy_ids);
-            existing_mapping
-                .time_of_policy_completion
-                .extend(new_mapping.time_of_policy_completion);
-
-            updated_mappings.push(existing_mapping);
-        }
-
-        //  Write the data back
-        for updated_mapping in updated_mappings {
-            let data = JsonEncoder::encode(&updated_mapping)?;
-            let key = format!(
-                "{}::v{}",
-                updated_mapping.content_id.id, updated_mapping.content_id.version
-            );
-            txn.put_cf(mapping_cf, key.clone(), data).map_err(|e| {
-                StateMachineError::DatabaseError(format!(
-                    "Error writing content policies applied on content for id {}: {}",
-                    key, e
-                ))
-            })?;
-        }
-
-        Ok(())
-    }
-
-    pub fn mark_extraction_policy_applied_on_content(
+    pub fn update_content_extraction_policy_state(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &str,
-        extraction_policy_id: &str,
-        policy_completion_time: &SystemTime,
+        _extraction_policy_id: &str,
+        policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
-        let mapping_cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
-        let latest_version = self.get_latest_version_of_content(content_id, db, txn)?;
-
-        if latest_version == 0 {
-            return Err(StateMachineError::DatabaseError(format!(
-                "No content found for id {} while trying to apply extraction policy as marked",
-                content_id
-            )));
-        }
-
-        let content_key = format!("{}::v{}", content_id, latest_version);
-
-        //  Get and deserialize the content policy mappings
         let value = txn
             .get_cf(mapping_cf, content_key.clone())
             .map_err(|e| {
@@ -1230,40 +1175,24 @@ impl IndexifyState {
                     content_key
                 ))
             })?;
-        let content_policy_mappings =
-            JsonEncoder::decode::<internal_api::ContentExtractionPolicyMapping>(&value)?;
-
-        //  First ensure that this content has the extraction policy registered against
-        // it
-        if !content_policy_mappings
-            .extraction_policy_ids
-            .contains(extraction_policy_id)
-        {
-            return Err(StateMachineError::DatabaseError(format!(
-                "Extraction policy id {} not applied on content {} because extraction policy was not registered against the content",
-                extraction_policy_id, content_id
-            )));
-        }
-
-        //  Mark the time the content was processed against the extraction policy and
-        // store it back
-        let mut time_of_policy_completion = content_policy_mappings.time_of_policy_completion;
-        time_of_policy_completion.insert(extraction_policy_id.into(), *policy_completion_time);
-        let updated_mapping = internal_api::ContentExtractionPolicyMapping {
-            content_id: ContentMetadataId {
-                id: content_id.to_string(),
-                version: latest_version,
-            },
-            extraction_policy_ids: content_policy_mappings.extraction_policy_ids,
-            time_of_policy_completion,
-        };
-        let data = JsonEncoder::encode(&updated_mapping)?;
-        txn.put_cf(mapping_cf, content_key, data).map_err(|e| {
-            StateMachineError::DatabaseError(format!(
-                "Error writing content policies applied on content for id {}: {}",
-                content_id, e
-            ))
-        })?;
+        let content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+        let _epoch_time = policy_completion_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error converting policy completion time to u64: {}",
+                    e
+                ))
+            })?
+            .as_secs();
+        let data = JsonEncoder::encode(&content_meta)?;
+        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_id, data)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error writing content policies applied on content for id {}: {}",
+                    content_id, e
+                ))
+            })?;
 
         Ok(())
     }
@@ -1291,7 +1220,7 @@ impl IndexifyState {
     }
 
     pub fn mark_state_changes_processed(
-        &mut self,
+        &self,
         state_change: &StateChangeProcessed,
         _processed_at: u64,
     ) {
@@ -1299,14 +1228,14 @@ impl IndexifyState {
             .remove(&state_change.state_change_id);
     }
 
-    fn update_schema_reverse_idx(&mut self, schema: internal_api::StructuredDataSchema) {
+    fn update_schema_reverse_idx(&self, schema: internal_api::StructuredDataSchema) {
         self.schemas_by_namespace
             .insert(&schema.namespace, &schema.id);
     }
 
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
-        &mut self,
+        &self,
         request: StateMachineUpdateRequest,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<(), StateMachineError> {
@@ -1378,23 +1307,23 @@ impl IndexifyState {
             }
             RequestPayload::UpdateTask {
                 task,
-                mark_finished,
                 executor_id,
                 content_metadata,
+                update_time,
             } => {
                 println!("Marking task {} as {}", task.id, mark_finished);
                 self.update_tasks(db, &txn, vec![task])?;
                 self.set_content(db, &txn, content_metadata)?;
 
-                if *mark_finished {
+                if task.terminal_state() {
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
                         let mut existing_tasks =
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
                         existing_tasks.remove(&task.id);
-                        let mut new_task_assignment = HashMap::new();
-                        new_task_assignment.insert(executor_id.to_string(), existing_tasks);
+                        let new_task_assignment =
+                            HashMap::from([(executor_id.to_string(), existing_tasks)]);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
 
@@ -1500,28 +1429,6 @@ impl IndexifyState {
                     extraction_policy,
                     updated_structured_data_schema,
                     new_structured_data_schema,
-                )?;
-            }
-            RequestPayload::SetContentExtractionPolicyMappings {
-                content_extraction_policy_mappings,
-            } => {
-                self.set_content_policies_applied_on_content(
-                    db,
-                    &txn,
-                    content_extraction_policy_mappings,
-                )?;
-            }
-            RequestPayload::MarkExtractionPolicyAppliedOnContent {
-                content_id,
-                extraction_policy_id,
-                policy_completion_time,
-            } => {
-                self.mark_extraction_policy_applied_on_content(
-                    db,
-                    &txn,
-                    content_id,
-                    extraction_policy_id,
-                    policy_completion_time,
                 )?;
             }
             RequestPayload::CreateNamespace {
@@ -1644,11 +1551,11 @@ impl IndexifyState {
             }
             RequestPayload::UpdateTask {
                 task,
-                mark_finished,
                 executor_id,
                 content_metadata,
+                update_time: _,
             } => {
-                if mark_finished {
+                if task.terminal_state() {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
@@ -1750,31 +1657,6 @@ impl IndexifyState {
             .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
 
         Ok(Some(result))
-    }
-
-    /// Read method to get the extraction policy id's applied to a piece of
-    /// content
-    pub fn get_content_extraction_policy_mappings_for_content_id(
-        &self,
-        content_id: &str,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>, StateMachineError>
-    {
-        let txn = db.transaction();
-        let latest_version = self.get_latest_version_of_content(content_id, db, &txn)?;
-        let content_key = format!("{}::v{}", content_id, latest_version);
-        let mapping_bytes = match db
-            .get_cf(
-                StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db),
-                content_key,
-            )
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-        {
-            Some(bytes) => bytes,
-            None => return Ok(None),
-        };
-        JsonEncoder::decode::<indexify_internal_api::ContentExtractionPolicyMapping>(&mapping_bytes)
-            .map(Some)
     }
 
     /// This method is used to get the tasks assigned to an executor
@@ -2249,7 +2131,7 @@ impl IndexifyState {
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
-    pub fn insert_executor_running_task_count(&mut self, executor_id: &str, tasks: u64) {
+    pub fn insert_executor_running_task_count(&self, executor_id: &str, tasks: u64) {
         self.executor_running_task_count
             .insert(&executor_id.to_string(), tasks as usize);
     }
@@ -2273,18 +2155,64 @@ impl IndexifyState {
         }
     }
 
-    pub fn install_snapshot(&mut self, snapshot: IndexifyStateSnapshot) {
-        self.unassigned_tasks = snapshot.unassigned_tasks.into();
-        self.unprocessed_state_changes = snapshot.unprocessed_state_changes.into();
-        self.content_namespace_table = snapshot.content_namespace_table.into();
-        self.extraction_policies_table = snapshot.extraction_policies_table.into();
-        self.extractor_executors_table = snapshot.extractor_executors_table.into();
-        self.namespace_index_table = snapshot.namespace_index_table.into();
-        self.unfinished_tasks_by_extractor = snapshot.unfinished_tasks_by_extractor.into();
-        self.executor_running_task_count = snapshot.executor_running_task_count.into();
-        self.schemas_by_namespace = snapshot.schemas_by_namespace.into();
-        self.content_children_table = snapshot.content_children_table.into();
-        self.content_task_mapping = snapshot.content_task_mapping.into();
+    pub fn install_snapshot(&self, snapshot: IndexifyStateSnapshot) {
+        let mut unassigned_tasks_guard = self.unassigned_tasks.unassigned_tasks.write().unwrap();
+        let mut unprocessed_state_changes_guard = self
+            .unprocessed_state_changes
+            .unprocessed_state_changes
+            .write()
+            .unwrap();
+        let mut content_namespace_table_guard = self
+            .content_namespace_table
+            .content_namespace_table
+            .write()
+            .unwrap();
+        let mut extraction_policies_table_guard = self
+            .extraction_policies_table
+            .extraction_policies_table
+            .write()
+            .unwrap();
+        let mut extractor_executors_table_guard = self
+            .extractor_executors_table
+            .extractor_executors_table
+            .write()
+            .unwrap();
+        let mut namespace_index_table_guard = self
+            .namespace_index_table
+            .namespace_index_table
+            .write()
+            .unwrap();
+        let mut unfinished_tasks_by_extractor_guard = self
+            .unfinished_tasks_by_extractor
+            .unfinished_tasks_by_extractor
+            .write()
+            .unwrap();
+        let mut executor_running_task_count_guard = self
+            .executor_running_task_count
+            .executor_running_task_count
+            .write()
+            .unwrap();
+        let mut schemas_by_namespace_guard = self
+            .schemas_by_namespace
+            .schemas_by_namespace
+            .write()
+            .unwrap();
+        let mut content_children_table_guard = self
+            .content_children_table
+            .content_children_table
+            .write()
+            .unwrap();
+
+        *unassigned_tasks_guard = snapshot.unassigned_tasks;
+        *unprocessed_state_changes_guard = snapshot.unprocessed_state_changes;
+        *content_namespace_table_guard = snapshot.content_namespace_table;
+        *extraction_policies_table_guard = snapshot.extraction_policies_table;
+        *extractor_executors_table_guard = snapshot.extractor_executors_table;
+        *namespace_index_table_guard = snapshot.namespace_index_table;
+        *unfinished_tasks_by_extractor_guard = snapshot.unfinished_tasks_by_extractor;
+        *executor_running_task_count_guard = snapshot.executor_running_task_count;
+        *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
+        *content_children_table_guard = snapshot.content_children_table;
     }
     //  END SNAPSHOT METHODS
 }

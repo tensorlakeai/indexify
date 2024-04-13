@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use futures::future::join_all;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, Index};
 use internal_api::ExtractedEmbeddings;
@@ -64,6 +65,10 @@ impl VectorIndexManager {
         Ok(index_name.to_string())
     }
 
+    pub async fn drop_index(&self, index_name: &str) -> Result<()> {
+        self.vector_db.drop_index(index_name).await
+    }
+
     pub async fn add_embedding(
         &self,
         vector_index_name: &str,
@@ -71,8 +76,11 @@ impl VectorIndexManager {
     ) -> Result<()> {
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
-            let vector_chunk =
-                VectorChunk::new(embedding.content_id.clone(), embedding.embedding.clone());
+            let vector_chunk = VectorChunk::new(
+                embedding.content_id.clone(),
+                embedding.embedding.clone(),
+                embedding.metadata.clone(),
+            );
             vector_chunks.push(vector_chunk);
         });
         self.vector_db
@@ -86,6 +94,25 @@ impl VectorIndexManager {
             .remove_embedding(vector_index_name, content_id)
             .await?;
         Ok(())
+    }
+
+    pub async fn get_points(
+        &self,
+        index: &str,
+        content_ids: Vec<String>,
+    ) -> Result<Vec<VectorChunk>> {
+        self.vector_db.get_points(index, content_ids).await
+    }
+
+    pub async fn update_metadata(
+        &self,
+        index: &str,
+        content_id: String,
+        metadata: serde_json::Value,
+    ) -> Result<()> {
+        self.vector_db
+            .update_metadata(index, content_id, metadata)
+            .await
     }
 
     pub async fn search(&self, index: Index, query: &str, k: usize) -> Result<Vec<ScoredText>> {
@@ -133,14 +160,24 @@ impl VectorIndexManager {
             ));
         }
 
-        let mut content_byte_map = HashMap::new();
+        let mut content_bytes_list = Vec::new();
+        let mut content_ids = Vec::new();
         for (id, content_meta) in &content_metadata_list {
-            let content = self
-                .content_reader
-                .bytes(&content_meta.storage_url)
-                .await
-                .map_err(|e| anyhow!("unable to get content: {}", e.to_string()))?;
-            content_byte_map.insert(id.clone(), content);
+            let content = self.content_reader.bytes(&content_meta.storage_url);
+            content_bytes_list.push(content);
+            content_ids.push(id.clone());
+        }
+        let bytes = join_all(content_bytes_list).await;
+        let mut content_byte_map = HashMap::new();
+        for (id, content) in content_ids.iter().zip(bytes) {
+            let bytes = content.map_err(|e| {
+                anyhow!(
+                    "unable to read content bytes for id: {}, {}",
+                    id,
+                    e.to_string()
+                )
+            })?;
+            content_byte_map.insert(id.clone(), bytes);
         }
 
         let mut index_search_results = Vec::new();

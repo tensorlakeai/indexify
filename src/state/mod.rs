@@ -7,6 +7,7 @@ use std::{
     io::Cursor,
     path::Path,
     sync::Arc,
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -117,7 +118,7 @@ pub struct App {
     state_change_rx: Receiver<StateChange>,
     pub network: Network,
     pub node_addr: String,
-    pub state_machine: StateMachineStore,
+    pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
 }
 #[derive(Clone)]
@@ -174,7 +175,7 @@ impl App {
             config.clone(),
             network.clone(),
             log_store,
-            state_machine.clone(),
+            Arc::clone(&state_machine),
         )
         .await
         .map_err(|e| anyhow!("unable to create raft: {}", e.to_string()))?;
@@ -753,9 +754,9 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
                 task: task.clone(),
-                mark_finished,
                 executor_id: executor_id.clone(),
                 content_metadata: content_meta_list.clone(),
+                update_time: SystemTime::now(),
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
@@ -1455,18 +1456,18 @@ impl App {
         }
     }
 
-    pub fn subscribe_to_gc_task_events(
+    pub async fn subscribe_to_gc_task_events(
         &self,
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
-        self.state_machine.subscribe_to_gc_task_events()
+        self.state_machine.subscribe_to_gc_task_events().await
     }
 
     pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
         self.forwardable_raft.ensure_leader().await
     }
 
-    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
-        self.state_machine.get_coordinator_addr(node_id)
+    pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+        self.state_machine.get_coordinator_addr(node_id).await
     }
 }
 
@@ -2054,8 +2055,24 @@ mod tests {
     ) -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
+        let _node = cluster.get_raft_node(0)?;
 
+        //  Create a mapping of content -> extraction policies, insert it, mark it as
+        // read and read it back to assert
+        let _current_sys_time = SystemTime::now();
+        //node.set_content_extraction_policy_mappings(vec![mapping.clone()])
+        //    .await?;
+        //node.mark_extraction_policy_applied_on_content("content_id",
+        // "extraction_policy_id")    .await?;
+        //let retrieved_mappings = node
+        //    .get_content_extraction_policy_mappings_for_content_id("content_id")
+        //    .await?
+        //    .unwrap();
+        //let set_time = retrieved_mappings
+        //    .time_of_policy_completion
+        //    .get("extraction_policy_id")
+        //    .unwrap();
+        //assert!(set_time > initial_time);
         //  Create a piece of content, create a mapping for an extraction policy for it,
         // mark the policy as completed and read it back to assert
         let content_metadata = indexify_internal_api::ContentMetadata {

@@ -1,4 +1,4 @@
-mkdocs==1.4.3
-mkdocs-material==9.1.9
-mkdocs-material-extensions==1.1.1
-mkdocs-jupyter==0.24.1
+mkdocs
+mkdocs-material
+mkdocs-material-extensions
+mkdocs-jupyter

@@ -5,7 +5,7 @@ use std::{
     io::{BufReader, Cursor, Read, Write},
     ops::RangeBounds,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
@@ -22,7 +22,7 @@ use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransac
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
 
 type Node = BasicNode;
@@ -106,11 +106,10 @@ pub struct StoredSnapshot {
     pub data: Vec<u8>,
 }
 
-#[derive(Clone)]
 pub struct StateMachineData {
-    pub last_applied_log_id: Option<LogId<NodeId>>,
+    pub last_applied_log_id: RwLock<Option<LogId<NodeId>>>,
 
-    pub last_membership: StoredMembership<NodeId, Node>,
+    pub last_membership: RwLock<StoredMembership<NodeId, Node>>,
 
     /// State built from applying the raft log
     pub indexify_state: IndexifyState,
@@ -120,16 +119,10 @@ pub struct StateMachineData {
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
 }
 
-#[derive(Clone)]
 pub struct StateMachineStore {
     pub data: StateMachineData,
 
-    /// snapshot index is not persisted in this example.
-    ///
-    /// It is only used as a suffix of snapshot id, and should be globally
-    /// unique. In practice, using a timestamp in micro-second would be good
-    /// enough.
-    snapshot_idx: u64,
+    snapshot_idx: Mutex<u64>,
 
     db: Arc<OptimisticTransactionDB>,
 
@@ -145,15 +138,15 @@ impl StateMachineStore {
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
         let (gc_tasks_tx, _) = broadcast::channel(8);
-        let mut sm = Self {
+        let sm = Self {
             data: StateMachineData {
-                last_applied_log_id: None,
-                last_membership: Default::default(),
-                state_change_tx: Arc::new(tx),
+                last_applied_log_id: RwLock::new(None),
+                last_membership: RwLock::new(StoredMembership::default()),
                 indexify_state: IndexifyState::default(),
+                state_change_tx: Arc::new(tx),
                 gc_tasks_tx,
             },
-            snapshot_idx: 0,
+            snapshot_idx: Mutex::new(0),
             db,
             state_change_rx: rx,
             snapshot_file_path,
@@ -170,14 +163,20 @@ impl StateMachineStore {
     /// This method is used to update the in-memory state machine when a new
     /// state machine is provided via the InstallSnapshot RPC
     async fn update_state_machine_(
-        &mut self,
+        &self,
         snapshot: StoredSnapshot,
     ) -> Result<(), StorageError<NodeId>> {
         let indexify_state_snapshot: IndexifyStateSnapshot = JsonEncoder::decode(&snapshot.data)
             .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
 
-        self.data.last_applied_log_id = snapshot.meta.last_log_id;
-        self.data.last_membership = snapshot.meta.last_membership.clone();
+        {
+            let mut guard = self.data.last_applied_log_id.write().await;
+            *guard = snapshot.meta.last_log_id;
+        }
+        {
+            let mut guard = self.data.last_membership.write().await;
+            *guard = snapshot.meta.last_membership.clone();
+        }
 
         self.data
             .indexify_state
@@ -269,7 +268,7 @@ impl StateMachineStore {
     }
 
     /// Register to task deletion events
-    pub fn subscribe_to_gc_task_events(
+    pub async fn subscribe_to_gc_task_events(
         &self,
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
         self.data.gc_tasks_tx.subscribe()
@@ -295,21 +294,6 @@ impl StateMachineStore {
         K: AsRef<[u8]>,
     {
         self.data.indexify_state.get_from_cf(&self.db, column, key)
-    }
-
-    pub async fn get_content_extraction_policy_mappings_for_content_id(
-        &self,
-        content_id: &str,
-    ) -> Result<Option<indexify_internal_api::ContentExtractionPolicyMapping>> {
-        self.data
-            .indexify_state
-            .get_content_extraction_policy_mappings_for_content_id(content_id, &self.db)
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to get content extraction policy mappings for content id: {}",
-                    e
-                )
-            })
     }
 
     pub async fn get_tasks_for_executor(
@@ -408,7 +392,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_schemas(ids, &self.db)
     }
 
-    pub fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
+    pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
         self.data
             .indexify_state
             .get_coordinator_addr(node_id, &self.db)
@@ -482,7 +466,7 @@ impl StateMachineStore {
     //  END REVERSE INDEX READER METHOD INTERFACES
 
     //  START REVERSE INDEX WRITER METHOD INTERFACES
-    pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {
+    pub async fn insert_executor_running_task_count(&self, executor_id: &str, task_count: u64) {
         self.data
             .indexify_state
             .insert_executor_running_task_count(executor_id, task_count);
@@ -490,11 +474,16 @@ impl StateMachineStore {
     //  END REVERSE INDEX WRITER METHOD INTERFACES
 }
 
-impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
+impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
         debug!("Called build_snapshot");
-        let last_applied_log = self.data.last_applied_log_id;
-        let last_membership = self.data.last_membership.clone();
+        let (last_applied_log, last_membership) = {
+            let guard = self.data.last_applied_log_id.read().await;
+            let last_applied_log = *guard;
+            let guard = self.data.last_membership.read().await;
+            let last_membership = guard.clone();
+            (last_applied_log, last_membership)
+        };
 
         let indexify_state_json = {
             let indexify_state_snapshot = self.data.indexify_state.build_snapshot();
@@ -503,9 +492,14 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
         };
 
         let snapshot_id = if let Some(last) = last_applied_log {
-            format!("{}-{}-{}", last.leader_id, last.index, self.snapshot_idx)
+            format!(
+                "{}-{}-{}",
+                last.leader_id,
+                last.index,
+                self.snapshot_idx.lock().unwrap()
+            )
         } else {
-            format!("--{}", self.snapshot_idx)
+            format!("--{}", self.snapshot_idx.lock().unwrap())
         };
 
         let meta = SnapshotMeta {
@@ -528,16 +522,22 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
     }
 }
 
-impl RaftStateMachine<TypeConfig> for StateMachineStore {
+impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     type SnapshotBuilder = Self;
 
     async fn applied_state(
         &mut self,
     ) -> Result<(Option<LogId<NodeId>>, StoredMembership<NodeId, Node>), StorageError<NodeId>> {
-        Ok((
-            self.data.last_applied_log_id,
-            self.data.last_membership.clone(),
-        ))
+        // let sm = self.data.read().await;
+        // Ok((sm.last_applied_log_id, sm.last_membership.clone()))
+        let (last_applied_log_id, last_membership) = {
+            let guard = self.data.last_applied_log_id.read().await;
+            let last_applied_log_id = *guard;
+            let guard = self.data.last_membership.read().await;
+            let last_membership = guard.clone();
+            (last_applied_log_id, last_membership)
+        };
+        Ok((last_applied_log_id, last_membership))
     }
 
     async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError<NodeId>>
@@ -550,7 +550,10 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
         let mut change_events: Vec<StateChange> = Vec::new();
 
         for ent in entries {
-            self.data.last_applied_log_id = Some(ent.log_id);
+            {
+                let mut guard = self.data.last_applied_log_id.write().await;
+                *guard = Some(ent.log_id);
+            }
             let resp_value = None;
             match ent.payload {
                 EntryPayload::Blank => {}
@@ -577,7 +580,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
                     }
                 }
                 EntryPayload::Membership(mem) => {
-                    self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
+                    let mut guard = self.data.last_membership.write().await;
+                    *guard = StoredMembership::new(Some(ent.log_id), mem.clone());
                 }
             }
 
@@ -592,7 +596,8 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     }
 
     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
-        self.snapshot_idx += 1;
+        let mut l = self.snapshot_idx.lock().unwrap();
+        *l += 1;
         self.clone()
     }
 
@@ -869,7 +874,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
 pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
-) -> (LogStore, StateMachineStore) {
+) -> (LogStore, Arc<StateMachineStore>) {
     //  TODO: Don't return sm from here, just return the StateMachineReader and use
     // that in AppState. Don't take locks unless reading from reverse indexes on the
     // state machine
@@ -903,7 +908,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 
     let sm_store = StateMachineStore::new(db, snapshot_path).await.unwrap();
 
-    (log_store, sm_store)
+    (log_store, Arc::new(sm_store))
 }
 
 #[cfg(test)]

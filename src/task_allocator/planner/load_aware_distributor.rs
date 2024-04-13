@@ -303,6 +303,7 @@ mod tests {
             content_metadata: ContentMetadata::default(),
             input_params: json!(null),
             outcome: internal_api::TaskOutcome::Unknown,
+            index_tables: vec![],
         }
     }
 
