@@ -923,7 +923,6 @@ impl App {
         &self,
         content_metadata: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
-        println!("Received request to create content {:?}", content_metadata);
         let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
         let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
@@ -956,7 +955,6 @@ impl App {
 
         //  write identical content and don't create state changes for it
         if identical_content.len() > 0 {
-            println!("The identical content {:?}", identical_content);
             let req = StateMachineUpdateRequest {
                 payload: RequestPayload::CreateContent {
                     content_metadata: identical_content,
@@ -974,7 +972,6 @@ impl App {
 
         //  write the updated content
         if content_to_be_updated.len() > 0 {
-            println!("The content to update {:?}", content_to_be_updated);
             let mut state_changes = Vec::new();
             for content in &content_to_be_updated {
                 state_changes.push(StateChange::new(
@@ -1000,7 +997,6 @@ impl App {
 
         //  write the new content
         if new_incoming_content.len() > 0 {
-            println!("The new content {:?}", new_incoming_content);
             let mut state_changes = Vec::new();
             for content in &new_incoming_content {
                 state_changes.push(StateChange::new(
@@ -1016,7 +1012,6 @@ impl App {
                 new_state_changes: state_changes,
                 state_changes_processed: vec![],
             };
-            println!("the req {:?}", req);
             let _ =
                 self.forwardable_raft.client_write(req).await.map_err(|e| {
                     anyhow!("unable to create new content metadata: {}", e.to_string())
@@ -1195,6 +1190,18 @@ impl App {
             .state_machine
             .get_tasks_for_executor(executor_id, limit)
             .await?;
+        Ok(tasks)
+    }
+
+    #[cfg(test)]
+    pub async fn list_all_tasks(&self) -> Result<Vec<internal_api::Task>> {
+        let tasks: Vec<internal_api::Task> = self
+            .state_machine
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
+            .await?
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
         Ok(tasks)
     }
 
@@ -1416,7 +1423,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index, TaskOutcome};
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index};
 
     use crate::{
         state::{

@@ -678,7 +678,7 @@ impl IndexifyState {
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         // content_id -> Set(Extraction Policy Ids)
-        println!("setting tasks");
+        println!("setting tasks {}", tasks.len());
         let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
@@ -1147,9 +1147,13 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &ContentMetadataId,
-        _extraction_policy_id: &str,
+        extraction_policy_id: &str,
         policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
+        println!(
+            "setting policy {} on content {}",
+            extraction_policy_id, content_id
+        );
         let value = txn
             .get_cf(
                 StateMachineColumns::ContentTable.cf(db),
@@ -1167,8 +1171,8 @@ impl IndexifyState {
                     content_id
                 ))
             })?;
-        let content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
-        let _epoch_time = policy_completion_time
+        let mut content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+        let epoch_time = policy_completion_time
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
@@ -1177,14 +1181,21 @@ impl IndexifyState {
                 ))
             })?
             .as_secs();
+        content_meta
+            .extraction_policy_ids
+            .insert(extraction_policy_id.to_string(), epoch_time);
         let data = JsonEncoder::encode(&content_meta)?;
-        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_id, data)
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!(
-                    "Error writing content policies applied on content for id {}: {}",
-                    content_id, e
-                ))
-            })?;
+        txn.put_cf(
+            StateMachineColumns::ContentTable.cf(db),
+            format!("{}::v{}", content_id.id, content_id.version),
+            data,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error writing content policies applied on content for id {}: {}",
+                content_id, e
+            ))
+        })?;
 
         Ok(())
     }

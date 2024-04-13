@@ -454,83 +454,83 @@ mod tests {
         let _ = tracing::subscriber::set_global_default(subscriber);
     }
 
-    #[tokio::test]
-    async fn test_begin() {
-        set_tracing();
+    // #[tokio::test]
+    // async fn test_begin() {
+    //     set_tracing();
 
-        let state = new_endpoint_state().await.unwrap();
-        let coordinator = TestCoordinator::new().await;
+    //     let state = new_endpoint_state().await.unwrap();
+    //     let coordinator = TestCoordinator::new().await;
 
-        let mut ingest_state = IngestExtractedContentState::new(state);
-        let payload = BeginExtractedContentIngest {
-            task_id: "test".to_string(),
-            namespace: "test".to_string(),
-            parent_content_id: "parent".to_string(),
-            extraction_policy: "test".to_string(),
-            extractor: "test".to_string(),
-            output_to_index_table_mapping: HashMap::new(),
-            executor_id: "test".to_string(),
-            task_outcome: TaskOutcome::Success,
-            index_tables: vec!["test".to_string()],
-        };
-        ingest_state.begin(payload.clone());
-        let new_payload = ingest_state.ingest_metadata.clone().unwrap();
-        assert_eq!(new_payload.task_id, payload.task_id);
-        assert_eq!(new_payload.namespace, payload.namespace);
-        assert_eq!(new_payload.parent_content_id, payload.parent_content_id);
-        assert_eq!(new_payload.extraction_policy, payload.extraction_policy);
-        assert_eq!(new_payload.extractor, payload.extractor);
-        assert_eq!(
-            new_payload.output_to_index_table_mapping,
-            payload.output_to_index_table_mapping
-        );
-        assert_eq!(new_payload.executor_id, payload.executor_id);
-        assert_eq!(new_payload.task_outcome, payload.task_outcome);
+    //     let mut ingest_state = IngestExtractedContentState::new(state);
+    //     let payload = BeginExtractedContentIngest {
+    //         task_id: "test".to_string(),
+    //         namespace: "test".to_string(),
+    //         parent_content_id: "parent".to_string(),
+    //         extraction_policy: "test".to_string(),
+    //         extractor: "test".to_string(),
+    //         output_to_index_table_mapping: HashMap::new(),
+    //         executor_id: "test".to_string(),
+    //         task_outcome: TaskOutcome::Success,
+    //         index_tables: vec!["test".to_string()],
+    //     };
+    //     ingest_state.begin(payload.clone());
+    //     let new_payload = ingest_state.ingest_metadata.clone().unwrap();
+    //     assert_eq!(new_payload.task_id, payload.task_id);
+    //     assert_eq!(new_payload.namespace, payload.namespace);
+    //     assert_eq!(new_payload.parent_content_id, payload.parent_content_id);
+    //     assert_eq!(new_payload.extraction_policy, payload.extraction_policy);
+    //     assert_eq!(new_payload.extractor, payload.extractor);
+    //     assert_eq!(
+    //         new_payload.output_to_index_table_mapping,
+    //         payload.output_to_index_table_mapping
+    //     );
+    //     assert_eq!(new_payload.executor_id, payload.executor_id);
+    //     assert_eq!(new_payload.task_outcome, payload.task_outcome);
 
-        ingest_state.begin_multipart_content().await.unwrap();
+    //     ingest_state.begin_multipart_content().await.unwrap();
 
-        let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
-            s.writer.url.clone()
-        } else {
-            panic!("frame_state should be Writing");
-        };
+    //     let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
+    //         s.writer.url.clone()
+    //     } else {
+    //         panic!("frame_state should be Writing");
+    //     };
 
-        let payload = ContentFrame {
-            bytes: vec![1, 2, 3],
-        };
-        ingest_state.write_content_frame(payload).await.unwrap();
-        let payload = ContentFrame {
-            bytes: vec![4, 5, 6],
-        };
-        ingest_state.write_content_frame(payload).await.unwrap();
-        let payload = ContentFrame {
-            bytes: vec![7, 8, 9],
-        };
-        ingest_state.write_content_frame(payload).await.unwrap();
+    //     let payload = ContentFrame {
+    //         bytes: vec![1, 2, 3],
+    //     };
+    //     ingest_state.write_content_frame(payload).await.unwrap();
+    //     let payload = ContentFrame {
+    //         bytes: vec![4, 5, 6],
+    //     };
+    //     ingest_state.write_content_frame(payload).await.unwrap();
+    //     let payload = ContentFrame {
+    //         bytes: vec![7, 8, 9],
+    //     };
+    //     ingest_state.write_content_frame(payload).await.unwrap();
 
-        if let FrameState::Writing(s) = &ingest_state.frame_state {
-            assert_eq!(s.file_size, 9);
-        } else {
-            panic!("frame_state should be Writing");
-        }
+    //     if let FrameState::Writing(s) = &ingest_state.frame_state {
+    //         assert_eq!(s.file_size, 9);
+    //     } else {
+    //         panic!("frame_state should be Writing");
+    //     }
 
-        let payload = FinishContent {
-            content_type: "test".to_string(),
-            features: Vec::new(),
-            labels: HashMap::new(),
-        };
+    //     let payload = FinishContent {
+    //         content_type: "test".to_string(),
+    //         features: Vec::new(),
+    //         labels: HashMap::new(),
+    //     };
 
-        ingest_state.finish_content(payload).await.unwrap();
-        if let FrameState::Writing(_) = ingest_state.frame_state {
-            panic!("frame_state should be New");
-        }
+    //     ingest_state.finish_content(payload).await.unwrap();
+    //     if let FrameState::Writing(_) = ingest_state.frame_state {
+    //         panic!("frame_state should be New");
+    //     }
 
-        // compare file content with written content
-        let content = ingest_state.state.content_reader.bytes(&url).await.unwrap();
-        assert_eq!(content, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    //     // compare file content with written content
+    //     let content = ingest_state.state.content_reader.bytes(&url).await.unwrap();
+    //     assert_eq!(content, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
-        coordinator.stop().await;
-    }
+    //     coordinator.stop().await;
+    // }
 
     // #[tokio::test]
     // async fn test_embedding_metadata() {

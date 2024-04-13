@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use indexify_internal_api::{ContentMetadata, GarbageCollectionTask};
+use indexify_internal_api::{ContentMetadata, ContentMetadataId, GarbageCollectionTask};
 use rand::seq::IteratorRandom;
 use tokio::sync::RwLock;
 
@@ -68,12 +68,12 @@ impl GarbageCollector {
     pub async fn create_gc_tasks(
         &self,
         content_metadata: Vec<ContentMetadata>,
-        outputs: HashMap<String, HashSet<String>>,
+        outputs: HashMap<ContentMetadataId, HashSet<String>>,
     ) -> Result<Vec<GarbageCollectionTask>, anyhow::Error> {
         let mut created_gc_tasks = Vec::new();
         let namespace = content_metadata[0].namespace.clone();
         for content in content_metadata {
-            let output_tables = outputs.get(&content.id.id).cloned().unwrap_or_default();
+            let output_tables = outputs.get(&content.id).cloned().unwrap_or_default();
             let mut gc_task = indexify_internal_api::GarbageCollectionTask::new(
                 &namespace,
                 content,
@@ -104,7 +104,7 @@ mod tests {
         num: u64,
     ) -> (
         Vec<ContentMetadata>,
-        HashMap<String, HashSet<String>>,
+        HashMap<ContentMetadataId, HashSet<String>>,
         HashMap<String, String>,
     ) {
         let mut content_metadata = Vec::new();
@@ -112,12 +112,13 @@ mod tests {
         let mut policy_ids = HashMap::new();
 
         for i in 0..num {
-            let content_id = format!("content_id_{}", i);
+            // let content_id = format!("content_id_{}", i);
+            let content_id = ContentMetadataId {
+                id: format!("content_id_{}", i),
+                ..Default::default()
+            };
             let content = ContentMetadata {
-                id: ContentMetadataId {
-                    id: content_id.clone(),
-                    ..Default::default()
-                },
+                id: content_id.clone(),
                 ..Default::default()
             };
             content_metadata.push(content);
@@ -126,7 +127,7 @@ mod tests {
             outputs.insert(content_id.clone(), output_tables);
 
             let policy_id = format!("policy_id_{}", i);
-            policy_ids.insert(content_id.clone(), policy_id);
+            policy_ids.insert(content_id.to_string().clone(), policy_id);
         }
 
         (content_metadata, outputs, policy_ids)

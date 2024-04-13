@@ -30,6 +30,7 @@ impl Scheduler {
         let mut state_change_processed = false;
         // Create new tasks
         let tasks = self.create_new_tasks(state_change.clone()).await?;
+        println!("created tasks {}", tasks.len());
 
         // Commit them
         if !tasks.is_empty() {
