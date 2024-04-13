@@ -321,18 +321,21 @@ impl Coordinator {
             if content_metadata.extraction_policy_ids.keys().len() == 0 {
                 continue;
             }
-            let applied_extraction_policy_ids: HashSet<String> =
-                content_metadata.extraction_policy_ids.clone().into_iter().filter(|(_, completion_time)| {
-                    *completion_time > 0
-                }).map(|(extraction_policy_id, _)| extraction_policy_id).collect();
+            let applied_extraction_policy_ids: HashSet<String> = content_metadata
+                .extraction_policy_ids
+                .clone()
+                .into_iter()
+                .filter(|(_, completion_time)| *completion_time > 0)
+                .map(|(extraction_policy_id, _)| extraction_policy_id)
+                .collect();
 
             if applied_extraction_policy_ids.is_empty() {
                 continue;
             }
             let applied_extraction_policies = self
-            .shared_state
-            .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-            .await?;
+                .shared_state
+                .get_extraction_policies_from_ids(applied_extraction_policy_ids)
+                .await?;
             for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
                 output_tables.insert(
                     content_metadata.id.clone(),
@@ -461,12 +464,7 @@ fn content_request_to_content_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        fs,
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator;

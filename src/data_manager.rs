@@ -490,7 +490,7 @@ impl DataManager {
             labels,
             source: source.to_string(),
             size_bytes: res.size_bytes,
-            extraction_policy_ids:HashMap::new(),
+            extraction_policy_ids: HashMap::new(),
         })
     }
 

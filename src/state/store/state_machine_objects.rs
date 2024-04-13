@@ -1,6 +1,8 @@
 use core::fmt;
 use std::{
-    collections::{HashMap, HashSet, VecDeque}, sync::{Arc, RwLock}, time::SystemTime
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, RwLock},
+    time::SystemTime,
 };
 
 use anyhow::Result;
@@ -12,7 +14,18 @@ use serde::de::DeserializeOwned;
 use tracing::{error, warn};
 
 use super::{
-    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest}, serializer::JsonEncode, ContentId, ExecutorId, ExtractorName, JsonEncoder, NamespaceName, SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId
+    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    serializer::JsonEncode,
+    ContentId,
+    ExecutorId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -942,21 +955,24 @@ impl IndexifyState {
                     content_id
                 ))
             })?;
-        let content_meta =
-            JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
-        let _epoch_time = policy_completion_time.duration_since(SystemTime::UNIX_EPOCH).map_err(|e| {
-            StateMachineError::DatabaseError(format!(
-                "Error converting policy completion time to u64: {}",
-                e
-            ))
-        })?.as_secs();
+        let content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+        let _epoch_time = policy_completion_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error converting policy completion time to u64: {}",
+                    e
+                ))
+            })?
+            .as_secs();
         let data = JsonEncoder::encode(&content_meta)?;
-        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_id, data).map_err(|e| {
-            StateMachineError::DatabaseError(format!(
-                "Error writing content policies applied on content for id {}: {}",
-                content_id, e
-            ))
-        })?;
+        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_id, data)
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!(
+                    "Error writing content policies applied on content for id {}: {}",
+                    content_id, e
+                ))
+            })?;
 
         Ok(())
     }
@@ -1061,14 +1077,15 @@ impl IndexifyState {
             } => {
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
 
-                if task.terminal_state(){
+                if task.terminal_state() {
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
                         let mut existing_tasks =
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
                         existing_tasks.remove(&task.id);
-                        let new_task_assignment = HashMap::from([(executor_id.to_string(), existing_tasks)]);
+                        let new_task_assignment =
+                            HashMap::from([(executor_id.to_string(), existing_tasks)]);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
                 }
@@ -1256,7 +1273,7 @@ impl IndexifyState {
                 task,
                 executor_id,
                 content_metadata,
-                update_time: _
+                update_time: _,
             } => {
                 if task.terminal_state() {
                     self.unassigned_tasks.remove(&task.id);

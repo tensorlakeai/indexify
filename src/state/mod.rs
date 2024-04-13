@@ -6,7 +6,8 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     io::Cursor,
     path::Path,
-    sync::Arc, time::SystemTime,
+    sync::Arc,
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -1866,8 +1867,8 @@ mod tests {
         let _current_sys_time = SystemTime::now();
         //node.set_content_extraction_policy_mappings(vec![mapping.clone()])
         //    .await?;
-        //node.mark_extraction_policy_applied_on_content("content_id", "extraction_policy_id")
-        //    .await?;
+        //node.mark_extraction_policy_applied_on_content("content_id",
+        // "extraction_policy_id")    .await?;
         //let retrieved_mappings = node
         //    .get_content_extraction_policy_mappings_for_content_id("content_id")
         //    .await?

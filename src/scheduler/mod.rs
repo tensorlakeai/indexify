@@ -164,7 +164,8 @@ impl Scheduler {
                 .shared_state
                 .get_extraction_policy(extraction_policy_id)
                 .await?;
-            let tables = self.tables_for_policies(&[extraction_policy.clone()])
+            let tables = self
+                .tables_for_policies(&[extraction_policy.clone()])
                 .await?;
             let new_tasks = self
                 .create_task(extraction_policy_id, content, &tables)

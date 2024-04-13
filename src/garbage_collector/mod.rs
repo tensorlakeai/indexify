@@ -138,9 +138,7 @@ mod tests {
 
         //  Create a task
         let (content_metadata, outputs, _) = create_data_for_task(1);
-        let tasks = gc
-            .create_gc_tasks(content_metadata, outputs)
-            .await?;
+        let tasks = gc.create_gc_tasks(content_metadata, outputs).await?;
 
         //  verify task has been stored and assigned
         let tasks_guard = gc.gc_tasks.read().await;
@@ -161,9 +159,7 @@ mod tests {
 
         // Assign a task to server1
         let (content_metadata, outputs, _policy_ids) = create_data_for_task(1);
-        let tasks = gc
-            .create_gc_tasks(content_metadata, outputs)
-            .await?;
+        let tasks = gc.create_gc_tasks(content_metadata, outputs).await?;
 
         //  task should be assigned to server 1
         {
@@ -213,9 +209,7 @@ mod tests {
 
         //  Create a couple of tasks
         let (content_metadata, outputs, _policy_ids) = create_data_for_task(2);
-        let _ = gc
-            .create_gc_tasks(content_metadata, outputs)
-            .await?;
+        let _ = gc.create_gc_tasks(content_metadata, outputs).await?;
 
         //  all tasks should be unassigned since there are no ingestion servers
         {
@@ -246,9 +240,7 @@ mod tests {
         //  Create a couple of tasks
         gc.register_ingestion_server(server_id).await;
         let (content_metadata, outputs, _policy_ids) = create_data_for_task(3);
-        let tasks = gc
-            .create_gc_tasks(content_metadata, outputs)
-            .await?;
+        let tasks = gc.create_gc_tasks(content_metadata, outputs).await?;
 
         //  Mark all tasks as complete and check that they are removed
         for task in tasks {

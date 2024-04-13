@@ -314,7 +314,7 @@ pub struct Task {
 
 impl Task {
     pub fn terminal_state(&self) -> bool {
-        self.outcome != TaskOutcome::Unknown 
+        self.outcome != TaskOutcome::Unknown
     }
 }
 

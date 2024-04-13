@@ -14,6 +14,7 @@ use tokio::io::AsyncWrite;
 use self::{disk::DiskFileReader, s3::S3FileReader};
 
 pub mod disk;
+pub mod http;
 pub mod s3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,6 +218,10 @@ impl ContentReader {
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))
                 .unwrap();
             return Arc::new(S3FileReader::new(bucket));
+        }
+
+        if key.starts_with("http") {
+            return Arc::new(http::HttpReader {});
         }
 
         // If it's not S3, assume it's a file
