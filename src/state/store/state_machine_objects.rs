@@ -1563,7 +1563,9 @@ impl IndexifyState {
                         &task.extraction_policy_id,
                         &task.id,
                     );
-                    if self.content_task_mapping.is_content_processed(&content_id) && content_id.version > 1 {
+                    if self.content_task_mapping.is_content_processed(&content_id) &&
+                        content_id.version > 1
+                    {
                         self.merge_content_trees(
                             db,
                             txn,
