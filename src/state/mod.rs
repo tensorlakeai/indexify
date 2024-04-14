@@ -5,12 +5,14 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
     io::Cursor,
+    net::SocketAddr,
     path::Path,
     sync::Arc,
     time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
+use axum::{extract::State, routing::get};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
@@ -23,6 +25,7 @@ use openraft::{
     BasicNode,
     TokioRuntime,
 };
+use prometheus::Encoder;
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
@@ -46,9 +49,13 @@ use self::{
     store::{StateMachineColumns, StateMachineStore},
 };
 use crate::{
+    api::IndexifyAPIError,
     coordinator_filters::matches_mime_type,
     garbage_collector::GarbageCollector,
-    metrics::raft_metrics::{self, network::MetricsSnapshot},
+    metrics::{
+        coordinator::Metrics,
+        raft_metrics::{self, network::MetricsSnapshot},
+    },
     server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
@@ -124,10 +131,45 @@ pub struct App {
     pub node_addr: String,
     pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
+    pub metrics: Metrics,
+    pub server_handle: axum_server::Handle,
 }
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
     snapshot_policy: Option<openraft::SnapshotPolicy>,
+}
+
+async fn metrics_handler(
+    State(app): State<Arc<App>>,
+) -> Result<axum::response::Response<axum::body::Body>, IndexifyAPIError> {
+    let metric_families = app.metrics.registry.gather();
+    let mut buffer = vec![];
+    let encoder = prometheus::TextEncoder::new();
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+
+    Ok(axum::response::Response::new(axum::body::Body::from(
+        buffer,
+    )))
+}
+
+fn start_server(app: Arc<App>, server_config: &ServerConfig) -> JoinHandle<Result<()>> {
+    let server = axum::Router::new()
+        .route("/metrics", get(metrics_handler))
+        .with_state(app.clone());
+    let addr: SocketAddr = format!(
+        "{}:{}",
+        server_config.listen_if, server_config.coordinator_http_port
+    )
+    .parse()
+    .unwrap();
+
+    tokio::spawn(async move {
+        axum_server::bind(addr)
+            .handle(app.server_handle.clone())
+            .serve(server.into_make_service())
+            .await?;
+        Ok(())
+    })
 }
 
 impl App {
@@ -210,6 +252,8 @@ impl App {
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
+        let metrics = Metrics::new(state_machine.clone());
+
         let app = Arc::new(App {
             id: server_config.node_id,
             addr: server_config
@@ -230,7 +274,13 @@ impl App {
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             state_machine,
             garbage_collector,
+            metrics,
+            server_handle: axum_server::Handle::new(),
         });
+
+        let server_handle = start_server(app.clone(), &server_config);
+
+        app.join_handles.lock().await.push(server_handle);
 
         let raft_clone = app.forwardable_raft.clone();
 
@@ -305,6 +355,8 @@ impl App {
     }
 
     pub async fn stop(&self) -> Result<()> {
+        info!("stopping http server");
+        self.server_handle.shutdown();
         info!("stopping raft server");
         let _ = self.forwardable_raft.shutdown().await;
         self.shutdown_tx.send(()).unwrap();

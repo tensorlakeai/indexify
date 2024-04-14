@@ -1,0 +1,12 @@
+# Sample config for Prometheus.
+scrape_configs:
+  - job_name: 'indexify-server'
+    metrics_path: /metrics/ingest
+    static_configs:
+      - targets: ['localhost:8900']
+
+  - job_name: 'indexify-coordinator'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['localhost:8960']
+
