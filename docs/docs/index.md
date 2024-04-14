@@ -17,7 +17,15 @@ The challenges of building such applications are -
 1. Extraction of structured data using LLMs, CV or other models are compute intensive and can hurt the performance of your LLM applications. 
 2. Multi-Stage extraction process such as breaking down a document or other media files into chunks, and extract embedding and structured information require building a replicated state machine for fault tolerance, and can be hard to get right.
 
-Indexify solves the complexity of building a durable and fast orchestation and ingestion system for running complex extraction and data transformation workflows for production applications to use with LLM applications. Indexify assures that content meant for extraction are not dropped on the floor in production.
+Indexify solves the complexity of building a durable and fast orchestation and ingestion system for running complex extraction and data transformation workflows for LLM Applications. Indexify assures that content meant for extraction are not dropped in production because of faults in compute and storage infrastructure.
+
+## Start Using Indexify
+
+Dive into [Getting Started](getting_started.md) to learn how to use Indexify.
+
+If you would like to learn some common usecases - 
+1. Learn how to build production grade [RAG Applications](usecases/rag.md)
+2. Extract [PDF](usecases/pdf_extraction.md), [Videos](usecases/video_rag.md) and [Audio](usecases/audio_extraction.md) to extract embedding and [structured data](usecases/image_retrieval.md).
 
 ## Features
 
@@ -32,6 +40,3 @@ Indexify solves the complexity of building a durable and fast orchestation and i
 * Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
 * We have even **Open Sourced Automation** to deploy to Kubernetes in production.
 
-## Start Using Indexify
-
-Dive into [Getting Started](getting_started.md) to learn how to use Indexify.
