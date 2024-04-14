@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -1079,7 +1079,7 @@ async fn list_schemas(
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let results = results.into_inner().schemas;
-    let mut ddls = Vec::new();
+    let mut ddls = HashMap::new();
     let mut schemas = Vec::new();
     for schema in results {
         let columns = serde_json::from_str(&schema.columns).map_err(|e| {
@@ -1096,7 +1096,7 @@ async fn list_schemas(
             id: internal_api::StructuredDataSchema::schema_id(&namespace, &schema.content_source),
         };
 
-        ddls.push(schema.to_ddl());
+        ddls.insert(schema.content_source.to_string(), schema.to_ddl());
         schemas.push(schema);
     }
 
