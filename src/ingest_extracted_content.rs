@@ -159,7 +159,7 @@ impl IngestExtractedContentState {
         }
     }
 
-    async fn finish_content(&mut self, payload: FinishContent) -> Result<()> {
+    async fn finish_content(&mut self, payload: FinishContent) -> Result<String> {
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received finished extraction ingest without header metadata"
@@ -169,11 +169,12 @@ impl IngestExtractedContentState {
             "received finish multipart content for task: {}",
             self.ingest_metadata.as_ref().unwrap().task_id
         );
+        // let mut ret_id = None;
         match &mut self.frame_state {
             FrameState::New => {
-                return Err(anyhow!(
+                Err(anyhow!(
                     "received finish content without any content frames"
-                ));
+                ))
             }
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
@@ -186,7 +187,7 @@ impl IngestExtractedContentState {
                     &content_hash,
                 );
                 let content_metadata = indexify_coordinator::ContentMetadata {
-                    id,
+                    id: id.clone(),
                     file_name: frame_state.file_name.clone(),
                     parent_id: metadata.parent_content_id.clone(),
                     namespace: metadata.namespace.clone(),
@@ -208,9 +209,10 @@ impl IngestExtractedContentState {
                     )
                     .await?;
                 self.frame_state = FrameState::New;
+                Ok(id)
             }
         }
-        Ok(())
+        // Ok(ret_id)
     }
 
     async fn ensure_has_content_metadata(
@@ -341,6 +343,8 @@ mod tests {
 
     use std::sync::Arc;
 
+    use indexify_internal_api::TaskOutcome;
+    use serde_json::json;
     use tokio::task::JoinHandle;
 
     use super::*;
@@ -448,314 +452,302 @@ mod tests {
         let _ = tracing::subscriber::set_global_default(subscriber);
     }
 
-    // #[tokio::test]
-    // async fn test_begin() {
-    //     set_tracing();
+    #[tokio::test]
+    async fn test_begin() {
+        set_tracing();
 
-    //     let state = new_endpoint_state().await.unwrap();
-    //     let coordinator = TestCoordinator::new().await;
+        let state = new_endpoint_state().await.unwrap();
+        let coordinator = TestCoordinator::new().await;
 
-    //     let mut ingest_state = IngestExtractedContentState::new(state);
-    //     let payload = BeginExtractedContentIngest {
-    //         task_id: "test".to_string(),
-    //         namespace: "test".to_string(),
-    //         parent_content_id: "parent".to_string(),
-    //         extraction_policy: "test".to_string(),
-    //         extractor: "test".to_string(),
-    //         output_to_index_table_mapping: HashMap::new(),
-    //         executor_id: "test".to_string(),
-    //         task_outcome: TaskOutcome::Success,
-    //         index_tables: vec!["test".to_string()],
-    //     };
-    //     ingest_state.begin(payload.clone());
-    //     let new_payload = ingest_state.ingest_metadata.clone().unwrap();
-    //     assert_eq!(new_payload.task_id, payload.task_id);
-    //     assert_eq!(new_payload.namespace, payload.namespace);
-    //     assert_eq!(new_payload.parent_content_id, payload.parent_content_id);
-    //     assert_eq!(new_payload.extraction_policy, payload.extraction_policy);
-    //     assert_eq!(new_payload.extractor, payload.extractor);
-    //     assert_eq!(
-    //         new_payload.output_to_index_table_mapping,
-    //         payload.output_to_index_table_mapping
-    //     );
-    //     assert_eq!(new_payload.executor_id, payload.executor_id);
-    //     assert_eq!(new_payload.task_outcome, payload.task_outcome);
+        let mut ingest_state = IngestExtractedContentState::new(state);
+        let payload = BeginExtractedContentIngest {
+            task_id: "test".to_string(),
+            namespace: "test".to_string(),
+            parent_content_id: "".to_string(),
+            extraction_policy: "test".to_string(),
+            extractor: "test".to_string(),
+            output_to_index_table_mapping: HashMap::new(),
+            executor_id: "test".to_string(),
+            task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test".to_string()],
+        };
+        ingest_state.begin(payload.clone());
+        let new_payload = ingest_state.ingest_metadata.clone().unwrap();
+        assert_eq!(new_payload.task_id, payload.task_id);
+        assert_eq!(new_payload.namespace, payload.namespace);
+        assert_eq!(new_payload.parent_content_id, payload.parent_content_id);
+        assert_eq!(new_payload.extraction_policy, payload.extraction_policy);
+        assert_eq!(new_payload.extractor, payload.extractor);
+        assert_eq!(
+            new_payload.output_to_index_table_mapping,
+            payload.output_to_index_table_mapping
+        );
+        assert_eq!(new_payload.executor_id, payload.executor_id);
+        assert_eq!(new_payload.task_outcome, payload.task_outcome);
 
-    //     ingest_state.begin_multipart_content().await.unwrap();
+        ingest_state.begin_multipart_content().await.unwrap();
 
-    //     let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
-    //         s.writer.url.clone()
-    //     } else {
-    //         panic!("frame_state should be Writing");
-    //     };
+        let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
+            s.writer.url.clone()
+        } else {
+            panic!("frame_state should be Writing");
+        };
 
-    //     let payload = ContentFrame {
-    //         bytes: vec![1, 2, 3],
-    //     };
-    //     ingest_state.write_content_frame(payload).await.unwrap();
-    //     let payload = ContentFrame {
-    //         bytes: vec![4, 5, 6],
-    //     };
-    //     ingest_state.write_content_frame(payload).await.unwrap();
-    //     let payload = ContentFrame {
-    //         bytes: vec![7, 8, 9],
-    //     };
-    //     ingest_state.write_content_frame(payload).await.unwrap();
+        let payload = ContentFrame {
+            bytes: vec![1, 2, 3],
+        };
+        ingest_state.write_content_frame(payload).await.unwrap();
+        let payload = ContentFrame {
+            bytes: vec![4, 5, 6],
+        };
+        ingest_state.write_content_frame(payload).await.unwrap();
+        let payload = ContentFrame {
+            bytes: vec![7, 8, 9],
+        };
+        ingest_state.write_content_frame(payload).await.unwrap();
 
-    //     if let FrameState::Writing(s) = &ingest_state.frame_state {
-    //         assert_eq!(s.file_size, 9);
-    //     } else {
-    //         panic!("frame_state should be Writing");
-    //     }
+        if let FrameState::Writing(s) = &ingest_state.frame_state {
+            assert_eq!(s.file_size, 9);
+        } else {
+            panic!("frame_state should be Writing");
+        }
 
-    //     let payload = FinishContent {
-    //         content_type: "test".to_string(),
-    //         features: Vec::new(),
-    //         labels: HashMap::new(),
-    //     };
+        let payload = FinishContent {
+            content_type: "test".to_string(),
+            features: Vec::new(),
+            labels: HashMap::new(),
+        };
 
-    //     ingest_state.finish_content(payload).await.unwrap();
-    //     if let FrameState::Writing(_) = ingest_state.frame_state {
-    //         panic!("frame_state should be New");
-    //     }
+        ingest_state.finish_content(payload).await.unwrap();
+        if let FrameState::Writing(_) = ingest_state.frame_state {
+            panic!("frame_state should be New");
+        }
 
-    //     // compare file content with written content
-    //     let content =
-    // ingest_state.state.content_reader.bytes(&url).await.unwrap();
-    //     assert_eq!(content, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        // compare file content with written content
+        let content = ingest_state.state.content_reader.bytes(&url).await.unwrap();
+        assert_eq!(content, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
-    //     coordinator.stop().await;
-    // }
+        coordinator.stop().await;
+    }
 
-    // #[tokio::test]
-    // async fn test_embedding_metadata() {
-    //     set_tracing();
+    #[tokio::test]
+    async fn test_embedding_metadata() {
+        set_tracing();
 
-    //     let state = new_endpoint_state().await.unwrap();
-    //     let coordinator = TestCoordinator::new().await;
+        let state = new_endpoint_state().await.unwrap();
+        let coordinator = TestCoordinator::new().await;
 
-    //     let mut ingest_state = IngestExtractedContentState::new(state);
-    //     let output_mappings: HashMap<String, String> = vec![
-    //         ("name1".to_string(), "test_index1".to_string()),
-    //         ("name2".to_string(), "test_index2".to_string()),
-    //     ]
-    //     .into_iter()
-    //     .collect();
+        let mut ingest_state = IngestExtractedContentState::new(state);
+        let output_mappings: HashMap<String, String> = vec![
+            ("name1".to_string(), "test_index1".to_string()),
+            ("name2".to_string(), "test_index2".to_string()),
+        ]
+        .into_iter()
+        .collect();
 
-    //     let schema = indexify_internal_api::EmbeddingSchema {
-    //         dim: 3,
-    //         distance: "cosine".to_string(),
-    //     };
+        let schema = indexify_internal_api::EmbeddingSchema {
+            dim: 3,
+            distance: "cosine".to_string(),
+        };
 
-    //     let _ = ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .drop_index("test_index1")
-    //         .await;
+        let _ = ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .drop_index("test_index1")
+            .await;
 
-    //     ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .create_index("test_index1", schema)
-    //         .await
-    //         .unwrap();
+        ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .create_index("test_index1", schema)
+            .await
+            .unwrap();
 
-    //     let payload = BeginExtractedContentIngest {
-    //         task_id: "test".to_string(),
-    //         namespace: "test".to_string(),
-    //         parent_content_id: "parent".to_string(),
-    //         extraction_policy: "test".to_string(),
-    //         extractor: "test".to_string(),
-    //         output_to_index_table_mapping: output_mappings,
-    //         executor_id: "test".to_string(),
-    //         task_outcome: TaskOutcome::Success,
-    //         index_tables: vec!["test_index1".to_string()],
-    //     };
+        let payload = BeginExtractedContentIngest {
+            task_id: "test".to_string(),
+            namespace: "test".to_string(),
+            parent_content_id: "".to_string(),
+            extraction_policy: "test".to_string(),
+            extractor: "test".to_string(),
+            output_to_index_table_mapping: output_mappings,
+            executor_id: "test".to_string(),
+            task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test_index1".to_string()],
+        };
 
-    //     ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone());
 
-    //     ingest_state.begin_multipart_content().await.unwrap();
+        ingest_state.begin_multipart_content().await.unwrap();
 
-    //     let id = if let FrameState::Writing(s) = &ingest_state.frame_state {
-    //         s.id.clone()
-    //     } else {
-    //         panic!("frame_state should be Writing");
-    //     };
+        let mut payload = FinishContent {
+            content_type: "test".to_string(),
+            features: Vec::new(),
+            labels: HashMap::new(),
+        };
 
-    //     let mut payload = FinishContent {
-    //         content_type: "test".to_string(),
-    //         features: Vec::new(),
-    //         labels: HashMap::new(),
-    //     };
+        payload.features.push(Feature {
+            feature_type: FeatureType::Embedding,
+            name: "name1".to_string(),
+            data: json!({"values" : [1.0, 2.0, 3.0],
+        "distance" : "cosine"}),
+        });
 
-    //     payload.features.push(Feature {
-    //         feature_type: FeatureType::Embedding,
-    //         name: "name1".to_string(),
-    //         data: json!({"values" : [1.0, 2.0, 3.0],
-    //     "distance" : "cosine"}),
-    //     });
+        let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
 
-    //     let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
+        payload.features.push(Feature {
+            feature_type: FeatureType::Metadata,
+            name: "name1".to_string(),
+            data: metadata1.clone(),
+        });
 
-    //     payload.features.push(Feature {
-    //         feature_type: FeatureType::Metadata,
-    //         name: "name1".to_string(),
-    //         data: metadata1.clone(),
-    //     });
+        let id = ingest_state.finish_content(payload).await.unwrap();
+        if let FrameState::Writing(_) = ingest_state.frame_state {
+            panic!("frame_state should be New");
+        }
 
-    //     ingest_state.finish_content(payload).await.unwrap();
-    //     if let FrameState::Writing(_) = ingest_state.frame_state {
-    //         panic!("frame_state should be New");
-    //     }
+        // read entry for id from vector index
+        let points = ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .get_points("test_index1", vec![id.clone()])
+            .await
+            .unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].content_id, id);
+        assert_eq!(points[0].metadata, metadata1);
 
-    //     // read entry for id from vector index
-    //     let points = ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .get_points("test_index1", vec![id.clone()])
-    //         .await
-    //         .unwrap();
-    //     assert_eq!(points.len(), 1);
-    //     assert_eq!(points[0].content_id, id);
-    //     assert_eq!(points[0].metadata, metadata1);
+        // update metadata for content_id
+        let metadata2 = json!({"key1" : "value3", "key2" : "value4"});
+        let payload = ExtractedFeatures {
+            content_id: id.clone(),
+            features: vec![Feature {
+                feature_type: FeatureType::Metadata,
+                name: "name1".to_string(),
+                data: metadata2.clone(),
+            }],
+        };
 
-    //     // update metadata for content_id
-    //     let metadata2 = json!({"key1" : "value3", "key2" : "value4"});
-    //     let payload = ExtractedFeatures {
-    //         content_id: id.clone(),
-    //         features: vec![Feature {
-    //             feature_type: FeatureType::Metadata,
-    //             name: "name1".to_string(),
-    //             data: metadata2.clone(),
-    //         }],
-    //     };
+        ingest_state.write_features(payload).await.unwrap();
 
-    //     ingest_state.write_features(payload).await.unwrap();
+        // read entry for id from vector index
+        let points = ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .get_points("test_index1", vec![id.clone()])
+            .await
+            .unwrap();
 
-    //     // read entry for id from vector index
-    //     let points = ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .get_points("test_index1", vec![id.clone()])
-    //         .await
-    //         .unwrap();
+        // metadata should be replaced with new values
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].content_id, id);
+        assert_eq!(points[0].metadata, metadata2);
 
-    //     // metadata should be replaced with new values
-    //     assert_eq!(points.len(), 1);
-    //     assert_eq!(points[0].content_id, id);
-    //     assert_eq!(points[0].metadata, metadata2);
-
-    //     coordinator.stop().await;
-    // }
+        coordinator.stop().await;
+    }
 
     // create content with metadata only then add embedding for it
-    // #[tokio::test]
-    // async fn test_embedding_existing_metadata() {
-    //     set_tracing();
+    #[tokio::test]
+    async fn test_embedding_existing_metadata() {
+        set_tracing();
 
-    //     let state = new_endpoint_state().await.unwrap();
-    //     let coordinator = TestCoordinator::new().await;
+        let state = new_endpoint_state().await.unwrap();
+        let coordinator = TestCoordinator::new().await;
 
-    //     let mut ingest_state = IngestExtractedContentState::new(state);
-    //     let output_mappings: HashMap<String, String> = vec![
-    //         ("name1".to_string(), "test_index1".to_string()),
-    //         ("name2".to_string(), "test_index2".to_string()),
-    //     ]
-    //     .into_iter()
-    //     .collect();
+        let mut ingest_state = IngestExtractedContentState::new(state);
+        let output_mappings: HashMap<String, String> = vec![
+            ("name1".to_string(), "test_index1".to_string()),
+            ("name2".to_string(), "test_index2".to_string()),
+        ]
+        .into_iter()
+        .collect();
 
-    //     let schema = indexify_internal_api::EmbeddingSchema {
-    //         dim: 3,
-    //         distance: "cosine".to_string(),
-    //     };
+        let schema = indexify_internal_api::EmbeddingSchema {
+            dim: 3,
+            distance: "cosine".to_string(),
+        };
 
-    //     let _ = ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .drop_index("test_index1")
-    //         .await;
+        let _ = ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .drop_index("test_index1")
+            .await;
 
-    //     ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .create_index("test_index1", schema)
-    //         .await
-    //         .unwrap();
+        ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .create_index("test_index1", schema)
+            .await
+            .unwrap();
 
-    //     let payload = BeginExtractedContentIngest {
-    //         task_id: "test".to_string(),
-    //         namespace: "test".to_string(),
-    //         parent_content_id: "parent".to_string(),
-    //         extraction_policy: "test".to_string(),
-    //         extractor: "test".to_string(),
-    //         output_to_index_table_mapping: output_mappings,
-    //         executor_id: "test".to_string(),
-    //         task_outcome: TaskOutcome::Success,
-    //         index_tables: vec!["test_index1".to_string()],
-    //     };
+        let payload = BeginExtractedContentIngest {
+            task_id: "test".to_string(),
+            namespace: "test".to_string(),
+            parent_content_id: "".to_string(),
+            extraction_policy: "test".to_string(),
+            extractor: "test".to_string(),
+            output_to_index_table_mapping: output_mappings,
+            executor_id: "test".to_string(),
+            task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test_index1".to_string()],
+        };
 
-    //     ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone());
 
-    //     ingest_state.begin_multipart_content().await.unwrap();
+        ingest_state.begin_multipart_content().await.unwrap();
 
-    //     let id = if let FrameState::Writing(s) = &ingest_state.frame_state {
-    //         s.id.clone()
-    //     } else {
-    //         panic!("frame_state should be Writing");
-    //     };
+        let mut payload = FinishContent {
+            content_type: "test".to_string(),
+            features: Vec::new(),
+            labels: HashMap::new(),
+        };
 
-    //     let mut payload = FinishContent {
-    //         content_type: "test".to_string(),
-    //         features: Vec::new(),
-    //         labels: HashMap::new(),
-    //     };
+        let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
 
-    //     let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
+        // Add metadata only without embedding
+        payload.features.push(Feature {
+            feature_type: FeatureType::Metadata,
+            name: "name1".to_string(),
+            data: metadata1.clone(),
+        });
 
-    //     // Add metadata only without embedding
-    //     payload.features.push(Feature {
-    //         feature_type: FeatureType::Metadata,
-    //         name: "name1".to_string(),
-    //         data: metadata1.clone(),
-    //     });
+        let id = ingest_state.finish_content(payload).await.unwrap();
+        if let FrameState::Writing(_) = ingest_state.frame_state {
+            panic!("frame_state should be New");
+        }
 
-    //     ingest_state.finish_content(payload).await.unwrap();
-    //     if let FrameState::Writing(_) = ingest_state.frame_state {
-    //         panic!("frame_state should be New");
-    //     }
+        // add embedding for content_id
+        let payload = ExtractedFeatures {
+            content_id: id.clone(),
+            features: vec![Feature {
+                feature_type: FeatureType::Embedding,
+                name: "name1".to_string(),
+                data: json!({"values" : [1.0, 2.0, 3.0], "distance" :
+    "cosine"}),
+            }],
+        };
 
-    //     // add embedding for content_id
-    //     let payload = ExtractedFeatures {
-    //         content_id: id.clone(),
-    //         features: vec![Feature {
-    //             feature_type: FeatureType::Embedding,
-    //             name: "name1".to_string(),
-    //             data: json!({"values" : [1.0, 2.0, 3.0], "distance" :
-    // "cosine"}),         }],
-    //     };
+        ingest_state.write_features(payload).await.unwrap();
 
-    //     ingest_state.write_features(payload).await.unwrap();
+        // read entry for id from vector index
+        let points = ingest_state
+            .state
+            .data_manager
+            .vector_index_manager
+            .get_points("test_index1", vec![id.clone()])
+            .await
+            .unwrap();
 
-    //     // read entry for id from vector index
-    //     let points = ingest_state
-    //         .state
-    //         .data_manager
-    //         .vector_index_manager
-    //         .get_points("test_index1", vec![id.clone()])
-    //         .await
-    //         .unwrap();
+        // embedding should be created with existing metadata
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].content_id, id);
+        assert_eq!(points[0].metadata, metadata1);
 
-    //     // embedding should be created with existing metadata
-    //     assert_eq!(points.len(), 1);
-    //     assert_eq!(points[0].content_id, id);
-    //     assert_eq!(points[0].metadata, metadata1);
-
-    //     coordinator.stop().await;
-    // }
+        coordinator.stop().await;
+    }
 }
