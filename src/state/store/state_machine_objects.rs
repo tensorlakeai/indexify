@@ -615,9 +615,6 @@ pub struct IndexifyState {
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
     content_task_mapping: ContentTaskMapping,
 
-    /// gc task id -> content metadata id
-    gc_task_content_id_mapping: GCTaskContentMapping,
-
     /// task id -> content metadata id
     task_content_id_mapping: TaskContentIdMapping,
 }
@@ -626,7 +623,7 @@ impl fmt::Display for IndexifyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}, gc_task_content_mapping: {:?}",
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
             self.content_namespace_table,
@@ -637,7 +634,6 @@ impl fmt::Display for IndexifyState {
             self.executor_running_task_count,
             self.schemas_by_namespace,
             self.content_children_table,
-            self.gc_task_content_id_mapping
         )
     }
 }
@@ -1484,19 +1480,12 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
-                for gc_task in gc_tasks {
-                    self.gc_task_content_id_mapping
-                        .insert(&gc_task.id, &gc_task.content_id);
-                }
-                Ok(())
-            }
+            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks: _ } => Ok(()),
             RequestPayload::UpdateGarbageCollectionTask {
                 gc_task,
                 mark_finished,
             } => {
                 if mark_finished {
-                    self.gc_task_content_id_mapping.remove(&gc_task.id);
                     self.content_children_table.remove_all(&gc_task.content_id);
                 }
                 Ok(())
@@ -2150,7 +2139,6 @@ impl IndexifyState {
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
             content_task_mapping: self.get_content_task_mapping(),
-            gc_task_content_id_mapping: self.gc_task_content_id_mapping.inner(),
             task_content_id_mapping: self.task_content_id_mapping.inner(),
         }
     }
@@ -2202,11 +2190,6 @@ impl IndexifyState {
             .content_children_table
             .write()
             .unwrap();
-        let mut gc_task_content_id_mapping_guard = self
-            .gc_task_content_id_mapping
-            .gc_task_content_id_mapping
-            .write()
-            .unwrap();
         let mut task_content_id_mapping_guard = self
             .task_content_id_mapping
             .task_content_id_mapping
@@ -2223,7 +2206,6 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
-        *gc_task_content_id_mapping_guard = snapshot.gc_task_content_id_mapping;
         *task_content_id_mapping_guard = snapshot.task_content_id_mapping;
     }
     //  END SNAPSHOT METHODS
@@ -2242,7 +2224,6 @@ pub struct IndexifyStateSnapshot {
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     content_task_mapping: HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
-    gc_task_content_id_mapping: HashMap<GarbageCollectionTaskId, ContentMetadataId>,
     task_content_id_mapping: HashMap<TaskId, ContentMetadataId>,
 }
 
