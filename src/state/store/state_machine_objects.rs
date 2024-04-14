@@ -540,42 +540,6 @@ impl From<HashMap<GarbageCollectionTaskId, ContentMetadataId>> for GCTaskContent
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct TaskContentIdMapping {
-    task_content_id_mapping: Arc<RwLock<HashMap<TaskId, ContentMetadataId>>>,
-}
-
-impl TaskContentIdMapping {
-    pub fn get(&self, task_id: &TaskId) -> Option<ContentMetadataId> {
-        let guard = self.task_content_id_mapping.read().unwrap();
-        guard.get(task_id).cloned()
-    }
-
-    pub fn insert(&self, task_id: &TaskId, content_id: &ContentMetadataId) {
-        let mut guard = self.task_content_id_mapping.write().unwrap();
-        guard.insert(task_id.clone(), content_id.clone());
-    }
-
-    pub fn remove(&self, task_id: &TaskId) {
-        let mut guard = self.task_content_id_mapping.write().unwrap();
-        guard.remove(task_id);
-    }
-
-    pub fn inner(&self) -> HashMap<TaskId, ContentMetadataId> {
-        let guard = self.task_content_id_mapping.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<TaskId, ContentMetadataId>> for TaskContentIdMapping {
-    fn from(task_content_mapping: HashMap<TaskId, ContentMetadataId>) -> Self {
-        let task_content_mapping = Arc::new(RwLock::new(task_content_mapping));
-        Self {
-            task_content_id_mapping: task_content_mapping,
-        }
-    }
-}
-
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -614,9 +578,6 @@ pub struct IndexifyState {
 
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
     content_task_mapping: ContentTaskMapping,
-
-    /// task id -> content metadata id
-    task_content_id_mapping: TaskContentIdMapping,
 }
 
 impl fmt::Display for IndexifyState {
@@ -2139,7 +2100,6 @@ impl IndexifyState {
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
             content_task_mapping: self.get_content_task_mapping(),
-            task_content_id_mapping: self.task_content_id_mapping.inner(),
         }
     }
 
@@ -2190,11 +2150,6 @@ impl IndexifyState {
             .content_children_table
             .write()
             .unwrap();
-        let mut task_content_id_mapping_guard = self
-            .task_content_id_mapping
-            .task_content_id_mapping
-            .write()
-            .unwrap();
 
         *unassigned_tasks_guard = snapshot.unassigned_tasks;
         *unprocessed_state_changes_guard = snapshot.unprocessed_state_changes;
@@ -2206,7 +2161,6 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
-        *task_content_id_mapping_guard = snapshot.task_content_id_mapping;
     }
     //  END SNAPSHOT METHODS
 }
@@ -2224,7 +2178,6 @@ pub struct IndexifyStateSnapshot {
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     content_task_mapping: HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
-    task_content_id_mapping: HashMap<TaskId, ContentMetadataId>,
 }
 
 #[cfg(test)]
