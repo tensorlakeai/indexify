@@ -563,7 +563,7 @@ pub struct ListStateChangesResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetStructuredDataSchemasResponse {
     pub schemas: Vec<internal_api::StructuredDataSchema>,
-    pub ddls: Vec<String>,
+    pub ddls: HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
