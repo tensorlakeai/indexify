@@ -6,6 +6,7 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
+use internal_api::OutputSchema;
 use tracing::info;
 
 use crate::{
@@ -77,10 +78,13 @@ impl Scheduler {
                 .shared_state
                 .extractor_with_name(&policy.extractor)
                 .await?;
-            for name in extractor.outputs.keys() {
-                let index_name = policy.output_index_name_mapping.get(name).unwrap();
-                let table_name = policy.index_name_table_mapping.get(index_name).unwrap();
-                tables.push(table_name.clone());
+            for (name, schema) in &extractor.outputs {
+                if let OutputSchema::Embedding(_) = schema {
+                    let index_name = policy.output_index_name_mapping.get(name).unwrap();
+                    let table_name = policy.index_name_table_mapping.get(index_name).unwrap();
+                    tables.push(table_name.clone());
+                    continue;
+                }
             }
         }
         Ok(tables)
