@@ -171,11 +171,9 @@ impl IngestExtractedContentState {
         );
         // let mut ret_id = None;
         match &mut self.frame_state {
-            FrameState::New => {
-                Err(anyhow!(
-                    "received finish content without any content frames"
-                ))
-            }
+            FrameState::New => Err(anyhow!(
+                "received finish content without any content frames"
+            )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
                 let metadata = self.ingest_metadata.as_ref().unwrap();
