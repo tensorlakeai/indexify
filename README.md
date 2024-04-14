@@ -3,6 +3,9 @@
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
+
+![Indexify High Level](docs/docs/images/Indexify_Home_Diagram.gif)
+
 > **LLM applications backed by Indexify will never answer outdated information.**
 
 Indexify is an open-source engine for buidling fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. Extracted metadata and embedding can be queried from LLM applications by semantic search and SQL queries. 

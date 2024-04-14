@@ -1,6 +1,8 @@
-# Multi-Modal Extraction Engine for Large Language Models Applications
+# Reliable Extraction and Retrieval for AI Applications at Any Scale
 
-Indexify is a reactive structured extraction and embedding engine for un-structured data such as PDFs, raw text, audio and video. You can use Indexify to index and serve data to RAG applications, or consume structured data from any unstructured data into any kind of applications in real time.
+![Indexify High Level](images/Indexify_Home_Diagram.gif)
+
+Indexify is an open-source engine for embedding, extract structured information, and transform unstructured data(video, audio, images and documents). Indexes are always kept updated as data is ingested. LLM applications can query content by semantic search and SQL queries on embedding and structured data.
 
 [Join our Discord Community](https://discord.gg/8yQK6xRcj4){ .md-button .md-button--primary }
 
