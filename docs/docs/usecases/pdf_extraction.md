@@ -1,8 +1,12 @@
 # PDF Extraction
 
 PDF is a complex document type, and they can contain text, images and tabular data. Depending on the document type the strategy to extract information from PDF could vary. 
+
 We have developed a PDF extractor which can extract text, images and tables from PDF documents. Additionaly, you can use many other PDF extraction libraries which we have 
 packaged as an extractor. You can try out all the various extractors and see which one works best for your use-case.
+
+Below is an overview of what you can achieve by combining the PDF Extractors, with Embedding, Chunking and other structured data extractors. We have some examples as well below.
+![PDF Extraction High Level](../images/PDF_Usecase.png)
 
 ## Extractors
 * tensorlake/pdf-extractor - A combined PDF extractor which can extract text, image and tables

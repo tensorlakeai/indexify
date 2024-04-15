@@ -68,6 +68,7 @@ nav:
     - Develop Indexify: 'develop.md'
   - Examples:
     - Scientific Journals: 'examples/Scientific_Journals.ipynb'
+    - Image RAG: 'examples/Image_RAG.ipynb'
     
 plugins: 
   - mkdocs-jupyter
