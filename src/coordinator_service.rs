@@ -366,7 +366,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
     ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
         let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events().await;
-        let (tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(100);
 
         let mut inbound = request.into_inner();
         let coordinator_clone = self.coordinator.clone();
@@ -418,15 +418,27 @@ impl CoordinatorService for CoordinatorServiceServer {
                             }
                         }
                     }
-                    Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
-                        let task = task_allocation;
-                        if let Some(ref server_id) = ingestion_server_id {
-                            if task.assigned_to.is_some() && &task.assigned_to.clone().unwrap() == server_id {
-                                let serialized_task: GcTask = task.into();
-                                let command = CoordinatorCommand {
-                                    gc_task: Some(serialized_task)
-                                };
-                                tx.send(command).await.unwrap();
+                    task_allocation_event = gc_task_allocation_event_rx.recv() => {
+                        match task_allocation_event {
+                            Ok(task_allocation) => {
+                                let task = task_allocation;
+                                if let Some(ref server_id) = ingestion_server_id {
+                                    if task.assigned_to.is_some() && &task.assigned_to.clone().unwrap() == server_id {
+                                        println!("sending task to server");
+                                        let serialized_task: GcTask = task.into();
+                                        let command = CoordinatorCommand {
+                                            gc_task: Some(serialized_task)
+                                        };
+                                        tx.send(command).await.unwrap();
+                                    }
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::error!("Skipped {} messages due to lagging", n);
+                                //  TODO: How should skipped gc tasks be handled?
+                            }
+                            Err(e) => {
+                                tracing::error!("Error receiving gc task allocation event: {}", e);
                             }
                         }
                     }

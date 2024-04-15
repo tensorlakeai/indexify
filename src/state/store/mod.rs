@@ -149,7 +149,7 @@ impl StateMachineStore {
         snapshot_file_path: PathBuf,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
-        let (gc_tasks_tx, _) = broadcast::channel(8);
+        let (gc_tasks_tx, _) = broadcast::channel(100);
         let sm = Self {
             data: StateMachineData {
                 last_applied_log_id: RwLock::new(None),
@@ -584,9 +584,19 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                     if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
                         req.payload
                     {
+                        let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
                         for gc_task in gc_tasks {
-                            if let Err(e) = self.data.gc_tasks_tx.send(gc_task.clone()) {
-                                tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                            match self.data.gc_tasks_tx.send(gc_task.clone()) {
+                                Ok(sent_count) => {
+                                    if sent_count < expected_receiver_count {
+                                        tracing::error!(
+                                            "The gc task event did not reach all listeners"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                                }
                             }
                         }
                     }
