@@ -84,7 +84,7 @@ pub enum OutputSchema {
     #[serde(rename = "embedding")]
     Embedding(EmbeddingSchema),
     #[serde(rename = "attributes")]
-    Attributes(HashMap<String, SchemaColumnType>),
+    Attributes(HashMap<String, SchemaColumn>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -133,9 +133,10 @@ pub struct IngestionServerMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-struct OutputType {
+struct OutputColumn {
     #[serde(rename = "type")]
     pub output_type: String,
+    pub comment: Option<String>,
 }
 
 impl From<indexify_coordinator::Extractor> for ExtractorDescription {
@@ -147,11 +148,11 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
             output_schema.insert(output_name, OutputSchema::Embedding(embedding_schema));
         }
         for (output_name, metadata_schema) in value.metadata_schemas {
-            let metadata_schema: HashMap<String, OutputType> =
+            let metadata_schema: HashMap<String, OutputColumn> =
                 serde_json::from_str(&metadata_schema).unwrap();
-            let mut cols = HashMap::new();
+            let mut attrs = HashMap::new();
             for (k, v) in metadata_schema {
-                let col_type = match v.output_type.as_str() {
+                let column_type = match v.output_type.as_str() {
                     "integer" => SchemaColumnType::Int,
                     "string" => SchemaColumnType::Text,
                     "array" => SchemaColumnType::Array,
@@ -160,9 +161,14 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
                     "boolean" => SchemaColumnType::Bool,
                     _ => SchemaColumnType::Object,
                 };
-                cols.insert(k, col_type);
+                let comment = v.comment;
+                let column = SchemaColumn {
+                    column_type,
+                    comment,
+                };
+                attrs.insert(k, column);
             }
-            output_schema.insert(output_name, OutputSchema::Attributes(cols));
+            output_schema.insert(output_name, OutputSchema::Attributes(attrs));
         }
         Self {
             name: value.name,
@@ -707,6 +713,12 @@ pub struct ExtractedEmbeddings {
     pub metadata: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SchemaColumn {
+    column_type: SchemaColumnType,
+    comment: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SchemaColumnType {
@@ -720,9 +732,18 @@ pub enum SchemaColumnType {
     Object,
 }
 
+impl From<SchemaColumnType> for SchemaColumn {
+    fn from(column_type: SchemaColumnType) -> Self {
+        Self {
+            column_type,
+            comment: None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct StructuredDataSchema {
-    pub columns: BTreeMap<String, SchemaColumnType>,
+    pub columns: BTreeMap<String, SchemaColumn>,
     pub content_source: String,
     pub namespace: String,
     pub id: String,
@@ -739,10 +760,10 @@ impl StructuredDataSchema {
         }
     }
 
-    pub fn merge(&self, other: HashMap<String, SchemaColumnType>) -> Result<Self> {
+    pub fn merge(&self, other: HashMap<String, SchemaColumn>) -> Result<Self> {
         let mut columns = self.columns.clone();
-        for (column, dtype) in other {
-            columns.insert(column, dtype);
+        for (column_name, column) in other {
+            columns.insert(column_name, column);
         }
         Ok(Self {
             content_source: self.content_source.clone(),
@@ -762,8 +783,12 @@ impl StructuredDataSchema {
     pub fn to_ddl(&self) -> String {
         let mut columns = vec![r#""content_id" TEXT NULL"#.to_string()];
 
-        for (column_name, dtype) in &self.columns {
-            let dtype = match dtype {
+        for (column_name, column) in &self.columns {
+            let SchemaColumn {
+                column_type,
+                comment,
+            } = column;
+            let dtype = match column_type {
                 SchemaColumnType::Null => "OBJECT",
                 SchemaColumnType::Array => "LIST",
                 SchemaColumnType::BigInt => "BIGINT",
@@ -773,7 +798,13 @@ impl StructuredDataSchema {
                 SchemaColumnType::Text => "TEXT",
                 SchemaColumnType::Object => "JSON",
             };
-            columns.push(format!(r#""{}" {} NULL"#, column_name, dtype));
+            let mut column = format!(r#""{}" {} NULL"#, column_name, dtype);
+
+            if let Some(comment) = comment {
+                column.push_str(&format!(" COMMENT '{}'", comment));
+            }
+
+            columns.push(column);
         }
 
         let column_str = columns.join(", ");
@@ -794,13 +825,19 @@ mod test {
     fn test_structured_data_schema() {
         let schema = StructuredDataSchema::new("test", "test-namespace");
         let other = HashMap::from([
-            ("bounding_box".to_string(), SchemaColumnType::Object),
-            ("object_class".to_string(), SchemaColumnType::Text),
+            (
+                "bounding_box".to_string(),
+                SchemaColumn {
+                    column_type: SchemaColumnType::Object,
+                    comment: Some("Bounding box of the object".to_string()),
+                },
+            ),
+            ("object_class".to_string(), SchemaColumnType::Text.into()),
         ]);
         let result = schema.merge(other).unwrap();
         let other1 = HashMap::from([
-            ("a".to_string(), SchemaColumnType::Int),
-            ("b".to_string(), SchemaColumnType::Text),
+            ("a".to_string(), SchemaColumnType::Int.into()),
+            ("b".to_string(), SchemaColumnType::Text.into()),
         ]);
         let result1 = result.merge(other1).unwrap();
         assert_eq!(result1.content_source, "test");
@@ -814,7 +851,7 @@ mod test {
                 \"content_id\" TEXT NULL, \
                 \"a\" INT NULL, \
                 \"b\" TEXT NULL, \
-                \"bounding_box\" JSON NULL, \
+                \"bounding_box\" JSON NULL COMMENT 'Bounding box of the object', \
                 \"object_class\" TEXT NULL\
             );"
         );
