@@ -64,6 +64,11 @@ We can make OpenAI generate the SQL query based on a language -
 ```
 chain.invoke("Find the photos with a skateboard?")
 ```
+
+### Example Notebook
+
+[Accurate Image RAG using Yolo and CodeGemma](../examples/Image_RAG.ipynb)
+
 ## Semantic Search with CLIP Embeddings
 OpenAI's CLIP embedding model allows searching images with semantically similar description of images. 
 
