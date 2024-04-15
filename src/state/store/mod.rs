@@ -897,9 +897,6 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
 ) -> (LogStore, Arc<StateMachineStore>) {
-    //  TODO: Don't return sm from here, just return the StateMachineReader and use
-    // that in AppState. Don't take locks unless reading from reverse indexes on the
-    // state machine
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);
