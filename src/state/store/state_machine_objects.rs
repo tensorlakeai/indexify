@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
+    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -906,16 +898,17 @@ impl IndexifyState {
         for content in contents_vec.iter().cloned() {
             let mut updated_content = content;
             if !updated_content.parent_id.id.is_empty() {
-                let parent_latest_version =
-                    self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)?;
-                if parent_latest_version == 0 {
-                    return Err(StateMachineError::DatabaseError(format!(
-                        "Parent content {} not found",
-                        updated_content.parent_id.id
-                    )));
-                }
-                // Update the parent_id version to the latest version
-                updated_content.parent_id.version = parent_latest_version;
+                match self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)? {
+                    Some(parent_latest_version) => {
+                        updated_content.parent_id.version = parent_latest_version;
+                    }
+                    None => {
+                        return Err(StateMachineError::DatabaseError(format!(
+                            "Parent content {} not found",
+                            updated_content.parent_id.id
+                        )));
+                    }
+                };
             }
 
             updated_contents.push(updated_content);
@@ -1453,8 +1446,9 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
-                    let parent_latest_version =
-                        self.get_latest_version_of_content(&content.parent_id.id, db, txn)?;
+                    let parent_latest_version = self
+                        .get_latest_version_of_content(&content.parent_id.id, db, txn)?
+                        .unwrap_or_else(|| 0);
                     let parent_id = ContentMetadataId {
                         id: content.parent_id.id,
                         version: parent_latest_version,
@@ -1513,8 +1507,8 @@ impl IndexifyState {
                         &task.extraction_policy_id,
                         &task.id,
                     );
-                    if self.content_task_mapping.is_content_processed(&content_id) &&
-                        content_id.version > 1
+                    if self.content_task_mapping.is_content_processed(&content_id)
+                        && content_id.version > 1
                     {
                         self.merge_content_trees(
                             db,
@@ -1547,14 +1541,12 @@ impl IndexifyState {
 
     /// This function is a helper method that will get the latest version of any
     /// piece of content in the database by building a prefix foward iterator
-    /// TODO: Should we be ignoring tombstoned content here for the latest
-    /// version?
     pub fn get_latest_version_of_content(
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-    ) -> Result<u64, StateMachineError> {
+    ) -> Result<Option<u64>, StateMachineError> {
         let prefix = format!("{}::v", content_id);
 
         let mut read_opts = rocksdb::ReadOptions::default();
@@ -1564,17 +1556,24 @@ impl IndexifyState {
             rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
         );
 
-        let mut highest_version: u64 = 0;
+        let mut highest_version: Option<u64> = None;
 
         for item in iter {
             match item {
-                Ok((key, _)) => {
+                Ok((key, value)) => {
+                    let content_metadata =
+                        JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?;
+                    if content_metadata.tombstoned {
+                        continue;
+                    }
                     if let Ok(key_str) = std::str::from_utf8(&key) {
                         if let Some(version_str) = key_str.strip_prefix(&prefix) {
                             if let Ok(version) = version_str.parse::<u64>() {
-                                if version > highest_version {
-                                    highest_version = version;
-                                }
+                                highest_version = Some(match highest_version {
+                                    Some(current_high) if version > current_high => version,
+                                    None => version,
+                                    Some(current_high) => current_high,
+                                });
                             }
                         }
                     }
@@ -1759,11 +1758,12 @@ impl IndexifyState {
             // Construct prefix for content ID to search for all its versions
             let highest_version = self.get_latest_version_of_content(content_id, db, &txn)?;
 
-            // If a key with the highest version is found, decode its content and add to the
-            // results
-            if highest_version == 0 {
+            if highest_version.is_none() {
                 continue;
             }
+            // If a key with the highest version is found, decode its content and add to the
+            // results
+            let highest_version = highest_version.unwrap();
             match txn.get_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 &format!("{}::v{}", content_id, highest_version),
@@ -1805,9 +1805,10 @@ impl IndexifyState {
 
         while let Some(current_root) = queue.pop_front() {
             let highest_version = self.get_latest_version_of_content(&current_root, db, &txn)?;
-            if highest_version == 0 {
+            if highest_version.is_none() {
                 continue;
             }
+            let highest_version = highest_version.unwrap();
             let content_bytes = txn
                 .get_cf(
                     StateMachineColumns::ContentTable.cf(db),
