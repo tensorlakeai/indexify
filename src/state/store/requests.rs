@@ -1,10 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    time::SystemTime,
-};
+use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api as internal_api;
-use internal_api::{ContentMetadataId, StateChange};
+use internal_api::StateChange;
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
@@ -62,7 +59,7 @@ pub enum RequestPayload {
     },
     TombstoneContentTree {
         namespace: String,
-        content_ids: HashSet<ContentMetadataId>,
+        content_metadata: Vec<internal_api::ContentMetadata>,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,

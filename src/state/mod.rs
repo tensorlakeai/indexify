@@ -3,7 +3,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     io::Cursor,
     path::Path,
     sync::Arc,
@@ -1035,18 +1035,39 @@ impl App {
     ) -> Result<(), anyhow::Error> {
         let mut state_changes = vec![];
 
-        for content_id in content_ids.iter() {
+        let mut queue = VecDeque::new();
+        for root_content_id in content_ids.iter() {
+            queue.push_back(root_content_id.clone());
             state_changes.push(StateChange::new(
-                content_id.to_string(),
+                root_content_id.to_string(),
                 internal_api::ChangeType::TombstoneContentTree,
                 timestamp_secs(),
             ));
         }
 
+        let mut updated_content = Vec::new();
+        while let Some(current_root) = queue.pop_front() {
+            let mut content_keys_set = HashSet::new();
+            content_keys_set.insert(current_root.clone());
+            let content_metadata = self
+                .state_machine
+                .get_content_from_ids_with_version(content_keys_set)
+                .await?;
+            let mut content_metadata = content_metadata
+                .first()
+                .ok_or_else(|| anyhow!("Content with id {} not found", current_root))?
+                .clone();
+            content_metadata.tombstoned = true;
+            updated_content.push(content_metadata);
+
+            let children = self.state_machine.get_content_children(&current_root);
+            queue.extend(children.iter().cloned());
+        }
+
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::TombstoneContentTree {
                 namespace: namespace.to_string(),
-                content_ids: content_ids.iter().cloned().collect(),
+                content_metadata: updated_content,
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
@@ -1272,8 +1293,10 @@ impl App {
         self.state_machine.get_unfinished_tasks_by_extractor().await
     }
 
-    pub async fn is_content_processed(&self, content_id: &ContentMetadataId) -> bool {
-        self.state_machine.is_content_processed(content_id).await
+    pub async fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
+        self.state_machine
+            .are_content_tasks_completed(content_id)
+            .await
     }
 
     pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {

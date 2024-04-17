@@ -390,9 +390,12 @@ impl Coordinator {
         change: StateChange,
         content_id: ContentMetadataId,
     ) -> Result<()> {
-        let is_content_processed = self.shared_state.is_content_processed(&content_id).await;
+        let are_content_tasks_completed = self
+            .shared_state
+            .are_content_tasks_completed(&content_id)
+            .await;
 
-        if !is_content_processed {
+        if !are_content_tasks_completed {
             return Ok(());
         }
 

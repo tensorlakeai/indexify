@@ -456,11 +456,23 @@ impl StateMachineStore {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 
-    pub async fn is_content_processed(
+    pub async fn are_content_tasks_completed(
         &self,
         content_id: &indexify_internal_api::ContentMetadataId,
     ) -> bool {
-        self.data.indexify_state.is_content_processed(content_id)
+        self.data
+            .indexify_state
+            .are_content_tasks_completed(content_id)
+    }
+
+    pub fn get_content_children(
+        &self,
+        content_id: &indexify_internal_api::ContentMetadataId,
+    ) -> HashSet<indexify_internal_api::ContentMetadataId> {
+        self.data
+            .indexify_state
+            .content_children_table
+            .get_children(content_id)
     }
 
     //  END REVERSE INDEX READER METHOD INTERFACES

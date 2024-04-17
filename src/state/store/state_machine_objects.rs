@@ -472,7 +472,7 @@ impl ContentTaskMapping {
         }
     }
 
-    pub fn is_content_processed(&self, content_id: &ContentMetadataId) -> bool {
+    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
         let guard = self.content_task_mapping.read().unwrap();
         guard.get(content_id).is_none()
     }
@@ -536,40 +536,40 @@ impl From<HashMap<GarbageCollectionTaskId, ContentMetadataId>> for GCTaskContent
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
-    unassigned_tasks: UnassignedTasks,
+    pub unassigned_tasks: UnassignedTasks,
 
     /// State changes that have not been processed yet
-    unprocessed_state_changes: UnprocessedStateChanges,
+    pub unprocessed_state_changes: UnprocessedStateChanges,
 
     /// Namespace -> Content ID
-    content_namespace_table: ContentNamespaceTable,
+    pub content_namespace_table: ContentNamespaceTable,
 
     /// Namespace -> Extraction policy id
-    extraction_policies_table: ExtractionPoliciesTable,
+    pub extraction_policies_table: ExtractionPoliciesTable,
 
     /// Extractor -> Executors table
-    extractor_executors_table: ExtractorExecutorsTable,
+    pub extractor_executors_table: ExtractorExecutorsTable,
 
     /// Namespace -> Index id
-    namespace_index_table: NamespaceIndexTable,
+    pub namespace_index_table: NamespaceIndexTable,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
     /// Extractor name -> Task Ids
-    unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
+    pub unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Number of tasks currently running on each executor
     /// Executor id -> number of tasks running on executor
-    executor_running_task_count: ExecutorRunningTaskCount,
+    pub executor_running_task_count: ExecutorRunningTaskCount,
 
     /// Namespace -> Schemas
-    schemas_by_namespace: SchemasByNamespace,
+    pub schemas_by_namespace: SchemasByNamespace,
 
     /// Parent content id -> children content id's
-    content_children_table: ContentChildrenTable,
+    pub content_children_table: ContentChildrenTable,
 
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
-    content_task_mapping: ContentTaskMapping,
+    pub content_task_mapping: ContentTaskMapping,
 }
 
 impl fmt::Display for IndexifyState {
@@ -933,44 +933,19 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: &HashSet<ContentMetadataId>,
+        content_metadata: &Vec<indexify_internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        let mut queue = VecDeque::new();
-        for root_content_id in content_ids {
-            queue.push_back(root_content_id.clone());
-        }
-
-        while let Some(current_root) = queue.pop_front() {
-            let stored_key = format!("{}::v{}", current_root.id, current_root.version);
-            let serialized_content_metadata = txn
-                .get_cf(StateMachineColumns::ContentTable.cf(db), &stored_key)
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| {
-                    StateMachineError::DatabaseError(format!(
-                        "Content {} not found while tombstoning",
-                        current_root
-                    ))
-                })?;
-            let mut content_metadata =
-                JsonEncoder::decode::<internal_api::ContentMetadata>(&serialized_content_metadata)?;
-            content_metadata.tombstoned = true;
-            let serialized_content_metadata = JsonEncoder::encode(&content_metadata)?;
+        for content in content_metadata {
+            let content_key = format!("{}::v{}", content.id.id, content.id.version);
+            let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                stored_key,
-                &serialized_content_metadata,
+                content_key,
+                &serialized_content,
             )
             .map_err(|e| {
-                StateMachineError::DatabaseError(format!(
-                    "Error writing content back after setting tombstone flag on it for content {}: {}",
-                    &current_root, e
-                ))
+                StateMachineError::DatabaseError(format!("error writing content: {}", e))
             })?;
-
-            let children = self
-                .content_children_table
-                .get_children(&content_metadata.id);
-            queue.extend(children.iter().cloned());
         }
 
         Ok(())
@@ -1331,9 +1306,9 @@ impl IndexifyState {
             }
             RequestPayload::TombstoneContentTree {
                 namespace: _,
-                content_ids,
+                content_metadata,
             } => {
-                self.tombstone_content_tree(db, &txn, content_ids)?;
+                self.tombstone_content_tree(db, &txn, content_metadata)?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
@@ -1507,7 +1482,9 @@ impl IndexifyState {
                         &task.extraction_policy_id,
                         &task.id,
                     );
-                    if self.content_task_mapping.is_content_processed(&content_id)
+                    if self
+                        .content_task_mapping
+                        .are_content_tasks_completed(&content_id)
                         && content_id.version > 1
                     {
                         self.merge_content_trees(
@@ -2073,8 +2050,9 @@ impl IndexifyState {
         self.content_task_mapping.inner()
     }
 
-    pub fn is_content_processed(&self, content_id: &ContentMetadataId) -> bool {
-        self.content_task_mapping.is_content_processed(content_id)
+    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
+        self.content_task_mapping
+            .are_content_tasks_completed(content_id)
     }
 
     //  END READER METHODS FOR REVERSE INDEXES
