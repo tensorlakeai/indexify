@@ -906,8 +906,8 @@ impl App {
             .map(|c| (c.id.id.to_string(), c))
             .collect();
 
-        let mut content_to_be_updated: Vec<internal_api::ContentMetadata> = Vec::new();
         let mut identical_content: Vec<internal_api::ContentMetadata> = Vec::new();
+        let mut content_to_be_updated: Vec<internal_api::ContentMetadata> = Vec::new();
         let mut new_incoming_content: Vec<internal_api::ContentMetadata> = Vec::new();
 
         for new_content in content_metadata {
@@ -929,70 +929,107 @@ impl App {
             }
         }
 
-        //  write identical content and don't create state changes for it
+        //  handle identical content
         if !identical_content.is_empty() {
+            //  If the content is identical, find the latest version of the parent and flip the content node in the db with the same id to point to the new parent
+            let mut content_to_write = Vec::new();
+            for content in identical_content {
+                let latest_version_of_parent = self
+                    .state_machine
+                    .get_latest_version_of_content(&content.parent_id.id)
+                    .map_err(|e| {
+                        anyhow!(
+                            "Unable to get latest version of content {}: {}",
+                            content.parent_id,
+                            e
+                        )
+                    })?;
+                if latest_version_of_parent.is_none() {
+                    continue;
+                }
+                let latest_version_of_parent = latest_version_of_parent.unwrap();
+                let mut old_node = existing_content_map
+                    .get(&content.id.id.to_string())
+                    .unwrap()
+                    .clone();
+                old_node.parent_id = ContentMetadataId::new_with_version(
+                    &content.parent_id.id,
+                    latest_version_of_parent,
+                );
+                content_to_write.push(old_node);
+            }
             let req = StateMachineUpdateRequest {
                 payload: RequestPayload::CreateContent {
-                    content_metadata: identical_content,
+                    content_metadata: content_to_write,
                 },
                 new_state_changes: vec![],
                 state_changes_processed: vec![],
             };
             self.forwardable_raft.client_write(req).await.map_err(|e| {
                 anyhow!(
-                    "unable to create identical content metadata: {}",
+                    "unable to update identical content metadata: {}",
                     e.to_string()
                 )
             })?;
         }
 
         //  write the updated content
-        if !content_to_be_updated.is_empty() {
-            let mut state_changes = Vec::new();
-            for content in &content_to_be_updated {
-                state_changes.push(StateChange::new(
-                    content.id.to_string(),
-                    internal_api::ChangeType::NewContent,
-                    timestamp_secs(),
-                ));
+        let mut state_changes = Vec::new();
+        let mut content_to_write = content_to_be_updated.clone();
+        content_to_write.extend(new_incoming_content.clone());
+
+        let mut updated_contents_to_write = Vec::new();
+
+        for mut content in content_to_write {
+            if !content.parent_id.id.is_empty() {
+                // Retrieve the latest version of the parent content
+                match self
+                    .state_machine
+                    .get_latest_version_of_content(&content.parent_id.id)
+                {
+                    Ok(Some(latest_version)) => {
+                        content.parent_id.version = latest_version;
+                    }
+                    Ok(None) => {
+                        // Error out if no parent is found
+                        tracing::error!(
+                            "Parent content with id {} not found",
+                            content.parent_id.id
+                        );
+                        return Err(anyhow!(
+                            "Parent content with id {} not found",
+                            content.parent_id.id
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
             }
-            let req = StateMachineUpdateRequest {
-                payload: RequestPayload::CreateContent {
-                    content_metadata: content_to_be_updated,
-                },
-                new_state_changes: state_changes,
-                state_changes_processed: vec![],
-            };
-            let _ = self.forwardable_raft.client_write(req).await.map_err(|e| {
-                anyhow!(
-                    "unable to create updated content metadata: {}",
-                    e.to_string()
-                )
-            })?;
+            updated_contents_to_write.push(content);
         }
 
-        //  write the new content
-        if !new_incoming_content.is_empty() {
-            let mut state_changes = Vec::new();
-            for content in &new_incoming_content {
-                state_changes.push(StateChange::new(
-                    content.id.to_string(),
-                    internal_api::ChangeType::NewContent,
-                    timestamp_secs(),
-                ));
-            }
-            let req = StateMachineUpdateRequest {
-                payload: RequestPayload::CreateContent {
-                    content_metadata: new_incoming_content,
-                },
-                new_state_changes: state_changes,
-                state_changes_processed: vec![],
-            };
-            let _ =
-                self.forwardable_raft.client_write(req).await.map_err(|e| {
-                    anyhow!("unable to create new content metadata: {}", e.to_string())
-                })?;
+        for content in &updated_contents_to_write {
+            state_changes.push(StateChange::new(
+                content.id.to_string(),
+                internal_api::ChangeType::NewContent,
+                timestamp_secs(),
+            ));
         }
+
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateContent {
+                content_metadata: updated_contents_to_write,
+            },
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
+        };
+        let _ = self.forwardable_raft.client_write(req).await.map_err(|e| {
+            anyhow!(
+                "unable to create updated content metadata: {}",
+                e.to_string()
+            )
+        })?;
 
         Ok(())
     }

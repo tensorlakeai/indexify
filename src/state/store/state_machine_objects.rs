@@ -892,31 +892,9 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        let mut updated_contents = Vec::new();
-
-        //  Update the parents of all the contents to point to the latest version
-        for content in contents_vec.iter().cloned() {
-            let mut updated_content = content;
-            if !updated_content.parent_id.id.is_empty() {
-                match self.get_latest_version_of_content(&updated_content.parent_id.id, db, txn)? {
-                    Some(parent_latest_version) => {
-                        updated_content.parent_id.version = parent_latest_version;
-                    }
-                    None => {
-                        return Err(StateMachineError::DatabaseError(format!(
-                            "Parent content {} not found",
-                            updated_content.parent_id.id
-                        )));
-                    }
-                };
-            }
-
-            updated_contents.push(updated_content);
-        }
-
-        for updated_content in updated_contents {
-            let content_key = format!("{}::v{}", updated_content.id.id, updated_content.id.version);
-            let serialized_content = JsonEncoder::encode(&updated_content)?;
+        for content in contents_vec {
+            let content_key = format!("{}::v{}", content.id.id, content.id.version);
+            let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 content_key,
@@ -1421,16 +1399,10 @@ impl IndexifyState {
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
-                    let parent_latest_version = self
-                        .get_latest_version_of_content(&content.parent_id.id, db, txn)?
-                        .unwrap_or_else(|| 0);
-                    let parent_id = ContentMetadataId::new_with_version(
-                        &content.parent_id.id,
-                        parent_latest_version,
-                    );
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
-                    self.content_children_table.insert(&parent_id, &content.id);
+                    self.content_children_table
+                        .insert(&content.parent_id, &content.id);
                 }
                 Ok(())
             }
