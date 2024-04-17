@@ -385,17 +385,19 @@ impl Coordinator {
         self.create_gc_tasks(&change).await
     }
 
-    async fn handle_task_completion_state_change(&self, change: StateChange) -> Result<()> {
-        let content_id: ContentMetadataId = change.object_id.clone().try_into()?;
+    async fn handle_task_completion_state_change(
+        &self,
+        change: StateChange,
+        content_id: ContentMetadataId,
+    ) -> Result<()> {
         let is_content_processed = self.shared_state.is_content_processed(&content_id).await;
 
         if !is_content_processed {
             return Ok(());
         }
 
-        //  previous version needs to be tombstoned
+        //  this is the first version of the content
         if content_id.version <= 1 {
-            //  this content was not updated
             self.shared_state
                 .mark_change_events_as_processed(vec![change])
                 .await?;
@@ -442,8 +444,9 @@ impl Coordinator {
                         .await?;
                     continue;
                 }
-                indexify_internal_api::ChangeType::TaskCompleted => {
-                    self.handle_task_completion_state_change(change).await?;
+                indexify_internal_api::ChangeType::TaskCompleted { ref content_id } => {
+                    self.handle_task_completion_state_change(change.clone(), content_id.clone())
+                        .await?;
                     continue;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,

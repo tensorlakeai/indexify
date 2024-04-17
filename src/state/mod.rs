@@ -679,7 +679,9 @@ impl App {
         if mark_finished && task.outcome == internal_api::TaskOutcome::Success {
             state_changes.push(StateChange::new(
                 task.content_metadata.id.to_string(),
-                internal_api::ChangeType::TaskCompleted,
+                internal_api::ChangeType::TaskCompleted {
+                    content_id: task.content_metadata.id.clone(),
+                },
                 timestamp_secs(),
             ));
         }
