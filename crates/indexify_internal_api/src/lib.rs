@@ -258,7 +258,7 @@ impl Content {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default, Copy)]
 #[schema(as = internal_api::TaskOutcome)]
 pub enum TaskOutcome {
     #[default]

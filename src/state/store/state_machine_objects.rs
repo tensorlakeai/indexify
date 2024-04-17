@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use indexify_internal_api as internal_api;
-use internal_api::{ExtractorDescription, StateChange};
+use internal_api::{ExtractorDescription, StateChange, TaskOutcome};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -456,6 +456,16 @@ pub struct Metrics {
 
     /// Total number of bytes in extracted contents
     pub content_extracted_bytes: u64,
+}
+
+impl Metrics {
+    pub fn update_task_completion(&mut self, outcome: TaskOutcome) {
+        match outcome {
+            TaskOutcome::Success => self.tasks_completed += 1,
+            TaskOutcome::Failed => self.tasks_completed_with_errors += 1,
+            _ => (),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Default)]
@@ -1117,17 +1127,10 @@ impl IndexifyState {
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
 
                 if task.terminal_state() {
+                    self.metrics.lock().unwrap().update_task_completion(task.outcome);
+
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
-                    match task.outcome {
-                        internal_api::TaskOutcome::Success => {
-                            self.metrics.lock().unwrap().tasks_completed += 1;
-                        }
-                        internal_api::TaskOutcome::Failed => {
-                            self.metrics.lock().unwrap().tasks_completed_with_errors += 1;
-                        }
-                        _ => (),
-                    };
                     if let Some(executor_id) = executor_id {
                         let mut existing_tasks =
                             self.get_task_assignments_for_executor(db, &txn, executor_id)?;
