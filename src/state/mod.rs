@@ -1001,7 +1001,6 @@ impl App {
         namespace: &str,
         content_ids: &[String],
     ) -> Result<(), anyhow::Error> {
-        let mut state_changes = vec![];
         let mut updated_content_ids = Vec::new();
 
         for content_id in content_ids.iter() {
@@ -1017,32 +1016,12 @@ impl App {
                 })?
                 .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
 
-            let id = ContentMetadataId {
-                id: content_id.clone(),
-                version: latest_version,
-            };
+            let id = ContentMetadataId::new_with_version(content_id, latest_version);
             updated_content_ids.push(id.clone());
-
-            state_changes.push(StateChange::new(
-                id.to_string(),
-                internal_api::ChangeType::TombstoneContentTree,
-                timestamp_secs(),
-            ));
         }
 
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::TombstoneContentTree {
-                namespace: namespace.to_string(),
-                content_ids: updated_content_ids.iter().cloned().collect(),
-            },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-
-        self.forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("Unable to tombstone content metadata: {}", e.to_string()))?;
+        self.tombstone_content_batch_with_version(namespace, &updated_content_ids)
+            .await?;
 
         Ok(())
     }
@@ -1496,10 +1475,7 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         let content = ContentMetadata {
-            id: ContentMetadataId {
-                id: "content_id".to_string(),
-                ..Default::default()
-            },
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
@@ -1529,10 +1505,7 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         let content = ContentMetadata {
-            id: ContentMetadataId {
-                id: "content_id".to_string(),
-                ..Default::default()
-            },
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
@@ -1600,10 +1573,7 @@ mod tests {
 
         //  Create a piece of content
         let content_metadata = ContentMetadata {
-            id: ContentMetadataId {
-                id: "content_id".to_string(),
-                ..Default::default()
-            },
+            id: ContentMetadataId::new("content_id"),
             content_type: "text/plain".into(),
             ..Default::default()
         };
@@ -1701,10 +1671,7 @@ mod tests {
         let mut content_metadata_vec: Vec<ContentMetadata> = Vec::new();
         for i in 0..content_size {
             let content_metadata = ContentMetadata {
-                id: ContentMetadataId {
-                    id: format!("id{}", i),
-                    ..Default::default()
-                },
+                id: ContentMetadataId::new(&format!("id{}", i)),
                 ..Default::default()
             };
             content_metadata_vec.push(content_metadata);

@@ -8,11 +8,7 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId,
-    GarbageCollectionTask,
-    OutputSchema,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -405,10 +401,8 @@ impl Coordinator {
                 .await?;
             return Ok(());
         }
-        let previous_version = ContentMetadataId {
-            id: content_id.id,
-            version: content_id.version - 1,
-        };
+        let previous_version =
+            ContentMetadataId::new_with_version(&content_id.id, content_id.version - 1);
         let content_metadata = self
             .shared_state
             .get_content_metadata_with_version(&previous_version)

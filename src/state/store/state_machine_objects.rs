@@ -1449,10 +1449,10 @@ impl IndexifyState {
                     let parent_latest_version = self
                         .get_latest_version_of_content(&content.parent_id.id, db, txn)?
                         .unwrap_or_else(|| 0);
-                    let parent_id = ContentMetadataId {
-                        id: content.parent_id.id,
-                        version: parent_latest_version,
-                    };
+                    let parent_id = ContentMetadataId::new_with_version(
+                        &content.parent_id.id,
+                        parent_latest_version,
+                    );
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
                     self.content_children_table.insert(&parent_id, &content.id);
@@ -1513,10 +1513,10 @@ impl IndexifyState {
                         self.merge_content_trees(
                             db,
                             txn,
-                            &ContentMetadataId {
-                                id: content_id.id.clone(),
-                                version: content_id.version - 1,
-                            },
+                            &ContentMetadataId::new_with_version(
+                                &content_id.id,
+                                content_id.version - 1,
+                            ),
                             &content_id,
                         )?;
                     }

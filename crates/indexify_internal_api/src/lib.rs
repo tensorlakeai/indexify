@@ -491,6 +491,22 @@ pub struct ContentMetadataId {
     pub version: u64,
 }
 
+impl ContentMetadataId {
+    pub fn new(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            version: 1,
+        }
+    }
+
+    pub fn new_with_version(id: &str, version: u64) -> Self {
+        Self {
+            id: id.to_string(),
+            version,
+        }
+    }
+}
+
 impl Display for ContentMetadataId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}::v{}", self.id, self.version)
@@ -523,21 +539,7 @@ impl TryFrom<String> for ContentMetadataId {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self> {
-        if value.is_empty() {
-            return Ok(Self {
-                id: "".to_string(),
-                version: 0,
-            });
-        }
-
-        let parts: Vec<&str> = value.split("::v").collect();
-        if parts.len() != 2 {
-            return Err(anyhow!("Invalid ContentMetadataId"));
-        }
-        Ok(Self {
-            id: parts[0].to_string(),
-            version: parts[1].parse()?,
-        })
+        Self::try_from(&value)
     }
 }
 

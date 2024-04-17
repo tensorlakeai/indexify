@@ -431,10 +431,7 @@ mod tests {
             .await?;
 
         let content = ContentMetadata {
-            id: ContentMetadataId {
-                id: "content_id".to_string(),
-                version: 1,
-            },
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         shared_state
@@ -514,10 +511,7 @@ mod tests {
         // Crate the tasks
         for i in 1..=50 {
             let content1 = ContentMetadata {
-                id: ContentMetadataId {
-                    id: format!("content_id_{}", i),
-                    version: 1,
-                },
+                id: ContentMetadataId::new(&format!("content_id_{}", i)),
                 ..Default::default()
             };
             let task1 = create_task(
@@ -528,10 +522,7 @@ mod tests {
             );
 
             let content2 = ContentMetadata {
-                id: ContentMetadataId {
-                    id: format!("content_id_{}", i + 50),
-                    version: 1,
-                },
+                id: ContentMetadataId::new(&format!("content_id_{}", i + 50)),
                 ..Default::default()
             };
             let task2 = create_task(
@@ -773,10 +764,7 @@ mod tests {
         // Crate the tasks
         for i in 1..=500 {
             let content1 = ContentMetadata {
-                id: ContentMetadataId {
-                    id: format!("content_id_{}", i),
-                    version: 1,
-                },
+                id: ContentMetadataId::new(&format!("content_id_{}", i)),
                 ..Default::default()
             };
             let task1 = create_task(
@@ -787,10 +775,7 @@ mod tests {
             );
 
             let content2 = ContentMetadata {
-                id: ContentMetadataId {
-                    id: format!("content_id_{}", i + 500),
-                    version: 1,
-                },
+                id: ContentMetadataId::new(&format!("content_id_{}", i + 500)),
                 ..Default::default()
             };
             let task2 = create_task(
