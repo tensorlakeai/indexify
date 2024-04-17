@@ -678,7 +678,7 @@ impl App {
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
         if mark_finished && task.outcome == internal_api::TaskOutcome::Success {
             state_changes.push(StateChange::new(
-                task.content_metadata.id.to_string(),
+                task.id.clone(),
                 internal_api::ChangeType::TaskCompleted {
                     content_id: task.content_metadata.id.clone(),
                 },
