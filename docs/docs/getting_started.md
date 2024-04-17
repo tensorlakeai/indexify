@@ -109,7 +109,8 @@ Once the extractor SDK and extractors are downloaded, start and join them to the
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500 --listen-port=9500
     ```
   
-The extractor is now ready to receive content you upload and extract embedding using the MiniLML6Extractor
+The extractor is now ready to receive content you upload and extract embeddings using the MiniLML6Extractor.
+This process keeps running and will automatically extract any new content it receives.
 
 #### Set up some Extraction Policies
 
