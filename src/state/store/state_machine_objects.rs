@@ -1127,7 +1127,10 @@ impl IndexifyState {
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
 
                 if task.terminal_state() {
-                    self.metrics.lock().unwrap().update_task_completion(task.outcome);
+                    self.metrics
+                        .lock()
+                        .unwrap()
+                        .update_task_completion(task.outcome);
 
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor

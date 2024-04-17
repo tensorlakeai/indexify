@@ -12,6 +12,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
 use futures::StreamExt;
+use hyper::StatusCode;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
@@ -809,7 +810,12 @@ async fn metrics_handler(
     let metric_families = app.metrics.registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();
-    encoder.encode(&metric_families, &mut buffer).unwrap();
+    encoder.encode(&metric_families, &mut buffer).map_err(|_| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to encode metrics",
+        )
+    })?;
 
     Ok(axum::response::Response::new(axum::body::Body::from(
         buffer,

@@ -327,9 +327,12 @@ pub mod server {
             let registry = Registry::new();
             let exporter = opentelemetry_prometheus::exporter()
                 .with_registry(registry.clone())
-                .build()
-                .unwrap();
-            let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+                .build();
+            let mut provider = SdkMeterProvider::builder();
+            if let Ok(exporter) = exporter {
+                provider = provider.with_reader(exporter);
+            };
+            let provider = provider.build();
 
             let meter = provider.meter("indexify-server");
             let node_content_uploads = meter
@@ -386,12 +389,14 @@ pub mod coordinator {
     impl Metrics {
         pub fn new(app: Arc<StateMachineStore>) -> Metrics {
             let registry = Registry::new();
-
             let exporter = opentelemetry_prometheus::exporter()
                 .with_registry(registry.clone())
-                .build()
-                .unwrap();
-            let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+                .build();
+            let mut provider = SdkMeterProvider::builder();
+            if let Ok(exporter) = exporter {
+                provider = provider.with_reader(exporter);
+            };
+            let provider = provider.build();
 
             let meter = provider.meter("indexify-coordinator");
 

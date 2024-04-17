@@ -1158,7 +1158,12 @@ async fn ingest_metrics(
     let metric_families = state.metrics.registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();
-    encoder.encode(&metric_families, &mut buffer).unwrap();
+    encoder.encode(&metric_families, &mut buffer).map_err(|_| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to encode metrics",
+        )
+    })?;
 
     Ok(Response::new(Body::from(buffer)))
 }
