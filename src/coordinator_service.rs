@@ -816,7 +816,7 @@ async fn metrics_handler(
     )))
 }
 
-fn start_server(app: &CoordinatorServer) -> JoinHandle<Result<()>> {
+fn start_server(app: &CoordinatorServer) -> Result<JoinHandle<Result<()>>> {
     let server = axum::Router::new()
         .route("/metrics", get(metrics_handler))
         .with_state(app.shared_state.clone());
@@ -824,18 +824,16 @@ fn start_server(app: &CoordinatorServer) -> JoinHandle<Result<()>> {
         "{}:{}",
         app.config.listen_if, app.config.coordinator_http_port
     )
-    .parse()
-    .unwrap();
-
+    .parse()?;
     let handle = app.server_handle.clone();
 
-    tokio::spawn(async move {
+    Ok(tokio::spawn(async move {
         axum_server::bind(addr)
             .handle(handle)
             .serve(server.into_make_service())
             .await?;
         Ok(())
-    })
+    }))
 }
 
 impl CoordinatorServer {
@@ -882,7 +880,9 @@ impl CoordinatorServer {
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();
         let coordinator_clone = self.coordinator.clone();
         let state_watcher_rx = self.coordinator.get_state_watcher();
-        start_server(self);
+        if let Err(e) = start_server(self) {
+            error!("unable to start metrics server: {}", e);
+        }
         tokio::spawn(async move {
             let _ = run_scheduler(
                 shutdown_rx,
