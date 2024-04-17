@@ -57,6 +57,9 @@ pub enum RequestPayload {
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
+    UpdateContent {
+        content_metadata: Vec<internal_api::ContentMetadata>,
+    },
     TombstoneContentTree {
         namespace: String,
         content_metadata: Vec<internal_api::ContentMetadata>,

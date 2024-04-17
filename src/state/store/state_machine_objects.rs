@@ -432,19 +432,19 @@ impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChi
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct ContentTaskMapping {
-    content_task_mapping:
+pub struct PendingTasksForContent {
+    pending_tasks_for_content:
         Arc<RwLock<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>>,
 }
 
-impl ContentTaskMapping {
+impl PendingTasksForContent {
     pub fn insert(
         &self,
         content_id: &ContentMetadataId,
         extraction_policy_id: &ExtractionPolicyId,
         task_id: &TaskId,
     ) {
-        let mut guard = self.content_task_mapping.write().unwrap();
+        let mut guard = self.pending_tasks_for_content.write().unwrap();
         let policies_map = guard.entry(content_id.clone()).or_default();
         let tasks_set = policies_map
             .entry(extraction_policy_id.clone())
@@ -458,7 +458,7 @@ impl ContentTaskMapping {
         extraction_policy_id: &ExtractionPolicyId,
         task_id: &TaskId,
     ) {
-        let mut guard = self.content_task_mapping.write().unwrap();
+        let mut guard = self.pending_tasks_for_content.write().unwrap();
         if let Some(extraction_policies_map) = guard.get_mut(content_id) {
             if let Some(task_ids) = extraction_policies_map.get_mut(extraction_policy_id) {
                 task_ids.remove(task_id);
@@ -473,30 +473,30 @@ impl ContentTaskMapping {
     }
 
     pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        let guard = self.content_task_mapping.read().unwrap();
+        let guard = self.pending_tasks_for_content.read().unwrap();
         guard.get(content_id).is_none()
     }
 
     pub fn inner(
         &self,
     ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
-        let guard = self.content_task_mapping.read().unwrap();
+        let guard = self.pending_tasks_for_content.read().unwrap();
         guard.clone()
     }
 }
 
 impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>
-    for ContentTaskMapping
+    for PendingTasksForContent
 {
     fn from(
-        content_task_mapping: HashMap<
+        pending_tasks_for_content: HashMap<
             ContentMetadataId,
             HashMap<ExtractionPolicyId, HashSet<TaskId>>,
         >,
     ) -> Self {
-        let content_task_mapping = Arc::new(RwLock::new(content_task_mapping));
+        let pending_tasks_for_content = Arc::new(RwLock::new(pending_tasks_for_content));
         Self {
-            content_task_mapping,
+            pending_tasks_for_content,
         }
     }
 }
@@ -569,7 +569,7 @@ pub struct IndexifyState {
     pub content_children_table: ContentChildrenTable,
 
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
-    pub content_task_mapping: ContentTaskMapping,
+    pub pending_tasks_for_content: PendingTasksForContent,
 }
 
 impl fmt::Display for IndexifyState {
@@ -674,7 +674,6 @@ impl IndexifyState {
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         // content_id -> Set(Extraction Policy Ids)
-        let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
             txn.put_cf(
@@ -719,50 +718,6 @@ impl IndexifyState {
                 )?;
             }
         }
-        Ok(())
-    }
-
-    /// This method will merge two content trees. It does this by swapping the
-    /// parent pointers of all children of the old node to the new node
-    /// It also updates reverse index invariants
-    fn merge_content_trees(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        old_content_id: &ContentMetadataId,
-        new_content_id: &ContentMetadataId,
-    ) -> Result<(), StateMachineError> {
-        //  get the children of the old and new nodes
-        let old_children = self.content_children_table.get_children(old_content_id);
-        let new_children = self.content_children_table.get_children(new_content_id);
-
-        let preserved_ids = old_children
-            .intersection(&new_children)
-            .cloned()
-            .collect::<HashSet<_>>();
-
-        for child_id in preserved_ids {
-            let child_metadata = txn
-                .get_cf(
-                    StateMachineColumns::ContentTable.cf(db),
-                    format!("{}::v{}", child_id.id, child_id.version),
-                )
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| {
-                    StateMachineError::DatabaseError(format!(
-                        "Child content {} not found",
-                        child_id
-                    ))
-                })?;
-            let mut child_metadata =
-                JsonEncoder::decode::<internal_api::ContentMetadata>(&child_metadata)?;
-            child_metadata.parent_id = new_content_id.clone();
-            self.content_children_table
-                .remove(old_content_id, &child_id);
-            self.content_children_table
-                .insert(new_content_id, &child_id);
-        }
-
         Ok(())
     }
 
@@ -1282,6 +1237,10 @@ impl IndexifyState {
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
             }
+            RequestPayload::UpdateContent { content_metadata } => {
+                //  TODO: update the content
+                self.set_content(db, &txn, content_metadata)?;
+            }
             RequestPayload::TombstoneContentTree {
                 namespace: _,
                 content_metadata,
@@ -1319,7 +1278,7 @@ impl IndexifyState {
             }
         };
 
-        self.apply(request, db, &txn).map_err(|e| {
+        self.apply(request).map_err(|e| {
             StateMachineError::ExternalError(anyhow!(
                 "Error while applying reverse index updates: {}",
                 e
@@ -1334,12 +1293,7 @@ impl IndexifyState {
 
     /// This method handles all reverse index writes. All reverse indexes are
     /// written in memory
-    pub fn apply(
-        &self,
-        request: StateMachineUpdateRequest,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-    ) -> Result<()> {
+    pub fn apply(&self, request: StateMachineUpdateRequest) -> Result<()> {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
@@ -1370,7 +1324,7 @@ impl IndexifyState {
                     self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
-                    self.content_task_mapping.insert(
+                    self.pending_tasks_for_content.insert(
                         &task.content_metadata.id,
                         &task.extraction_policy_id,
                         &task.id,
@@ -1401,6 +1355,24 @@ impl IndexifyState {
                 for content in content_metadata {
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
+                    if !content.parent_id.id.is_empty() {
+                        self.content_children_table
+                            .insert(&content.parent_id, &content.id);
+                    }
+                }
+                Ok(())
+            }
+            RequestPayload::UpdateContent { content_metadata } => {
+                for content in content_metadata {
+                    //  remove the child from the old parent and add the child to the new parent
+                    if content.parent_id.id.is_empty() {
+                        continue;
+                    }
+                    let old_parent = ContentMetadataId::new_with_version(
+                        &content.parent_id.id,
+                        content.parent_id.version - 1,
+                    );
+                    self.content_children_table.remove(&old_parent, &content.id);
                     self.content_children_table
                         .insert(&content.parent_id, &content.id);
                 }
@@ -1449,26 +1421,11 @@ impl IndexifyState {
                             .decrement_running_task_count(&executor_id);
                     }
                     let content_id = task.content_metadata.id;
-                    self.content_task_mapping.remove(
+                    self.pending_tasks_for_content.remove(
                         &content_id,
                         &task.extraction_policy_id,
                         &task.id,
                     );
-                    if self
-                        .content_task_mapping
-                        .are_content_tasks_completed(&content_id)
-                        && content_id.version > 1
-                    {
-                        self.merge_content_trees(
-                            db,
-                            txn,
-                            &ContentMetadataId::new_with_version(
-                                &content_id.id,
-                                content_id.version - 1,
-                            ),
-                            &content_id,
-                        )?;
-                    }
                 }
                 for content in content_metadata {
                     self.content_namespace_table
@@ -2016,14 +1973,14 @@ impl IndexifyState {
         self.content_children_table.inner()
     }
 
-    pub fn get_content_task_mapping(
+    pub fn get_pending_tasks_for_content(
         &self,
     ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
-        self.content_task_mapping.inner()
+        self.pending_tasks_for_content.inner()
     }
 
     pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        self.content_task_mapping
+        self.pending_tasks_for_content
             .are_content_tasks_completed(content_id)
     }
 
@@ -2050,7 +2007,7 @@ impl IndexifyState {
             executor_running_task_count: self.get_executor_running_task_count(),
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
-            content_task_mapping: self.get_content_task_mapping(),
+            pending_tasks_for_content: self.get_pending_tasks_for_content(),
         }
     }
 
@@ -2128,7 +2085,8 @@ pub struct IndexifyStateSnapshot {
     executor_running_task_count: HashMap<ExecutorId, usize>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
-    content_task_mapping: HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
+    pending_tasks_for_content:
+        HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
 }
 
 #[cfg(test)]

@@ -959,7 +959,7 @@ impl App {
                 content_to_write.push(old_node);
             }
             let req = StateMachineUpdateRequest {
-                payload: RequestPayload::CreateContent {
+                payload: RequestPayload::UpdateContent {
                     content_metadata: content_to_write,
                 },
                 new_state_changes: vec![],

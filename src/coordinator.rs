@@ -399,7 +399,7 @@ impl Coordinator {
             return Ok(());
         }
 
-        //  this is the first version of the content
+        //  this is the first version of the content, so nothing to garbage collect
         if content_id.version <= 1 {
             self.shared_state
                 .mark_change_events_as_processed(vec![change])
@@ -1756,7 +1756,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_2.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "123".into(),
             ..Default::default()
         };
         let new_child_content_3 = indexify_coordinator::ContentMetadata {
