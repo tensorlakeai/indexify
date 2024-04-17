@@ -715,6 +715,7 @@ pub struct ExtractedEmbeddings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SchemaColumn {
+    #[serde(rename = "type")]
     column_type: SchemaColumnType,
     comment: Option<String>,
 }
