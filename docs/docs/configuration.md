@@ -40,6 +40,14 @@ blob_storage:
     region: us-east-1
 ```
 ### Vector Index Storage
+* `index_store:(Default: LancDb): `LancdDb`, `Qdrant`, `PgVector`
+
+#### Qdrant Config
+`addr`: Address of the Qdrant http endpoint
+
+#### Pg Vector Config
+`addr`: Address of Postgres
+
 ```yaml
 index_config:
   index_store: Qdrant
