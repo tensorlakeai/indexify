@@ -400,7 +400,7 @@ impl DataManager {
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         let ext = Path::new(name)
             .extension()
             .unwrap_or_default()
@@ -421,6 +421,8 @@ impl DataManager {
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
+
+        let size_bytes = content_metadata.size_bytes.clone();
         let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata),
         };
@@ -435,7 +437,7 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
-        Ok(())
+        Ok(size_bytes)
     }
 
     pub fn make_file_name(file_name: Option<&str>) -> String {

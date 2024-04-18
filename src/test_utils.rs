@@ -39,11 +39,12 @@ impl RaftTestCluster {
 
         // Generate configurations and peer information
         for i in 0..node_count {
-            let port = (base_port + i * 2) as u64;
+            let port = (base_port + i * 3) as u64;
 
             let config = Arc::new(ServerConfig {
                 node_id: i as u64,
                 coordinator_port: port,
+                coordinator_http_port: port + 2,
                 coordinator_addr: format!("localhost:{}", port),
                 raft_port: port + 1,
                 state_store: StateStoreConfig {

@@ -23,6 +23,7 @@ use indexify_proto::indexify_coordinator::{
     ListStateChangesRequest,
     ListTasksRequest,
 };
+use prometheus::Encoder;
 use rust_embed::RustEmbed;
 use tokio::{
     signal,
@@ -45,6 +46,7 @@ use crate::{
     extractor_router::ExtractorRouter,
     ingest_extracted_content::IngestExtractedContentState,
     metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
+    metrics,
     server_config::ServerConfig,
     vector_index::VectorIndexManager,
     vectordbs,
@@ -61,6 +63,7 @@ pub struct NamespaceEndpointState {
     pub data_manager: Arc<DataManager>,
     pub coordinator_client: Arc<CoordinatorClient>,
     pub content_reader: Arc<ContentReader>,
+    pub metrics: Arc<metrics::server::Metrics>,
 }
 
 #[derive(OpenApi)]
@@ -155,6 +158,7 @@ impl Server {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            metrics: Arc::new(crate::metrics::server::Metrics::new()),
         };
         let caches = Caches::new(self.config.cache.clone());
         let cors = CorsLayer::new()
@@ -268,6 +272,10 @@ impl Server {
             .route(
                 "/metrics/raft",
                 get(get_raft_metrics_snapshot).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/metrics/ingest",
+                get(ingest_metrics).with_state(namespace_endpoint_state.clone()),
             )
             .route("/ui", get(ui_index_handler))
             .route("/ui/*rest", get(ui_handler))
@@ -779,7 +787,7 @@ async fn upload_file(
             .to_string();
         info!("writing to blob store, file name = {:?}", name);
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-        state
+        let size_bytes = state
             .data_manager
             .upload_file(&namespace, stream, &name)
             .await
@@ -789,6 +797,11 @@ async fn upload_file(
                     &format!("failed to upload file: {}", e),
                 )
             })?;
+        state.metrics.node_content_uploads.add(1, &[]);
+        state
+            .metrics
+            .node_content_bytes_uploaded
+            .add(size_bytes, &[]);
     }
     Ok(())
 }
@@ -1138,6 +1151,24 @@ async fn get_raft_metrics_snapshot(
 }
 
 #[axum::debug_handler]
+#[tracing::instrument]
+async fn ingest_metrics(
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let metric_families = state.metrics.registry.gather();
+    let mut buffer = vec![];
+    let encoder = prometheus::TextEncoder::new();
+    encoder.encode(&metric_families, &mut buffer).map_err(|_| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to encode metrics",
+        )
+    })?;
+
+    Ok(Response::new(Body::from(buffer)))
+}
+
+#[axum::debug_handler]
 #[tracing::instrument(skip_all)]
 async fn ui_index_handler() -> impl IntoResponse {
     let content = UiAssets::get("index.html").unwrap();
@@ -1161,7 +1192,7 @@ async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
 }
 
 #[tracing::instrument]
-async fn shutdown_signal(handle: Handle) {
+pub async fn shutdown_signal(handle: Handle) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await

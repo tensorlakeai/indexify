@@ -48,7 +48,10 @@ use self::{
 use crate::{
     coordinator_filters::matches_mime_type,
     garbage_collector::GarbageCollector,
-    metrics::raft_metrics::{self, network::MetricsSnapshot},
+    metrics::{
+        coordinator::Metrics,
+        raft_metrics::{self, network::MetricsSnapshot},
+    },
     server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
@@ -124,7 +127,9 @@ pub struct App {
     pub node_addr: String,
     pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
+    pub metrics: Metrics,
 }
+
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
     snapshot_policy: Option<openraft::SnapshotPolicy>,
@@ -210,6 +215,8 @@ impl App {
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
+        let metrics = Metrics::new(state_machine.clone());
+
         let app = Arc::new(App {
             id: server_config.node_id,
             addr: server_config
@@ -230,6 +237,7 @@ impl App {
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             state_machine,
             garbage_collector,
+            metrics,
         });
 
         let raft_clone = app.forwardable_raft.clone();

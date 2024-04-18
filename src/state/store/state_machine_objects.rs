@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use indexify_internal_api as internal_api;
-use internal_api::{ExtractorDescription, StateChange};
+use internal_api::{ExtractorDescription, StateChange, TaskOutcome};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -53,6 +53,11 @@ impl UnassignedTasks {
     pub fn set(&self, tasks: HashSet<TaskId>) {
         let mut guard = self.unassigned_tasks.write().unwrap();
         *guard = tasks;
+    }
+
+    pub fn count(&self) -> usize {
+        let guard = self.unassigned_tasks.read().unwrap();
+        guard.len()
     }
 }
 
@@ -267,6 +272,11 @@ impl UnfinishedTasksByExtractor {
         let guard = self.unfinished_tasks_by_extractor.read().unwrap();
         guard.clone()
     }
+
+    pub fn task_count(&self) -> usize {
+        let guard = self.unfinished_tasks_by_extractor.read().unwrap();
+        guard.values().map(|v| v.len()).sum()
+    }
 }
 
 impl From<HashMap<ExtractorName, HashSet<TaskId>>> for UnfinishedTasksByExtractor {
@@ -329,6 +339,11 @@ impl ExecutorRunningTaskCount {
             // 0.
             executor_load.insert(executor_id.clone(), 0);
         }
+    }
+
+    pub fn executor_count(&self) -> usize {
+        let guard = self.executor_running_task_count.read().unwrap();
+        guard.len()
     }
 }
 
@@ -422,7 +437,38 @@ impl From<HashMap<ContentId, HashSet<ContentId>>> for ContentChildrenTable {
     }
 }
 
-#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct Metrics {
+    /// Number of tasks total
+    pub tasks_completed: u64,
+
+    /// Number of tasks completed with errors
+    pub tasks_completed_with_errors: u64,
+
+    /// Number of contents uploaded
+    pub content_uploads: u64,
+
+    /// Total number of bytes in uploaded contents
+    pub content_bytes: u64,
+
+    /// Number of contents extacted
+    pub content_extracted: u64,
+
+    /// Total number of bytes in extracted contents
+    pub content_extracted_bytes: u64,
+}
+
+impl Metrics {
+    pub fn update_task_completion(&mut self, outcome: TaskOutcome) {
+        match outcome {
+            TaskOutcome::Success => self.tasks_completed += 1,
+            TaskOutcome::Failed => self.tasks_completed_with_errors += 1,
+            _ => (),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -457,6 +503,9 @@ pub struct IndexifyState {
 
     /// Parent content id -> children content id's
     content_children_table: ContentChildrenTable,
+
+    /// Metrics
+    pub metrics: std::sync::Mutex<Metrics>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -1078,6 +1127,11 @@ impl IndexifyState {
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
 
                 if task.terminal_state() {
+                    self.metrics
+                        .lock()
+                        .unwrap()
+                        .update_task_completion(task.outcome);
+
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
@@ -1242,6 +1296,14 @@ impl IndexifyState {
                         .insert(&content.namespace, &content.id);
                     self.content_children_table
                         .insert(&content.parent_id, &content.id);
+                    let mut guard = self.metrics.lock().unwrap();
+                    if content.parent_id.is_empty() {
+                        guard.content_uploads += 1;
+                        guard.content_bytes += content.size_bytes;
+                    } else {
+                        guard.content_extracted += 1;
+                        guard.content_extracted_bytes += content.size_bytes;
+                    }
                 }
             }
             RequestPayload::CreateExtractionPolicy {
@@ -1677,6 +1739,14 @@ impl IndexifyState {
         self.content_children_table.inner()
     }
 
+    pub fn tasks_count(&self) -> usize {
+        self.unassigned_tasks.count() + self.unfinished_tasks_by_extractor.task_count()
+    }
+
+    pub fn executor_count(&self) -> usize {
+        self.executor_running_task_count.executor_count()
+    }
+
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
@@ -1700,6 +1770,7 @@ impl IndexifyState {
             executor_running_task_count: self.get_executor_running_task_count(),
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
+            metrics: self.metrics.lock().unwrap().clone(),
         }
     }
 
@@ -1761,6 +1832,7 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
+        self.metrics.lock().unwrap().clone_from(&snapshot.metrics);
     }
     //  END SNAPSHOT METHODS
 }
@@ -1777,6 +1849,7 @@ pub struct IndexifyStateSnapshot {
     executor_running_task_count: HashMap<ExecutorId, usize>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentId, HashSet<ContentId>>,
+    metrics: Metrics,
 }
 
 #[cfg(test)]

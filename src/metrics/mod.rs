@@ -306,3 +306,267 @@ pub mod raft_metrics {
         }
     }
 }
+
+pub mod server {
+    use opentelemetry::metrics::{Counter, MeterProvider};
+    use opentelemetry_sdk::metrics::SdkMeterProvider;
+    use prometheus::Registry;
+
+    #[derive(Debug)]
+    pub struct Metrics {
+        pub registry: Registry,
+        pub provider: SdkMeterProvider,
+        pub node_content_uploads: Counter<u64>,
+        pub node_content_bytes_uploaded: Counter<u64>,
+        pub node_content_extracted: Counter<u64>,
+        pub node_content_bytes_extracted: Counter<u64>,
+    }
+
+    impl Metrics {
+        pub fn new() -> Metrics {
+            let registry = Registry::new();
+            let exporter = opentelemetry_prometheus::exporter()
+                .with_registry(registry.clone())
+                .build();
+            let mut provider = SdkMeterProvider::builder();
+            if let Ok(exporter) = exporter {
+                provider = provider.with_reader(exporter);
+            };
+            let provider = provider.build();
+
+            let meter = provider.meter("indexify-server");
+            let node_content_uploads = meter
+                .u64_counter("indexify.server.node_content_uploads")
+                .with_description("Number of contents uploaded on this node")
+                .init();
+            let node_content_bytes_uploaded = meter
+                .u64_counter("indexify.server.node_content_bytes_uploaded")
+                .with_description("Number of bytes uploaded on this node")
+                .init();
+            let node_content_extracted = meter
+                .u64_counter("indexify.server.node_content_extracted")
+                .with_description("Number of contetnts extracted on this node")
+                .init();
+            let node_content_bytes_extracted = meter
+                .u64_counter("indexify.server.node_content_bytes_extracted")
+                .with_description("Number of bytes extracted on this node")
+                .init();
+            Metrics {
+                registry,
+                provider,
+                node_content_uploads,
+                node_content_bytes_uploaded,
+                node_content_extracted,
+                node_content_bytes_extracted,
+            }
+        }
+    }
+}
+
+pub mod coordinator {
+    use std::sync::{Arc, Mutex};
+
+    use opentelemetry::metrics::{MeterProvider, ObservableCounter, ObservableGauge};
+    use opentelemetry_sdk::metrics::SdkMeterProvider;
+    use prometheus::Registry;
+
+    use crate::state::store::StateMachineStore;
+
+    #[derive(Debug)]
+    pub struct Metrics {
+        pub registry: Registry,
+        pub provider: SdkMeterProvider,
+        pub tasks_completed: ObservableCounter<u64>,
+        pub tasks_errored: ObservableCounter<u64>,
+        pub tasks_in_progress: ObservableGauge<u64>,
+        pub executors_online: ObservableGauge<u64>,
+        pub content_uploads: ObservableCounter<u64>,
+        pub content_bytes_uploaded: ObservableCounter<u64>,
+        pub content_extracted: ObservableCounter<u64>,
+        pub content_extracted_bytes: ObservableCounter<u64>,
+    }
+
+    impl Metrics {
+        pub fn new(app: Arc<StateMachineStore>) -> Metrics {
+            let registry = Registry::new();
+            let exporter = opentelemetry_prometheus::exporter()
+                .with_registry(registry.clone())
+                .build();
+            let mut provider = SdkMeterProvider::builder();
+            if let Ok(exporter) = exporter {
+                provider = provider.with_reader(exporter);
+            };
+            let provider = provider.build();
+
+            let meter = provider.meter("indexify-coordinator");
+
+            let prev_value = Arc::new(Mutex::new(0));
+            let tasks_completed = meter
+                .u64_observable_counter("indexify.coordinator.tasks_completed")
+                .with_callback({
+                    let app = app.clone();
+                    let prev_value = prev_value.clone();
+                    move |observer| {
+                        let mut prev_value = prev_value.lock().unwrap();
+                        let value = app
+                            .data
+                            .indexify_state
+                            .metrics
+                            .lock()
+                            .unwrap()
+                            .tasks_completed;
+                        observer.observe(value - *prev_value, &[]);
+                        *prev_value = value;
+                    }
+                })
+                .with_description("Number of tasks completed")
+                .init();
+
+            let prev_value = Arc::new(Mutex::new(0));
+            let tasks_errored = meter
+                .u64_observable_counter("indexify.coordinator.tasks_errored")
+                .with_callback({
+                    let app = app.clone();
+                    let prev_value = prev_value.clone();
+                    move |observer| {
+                        let mut prev_value = prev_value.lock().unwrap();
+                        let value = app
+                            .data
+                            .indexify_state
+                            .metrics
+                            .lock()
+                            .unwrap()
+                            .tasks_completed_with_errors;
+                        observer.observe(value - *prev_value, &[]);
+                        *prev_value = value;
+                    }
+                })
+                .with_description("Number of tasks completed with error")
+                .init();
+
+            let tasks_in_progress = meter
+                .u64_observable_gauge("indexify.coordinator.tasks_in_progress")
+                .with_callback({
+                    let app = app.clone();
+                    move |observer| {
+                        let value = app.data.indexify_state.tasks_count();
+                        observer.observe(value as u64, &[]);
+                    }
+                })
+                .with_description("Number of tasks in progress")
+                .init();
+            let executors_online = meter
+                .u64_observable_gauge("indexify.coordinator.executors_online")
+                .with_callback({
+                    let app = app.clone();
+                    move |observer| {
+                        let value = app.data.indexify_state.executor_count();
+                        observer.observe(value as u64, &[]);
+                    }
+                })
+                .with_description("Number of executors online")
+                .init();
+
+            let prev_value = Arc::new(Mutex::new(0));
+            let content_uploads = meter
+                .u64_observable_counter("indexify.coordinator.content_uploads")
+                .with_callback({
+                    let app = app.clone();
+                    let prev_value = prev_value.clone();
+                    move |observer| {
+                        let mut prev_value = prev_value.lock().unwrap();
+                        let value = app
+                            .data
+                            .indexify_state
+                            .metrics
+                            .lock()
+                            .unwrap()
+                            .content_uploads;
+                        observer.observe(value - *prev_value, &[]);
+                        *prev_value = value;
+                    }
+                })
+                .with_description("Number of contents uploaded")
+                .init();
+
+            let prev_value = Arc::new(Mutex::new(0));
+            let content_bytes_uploaded = meter
+                .u64_observable_counter("indexify.coordinator.content_bytes_uploaded")
+                .with_callback({
+                    let app = app.clone();
+                    let prev_value = prev_value.clone();
+                    move |observer| {
+                        let mut prev_value = prev_value.lock().unwrap();
+                        let value = app
+                            .data
+                            .indexify_state
+                            .metrics
+                            .lock()
+                            .unwrap()
+                            .content_bytes;
+                        observer.observe(value - *prev_value, &[]);
+                        *prev_value = value;
+                    }
+                })
+                .with_description("Number of bytes uploaded")
+                .init();
+
+            let prev_value = Arc::new(Mutex::new(0));
+            let content_extracted = meter
+                .u64_observable_counter("indexify.coordinator.content_extracted")
+                .with_callback({
+                    let app = app.clone();
+                    let prev_value = prev_value.clone();
+                    move |observer| {
+                        let mut prev_value = prev_value.lock().unwrap();
+                        let value = app
+                            .data
+                            .indexify_state
+                            .metrics
+                            .lock()
+                            .unwrap()
+                            .content_extracted;
+                        observer.observe(value - *prev_value, &[]);
+                        *prev_value = value;
+                    }
+                })
+                .with_description("Number of contents extracted")
+                .init();
+
+            let prev_value = Arc::new(Mutex::new(0));
+            let content_extracted_bytes = meter
+                .u64_observable_counter("indexify.coordinator.content_bytes_extracted")
+                .with_callback({
+                    let app = app.clone();
+                    let prev_value = prev_value.clone();
+                    move |observer| {
+                        let mut prev_value = prev_value.lock().unwrap();
+                        let value = app
+                            .data
+                            .indexify_state
+                            .metrics
+                            .lock()
+                            .unwrap()
+                            .content_extracted_bytes;
+                        observer.observe(value - *prev_value, &[]);
+                        *prev_value = value;
+                    }
+                })
+                .with_description("Number of bytes extracted")
+                .init();
+
+            Metrics {
+                registry,
+                provider,
+                tasks_completed,
+                tasks_errored,
+                tasks_in_progress,
+                executors_online,
+                content_uploads,
+                content_bytes_uploaded,
+                content_extracted,
+                content_extracted_bytes,
+            }
+        }
+    }
+}
