@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use internal_api::{ContentMetadataId, ExtractorDescription, GarbageCollectionTaskId, StateChange};
+use internal_api::{ContentMetadataId, ExtractorDescription, StateChange};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
