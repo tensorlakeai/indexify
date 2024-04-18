@@ -206,6 +206,11 @@ impl IngestExtractedContentState {
                         payload.features,
                     )
                     .await?;
+                self.state.metrics.node_content_extracted.add(1, &[]);
+                self.state
+                    .metrics
+                    .node_content_bytes_extracted
+                    .add(frame_state.file_size, &[]);
                 self.frame_state = FrameState::New;
                 Ok(id)
             }
@@ -351,6 +356,7 @@ mod tests {
         coordinator_client::CoordinatorClient,
         data_manager::DataManager,
         metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
+        metrics,
         server::NamespaceEndpointState,
         server_config::{IndexStoreKind, ServerConfig},
         vector_index::VectorIndexManager,
@@ -427,6 +433,7 @@ mod tests {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            metrics: Arc::new(metrics::server::Metrics::new()),
         };
         Ok(namespace_endpoint_state)
     }

@@ -50,7 +50,7 @@ openraft = { git = "https://github.com/datafuselabs/openraft.git", rev = "bde63c
 opensearch = { version = "2", default_features = false, features = [
     "rustls-tls",
 ] }
-opentelemetry = { version = "0.20", features = ["rt-async-std"] }
+opentelemetry = { version = "0.22", features = ["metrics"] }
 pgvector = { version = "0.3", features = ["sqlx"] }
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
@@ -201,6 +201,9 @@ gluesql = {workspace=true, default-features=false}
 uuid = "1.8.0"
 sha2 = "0.10.8"
 lancedb = {version = "0.4.15", default_features = false}
+opentelemetry-prometheus = "0.15"
+prometheus = "0.13"
+opentelemetry_sdk = { version = "0.22", features = ["metrics"] }
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }

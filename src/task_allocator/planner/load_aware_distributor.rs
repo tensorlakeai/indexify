@@ -299,6 +299,12 @@ mod tests {
         policy: &str,
         content: ContentMetadata,
     ) -> internal_api::Task {
+    fn create_task(
+        id: &str,
+        extractor: &str,
+        policy: &str,
+        content: ContentMetadata,
+    ) -> internal_api::Task {
         internal_api::Task {
             id: id.to_string(),
             extractor: extractor.to_string(),
@@ -508,6 +514,7 @@ mod tests {
 
         let mut tasks = Vec::new();
         let mut content = Vec::new();
+        let mut content = Vec::new();
         // Crate the tasks
         for i in 1..=50 {
             let content1 = ContentMetadata {
@@ -518,6 +525,7 @@ mod tests {
                 &format!("test-text-task-{}", i),
                 "MockTextExtractor",
                 "text-binding",
+                content1.clone(),
                 content1.clone(),
             );
 
@@ -530,9 +538,12 @@ mod tests {
                 "MockJsonExtractor",
                 "json-binding",
                 content2.clone(),
+                content2.clone(),
             );
             tasks.push(task1);
             tasks.push(task2);
+            content.push(content1);
+            content.push(content2);
             content.push(content1);
             content.push(content2);
         }
@@ -761,6 +772,7 @@ mod tests {
 
         let mut tasks = Vec::new();
         let mut content = Vec::new();
+        let mut content = Vec::new();
         // Crate the tasks
         for i in 1..=500 {
             let content1 = ContentMetadata {
@@ -771,6 +783,7 @@ mod tests {
                 &format!("test-text-task-{}", i),
                 "MockTextExtractor",
                 "text-binding",
+                content1.clone(),
                 content1.clone(),
             );
 
@@ -783,9 +796,12 @@ mod tests {
                 "MockJsonExtractor",
                 "json-binding",
                 content2.clone(),
+                content2.clone(),
             );
             tasks.push(task1);
             tasks.push(task2);
+            content.push(content1);
+            content.push(content2);
             content.push(content1);
             content.push(content2);
         }

@@ -27,6 +27,10 @@ fn default_coordinator_port() -> u64 {
     8950
 }
 
+fn default_coordinator_http_port() -> u64 {
+    8960
+}
+
 fn default_raft_port() -> u64 {
     8970
 }
@@ -392,6 +396,8 @@ pub struct ServerConfig {
     pub listen_port: u64,
     #[serde(default = "default_coordinator_port")]
     pub coordinator_port: u64,
+    #[serde(default = "default_coordinator_http_port")]
+    pub coordinator_http_port: u64,
     pub raft_port: u64,
     pub index_config: VectorIndexConfig,
     pub metadata_storage: MetadataStoreConfig,
@@ -415,6 +421,7 @@ impl Default for ServerConfig {
             listen_if: "0.0.0.0".into(),
             listen_port: default_server_port(),
             coordinator_port: default_coordinator_port(),
+            coordinator_http_port: default_coordinator_http_port(),
             raft_port: default_raft_port(),
             index_config: VectorIndexConfig::default(),
             metadata_storage: MetadataStoreConfig::default(),

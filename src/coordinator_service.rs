@@ -10,7 +10,9 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use axum::{extract::State, routing::get};
 use futures::StreamExt;
+use hyper::StatusCode;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
@@ -65,6 +67,7 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
+use prometheus::Encoder;
 use tokio::{
     select,
     signal,
@@ -72,12 +75,14 @@ use tokio::{
         mpsc,
         watch::{self, Receiver, Sender},
     },
+    task::JoinHandle,
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info};
 
 use crate::{
+    api::IndexifyAPIError,
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
     garbage_collector::GarbageCollector,
@@ -807,6 +812,46 @@ pub struct CoordinatorServer {
     addr: SocketAddr,
     coordinator: Arc<Coordinator>,
     shared_state: Arc<state::App>,
+    config: Arc<ServerConfig>,
+    server_handle: axum_server::Handle,
+}
+
+async fn metrics_handler(
+    State(app): State<Arc<state::App>>,
+) -> Result<axum::response::Response<axum::body::Body>, IndexifyAPIError> {
+    let metric_families = app.metrics.registry.gather();
+    let mut buffer = vec![];
+    let encoder = prometheus::TextEncoder::new();
+    encoder.encode(&metric_families, &mut buffer).map_err(|_| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to encode metrics",
+        )
+    })?;
+
+    Ok(axum::response::Response::new(axum::body::Body::from(
+        buffer,
+    )))
+}
+
+fn start_server(app: &CoordinatorServer) -> Result<JoinHandle<Result<()>>> {
+    let server = axum::Router::new()
+        .route("/metrics", get(metrics_handler))
+        .with_state(app.shared_state.clone());
+    let addr: SocketAddr = format!(
+        "{}:{}",
+        app.config.listen_if, app.config.coordinator_http_port
+    )
+    .parse()?;
+    let handle = app.server_handle.clone();
+
+    Ok(tokio::spawn(async move {
+        axum_server::bind(addr)
+            .handle(handle)
+            .serve(server.into_make_service())
+            .await?;
+        Ok(())
+    }))
 }
 
 impl CoordinatorServer {
@@ -832,6 +877,8 @@ impl CoordinatorServer {
             addr,
             coordinator,
             shared_state,
+            config,
+            server_handle: axum_server::Handle::new(),
         })
     }
 
@@ -851,6 +898,9 @@ impl CoordinatorServer {
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();
         let coordinator_clone = self.coordinator.clone();
         let state_watcher_rx = self.coordinator.get_state_watcher();
+        if let Err(e) = start_server(self) {
+            error!("unable to start metrics server: {}", e);
+        }
         tokio::spawn(async move {
             let _ = run_scheduler(
                 shutdown_rx,
@@ -868,6 +918,7 @@ impl CoordinatorServer {
                 if let Err(err) = res {
                     error!("error stopping server: {:?}", err);
                 }
+                self.server_handle.shutdown();
             })
             .await
             .map_err(|e| {

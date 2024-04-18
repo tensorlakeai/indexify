@@ -20,16 +20,12 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
@@ -48,7 +44,10 @@ use self::{
 use crate::{
     coordinator_filters::matches_mime_type,
     garbage_collector::GarbageCollector,
-    metrics::raft_metrics::{self, network::MetricsSnapshot},
+    metrics::{
+        coordinator::Metrics,
+        raft_metrics::{self, network::MetricsSnapshot},
+    },
     server_config::ServerConfig,
     state::{raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
@@ -124,7 +123,9 @@ pub struct App {
     pub node_addr: String,
     pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
+    pub metrics: Metrics,
 }
+
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
     snapshot_policy: Option<openraft::SnapshotPolicy>,
@@ -210,6 +211,8 @@ impl App {
         ));
         let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
 
+        let metrics = Metrics::new(state_machine.clone());
+
         let app = Arc::new(App {
             id: server_config.node_id,
             addr: server_config
@@ -230,6 +233,7 @@ impl App {
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             state_machine,
             garbage_collector,
+            metrics,
         });
 
         let raft_clone = app.forwardable_raft.clone();
@@ -393,8 +397,9 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source &&
-                self.get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source
+                && self
+                    .get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -402,15 +407,14 @@ impl App {
             {
                 continue;
             }
-            for (name, value) in &extraction_policy.filters {
-                let is_match = content_metadata
+            // Check if all filters match the content metadata labels. If not, skip.
+            if !extraction_policy.filters.iter().all(|(name, value)| {
+                content_metadata
                     .labels
                     .get(name)
-                    .map(|v| v == value)
-                    .unwrap_or(false);
-                if !is_match {
-                    continue;
-                }
+                    .map_or(false, |v| v == value)
+            }) {
+                continue;
             }
             // check if the mimetype matches
             let extractor = self
@@ -498,8 +502,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source &&
-                self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source
+                && self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -1453,8 +1457,7 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
@@ -1581,8 +1584,14 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         //  First create a task and ensure it's written
+        let content = ContentMetadata {
+            id: "content_id".to_string(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
+            content_metadata: content.clone(),
             content_metadata: content.clone(),
             ..Default::default()
         };
@@ -1676,6 +1685,91 @@ mod tests {
         let _tasks = node
             .list_tasks(namespace, Some(extraction_policy.id))
             .await?;
+
+        Ok(())
+    }
+
+    /// Test to determine that updating a task works correctly
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_update_task_and_read() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(3, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
+
+        //  Create a task and ensure that it can be read back
+        let content = ContentMetadata {
+            id: "content_id".to_string(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
+        let task = indexify_internal_api::Task {
+            id: "task_id".into(),
+            content_metadata: content.clone(),
+            ..Default::default()
+        };
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateTasks {
+                tasks: vec![task.clone()],
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        let read_back = {
+            move |node: Arc<App>| async move {
+                match node.task_with_id("task_id").await {
+                    Ok(read_result) if read_result.id == "task_id" => Ok(true),
+                    Ok(_) => Ok(false),
+                    Err(_) => Ok(false),
+                }
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+
+        //  Assign the task to an executor
+        let assignments: HashMap<TaskId, ExecutorId> =
+            vec![("task_id".into(), "executor_id".into())]
+                .into_iter()
+                .collect();
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::AssignTask { assignments },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        let read_back = |node: Arc<App>| async move {
+            match node.tasks_for_executor("executor_id", None).await {
+                Ok(tasks_vec)
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                {
+                    Ok(true)
+                }
+                Ok(_) => Ok(false),
+                Err(_) => Ok(false),
+            }
+        };
+        cluster.read_own_write(request, read_back, true).await?;
+
+        //  Update the task and mark it as complete by calling the update_task method
+        let task = indexify_internal_api::Task {
+            id: "task_id".into(),
+            content_metadata: content.clone(),
+            outcome: indexify_internal_api::TaskOutcome::Success,
+            ..Default::default()
+        };
+        let executor_id = "executor_id";
+        let content_meta_list: Vec<ContentMetadata> =
+            std::iter::repeat(indexify_internal_api::ContentMetadata::default())
+                .take(3)
+                .collect();
+        let node = cluster.get_raft_node(0)?;
+        node.update_task(task, Some(executor_id.into()), content_meta_list)
+            .await?;
+
+        //  Read the task back and expect to find the outcome of the task set to Success
+        let retrieved_task = node.task_with_id("task_id").await?;
+        assert_eq!(retrieved_task.outcome, TaskOutcome::Success);
 
         Ok(())
     }

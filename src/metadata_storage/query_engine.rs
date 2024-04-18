@@ -197,7 +197,7 @@ mod tests {
             namespace: ns.to_string(),
             columns: columns
                 .into_iter()
-                .map(|(name, dtype)| (name.to_string(), dtype))
+                .map(|(name, dtype)| (name.to_string(), dtype.into()))
                 .collect(),
             content_source: cs.to_string(),
             id: nanoid!(16),

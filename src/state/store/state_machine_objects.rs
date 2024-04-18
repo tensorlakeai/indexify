@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
+    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -53,6 +45,11 @@ impl UnassignedTasks {
     pub fn set(&self, tasks: HashSet<TaskId>) {
         let mut guard = self.unassigned_tasks.write().unwrap();
         *guard = tasks;
+    }
+
+    pub fn count(&self) -> usize {
+        let guard = self.unassigned_tasks.read().unwrap();
+        guard.len()
     }
 }
 
@@ -267,6 +264,11 @@ impl UnfinishedTasksByExtractor {
         let guard = self.unfinished_tasks_by_extractor.read().unwrap();
         guard.clone()
     }
+
+    pub fn task_count(&self) -> usize {
+        let guard = self.unfinished_tasks_by_extractor.read().unwrap();
+        guard.values().map(|v| v.len()).sum()
+    }
 }
 
 impl From<HashMap<ExtractorName, HashSet<TaskId>>> for UnfinishedTasksByExtractor {
@@ -329,6 +331,11 @@ impl ExecutorRunningTaskCount {
             // 0.
             executor_load.insert(executor_id.clone(), 0);
         }
+    }
+
+    pub fn executor_count(&self) -> usize {
+        let guard = self.executor_running_task_count.read().unwrap();
+        guard.len()
     }
 }
 
@@ -509,7 +516,108 @@ impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>
     }
 }
 
-#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct PendingTasksForContent {
+    pending_tasks_for_content:
+        Arc<RwLock<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>>,
+}
+
+impl PendingTasksForContent {
+    pub fn insert(
+        &self,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: &ExtractionPolicyId,
+        task_id: &TaskId,
+    ) {
+        let mut guard = self.pending_tasks_for_content.write().unwrap();
+        let policies_map = guard.entry(content_id.clone()).or_default();
+        let tasks_set = policies_map
+            .entry(extraction_policy_id.clone())
+            .or_default();
+        tasks_set.insert(task_id.clone());
+    }
+
+    pub fn remove(
+        &self,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: &ExtractionPolicyId,
+        task_id: &TaskId,
+    ) {
+        let mut guard = self.pending_tasks_for_content.write().unwrap();
+        if let Some(extraction_policies_map) = guard.get_mut(content_id) {
+            if let Some(task_ids) = extraction_policies_map.get_mut(extraction_policy_id) {
+                task_ids.remove(task_id);
+                if task_ids.is_empty() {
+                    extraction_policies_map.remove(extraction_policy_id);
+                }
+            }
+            if extraction_policies_map.is_empty() {
+                guard.remove(content_id);
+            }
+        }
+    }
+
+    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
+        let guard = self.pending_tasks_for_content.read().unwrap();
+        guard.get(content_id).is_none()
+    }
+
+    pub fn inner(
+        &self,
+    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
+        let guard = self.pending_tasks_for_content.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>
+    for PendingTasksForContent
+{
+    fn from(
+        pending_tasks_for_content: HashMap<
+            ContentMetadataId,
+            HashMap<ExtractionPolicyId, HashSet<TaskId>>,
+        >,
+    ) -> Self {
+        let pending_tasks_for_content = Arc::new(RwLock::new(pending_tasks_for_content));
+        Self {
+            pending_tasks_for_content,
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct Metrics {
+    /// Number of tasks total
+    pub tasks_completed: u64,
+
+    /// Number of tasks completed with errors
+    pub tasks_completed_with_errors: u64,
+
+    /// Number of contents uploaded
+    pub content_uploads: u64,
+
+    /// Total number of bytes in uploaded contents
+    pub content_bytes: u64,
+
+    /// Number of contents extacted
+    pub content_extracted: u64,
+
+    /// Total number of bytes in extracted contents
+    pub content_extracted_bytes: u64,
+}
+
+impl Metrics {
+    pub fn update_task_completion(&mut self, outcome: TaskOutcome) {
+        match outcome {
+            TaskOutcome::Success => self.tasks_completed += 1,
+            TaskOutcome::Failed => self.tasks_completed_with_errors += 1,
+            _ => (),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -547,6 +655,9 @@ pub struct IndexifyState {
 
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
     pub pending_tasks_for_content: PendingTasksForContent,
+
+    /// Metrics
+    pub metrics: std::sync::Mutex<Metrics>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -1161,6 +1272,11 @@ impl IndexifyState {
                 self.set_content(db, &txn, content_metadata)?;
 
                 if task.terminal_state() {
+                    self.metrics
+                        .lock()
+                        .unwrap()
+                        .update_task_completion(task.outcome);
+
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
                     if let Some(executor_id) = executor_id {
@@ -1335,6 +1451,14 @@ impl IndexifyState {
                     if !content.parent_id.id.is_empty() {
                         self.content_children_table
                             .insert(&content.parent_id, &content.id);
+                        let mut guard = self.metrics.lock().unwrap();
+                        if content.parent_id.is_empty() {
+                            guard.content_uploads += 1;
+                            guard.content_bytes += content.size_bytes;
+                        } else {
+                            guard.content_extracted += 1;
+                            guard.content_extracted_bytes += content.size_bytes;
+                        }
                     }
                 }
                 Ok(())
@@ -1961,6 +2085,14 @@ impl IndexifyState {
             .are_content_tasks_completed(content_id)
     }
 
+    pub fn tasks_count(&self) -> usize {
+        self.unassigned_tasks.count() + self.unfinished_tasks_by_extractor.task_count()
+    }
+
+    pub fn executor_count(&self) -> usize {
+        self.executor_running_task_count.executor_count()
+    }
+
     //  END READER METHODS FOR REVERSE INDEXES
 
     //  START WRITER METHODS FOR REVERSE INDEXES
@@ -1985,6 +2117,7 @@ impl IndexifyState {
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
             pending_tasks_for_content: self.get_pending_tasks_for_content(),
+            metrics: self.metrics.lock().unwrap().clone(),
         }
     }
 
@@ -2046,6 +2179,7 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
+        self.metrics.lock().unwrap().clone_from(&snapshot.metrics);
     }
     //  END SNAPSHOT METHODS
 }
@@ -2064,6 +2198,7 @@ pub struct IndexifyStateSnapshot {
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     pending_tasks_for_content:
         HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
+    metrics: Metrics,
 }
 
 #[cfg(test)]

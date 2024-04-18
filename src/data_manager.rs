@@ -25,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -449,7 +447,7 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
-        Ok(())
+        Ok(size_bytes)
     }
 
     pub fn make_file_name(file_name: Option<&str>) -> String {

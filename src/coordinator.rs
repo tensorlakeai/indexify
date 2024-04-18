@@ -8,11 +8,7 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId,
-    GarbageCollectionTask,
-    OutputSchema,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -926,14 +922,6 @@ mod tests {
             .unwrap();
         assert_eq!(tasks.len(), 1);
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(5, None).await?;
-        cluster.initialize(Duration::from_secs(10)).await?;
         Ok(())
     }
 

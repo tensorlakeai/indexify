@@ -126,6 +126,8 @@ pub struct StateMachineData {
     /// State built from applying the raft log
     pub indexify_state: IndexifyState,
 
+    pub metrics: Mutex<crate::state::store::state_machine_objects::Metrics>,
+
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
 
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
@@ -155,6 +157,7 @@ impl StateMachineStore {
                 last_applied_log_id: RwLock::new(None),
                 last_membership: RwLock::new(StoredMembership::default()),
                 indexify_state: IndexifyState::default(),
+                metrics: Mutex::new(crate::state::store::state_machine_objects::Metrics::default()),
                 state_change_tx: Arc::new(tx),
                 gc_tasks_tx,
             },
