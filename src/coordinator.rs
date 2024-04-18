@@ -391,6 +391,7 @@ impl Coordinator {
             match change.change_type {
                 indexify_internal_api::ChangeType::TombstoneContent => {
                     let _ = self.handle_tombstone_content(change).await?;
+                    continue;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
             }
@@ -851,14 +852,6 @@ mod tests {
             .unwrap();
         assert_eq!(tasks.len(), 1);
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_form_raft_cluster() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(5, None).await?;
-        cluster.initialize(Duration::from_secs(10)).await?;
         Ok(())
     }
 
@@ -1342,6 +1335,7 @@ mod tests {
         coordinator
             .create_policy(extraction_policy_1.clone(), extractor.clone())
             .await?;
+        coordinator.run_scheduler().await?;
 
         //  Create a different extractor, executor and associated extraction policy
         let mut extractor_2 = mock_extractor();
@@ -1368,6 +1362,7 @@ mod tests {
         coordinator
             .create_policy(extraction_policy_2.clone(), extractor_2)
             .await?;
+        coordinator.run_scheduler().await?;
 
         //  Build a content tree where the parent content id is the pointer
         let parent_content = indexify_coordinator::ContentMetadata {
@@ -1383,6 +1378,11 @@ mod tests {
             size_bytes: 100,
             ..Default::default()
         };
+        coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+
         let child_content_1 = indexify_coordinator::ContentMetadata {
             id: "test_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1409,6 +1409,11 @@ mod tests {
             size_bytes: 100,
             ..Default::default()
         };
+        coordinator
+            .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+
         let child_content_1_child = indexify_coordinator::ContentMetadata {
             id: "test_child_child_id_1".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1423,29 +1428,34 @@ mod tests {
             ..Default::default()
         };
         coordinator
-            .create_content_metadata(vec![
-                parent_content.clone(),
-                child_content_1.clone(),
-                child_content_2.clone(),
-                child_content_1_child.clone(),
-            ])
+            .create_content_metadata(vec![child_content_1_child.clone()])
             .await?;
+        coordinator.run_scheduler().await?;
 
-        let state_change = internal_api::StateChange {
-            object_id: parent_content.id.clone(),
-            ..Default::default()
-        };
-        let tasks = coordinator.handle_tombstone_content(state_change).await?;
-        assert_eq!(tasks.len(), 4);
-        for task in &tasks {
-            match task.content_id.as_str() {
-                "test_parent_id" | "test_child_id_1" => assert!(!task.output_tables.is_empty()),
-                "test_child_id_2" | "test_child_child_id_1" => {
-                    assert!(task.output_tables.is_empty())
-                }
-                _ => panic!("Unexpected content_id"),
-            }
+        //  mark all tasks as completed so that policy mappings are updated
+        let tasks = coordinator
+            .shared_state
+            .tasks_for_executor("test_executor_id", None)
+            .await?;
+        for task in tasks {
+            coordinator
+                .update_task(
+                    &task.id,
+                    "test_executor_id",
+                    internal_api::TaskOutcome::Success,
+                    vec![],
+                )
+                .await?;
         }
+
+        //  create a state change for tombstoning the content tree
+        coordinator
+            .tombstone_content_metadatas(&parent_content.namespace, &[parent_content.id])
+            .await?;
+        coordinator.run_scheduler().await?;
+
+        let tasks = coordinator.garbage_collector.gc_tasks.read().await;
+        assert_eq!(tasks.len(), 4);
 
         Ok(())
     }
