@@ -396,15 +396,14 @@ impl App {
             {
                 continue;
             }
-            for (name, value) in &extraction_policy.filters {
-                let is_match = content_metadata
+            // Check if all filters match the content metadata labels. If not, skip.
+            if !extraction_policy.filters.iter().all(|(name, value)| {
+                content_metadata
                     .labels
                     .get(name)
-                    .map(|v| v == value)
-                    .unwrap_or(false);
-                if !is_match {
-                    continue;
-                }
+                    .map_or(false, |v| v == value)
+            }) {
+                continue;
             }
             // check if the mimetype matches
             let extractor = self
