@@ -1451,7 +1451,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index};
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1585,13 +1585,12 @@ mod tests {
 
         //  First create a task and ensure it's written
         let content = ContentMetadata {
-            id: "content_id".to_string(),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
-            content_metadata: content.clone(),
             content_metadata: content.clone(),
             ..Default::default()
         };
@@ -1699,7 +1698,7 @@ mod tests {
 
         //  Create a task and ensure that it can be read back
         let content = ContentMetadata {
-            id: "content_id".to_string(),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;

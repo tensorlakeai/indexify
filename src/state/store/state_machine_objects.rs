@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use internal_api::{ContentMetadataId, ExtractorDescription, StateChange};
+use internal_api::{ContentMetadataId, ExtractorDescription, StateChange, TaskOutcome};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -442,76 +442,6 @@ impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChi
         let content_children_table = Arc::new(RwLock::new(content_children_table));
         Self {
             content_children_table,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct PendingTasksForContent {
-    pending_tasks_for_content:
-        Arc<RwLock<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>>,
-}
-
-impl PendingTasksForContent {
-    pub fn insert(
-        &self,
-        content_id: &ContentMetadataId,
-        extraction_policy_id: &ExtractionPolicyId,
-        task_id: &TaskId,
-    ) {
-        let mut guard = self.pending_tasks_for_content.write().unwrap();
-        let policies_map = guard.entry(content_id.clone()).or_default();
-        let tasks_set = policies_map
-            .entry(extraction_policy_id.clone())
-            .or_default();
-        tasks_set.insert(task_id.clone());
-    }
-
-    pub fn remove(
-        &self,
-        content_id: &ContentMetadataId,
-        extraction_policy_id: &ExtractionPolicyId,
-        task_id: &TaskId,
-    ) {
-        let mut guard = self.pending_tasks_for_content.write().unwrap();
-        if let Some(extraction_policies_map) = guard.get_mut(content_id) {
-            if let Some(task_ids) = extraction_policies_map.get_mut(extraction_policy_id) {
-                task_ids.remove(task_id);
-                if task_ids.is_empty() {
-                    extraction_policies_map.remove(extraction_policy_id);
-                }
-            }
-            if extraction_policies_map.is_empty() {
-                guard.remove(content_id);
-            }
-        }
-    }
-
-    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        let guard = self.pending_tasks_for_content.read().unwrap();
-        guard.get(content_id).is_none()
-    }
-
-    pub fn inner(
-        &self,
-    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
-        let guard = self.pending_tasks_for_content.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>
-    for PendingTasksForContent
-{
-    fn from(
-        pending_tasks_for_content: HashMap<
-            ContentMetadataId,
-            HashMap<ExtractionPolicyId, HashSet<TaskId>>,
-        >,
-    ) -> Self {
-        let pending_tasks_for_content = Arc::new(RwLock::new(pending_tasks_for_content));
-        Self {
-            pending_tasks_for_content,
         }
     }
 }
@@ -1275,7 +1205,7 @@ impl IndexifyState {
                     self.metrics
                         .lock()
                         .unwrap()
-                        .update_task_completion(task.outcome);
+                        .update_task_completion(task.outcome.clone());
 
                     //  If the task is meant to be marked finished and has an executor id, remove it
                     // from the list of tasks assigned to an executor
@@ -1451,14 +1381,14 @@ impl IndexifyState {
                     if !content.parent_id.id.is_empty() {
                         self.content_children_table
                             .insert(&content.parent_id, &content.id);
-                        let mut guard = self.metrics.lock().unwrap();
-                        if content.parent_id.is_empty() {
-                            guard.content_uploads += 1;
-                            guard.content_bytes += content.size_bytes;
-                        } else {
-                            guard.content_extracted += 1;
-                            guard.content_extracted_bytes += content.size_bytes;
-                        }
+                    }
+                    let mut guard = self.metrics.lock().unwrap();
+                    if content.parent_id.id.is_empty() {
+                        guard.content_uploads += 1;
+                        guard.content_bytes += content.size_bytes;
+                    } else {
+                        guard.content_extracted += 1;
+                        guard.content_extracted_bytes += content.size_bytes;
                     }
                 }
                 Ok(())

@@ -447,7 +447,7 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
-        Ok(size_bytes)
+        Ok(())
     }
 
     pub fn make_file_name(file_name: Option<&str>) -> String {

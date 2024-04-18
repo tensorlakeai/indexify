@@ -812,6 +812,7 @@ async fn upload_file(
                     &format!("failed to upload file: {}", e),
                 )
             })?;
+        let size_bytes = content_metadata.size_bytes;
         state
             .data_manager
             .create_content_metadata(content_metadata)
@@ -822,6 +823,11 @@ async fn upload_file(
                     &format!("failed to create content for file: {}", e),
                 )
             })?;
+        state.metrics.node_content_uploads.add(1, &[]);
+        state
+            .metrics
+            .node_content_bytes_uploaded
+            .add(size_bytes, &[]);
     }
     Ok(())
 }
