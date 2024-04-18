@@ -422,7 +422,7 @@ impl DataManager {
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
 
-        let size_bytes = content_metadata.size_bytes.clone();
+        let size_bytes = content_metadata.size_bytes;
         let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata),
         };

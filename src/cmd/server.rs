@@ -33,7 +33,7 @@ impl Args {
                 panic!(
                     "failed to load config file `{}`: {}",
                     config_path,
-                    e.to_string()
+                    e
                 )
             })
         } else {
