@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
+    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -505,37 +497,6 @@ impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>
         let pending_tasks_for_content = Arc::new(RwLock::new(pending_tasks_for_content));
         Self {
             pending_tasks_for_content,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct GCTaskContentMapping {
-    gc_task_content_id_mapping: Arc<RwLock<HashMap<GarbageCollectionTaskId, ContentMetadataId>>>,
-}
-
-impl GCTaskContentMapping {
-    pub fn insert(&self, gc_task_id: &GarbageCollectionTaskId, content_id: &ContentMetadataId) {
-        let mut guard = self.gc_task_content_id_mapping.write().unwrap();
-        guard.insert(gc_task_id.clone(), content_id.clone());
-    }
-
-    pub fn remove(&self, gc_task_id: &GarbageCollectionTaskId) {
-        let mut guard = self.gc_task_content_id_mapping.write().unwrap();
-        guard.remove(gc_task_id);
-    }
-
-    pub fn inner(&self) -> HashMap<GarbageCollectionTaskId, ContentMetadataId> {
-        let guard = self.gc_task_content_id_mapping.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<GarbageCollectionTaskId, ContentMetadataId>> for GCTaskContentMapping {
-    fn from(gc_task_content_mapping: HashMap<GarbageCollectionTaskId, ContentMetadataId>) -> Self {
-        let gc_task_content_mapping = Arc::new(RwLock::new(gc_task_content_mapping));
-        Self {
-            gc_task_content_id_mapping: gc_task_content_mapping,
         }
     }
 }
