@@ -1325,7 +1325,7 @@ mod tests {
     use std::{
         collections::HashMap,
         sync::Arc,
-        time::{Duration, SystemTime},
+        time::{Duration},
     };
 
     use indexify_internal_api::{ContentMetadata, Index, TaskOutcome};
