@@ -1325,13 +1325,9 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::Arc,
-        time::{Duration, SystemTime},
-    };
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{Index, TaskOutcome};
+    use indexify_internal_api::{ContentMetadata, Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1424,8 +1420,17 @@ mod tests {
     async fn test_write_read_task() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
+
+        let content = ContentMetadata {
+            id: "content_id".to_string(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
+
         let task = indexify_internal_api::Task {
             id: "id".into(),
+            content_metadata: content.clone(),
             ..Default::default()
         };
         let request = StateMachineUpdateRequest {
@@ -1455,10 +1460,17 @@ mod tests {
     async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
 
         //  First create a task and ensure it's written
+        let content = ContentMetadata {
+            id: "content_id".to_string(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
+            content_metadata: content.clone(),
             ..Default::default()
         };
         let request = StateMachineUpdateRequest {
@@ -1516,7 +1528,7 @@ mod tests {
 
         //  Create a piece of content
         let content_id = "content_id";
-        let content_metadata = indexify_internal_api::ContentMetadata {
+        let content_metadata = ContentMetadata {
             id: content_id.into(),
             content_type: "text/plain".into(),
             ..Default::default()
@@ -1562,10 +1574,17 @@ mod tests {
     async fn test_update_task_and_read() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
 
         //  Create a task and ensure that it can be read back
+        let content = ContentMetadata {
+            id: "content_id".to_string(),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
+            content_metadata: content.clone(),
             ..Default::default()
         };
         let request = StateMachineUpdateRequest {
@@ -1614,11 +1633,12 @@ mod tests {
         //  Update the task and mark it as complete by calling the update_task method
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
+            content_metadata: content.clone(),
             outcome: indexify_internal_api::TaskOutcome::Success,
             ..Default::default()
         };
         let executor_id = "executor_id";
-        let content_meta_list: Vec<indexify_internal_api::ContentMetadata> =
+        let content_meta_list: Vec<ContentMetadata> =
             std::iter::repeat(indexify_internal_api::ContentMetadata::default())
                 .take(3)
                 .collect();
@@ -1637,7 +1657,7 @@ mod tests {
     /// associated extractors Executors are typically created along with
     /// extractors so both need to be asserted
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(3, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1689,9 +1709,9 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         //  Create some content
-        let mut content_metadata_vec: Vec<indexify_internal_api::ContentMetadata> = Vec::new();
+        let mut content_metadata_vec: Vec<ContentMetadata> = Vec::new();
         for i in 0..content_size {
-            let content_metadata = indexify_internal_api::ContentMetadata {
+            let content_metadata = ContentMetadata {
                 id: format!("id{}", i),
                 ..Default::default()
             };
@@ -1739,7 +1759,7 @@ mod tests {
             ("label2".to_string(), "value2".to_string()),
             ("label3".to_string(), "value3".to_string()),
         ];
-        let content_metadata = indexify_internal_api::ContentMetadata {
+        let content_metadata = ContentMetadata {
             namespace: "namespace".into(),
             name: "name".into(),
             labels: content_labels.into_iter().collect(),
@@ -1857,34 +1877,6 @@ mod tests {
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
         assert_eq!(namespaces.first().unwrap().name, namespace);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_create_mark_and_read_content_extraction_policy_mappings(
-    ) -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let _node = cluster.get_raft_node(0)?;
-
-        //  Create a mapping of content -> extraction policies, insert it, mark it as
-        // read and read it back to assert
-        let _current_sys_time = SystemTime::now();
-        //node.set_content_extraction_policy_mappings(vec![mapping.clone()])
-        //    .await?;
-        //node.mark_extraction_policy_applied_on_content("content_id",
-        // "extraction_policy_id")    .await?;
-        //let retrieved_mappings = node
-        //    .get_content_extraction_policy_mappings_for_content_id("content_id")
-        //    .await?
-        //    .unwrap();
-        //let set_time = retrieved_mappings
-        //    .time_of_policy_completion
-        //    .get("extraction_policy_id")
-        //    .unwrap();
-        //assert!(set_time > initial_time);
 
         Ok(())
     }

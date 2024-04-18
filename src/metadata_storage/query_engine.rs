@@ -208,13 +208,13 @@ mod tests {
         index_manager: Arc<T>,
     ) {
         let cols1 = vec![
-            ("id", SchemaColumnType::Text.into()),
-            ("name", SchemaColumnType::Text.into()),
+            ("id", SchemaColumnType::Text),
+            ("name", SchemaColumnType::Text),
         ];
         let schema = create_schema("test", cols1, "User");
         let cols2 = vec![
-            ("id", SchemaColumnType::Text.into()),
-            ("foo", SchemaColumnType::Text.into()),
+            ("id", SchemaColumnType::Text),
+            ("foo", SchemaColumnType::Text),
         ];
         let schema2 = create_schema("test", cols2, "User2");
         let query_engine = QueryEngine::new(index_manager, vec![schema, schema2], "test");

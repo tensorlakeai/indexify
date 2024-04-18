@@ -186,7 +186,7 @@ impl IngestExtractedContentState {
                 self.state
                     .metrics
                     .node_content_bytes_extracted
-                    .add(frame_state.file_size as u64, &[]);
+                    .add(frame_state.file_size, &[]);
                 self.frame_state = FrameState::New;
             }
         }

@@ -322,6 +322,12 @@ pub mod server {
         pub node_content_bytes_extracted: Counter<u64>,
     }
 
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Metrics {
         pub fn new() -> Metrics {
             let registry = Registry::new();
