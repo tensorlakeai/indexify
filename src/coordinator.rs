@@ -1835,4 +1835,122 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_policy_filters() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+
+        let namespace = "namespace";
+
+        coordinator.create_namespace(namespace).await?;
+
+        let extractor_name = "extractor";
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id";
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: extractor_name.into(),
+            input_mime_types: vec!["*/*".into()],
+            ..Default::default()
+        };
+        let addr = "addr";
+        coordinator
+            .register_executor(addr, executor_id, extractor)
+            .await?;
+
+        //  Create the extraction policy under the namespace of the content
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            namespace: namespace.into(),
+            content_source: "source".into(),
+            extractor: extractor_name.into(),
+            id: "1".into(),
+            name: "1".into(),
+            filters: vec![("label1".to_string(), "value1".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        coordinator
+            .shared_state
+            .create_extraction_policy(extraction_policy.clone(), None)
+            .await?;
+
+        //  Create some content
+        let content_labels = vec![("label1".to_string(), "value1".to_string())];
+        let content_metadata = indexify_coordinator::ContentMetadata {
+            id: "content_id_1".to_string(),
+            namespace: namespace.into(),
+            file_name: "name".into(),
+            labels: content_labels.into_iter().collect(),
+            mime: "*/*".into(),
+            source: "source".into(),
+            ..Default::default()
+        };
+        let mut content_batch = vec![content_metadata];
+
+        let content_labels = vec![("label1".to_string(), "doesn't match".to_string())];
+        let content_metadata = indexify_coordinator::ContentMetadata {
+            id: "content_id_2".to_string(),
+            namespace: namespace.into(),
+            file_name: "name".into(),
+            labels: content_labels.into_iter().collect(),
+            mime: "*/*".into(),
+            source: "source".into(),
+            ..Default::default()
+        };
+        content_batch.push(content_metadata);
+        coordinator.create_content_metadata(content_batch).await?;
+
+        coordinator.run_scheduler().await?;
+
+        let tasks = coordinator
+            .shared_state
+            .tasks_for_executor(executor_id, None)
+            .await?;
+        let unassigned_tasks = coordinator.shared_state.unassigned_tasks().await?;
+
+        // Check if the task is created for the content that matches the policy and
+        // non matching content does not have a task.
+        assert_eq!(tasks.len() + unassigned_tasks.len(), 1);
+
+        let extractor_name = "extractor_2";
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id_2";
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: extractor_name.into(),
+            input_mime_types: vec!["*/*".into()],
+            ..Default::default()
+        };
+        let addr = "addr_2";
+        coordinator
+            .register_executor(addr, executor_id, extractor)
+            .await?;
+
+        //  Create the extraction policy under the namespace of the content
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            id: "2".into(),
+            name: "2".into(),
+            namespace: namespace.into(),
+            content_source: "source".into(),
+            extractor: extractor_name.into(),
+            filters: vec![("label1".to_string(), "value1".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        coordinator
+            .shared_state
+            .create_extraction_policy(extraction_policy.clone(), None)
+            .await?;
+
+        coordinator.run_scheduler().await?;
+
+        let tasks = coordinator
+            .shared_state
+            .tasks_for_executor(executor_id, None)
+            .await?;
+        assert_eq!(tasks.len(), 1);
+
+        Ok(())
+    }
 }

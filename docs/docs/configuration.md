@@ -16,6 +16,7 @@ indexify init-config --config-path /tmp/indexify.yaml
 listen_if: 0.0.0.0
 api_port: 8900
 coordinator_port: 8950
+coordinator_http_port: 8960
 raft_port: 8970
 coordinator_addr: 0.0.0.0:8950
 ```
@@ -23,6 +24,7 @@ coordinator_addr: 0.0.0.0:8950
 * **listen_if:** The interface on which the servers listens on. Typically you would want to listen on all interfaces.
 * **api_port:** The port in which the application facing API server is exposed. This is the HTTP port on which applications upload data, create extraction policies and retreived extracted data from indexes.
 * **coordinator_port:** Port on which the coordinator is exposed. This is available as a separate configuration becasue in the dev mode, we expose both the api server and the coordinator server in the same process.
+* **coordinator_http_port** Port to access coordinator metrics
 * **raft_port:** Port on which internal messages across coordinator nodes are transmitted. This is only needed if Indexify is either started as a coordinator or in dev mode.
 
 ### Blob Storage Configuration

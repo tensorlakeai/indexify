@@ -2004,4 +2004,77 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_filter_extraction_policies_for_content() -> Result<(), anyhow::Error> {
+        let cluster = RaftTestCluster::new(1, None).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
+
+        let namespace = "namespace";
+
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id";
+        let extractor = indexify_internal_api::ExtractorDescription {
+            name: "extractor".into(),
+            input_mime_types: vec!["*/*".into()],
+            ..Default::default()
+        };
+        let addr = "addr";
+        node.register_executor(addr, executor_id, extractor.clone())
+            .await?;
+
+        //  Create the extraction policy under the namespace of the content
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            namespace: namespace.into(),
+            content_source: "source".into(),
+            extractor: extractor.name,
+            filters: vec![("label1".to_string(), "value1".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        node.create_extraction_policy(extraction_policy.clone(), None)
+            .await?;
+
+        //  Create some content
+        let content_labels = vec![("label1".to_string(), "value1".to_string())];
+        let content_metadata = ContentMetadata {
+            id: "content_id_1".to_string(),
+            namespace: "namespace".into(),
+            name: "name_1".into(),
+            labels: content_labels.into_iter().collect(),
+            content_type: "*/*".into(),
+            source: "source".into(),
+            ..Default::default()
+        };
+
+        let mut content_metadata_vec = vec![content_metadata];
+        let content_labels = vec![("label1".to_string(), "value-mismatch".to_string())];
+        let content_metadata = ContentMetadata {
+            id: "content_id_2".to_string(),
+            namespace: "namespace".into(),
+            name: "name_2".into(),
+            labels: content_labels.into_iter().collect(),
+            content_type: "*/*".into(),
+            source: "source".into(),
+            ..Default::default()
+        };
+        content_metadata_vec.push(content_metadata);
+
+        node.create_content_batch(content_metadata_vec).await?;
+
+        let policies = node
+            .filter_extraction_policy_for_content("content_id_1")
+            .await?;
+        assert_eq!(policies.len(), 1);
+
+        let policies = node
+            .filter_extraction_policy_for_content("content_id_2")
+            .await?;
+        assert_eq!(policies.len(), 0);
+
+        Ok(())
+    }
 }
