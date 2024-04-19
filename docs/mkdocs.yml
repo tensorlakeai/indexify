@@ -65,6 +65,7 @@ nav:
   - Deployment and Operation:
     - Configuration: 'configuration.md'
     - Deployment: 'deployment.md'
+    - Metrics: 'metrics.md'
     - Develop Indexify: 'develop.md'
   - Examples:
     - Scientific Journals: 'examples/Scientific_Journals.ipynb'
