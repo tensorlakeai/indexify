@@ -2,7 +2,6 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash, Hasher},
-    path::Path,
     str::FromStr,
     sync::Arc,
     time::SystemTime,
@@ -10,11 +9,13 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self};
 use itertools::Itertools;
+use mime::Mime;
 use nanoid::nanoid;
+use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
 use crate::{
@@ -262,8 +263,11 @@ impl DataManager {
                     None,
                     None,
                     "ingestion",
+                    None,
                 )
                 .await?;
+
+            //  Content id either does not exist or hash is different
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
@@ -302,6 +306,11 @@ impl DataManager {
         Ok(())
     }
 
+    #[tracing::instrument]
+    pub async fn delete_file(&self, path: &str) -> Result<()> {
+        self.blob_storage.delete(path).await
+    }
+
     pub async fn ingest_remote_file(
         &self,
         namespace: &str,
@@ -331,6 +340,7 @@ impl DataManager {
             labels,
             source: "ingestion".to_string(),
             size_bytes: 0,
+            hash: "".to_string(),
             ..Default::default()
         };
         let req: indexify_coordinator::CreateContentRequest =
@@ -400,13 +410,9 @@ impl DataManager {
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
-    ) -> Result<u64> {
-        let ext = Path::new(name)
-            .extension()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default();
-        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
+        mime_type: Mime,
+        original_content_id: Option<&str>,
+    ) -> Result<indexify_coordinator::ContentMetadata> {
         let labels = HashMap::new();
 
         let content_metadata = self
@@ -414,15 +420,21 @@ impl DataManager {
                 namespace,
                 data,
                 &labels,
-                content_mime.to_string(),
+                mime_type.to_string(),
                 Some(name),
                 None,
                 "ingestion",
+                original_content_id,
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
+        Ok(content_metadata)
+    }
 
-        let size_bytes = content_metadata.size_bytes;
+    pub async fn create_content_metadata(
+        &self,
+        content_metadata: indexify_coordinator::ContentMetadata,
+    ) -> Result<()> {
         let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata),
         };
@@ -437,20 +449,20 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
-        Ok(size_bytes)
+        Ok(())
     }
 
     pub fn make_file_name(file_name: Option<&str>) -> String {
         file_name.map(|f| f.to_string()).unwrap_or(nanoid!())
     }
 
-    pub fn make_id(namespace: &str, file_name: &str, parent_id: &Option<String>) -> String {
+    pub fn make_id(namespace: &str, parent_id: &Option<String>, content_hash: &str) -> String {
         let mut s = DefaultHasher::new();
         namespace.hash(&mut s);
-        file_name.hash(&mut s);
         if let Some(parent_id) = &parent_id {
             parent_id.hash(&mut s);
         }
+        content_hash.hash(&mut s);
         format!("{:x}", s.finish())
     }
 
@@ -463,24 +475,40 @@ impl DataManager {
         file_name: Option<&str>,
         parent_id: Option<String>,
         source: &str,
+        original_content_id: Option<&str>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
         let file_name = DataManager::make_file_name(file_name);
 
-        let id = DataManager::make_id(namespace, &file_name, &parent_id);
+        let mut hasher = Sha256::new();
+        let hashed_stream = data.map(|item| match item {
+            Ok(bytes) => {
+                hasher.update(&bytes);
+                Ok(bytes)
+            }
+            Err(e) => Err(e),
+        });
 
         let res = self
-            .write_to_blob_store(namespace, &file_name, data)
+            .write_to_blob_store(namespace, &file_name, hashed_stream)
             .await
             .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
+
+        let hash_result = hasher.finalize();
+        let content_hash = format!("{:x}", hash_result);
 
         let labels = labels
             .clone()
             .into_iter()
             .map(|(k, v)| (k, v.to_string()))
             .collect();
+
+        let mut id = DataManager::make_id(namespace, &parent_id, &content_hash);
+        if original_content_id.is_some() {
+            id = original_content_id.unwrap().to_string();
+        }
         Ok(indexify_coordinator::ContentMetadata {
             id,
             file_name,
@@ -492,6 +520,7 @@ impl DataManager {
             labels,
             source: source.to_string(),
             size_bytes: res.size_bytes,
+            hash: content_hash,
             extraction_policy_ids: HashMap::new(),
         })
     }
@@ -706,6 +735,7 @@ impl DataManager {
                     None,
                     Some(ingest_metadata.parent_content_id.to_string()),
                     &ingest_metadata.extraction_policy,
+                    None,
                 )
                 .await?;
             features.insert(content_metadata.id.clone(), content.features);

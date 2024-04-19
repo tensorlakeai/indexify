@@ -329,7 +329,7 @@ impl Display for Task {
         write!(
             f,
             "Task(id: {}, extractor: {}, extraction_policy_id: {}, namespace: {}, content_id: {}, outcome: {:?})",
-            self.id, self.extractor, self.extraction_policy_id, self.namespace, self.content_metadata.id, self.outcome
+            self.id, self.extractor, self.extraction_policy_id, self.namespace, self.content_metadata.id.id, self.outcome
         )
     }
 }
@@ -372,13 +372,15 @@ impl TryFrom<indexify_coordinator::Task> for Task {
     }
 }
 
+pub type GarbageCollectionTaskId = String;
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 #[schema(as=internal_api::GarbageCollectionTask)]
 pub struct GarbageCollectionTask {
     pub namespace: String,
-    pub id: String,
-    pub content_id: String,
-    pub parent_content_id: String,
+    pub id: GarbageCollectionTaskId,
+    pub content_id: ContentMetadataId,
+    pub parent_content_id: ContentMetadataId,
     pub output_tables: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
@@ -391,8 +393,14 @@ impl Default for GarbageCollectionTask {
         Self {
             namespace: "test_namespace".to_string(),
             id: "test_id".to_string(),
-            content_id: "test_content_id".to_string(),
-            parent_content_id: "test_parent_content_id".to_string(),
+            content_id: ContentMetadataId {
+                id: "test_content_id".to_string(),
+                version: 1,
+            },
+            parent_content_id: ContentMetadataId {
+                id: "test_parent_content_id".to_string(),
+                version: 1,
+            },
             output_tables: HashSet::new(),
             outcome: TaskOutcome::Unknown,
             blob_store_path: "test_blob_store_path".to_string(),
@@ -420,6 +428,18 @@ impl GarbageCollectionTask {
             outcome: TaskOutcome::Unknown,
             blob_store_path: content_metadata.storage_url,
             assigned_to: None,
+        }
+    }
+}
+
+impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
+    fn from(value: GarbageCollectionTask) -> Self {
+        Self {
+            task_id: value.id,
+            namespace: value.namespace,
+            content_id: value.content_id.id,
+            output_tables: value.output_tables.into_iter().collect::<Vec<String>>(),
+            blob_store_path: value.blob_store_path,
         }
     }
 }
@@ -471,10 +491,83 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ContentMetadataId {
+    pub id: String,
+    pub version: u64,
+}
+
+impl ContentMetadataId {
+    pub fn new(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            version: 1,
+        }
+    }
+
+    pub fn new_with_version(id: &str, version: u64) -> Self {
+        Self {
+            id: id.to_string(),
+            version,
+        }
+    }
+}
+
+impl Display for ContentMetadataId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}::v{}", self.id, self.version)
+    }
+}
+
+impl TryFrom<&String> for ContentMetadataId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &String) -> Result<Self> {
+        if value.is_empty() {
+            return Ok(Self {
+                id: "".to_string(),
+                version: 0,
+            });
+        }
+
+        let parts: Vec<&str> = value.split("::v").collect();
+        if parts.len() != 2 {
+            return Err(anyhow!("Invalid ContentMetadataId"));
+        }
+        Ok(Self {
+            id: parts[0].to_string(),
+            version: parts[1].parse()?,
+        })
+    }
+}
+
+impl TryFrom<String> for ContentMetadataId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::try_from(&value)
+    }
+}
+
+impl AsRef<[u8]> for ContentMetadataId {
+    fn as_ref(&self) -> &[u8] {
+        self.id.as_bytes()
+    }
+}
+
+impl Default for ContentMetadataId {
+    fn default() -> Self {
+        Self {
+            id: "test_id".to_string(),
+            version: 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
-    pub id: String,
-    pub parent_id: String,
+    pub id: ContentMetadataId,
+    pub parent_id: ContentMetadataId,
     // Namespace name == Namespace ID
     pub namespace: String,
     pub name: String,
@@ -485,14 +578,15 @@ pub struct ContentMetadata {
     pub source: String,
     pub size_bytes: u64,
     pub tombstoned: bool,
+    pub hash: String,
     pub extraction_policy_ids: HashMap<String, u64>,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
         Self {
-            id: value.id,
-            parent_id: value.parent_id,
+            id: value.id.id,               //  don't expose the version on the task
+            parent_id: value.parent_id.id, //  don't expose the version on the task
             file_name: value.name,
             mime: value.content_type,
             labels: value.labels,
@@ -501,16 +595,48 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             namespace: value.namespace,
             source: value.source,
             size_bytes: value.size_bytes,
+            hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
         }
+    }
+}
+
+impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: ContentMetadataId {
+                id: value.id,
+                version: 1,
+            },
+            parent_id: ContentMetadataId {
+                id: value.parent_id,
+                version: 1,
+            },
+            name: value.file_name,
+            content_type: value.mime,
+            labels: value.labels,
+            storage_url: value.storage_url,
+            created_at: value.created_at,
+            namespace: value.namespace,
+            source: value.source,
+            size_bytes: value.size_bytes,
+            tombstoned: false,
+            hash: value.hash,
+            extraction_policy_ids: value.extraction_policy_ids,
+        })
     }
 }
 
 impl Default for ContentMetadata {
     fn default() -> Self {
         Self {
-            id: "test_id".to_string(),
-            parent_id: "test_parent_id".to_string(),
+            id: ContentMetadataId::default(),
+            parent_id: ContentMetadataId {
+                id: "".to_string(),
+                ..Default::default()
+            },
             namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
             content_type: "test_content_type".to_string(),
@@ -526,28 +652,8 @@ impl Default for ContentMetadata {
             size_bytes: 1234567890,
             extraction_policy_ids: HashMap::new(),
             tombstoned: false,
+            hash: "test_hash".to_string(),
         }
-    }
-}
-
-impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: value.id,
-            parent_id: value.parent_id,
-            name: value.file_name,
-            content_type: value.mime,
-            labels: value.labels,
-            storage_url: value.storage_url,
-            created_at: value.created_at,
-            namespace: value.namespace,
-            source: value.source,
-            size_bytes: value.size_bytes,
-            tombstoned: false,
-            extraction_policy_ids: value.extraction_policy_ids,
-        })
     }
 }
 
@@ -620,22 +726,28 @@ impl From<Namespace> for indexify_coordinator::Namespace {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
-    TombstoneContent,
+    UpdateContent,
+    TombstoneContentTree,
     NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
     NewGargabeCollectionTask,
+    TaskCompleted { content_id: ContentMetadataId },
 }
 
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
-            ChangeType::TombstoneContent => write!(f, "TombstoneContent"),
+            ChangeType::UpdateContent => write!(f, "UpdateContent"),
+            ChangeType::TombstoneContentTree => write!(f, "TombstoneContentTree"),
             ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
             ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
+            ChangeType::TaskCompleted { content_id } => {
+                write!(f, "TaskCompleted(content_id: {})", content_id)
+            }
         }
     }
 }

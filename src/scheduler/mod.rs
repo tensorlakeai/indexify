@@ -106,17 +106,25 @@ impl Scheduler {
             internal_api::ChangeType::NewContent => {
                 let extraction_policies = self
                     .shared_state
-                    .filter_extraction_policy_for_content(&state_change.object_id)
+                    .filter_extraction_policy_for_content(
+                        &state_change.object_id.clone().try_into()?,
+                    )
                     .await?;
                 let content = self
                     .shared_state
-                    .get_conent_metadata(&state_change.object_id)
+                    .get_content_metadata_with_version(&state_change.object_id.clone().try_into()?)
                     .await?;
+                let content = content.first().unwrap_or_else(|| {
+                    panic!(
+                        "content not found for content_id: {}",
+                        &state_change.object_id
+                    )
+                });
                 let mut tasks: Vec<internal_api::Task> = Vec::new();
                 let tables = self.tables_for_policies(&extraction_policies).await?;
                 for extraction_policy in extraction_policies {
                     let task = self
-                        .create_task(&extraction_policy.id, &content, &tables)
+                        .create_task(&extraction_policy.id, content, &tables)
                         .await?;
                     tasks.push(task);
                 }
@@ -195,7 +203,6 @@ impl Scheduler {
             .await?;
         let mut output_mapping: HashMap<String, String> = HashMap::new();
 
-        //  TODO: This will be done in create_extraction_policy in coordinator_service.
         // Just store the mapping
         for name in extractor.outputs.keys() {
             let index_name = extraction_policy

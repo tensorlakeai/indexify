@@ -349,8 +349,18 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<CreateGcTasksRequest>,
     ) -> Result<tonic::Response<CreateGcTasksResponse>, tonic::Status> {
         let request = request.into_inner();
+        let state_change = request.state_change.ok_or_else(|| {
+            tonic::Status::aborted("missing state change in create gc tasks request")
+        })?;
+        let state_change: indexify_internal_api::StateChange =
+            state_change.try_into().map_err(|e| {
+                tonic::Status::aborted(format!(
+                    "unable to convert state change to internal api: {}",
+                    e
+                ))
+            })?;
         self.coordinator
-            .create_gc_tasks(&request.content_id)
+            .create_gc_tasks(&state_change)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateGcTasksResponse {}))
@@ -361,7 +371,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
     ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
         let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events().await;
-        let (tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(100);
 
         let mut inbound = request.into_inner();
         let coordinator_clone = self.coordinator.clone();
@@ -413,24 +423,26 @@ impl CoordinatorService for CoordinatorServiceServer {
                             }
                         }
                     }
-                    Ok(task_allocation) = gc_task_allocation_event_rx.recv() => {
-                        let task = task_allocation;
-                        if let Some(ref server_id) = ingestion_server_id {
-                            if task.assigned_to.is_some() && &task.assigned_to.unwrap() == server_id {
-                                let serialized_task = GcTask {
-                                    task_id: task.id,
-                                    namespace: task.namespace,
-                                    content_id: task.content_id,
-                                    output_tables: task
-                                        .output_tables
-                                        .into_iter()
-                                        .collect::<Vec<String>>(),
-                                    blob_store_path: task.blob_store_path,
-                                };
-                                let command = CoordinatorCommand {
-                                    gc_task: Some(serialized_task)
-                                };
-                                tx.send(command).await.unwrap();
+                    task_allocation_event = gc_task_allocation_event_rx.recv() => {
+                        match task_allocation_event {
+                            Ok(task_allocation) => {
+                                let task = task_allocation;
+                                if let Some(ref server_id) = ingestion_server_id {
+                                    if task.assigned_to.is_some() && &task.assigned_to.clone().unwrap() == server_id {
+                                        let serialized_task: GcTask = task.into();
+                                        let command = CoordinatorCommand {
+                                            gc_task: Some(serialized_task)
+                                        };
+                                        tx.send(command).await.unwrap();
+                                    }
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::error!("Skipped {} messages due to lagging", n);
+                                //  TODO: How should skipped gc tasks be handled?
+                            }
+                            Err(e) => {
+                                tracing::error!("Error receiving gc task allocation event: {}", e);
                             }
                         }
                     }
@@ -614,7 +626,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let content_metadata = content_metadata_list
             .iter()
-            .map(|c| (c.id.clone(), c.clone().into()))
+            .map(|c| (c.id.id.clone(), c.clone().into()))
             .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {

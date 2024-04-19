@@ -207,7 +207,7 @@ message RemoveIngestionServerResponse {
 }
 
 message CreateGCTasksRequest {
-    string content_id = 1;
+    StateChange state_change = 1;
 }
 
 message CreateGCTasksResponse {
@@ -356,7 +356,8 @@ message ContentMetadata {
     string namespace = 8;
     string source = 9;
     uint64 size_bytes = 10;
-    map<string, uint64> extraction_policy_ids = 11;
+    string hash = 11;
+    map<string, uint64> extraction_policy_ids = 12;
 }
 
 message CreateContentRequest {

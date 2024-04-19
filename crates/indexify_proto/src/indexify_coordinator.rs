@@ -214,8 +214,8 @@ pub struct RemoveIngestionServerResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateGcTasksRequest {
-    #[prost(string, tag = "1")]
-    pub content_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub state_change: ::core::option::Option<StateChange>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -481,7 +481,9 @@ pub struct ContentMetadata {
     pub source: ::prost::alloc::string::String,
     #[prost(uint64, tag = "10")]
     pub size_bytes: u64,
-    #[prost(map = "string, uint64", tag = "11")]
+    #[prost(string, tag = "11")]
+    pub hash: ::prost::alloc::string::String,
+    #[prost(map = "string, uint64", tag = "12")]
     pub extraction_policy_ids: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         u64,

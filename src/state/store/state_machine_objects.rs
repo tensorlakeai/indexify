@@ -5,9 +5,9 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use internal_api::{ExtractorDescription, StateChange, TaskOutcome};
+use internal_api::{ContentMetadataId, ExtractorDescription, StateChange, TaskOutcome};
 use itertools::Itertools;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
@@ -16,8 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ContentId,
     ExecutorId,
+    ExtractionPolicyId,
     ExtractorName,
     JsonEncoder,
     NamespaceName,
@@ -101,11 +101,11 @@ impl From<HashSet<StateChangeId>> for UnprocessedStateChanges {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ContentNamespaceTable {
-    content_namespace_table: Arc<RwLock<HashMap<NamespaceName, HashSet<ContentId>>>>,
+    content_namespace_table: Arc<RwLock<HashMap<NamespaceName, HashSet<ContentMetadataId>>>>,
 }
 
 impl ContentNamespaceTable {
-    pub fn insert(&self, namespace: &NamespaceName, content_id: &ContentId) {
+    pub fn insert(&self, namespace: &NamespaceName, content_id: &ContentMetadataId) {
         let mut guard = self.content_namespace_table.write().unwrap();
         guard
             .entry(namespace.clone())
@@ -113,7 +113,7 @@ impl ContentNamespaceTable {
             .insert(content_id.clone());
     }
 
-    pub fn remove(&self, namespace: &NamespaceName, content_id: &ContentId) {
+    pub fn remove(&self, namespace: &NamespaceName, content_id: &ContentMetadataId) {
         let mut guard = self.content_namespace_table.write().unwrap();
         guard
             .entry(namespace.clone())
@@ -121,14 +121,14 @@ impl ContentNamespaceTable {
             .remove(content_id);
     }
 
-    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
         let guard = self.content_namespace_table.read().unwrap();
         guard.clone()
     }
 }
 
-impl From<HashMap<NamespaceName, HashSet<ContentId>>> for ContentNamespaceTable {
-    fn from(content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>) -> Self {
+impl From<HashMap<NamespaceName, HashSet<ContentMetadataId>>> for ContentNamespaceTable {
+    fn from(content_namespace_table: HashMap<NamespaceName, HashSet<ContentMetadataId>>) -> Self {
         let content_namespace_table = Arc::new(RwLock::new(content_namespace_table));
         Self {
             content_namespace_table,
@@ -395,11 +395,11 @@ impl From<HashMap<NamespaceName, HashSet<SchemaId>>> for SchemasByNamespace {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ContentChildrenTable {
-    content_children_table: Arc<RwLock<HashMap<ContentId, HashSet<ContentId>>>>,
+    content_children_table: Arc<RwLock<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>>>,
 }
 
 impl ContentChildrenTable {
-    pub fn insert(&self, parent_id: &ContentId, child_id: &ContentId) {
+    pub fn insert(&self, parent_id: &ContentMetadataId, child_id: &ContentMetadataId) {
         let mut guard = self.content_children_table.write().unwrap();
         guard
             .entry(parent_id.clone())
@@ -407,7 +407,7 @@ impl ContentChildrenTable {
             .insert(child_id.clone());
     }
 
-    pub fn remove(&self, parent_id: &ContentId, child_id: &ContentId) {
+    pub fn remove(&self, parent_id: &ContentMetadataId, child_id: &ContentMetadataId) {
         let mut guard = self.content_children_table.write().unwrap();
         if let Some(children) = guard.get_mut(parent_id) {
             children.remove(child_id);
@@ -417,22 +417,109 @@ impl ContentChildrenTable {
         }
     }
 
-    pub fn get_children(&self, parent_id: &ContentId) -> HashSet<ContentId> {
+    pub fn remove_all(&self, parent_id: &ContentMetadataId) {
+        let mut guard = self.content_children_table.write().unwrap();
+        guard.remove(parent_id);
+    }
+
+    pub fn get_children(&self, parent_id: &ContentMetadataId) -> HashSet<ContentMetadataId> {
         let guard = self.content_children_table.read().unwrap();
         guard.get(parent_id).cloned().unwrap_or_default()
     }
 
-    pub fn inner(&self) -> HashMap<ContentId, HashSet<ContentId>> {
+    pub fn replace_parent(
+        &self,
+        old_parent_id: &ContentMetadataId,
+        new_parent_id: &ContentMetadataId,
+    ) {
+        let mut guard = self.content_children_table.write().unwrap();
+        let children = guard.remove(old_parent_id).unwrap_or_default();
+        guard.insert(new_parent_id.clone(), children);
+    }
+
+    pub fn inner(&self) -> HashMap<ContentMetadataId, HashSet<ContentMetadataId>> {
         let guard = self.content_children_table.read().unwrap();
         guard.clone()
     }
 }
 
-impl From<HashMap<ContentId, HashSet<ContentId>>> for ContentChildrenTable {
-    fn from(content_children_table: HashMap<ContentId, HashSet<ContentId>>) -> Self {
+impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChildrenTable {
+    fn from(
+        content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
+    ) -> Self {
         let content_children_table = Arc::new(RwLock::new(content_children_table));
         Self {
             content_children_table,
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct PendingTasksForContent {
+    pending_tasks_for_content:
+        Arc<RwLock<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>>,
+}
+
+impl PendingTasksForContent {
+    pub fn insert(
+        &self,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: &ExtractionPolicyId,
+        task_id: &TaskId,
+    ) {
+        let mut guard = self.pending_tasks_for_content.write().unwrap();
+        let policies_map = guard.entry(content_id.clone()).or_default();
+        let tasks_set = policies_map
+            .entry(extraction_policy_id.clone())
+            .or_default();
+        tasks_set.insert(task_id.clone());
+    }
+
+    pub fn remove(
+        &self,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: &ExtractionPolicyId,
+        task_id: &TaskId,
+    ) {
+        let mut guard = self.pending_tasks_for_content.write().unwrap();
+        if let Some(extraction_policies_map) = guard.get_mut(content_id) {
+            if let Some(task_ids) = extraction_policies_map.get_mut(extraction_policy_id) {
+                task_ids.remove(task_id);
+                if task_ids.is_empty() {
+                    extraction_policies_map.remove(extraction_policy_id);
+                }
+            }
+            if extraction_policies_map.is_empty() {
+                guard.remove(content_id);
+            }
+        }
+    }
+
+    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
+        let guard = self.pending_tasks_for_content.read().unwrap();
+        guard.get(content_id).is_none()
+    }
+
+    pub fn inner(
+        &self,
+    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
+        let guard = self.pending_tasks_for_content.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>
+    for PendingTasksForContent
+{
+    fn from(
+        pending_tasks_for_content: HashMap<
+            ContentMetadataId,
+            HashMap<ExtractionPolicyId, HashSet<TaskId>>,
+        >,
+    ) -> Self {
+        let pending_tasks_for_content = Arc::new(RwLock::new(pending_tasks_for_content));
+        Self {
+            pending_tasks_for_content,
         }
     }
 }
@@ -472,37 +559,40 @@ impl Metrics {
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
-    unassigned_tasks: UnassignedTasks,
+    pub unassigned_tasks: UnassignedTasks,
 
     /// State changes that have not been processed yet
-    unprocessed_state_changes: UnprocessedStateChanges,
+    pub unprocessed_state_changes: UnprocessedStateChanges,
 
     /// Namespace -> Content ID
-    content_namespace_table: ContentNamespaceTable,
+    pub content_namespace_table: ContentNamespaceTable,
 
     /// Namespace -> Extraction policy id
-    extraction_policies_table: ExtractionPoliciesTable,
+    pub extraction_policies_table: ExtractionPoliciesTable,
 
     /// Extractor -> Executors table
-    extractor_executors_table: ExtractorExecutorsTable,
+    pub extractor_executors_table: ExtractorExecutorsTable,
 
     /// Namespace -> Index id
-    namespace_index_table: NamespaceIndexTable,
+    pub namespace_index_table: NamespaceIndexTable,
 
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
     /// Extractor name -> Task Ids
-    unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
+    pub unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Number of tasks currently running on each executor
     /// Executor id -> number of tasks running on executor
-    executor_running_task_count: ExecutorRunningTaskCount,
+    pub executor_running_task_count: ExecutorRunningTaskCount,
 
     /// Namespace -> Schemas
-    schemas_by_namespace: SchemasByNamespace,
+    pub schemas_by_namespace: SchemasByNamespace,
 
     /// Parent content id -> children content id's
-    content_children_table: ContentChildrenTable,
+    pub content_children_table: ContentChildrenTable,
+
+    /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
+    pub pending_tasks_for_content: PendingTasksForContent,
 
     /// Metrics
     pub metrics: std::sync::Mutex<Metrics>,
@@ -522,7 +612,7 @@ impl fmt::Display for IndexifyState {
             self.unfinished_tasks_by_extractor,
             self.executor_running_task_count,
             self.schemas_by_namespace,
-            self.content_children_table
+            self.content_children_table,
         )
     }
 }
@@ -610,7 +700,6 @@ impl IndexifyState {
         tasks: &Vec<internal_api::Task>,
     ) -> Result<(), StateMachineError> {
         // content_id -> Set(Extraction Policy Ids)
-        let _content_extraction_policy_mappings: HashMap<String, HashSet<String>> = HashMap::new();
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
             txn.put_cf(
@@ -785,10 +874,11 @@ impl IndexifyState {
         contents_vec: &Vec<internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
+            let content_key = format!("{}::v{}", content.id.id, content.id.version);
             let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                content.id.clone(),
+                content_key,
                 &serialized_content,
             )
             .map_err(|e| {
@@ -798,64 +888,46 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn tombstone_content(
+    fn tombstone_content_tree(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: &HashSet<String>,
+        content_metadata: &Vec<indexify_internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
-        let mut queue = VecDeque::new();
-        for root_content_id in content_ids {
-            queue.push_back(root_content_id.clone());
-        }
-
-        while let Some(current_root) = queue.pop_front() {
-            let serialized_content_metadata = txn
-                .get_cf(StateMachineColumns::ContentTable.cf(db), &current_root)
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| {
-                    StateMachineError::DatabaseError(format!(
-                        "Content {} not found while tombstoning",
-                        current_root
-                    ))
-                })?;
-            let mut content_metadata =
-                JsonEncoder::decode::<internal_api::ContentMetadata>(&serialized_content_metadata)?;
-            content_metadata.tombstoned = true;
-            let serialized_content_metadata = JsonEncoder::encode(&content_metadata)?;
+        for content in content_metadata {
+            let content_key = format!("{}::v{}", content.id.id, content.id.version);
+            let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                &current_root,
-                &serialized_content_metadata,
+                content_key,
+                &serialized_content,
             )
             .map_err(|e| {
-                StateMachineError::DatabaseError(format!(
-                    "Error writing content back after setting tombstone flag on it for content {}: {}",
-                    &current_root, e
-                ))
+                StateMachineError::DatabaseError(format!("error writing content: {}", e))
             })?;
-
-            let children = self.content_children_table.get_children(&current_root);
-            queue.extend(children);
         }
 
         Ok(())
     }
 
+    /// Function to delete content based on content ids
     fn delete_content(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: Vec<String>,
+        content_ids: Vec<ContentMetadataId>,
     ) -> Result<(), StateMachineError> {
         for content_id in content_ids {
-            txn.delete_cf(StateMachineColumns::ContentTable.cf(db), content_id)
-                .map_err(|e| {
-                    StateMachineError::TransactionError(format!(
-                        "error in txn while trying to delete content: {}",
-                        e
-                    ))
-                })?;
+            txn.delete_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                &format!("{}::v{}", content_id.id, content_id.version),
+            )
+            .map_err(|e| {
+                StateMachineError::TransactionError(format!(
+                    "error in txn while trying to delete content: {}",
+                    e
+                ))
+            })?;
         }
         Ok(())
     }
@@ -986,12 +1058,15 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_id: &str,
-        _extraction_policy_id: &str,
+        content_id: &ContentMetadataId,
+        extraction_policy_id: &str,
         policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         let value = txn
-            .get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
+            .get_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                format!("{}::v{}", content_id.id, content_id.version),
+            )
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
                     "Error getting the content policies applied on content id {}: {}",
@@ -1000,12 +1075,12 @@ impl IndexifyState {
             })?
             .ok_or_else(|| {
                 StateMachineError::DatabaseError(format!(
-                    "No content policies applied on content found for id {}",
+                    "Content not found while updating applied extraction policies {}",
                     content_id
                 ))
             })?;
-        let content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
-        let _epoch_time = policy_completion_time
+        let mut content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+        let epoch_time = policy_completion_time
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
@@ -1014,14 +1089,21 @@ impl IndexifyState {
                 ))
             })?
             .as_secs();
+        content_meta
+            .extraction_policy_ids
+            .insert(extraction_policy_id.to_string(), epoch_time);
         let data = JsonEncoder::encode(&content_meta)?;
-        txn.put_cf(StateMachineColumns::ContentTable.cf(db), content_id, data)
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!(
-                    "Error writing content policies applied on content for id {}: {}",
-                    content_id, e
-                ))
-            })?;
+        txn.put_cf(
+            StateMachineColumns::ContentTable.cf(db),
+            format!("{}::v{}", content_id.id, content_id.version),
+            data,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!(
+                "Error writing content policies applied on content for id {}: {}",
+                content_id, e
+            ))
+        })?;
 
         Ok(())
     }
@@ -1125,6 +1207,7 @@ impl IndexifyState {
                 update_time,
             } => {
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
+                self.set_content(db, &txn, content_metadata)?;
 
                 if task.terminal_state() {
                     self.metrics
@@ -1143,9 +1226,6 @@ impl IndexifyState {
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
                 }
-
-                //  Insert the content metadata into the db
-                self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::RegisterExecutor {
                 addr,
@@ -1160,9 +1240,7 @@ impl IndexifyState {
                 self.set_extractor(db, &txn, extractor)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
-                //  NOTE: Special case of a handler that also remove its own reverse indexes
-                // here and returns from this function  Doing this because
-                // altering the reverse indexes requires references to the removed items
+                //  NOTE: Special case where forward and reverse indexes are updated together
 
                 //  Get a handle on the executor before deleting it from the DB
                 let executor_meta = self.delete_executor(db, &txn, executor_id)?;
@@ -1190,14 +1268,15 @@ impl IndexifyState {
             RequestPayload::CreateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
             }
-            RequestPayload::TombstoneContent {
-                namespace: _,
-                content_ids,
-            } => {
-                self.tombstone_content(db, &txn, content_ids)?;
+            RequestPayload::UpdateContent { content_metadata } => {
+                //  TODO: update the content
+                self.set_content(db, &txn, content_metadata)?;
             }
-            RequestPayload::RemoveTombstonedContent { content_id } => {
-                self.delete_content(db, &txn, vec![content_id.to_string()])?;
+            RequestPayload::TombstoneContentTree {
+                namespace: _,
+                content_metadata,
+            } => {
+                self.tombstone_content_tree(db, &txn, content_metadata)?;
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
@@ -1230,7 +1309,12 @@ impl IndexifyState {
             }
         };
 
-        self.apply(request);
+        self.apply(request).map_err(|e| {
+            StateMachineError::ExternalError(anyhow!(
+                "Error while applying reverse index updates: {}",
+                e
+            ))
+        })?;
 
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
@@ -1240,7 +1324,7 @@ impl IndexifyState {
 
     /// This method handles all reverse index writes. All reverse indexes are
     /// written in memory
-    pub fn apply(&self, request: StateMachineUpdateRequest) {
+    pub fn apply(&self, request: StateMachineUpdateRequest) -> Result<()> {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
@@ -1264,14 +1348,20 @@ impl IndexifyState {
                 };
                 // initialize executor load at 0
                 self.executor_running_task_count.insert(&executor_id, 0);
+                Ok(())
             }
-            RequestPayload::RemoveExecutor { executor_id: _ } => (),
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
                     self.unassigned_tasks.insert(&task.id);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
+                    self.pending_tasks_for_content.insert(
+                        &task.content_metadata.id,
+                        &task.extraction_policy_id,
+                        &task.id,
+                    );
                 }
+                Ok(())
             }
             RequestPayload::AssignTask { assignments } => {
                 for (task_id, executor_id) in assignments {
@@ -1280,24 +1370,28 @@ impl IndexifyState {
                     self.executor_running_task_count
                         .increment_running_task_count(&executor_id);
                 }
+                Ok(())
             }
+            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks: _ } => Ok(()),
             RequestPayload::UpdateGarbageCollectionTask {
                 gc_task,
                 mark_finished,
             } => {
                 if mark_finished {
-                    self.content_children_table
-                        .remove(&gc_task.parent_content_id, &gc_task.content_id);
+                    self.content_children_table.remove_all(&gc_task.content_id);
                 }
+                Ok(())
             }
             RequestPayload::CreateContent { content_metadata } => {
                 for content in content_metadata {
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
-                    self.content_children_table
-                        .insert(&content.parent_id, &content.id);
+                    if !content.parent_id.id.is_empty() {
+                        self.content_children_table
+                            .insert(&content.parent_id, &content.id);
+                    }
                     let mut guard = self.metrics.lock().unwrap();
-                    if content.parent_id.is_empty() {
+                    if content.parent_id.id.is_empty() {
                         guard.content_uploads += 1;
                         guard.content_bytes += content.size_bytes;
                     } else {
@@ -1305,6 +1399,23 @@ impl IndexifyState {
                         guard.content_extracted_bytes += content.size_bytes;
                     }
                 }
+                Ok(())
+            }
+            RequestPayload::UpdateContent { content_metadata } => {
+                for content in content_metadata {
+                    //  remove the child from the old parent and add the child to the new parent
+                    if content.parent_id.id.is_empty() {
+                        continue;
+                    }
+                    let old_parent = ContentMetadataId::new_with_version(
+                        &content.parent_id.id,
+                        content.parent_id.version - 1,
+                    );
+                    self.content_children_table.remove(&old_parent, &content.id);
+                    self.content_children_table
+                        .insert(&content.parent_id, &content.id);
+                }
+                Ok(())
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
@@ -1317,12 +1428,14 @@ impl IndexifyState {
                     self.update_schema_reverse_idx(schema);
                 }
                 self.update_schema_reverse_idx(new_structured_data_schema);
+                Ok(())
             }
             RequestPayload::CreateNamespace {
                 name: _,
                 structured_data_schema,
             } => {
                 self.update_schema_reverse_idx(structured_data_schema);
+                Ok(())
             }
             RequestPayload::CreateIndex {
                 index: _,
@@ -1330,6 +1443,7 @@ impl IndexifyState {
                 id,
             } => {
                 self.namespace_index_table.insert(&namespace, &id);
+                Ok(())
             }
             RequestPayload::UpdateTask {
                 task,
@@ -1345,22 +1459,76 @@ impl IndexifyState {
                         self.executor_running_task_count
                             .decrement_running_task_count(&executor_id);
                     }
+                    let content_id = task.content_metadata.id;
+                    self.pending_tasks_for_content.remove(
+                        &content_id,
+                        &task.extraction_policy_id,
+                        &task.id,
+                    );
                 }
                 for content in content_metadata {
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
                 }
+                Ok(())
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 for state_change in state_changes {
                     self.mark_state_changes_processed(&state_change, state_change.processed_at);
                 }
+                Ok(())
             }
-            _ => (),
+            _ => Ok(()),
         }
     }
 
     //  START READER METHODS FOR ROCKSDB FORWARD INDEXES
+
+    /// This function is a helper method that will get the latest version of any
+    /// piece of content in the database by building a prefix foward iterator
+    pub fn get_latest_version_of_content(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+    ) -> Result<Option<u64>, StateMachineError> {
+        let prefix = format!("{}::v", content_id);
+
+        let mut read_opts = rocksdb::ReadOptions::default();
+        read_opts.set_prefix_same_as_start(true);
+        let iter = txn.iterator_cf(
+            StateMachineColumns::ContentTable.cf(db),
+            rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
+        );
+
+        let mut highest_version: Option<u64> = None;
+
+        for item in iter {
+            match item {
+                Ok((key, value)) => {
+                    let content_metadata =
+                        JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?;
+                    if content_metadata.tombstoned {
+                        continue;
+                    }
+                    if let Ok(key_str) = std::str::from_utf8(&key) {
+                        if let Some(version_str) = key_str.strip_prefix(&prefix) {
+                            if let Ok(version) = version_str.parse::<u64>() {
+                                highest_version = Some(match highest_version {
+                                    Some(current_high) if version > current_high => version,
+                                    None => version,
+                                    Some(current_high) => current_high,
+                                });
+                            }
+                        }
+                    }
+                }
+                Err(e) => return Err(StateMachineError::TransactionError(e.to_string())),
+            }
+        }
+
+        Ok(highest_version)
+    }
 
     /// This method fetches a key from a specific column family
     pub fn get_from_cf<T, K>(
@@ -1480,37 +1648,95 @@ impl IndexifyState {
         executors
     }
 
-    /// This method will fetch content based on the id's provided
+    /// This method will fetch content based on the id and version provided.
+    /// It will skip over any content that it cannot find
+    pub fn get_content_from_ids_with_version(
+        &self,
+        content_ids: HashSet<ContentMetadataId>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+
+        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
+            content_ids
+                .into_iter()
+                .filter_map(|content_id| {
+                    match txn.get_cf(
+                        StateMachineColumns::ContentTable.cf(db),
+                        format!("{}::v{}", content_id.id, content_id.version),
+                    ) {
+                        Ok(Some(content_bytes)) => match JsonEncoder::decode::<
+                            indexify_internal_api::ContentMetadata,
+                        >(&content_bytes)
+                        {
+                            Ok(content) => {
+                                if !content.tombstoned {
+                                    Some(Ok(content))
+                                } else {
+                                    None
+                                }
+                            }
+                            Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
+                        },
+                        Ok(None) => None,
+                        Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>();
+        content
+    }
+
+    /// This method will fetch content based on the id's provided. It will look
+    /// for the latest version for each piece of content It will skip any
+    /// that cannot be found and expect the consumer to decide what to do in
+    /// that case It will also skip any that have been tombstoned
     pub fn get_content_from_ids(
         &self,
         content_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
-        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
-            content_ids
-                .into_iter()
-                .map(|content_id| {
-                    let content_bytes = txn
-                        .get_cf(
-                            StateMachineColumns::ContentTable.cf(db),
-                            content_id.as_bytes(),
-                        )
-                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                        .ok_or_else(|| {
-                            StateMachineError::DatabaseError(format!(
-                                "Content {} not found",
-                                content_id
-                            ))
-                        })?;
-                    serde_json::from_slice(&content_bytes).map_err(StateMachineError::from)
-                })
-                .collect();
-        content
+        let mut contents = Vec::new();
+
+        //  For each content id find the highest version, deserialize it and collect it
+        for content_id in &content_ids {
+            // Construct prefix for content ID to search for all its versions
+            let highest_version = self.get_latest_version_of_content(content_id, db, &txn)?;
+
+            if highest_version.is_none() {
+                continue;
+            }
+            // If a key with the highest version is found, decode its content and add to the
+            // results
+            let highest_version = highest_version.unwrap();
+            match txn.get_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                &format!("{}::v{}", content_id, highest_version),
+            ) {
+                Ok(Some(content_bytes)) => {
+                    match JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
+                        &content_bytes,
+                    ) {
+                        Ok(content) => {
+                            if !content.tombstoned {
+                                contents.push(content);
+                            }
+                        }
+                        Err(e) => {
+                            return Err(StateMachineError::TransactionError(e.to_string()));
+                        }
+                    }
+                }
+                Ok(None) => {} // This should technically never happen since we have the key
+                Err(e) => return Err(StateMachineError::TransactionError(e.to_string())),
+            }
+        }
+
+        Ok(contents)
     }
 
     /// This method will fetch all pieces of content metadata for the tree
-    /// rooted at content_id
+    /// rooted at content_id. It will look for the latest version of each node
     pub fn get_content_tree_metadata(
         &self,
         content_id: &str,
@@ -1523,20 +1749,63 @@ impl IndexifyState {
         queue.push_back(content_id.to_string());
 
         while let Some(current_root) = queue.pop_front() {
+            let highest_version = self.get_latest_version_of_content(&current_root, db, &txn)?;
+            if highest_version.is_none() {
+                continue;
+            }
+            let highest_version = highest_version.unwrap();
             let content_bytes = txn
-                .get_cf(StateMachineColumns::ContentTable.cf(db), &current_root)
+                .get_cf(
+                    StateMachineColumns::ContentTable.cf(db),
+                    &format!("{}::v{}", current_root, highest_version),
+                )
                 .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
                 .ok_or_else(|| {
                     StateMachineError::DatabaseError(format!(
-                        "Content {} not found while tombstoning",
+                        "Content {} not found while fetching content tree",
                         &current_root
                     ))
                 })?;
             let content =
                 JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
-            collected_content_metadata.push(content);
-            let children = self.content_children_table.get_children(&current_root);
-            queue.extend(children);
+            collected_content_metadata.push(content.clone());
+            let children = self.content_children_table.get_children(&content.id);
+            queue.extend(children.into_iter().map(|id| id.id));
+        }
+        Ok(collected_content_metadata)
+    }
+
+    /// This method will fetch all pieces of content metadata for the tree
+    /// rooted at content_id. It will look for a specfic version of the node
+    pub fn get_content_tree_metadata_with_version(
+        &self,
+        content_id: &ContentMetadataId,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let mut collected_content_metadata = Vec::new();
+
+        let mut queue = VecDeque::new();
+        queue.push_back(content_id.clone());
+
+        while let Some(current_root) = queue.pop_front() {
+            let content_bytes = txn
+                .get_cf(
+                    StateMachineColumns::ContentTable.cf(db),
+                    &format!("{}::v{}", current_root.id, current_root.version),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                .ok_or_else(|| {
+                    StateMachineError::DatabaseError(format!(
+                        "Content {} not found while fetching content tree",
+                        &current_root
+                    ))
+                })?;
+            let content =
+                JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
+            collected_content_metadata.push(content.clone());
+            let children = self.content_children_table.get_children(&content.id);
+            queue.extend(children.into_iter());
         }
         Ok(collected_content_metadata)
     }
@@ -1707,7 +1976,9 @@ impl IndexifyState {
         self.unprocessed_state_changes.inner()
     }
 
-    pub fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+    pub fn get_content_namespace_table(
+        &self,
+    ) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
         self.content_namespace_table.inner()
     }
 
@@ -1735,8 +2006,21 @@ impl IndexifyState {
         self.schemas_by_namespace.inner()
     }
 
-    pub fn get_content_children_table(&self) -> HashMap<ContentId, HashSet<ContentId>> {
+    pub fn get_content_children_table(
+        &self,
+    ) -> HashMap<ContentMetadataId, HashSet<ContentMetadataId>> {
         self.content_children_table.inner()
+    }
+
+    pub fn get_pending_tasks_for_content(
+        &self,
+    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
+        self.pending_tasks_for_content.inner()
+    }
+
+    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
+        self.pending_tasks_for_content
+            .are_content_tasks_completed(content_id)
     }
 
     pub fn tasks_count(&self) -> usize {
@@ -1770,6 +2054,7 @@ impl IndexifyState {
             executor_running_task_count: self.get_executor_running_task_count(),
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
+            pending_tasks_for_content: self.get_pending_tasks_for_content(),
             metrics: self.metrics.lock().unwrap().clone(),
         }
     }
@@ -1841,14 +2126,16 @@ impl IndexifyState {
 pub struct IndexifyStateSnapshot {
     unassigned_tasks: HashSet<TaskId>,
     unprocessed_state_changes: HashSet<StateChangeId>,
-    content_namespace_table: HashMap<NamespaceName, HashSet<ContentId>>,
+    content_namespace_table: HashMap<NamespaceName, HashSet<ContentMetadataId>>,
     extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
     extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
     namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
     unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
     executor_running_task_count: HashMap<ExecutorId, usize>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
-    content_children_table: HashMap<ContentId, HashSet<ContentId>>,
+    content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
+    pending_tasks_for_content:
+        HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
     metrics: Metrics,
 }
 

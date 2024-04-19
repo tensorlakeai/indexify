@@ -73,6 +73,9 @@ pub enum StateMachineError {
 
     #[error("RocksDB transaction error: {0}")]
     TransactionError(String),
+
+    #[error("External error: {0}")]
+    ExternalError(#[from] anyhow::Error),
 }
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
@@ -148,7 +151,7 @@ impl StateMachineStore {
         snapshot_file_path: PathBuf,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
-        let (gc_tasks_tx, _) = broadcast::channel(8);
+        let (gc_tasks_tx, _) = broadcast::channel(100);
         let sm = Self {
             data: StateMachineData {
                 last_applied_log_id: RwLock::new(None),
@@ -287,6 +290,14 @@ impl StateMachineStore {
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES
+    pub fn get_latest_version_of_content(&self, content_id: &str) -> Result<Option<u64>> {
+        let txn = self.db.transaction();
+        self.data
+            .indexify_state
+            .get_latest_version_of_content(content_id, &self.db, &txn)
+            .map_err(|e| anyhow::anyhow!("Failed to get latest version of content: {}", e))
+    }
+
     /// This method fetches a key from a specific column family
     pub async fn get_from_cf<T, K>(
         &self,
@@ -358,13 +369,30 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_content_tree_metadata(
+    pub async fn get_content_from_ids_with_version(
         &self,
-        content_id: &str,
+        content_ids: HashSet<indexify_internal_api::ContentMetadataId>,
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
+            .get_content_from_ids_with_version(content_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
             .get_content_tree_metadata(content_id, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_content_tree_metadata_with_version(
+        &self,
+        content_id: &indexify_internal_api::ContentMetadataId,
+    ) -> Result<Vec<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_tree_metadata_with_version(content_id, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -409,7 +437,9 @@ impl StateMachineStore {
         self.data.indexify_state.get_unprocessed_state_changes()
     }
 
-    pub async fn get_content_namespace_table(&self) -> HashMap<NamespaceName, HashSet<ContentId>> {
+    pub async fn get_content_namespace_table(
+        &self,
+    ) -> HashMap<NamespaceName, HashSet<indexify_internal_api::ContentMetadataId>> {
         self.data.indexify_state.get_content_namespace_table()
     }
 
@@ -439,6 +469,25 @@ impl StateMachineStore {
 
     pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
         self.data.indexify_state.get_schemas_by_namespace()
+    }
+
+    pub async fn are_content_tasks_completed(
+        &self,
+        content_id: &indexify_internal_api::ContentMetadataId,
+    ) -> bool {
+        self.data
+            .indexify_state
+            .are_content_tasks_completed(content_id)
+    }
+
+    pub fn get_content_children(
+        &self,
+        content_id: &indexify_internal_api::ContentMetadataId,
+    ) -> HashSet<indexify_internal_api::ContentMetadataId> {
+        self.data
+            .indexify_state
+            .content_children_table
+            .get_children(content_id)
     }
 
     //  END REVERSE INDEX READER METHOD INTERFACES
@@ -550,9 +599,19 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                     if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
                         req.payload
                     {
+                        let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
                         for gc_task in gc_tasks {
-                            if let Err(e) = self.data.gc_tasks_tx.send(gc_task.clone()) {
-                                tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                            match self.data.gc_tasks_tx.send(gc_task.clone()) {
+                                Ok(sent_count) => {
+                                    if sent_count < expected_receiver_count {
+                                        tracing::error!(
+                                            "The gc task event did not reach all listeners"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                                }
                             }
                         }
                     }
@@ -853,9 +912,6 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
 ) -> (LogStore, Arc<StateMachineStore>) {
-    //  TODO: Don't return sm from here, just return the StateMachineReader and use
-    // that in AppState. Don't take locks unless reading from reverse indexes on the
-    // state machine
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);

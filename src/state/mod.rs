@@ -3,7 +3,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     io::Cursor,
     path::Path,
     sync::Arc,
@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
-use internal_api::{ExtractionPolicy, StateChange, StructuredDataSchema};
+use internal_api::{ContentMetadataId, ExtractionPolicy, StateChange, StructuredDataSchema};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
@@ -370,12 +370,18 @@ impl App {
     /// content_matching_policy
     pub async fn filter_extraction_policy_for_content(
         &self,
-        content_id: &str,
+        content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
-        let content_metadata = self.get_conent_metadata(content_id).await?;
-        if content_metadata.tombstoned {
+        let content_metadata = self.get_content_metadata_with_version(content_id).await?;
+        if content_metadata.is_empty() {
             return Ok(vec![]);
         }
+        let content_metadata = content_metadata.first().ok_or_else(|| {
+            anyhow!(
+                "Content metadata with id {} not found",
+                content_id.to_string()
+            )
+        })?;
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -420,7 +426,8 @@ impl App {
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
-                    content_metadata.id, extraction_policy.extractor
+                    format!("{}::v{}", content_id.id, content_id.version),
+                    extraction_policy.extractor
                 );
                 continue;
             }
@@ -460,6 +467,7 @@ impl App {
         let extractor = self
             .extractor_with_name(&extraction_policy.extractor)
             .await?;
+
         let content_list = {
             let content_list = self
                 .state_machine
@@ -472,14 +480,12 @@ impl App {
             for content_id in content_list {
                 let content_metadata = self
                     .state_machine
-                    .get_from_cf::<internal_api::ContentMetadata, _>(
-                        StateMachineColumns::ContentTable,
-                        &content_id,
-                    )
+                    .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
                     .await?;
+
                 // if the content metadata mimetype does not match the extractor, skip it
                 //  if the content metadata is tombstoned, skip it
-                if let Some(content_metadata) = content_metadata {
+                if let Some(content_metadata) = content_metadata.first() {
                     if !matches_mime_type(
                         &extractor.input_mime_types,
                         &content_metadata.content_type,
@@ -489,7 +495,7 @@ impl App {
                     if content_metadata.tombstoned {
                         continue;
                     }
-                    content_meta_list.push(content_metadata);
+                    content_meta_list.push(content_metadata.clone());
                 }
             }
             content_meta_list
@@ -579,6 +585,7 @@ impl App {
         Ok(task_ids)
     }
 
+    /// Get all content from a namespace
     pub async fn list_content(
         &self,
         namespace: &str,
@@ -590,7 +597,9 @@ impl App {
             .get(namespace)
             .cloned()
             .unwrap_or_default();
-        self.state_machine.get_content_from_ids(content_ids).await
+        self.state_machine
+            .get_content_from_ids_with_version(content_ids)
+            .await
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -671,8 +680,18 @@ impl App {
         let mut state_changes = vec![];
         for content in &content_meta_list {
             state_changes.push(StateChange::new(
-                content.id.clone(),
+                content.id.to_string().clone(),
                 internal_api::ChangeType::NewContent,
+                timestamp_secs(),
+            ));
+        }
+        let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
+        if mark_finished && task.outcome == internal_api::TaskOutcome::Success {
+            state_changes.push(StateChange::new(
+                task.id.clone(),
+                internal_api::ChangeType::TaskCompleted {
+                    content_id: task.content_metadata.id.clone(),
+                },
                 timestamp_secs(),
             ));
         }
@@ -689,92 +708,6 @@ impl App {
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
-
-    // pub async fn create_gc_tasks(
-    //     &self,
-    //     content_id: &str,
-    // ) -> Result<Vec<internal_api::GarbageCollectionTask>> {
-    //     //  Get the metadata of the children of the content id
-    //     let content_tree_metadata = self.get_content_tree_metadata(content_id)?;
-    //     let mut output_tables = HashMap::new();
-    //     let mut policy_ids = HashMap::new();
-
-    //     for content_metadata in &content_tree_metadata {
-    //         let content_extraction_policy_mappings = self
-    //
-    // .get_content_extraction_policy_mappings_for_content_id(&content_metadata.id)
-    //             .await?;
-
-    //         if content_extraction_policy_mappings.is_none() {
-    //             continue;
-    //         }
-
-    //         let mappings = content_extraction_policy_mappings.unwrap();
-    //         let applied_extraction_policy_ids: HashSet<String> =
-    //             mappings.time_of_policy_completion.keys().cloned().collect();
-    //         let applied_extraction_policies = self
-    //             .get_extraction_policies_from_ids(applied_extraction_policy_ids)
-    //             .await?;
-
-    //         if applied_extraction_policies.is_none() {
-    //             continue;
-    //         }
-
-    //         let policy_id = &applied_extraction_policies
-    //             .as_ref()
-    //             .unwrap()
-    //             .iter()
-    //             .next()
-    //             .map(|policy| policy.id.clone())
-    //             .unwrap_or("".to_string());
-    //         policy_ids.insert(content_metadata.id.clone(),
-    // policy_id.to_string());
-
-    //         for applied_extraction_policy in
-    // applied_extraction_policies.clone().unwrap() {
-    // output_tables.insert(                 content_metadata.id.clone(),
-    //                 applied_extraction_policy
-    //                     .index_name_table_mapping
-    //                     .values()
-    //                     .cloned()
-    //                     .collect::<HashSet<_>>(),
-    //             );
-    //         }
-    //     }
-
-    //     if let Some(forward_to_leader) =
-    // self.forwardable_raft.ensure_leader().await? {         //  forward to the
-    // leader         let leader_node = forward_to_leader
-    //             .leader_node
-    //             .ok_or_else(|| anyhow::anyhow!("could not get leader address"))?;
-    //         self.network
-    //             .create_gc_tasks(
-    //                 content_tree_metadata,
-    //                 output_tables,
-    //                 policy_ids,
-    //                 &leader_node.addr,
-    //             )
-    //             .await?;
-    //         return Ok(Vec::new());
-    //     }
-
-    //     //  this is the leader
-    //     let gc_tasks = self
-    //         .garbage_collector
-    //         .create_gc_tasks(content_tree_metadata, output_tables, policy_ids)
-    //         .await?;
-
-    //     let request = StateMachineUpdateRequest {
-    //         payload: RequestPayload::CreateOrAssignGarbageCollectionTask {
-    //             gc_tasks: gc_tasks.clone(),
-    //         },
-    //         new_state_changes: vec![],
-    //         state_changes_processed: vec![],
-    //     };
-    //     self.forwardable_raft.client_write(request).await?;
-
-    //     Ok(gc_tasks)
-    // }
 
     pub async fn create_gc_tasks(
         &self,
@@ -976,71 +909,229 @@ impl App {
         &self,
         content_metadata: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
-        let mut state_changes = vec![];
-        for content in &content_metadata {
+        let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
+        let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
+        let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
+            .into_iter()
+            .map(|c| (c.id.id.to_string(), c))
+            .collect();
+
+        let mut identical_content: Vec<internal_api::ContentMetadata> = Vec::new();
+        let mut content_to_be_updated: Vec<internal_api::ContentMetadata> = Vec::new();
+        let mut new_incoming_content: Vec<internal_api::ContentMetadata> = Vec::new();
+
+        for new_content in content_metadata {
+            if let Some(existing_content) = existing_content_map.get(&new_content.id.id.to_string())
+            {
+                //  some existing piece of content
+                if existing_content.hash != new_content.hash {
+                    //  the content has been updated
+                    let mut new_content = new_content.clone();
+                    new_content.id.version = existing_content.id.version + 1;
+                    content_to_be_updated.push(new_content);
+                } else {
+                    //  the content has not changed
+                    identical_content.push(new_content);
+                }
+            } else {
+                //  this is fresh content
+                new_incoming_content.push(new_content);
+            }
+        }
+
+        //  handle identical content
+        if !identical_content.is_empty() {
+            //  If the content is identical, find the latest version of the parent and flip
+            // the content node in the db with the same id to point to the new parent
+            let mut content_to_write = Vec::new();
+            for content in identical_content {
+                let latest_version_of_parent = self
+                    .state_machine
+                    .get_latest_version_of_content(&content.parent_id.id)
+                    .map_err(|e| {
+                        anyhow!(
+                            "Unable to get latest version of content {}: {}",
+                            content.parent_id,
+                            e
+                        )
+                    })?;
+                if latest_version_of_parent.is_none() {
+                    continue;
+                }
+                let latest_version_of_parent = latest_version_of_parent.unwrap();
+                let mut old_node = existing_content_map
+                    .get(&content.id.id.to_string())
+                    .unwrap()
+                    .clone();
+                old_node.parent_id = ContentMetadataId::new_with_version(
+                    &content.parent_id.id,
+                    latest_version_of_parent,
+                );
+                content_to_write.push(old_node);
+            }
+            let req = StateMachineUpdateRequest {
+                payload: RequestPayload::UpdateContent {
+                    content_metadata: content_to_write,
+                },
+                new_state_changes: vec![],
+                state_changes_processed: vec![],
+            };
+            self.forwardable_raft.client_write(req).await.map_err(|e| {
+                anyhow!(
+                    "unable to update identical content metadata: {}",
+                    e.to_string()
+                )
+            })?;
+        }
+
+        //  write the updated content
+        let mut state_changes = Vec::new();
+        let mut content_to_write = content_to_be_updated.clone();
+        content_to_write.extend(new_incoming_content.clone());
+
+        let mut updated_contents_to_write = Vec::new();
+
+        for mut content in content_to_write {
+            if !content.parent_id.id.is_empty() {
+                // Retrieve the latest version of the parent content
+                match self
+                    .state_machine
+                    .get_latest_version_of_content(&content.parent_id.id)
+                {
+                    Ok(Some(latest_version)) => {
+                        content.parent_id.version = latest_version;
+                    }
+                    Ok(None) => {
+                        // Error out if no parent is found
+                        tracing::error!(
+                            "Parent content with id {} not found",
+                            content.parent_id.id
+                        );
+                        return Err(anyhow!(
+                            "Parent content with id {} not found",
+                            content.parent_id.id
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+            updated_contents_to_write.push(content);
+        }
+
+        for content in &updated_contents_to_write {
             state_changes.push(StateChange::new(
-                content.id.clone(),
+                content.id.to_string(),
                 internal_api::ChangeType::NewContent,
                 timestamp_secs(),
             ));
         }
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateContent { content_metadata },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-        let _ = self
-            .forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("unable to create content metadata: {}", e.to_string()))?;
-        Ok(())
-    }
 
-    pub async fn tombstone_content_batch(
-        &self,
-        namespace: &str,
-        content_ids: &[String],
-    ) -> Result<()> {
-        let mut state_changes = vec![];
-        for content_id in content_ids {
-            state_changes.push(StateChange::new(
-                content_id.clone(),
-                internal_api::ChangeType::TombstoneContent,
-                timestamp_secs(),
-            ));
-        }
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::TombstoneContent {
-                namespace: namespace.to_string(),
-                content_ids: content_ids.iter().cloned().collect(),
+            payload: RequestPayload::CreateContent {
+                content_metadata: updated_contents_to_write,
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
         };
-        let _ = self
-            .forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("Unable to tombstone content metadata: {}", e.to_string()))?;
+        let _ = self.forwardable_raft.client_write(req).await.map_err(|e| {
+            anyhow!(
+                "unable to create updated content metadata: {}",
+                e.to_string()
+            )
+        })?;
+
         Ok(())
     }
 
-    pub async fn get_conent_metadata(
+    /// This method will accept a vector of content ids to tombstone. It will
+    /// get the latest version of each content id and tombstone that one
+    pub async fn tombstone_content_batch(
         &self,
-        content_id: &str,
-    ) -> Result<internal_api::ContentMetadata> {
-        let content_metadata = self
-            .state_machine
-            .get_from_cf::<internal_api::ContentMetadata, _>(
-                StateMachineColumns::ContentTable,
-                content_id,
-            )
-            .await?
-            .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
-        Ok(content_metadata)
+        namespace: &str,
+        content_ids: &[String],
+    ) -> Result<(), anyhow::Error> {
+        let mut updated_content_ids = Vec::new();
+
+        for content_id in content_ids.iter() {
+            let latest_version = self
+                .state_machine
+                .get_latest_version_of_content(content_id)
+                .map_err(|e| {
+                    anyhow!(
+                        "Unable to get latest version of content {}: {}",
+                        content_id,
+                        e
+                    )
+                })?
+                .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
+
+            let id = ContentMetadataId::new_with_version(content_id, latest_version);
+            updated_content_ids.push(id.clone());
+        }
+
+        self.tombstone_content_batch_with_version(namespace, &updated_content_ids)
+            .await?;
+
+        Ok(())
     }
 
+    pub async fn tombstone_content_batch_with_version(
+        &self,
+        namespace: &str,
+        content_ids: &[ContentMetadataId],
+    ) -> Result<(), anyhow::Error> {
+        let mut state_changes = vec![];
+
+        let mut queue = VecDeque::new();
+        for root_content_id in content_ids.iter() {
+            queue.push_back(root_content_id.clone());
+            state_changes.push(StateChange::new(
+                root_content_id.to_string(),
+                internal_api::ChangeType::TombstoneContentTree,
+                timestamp_secs(),
+            ));
+        }
+
+        let mut updated_content = Vec::new();
+        while let Some(current_root) = queue.pop_front() {
+            let mut content_keys_set = HashSet::new();
+            content_keys_set.insert(current_root.clone());
+            let content_metadata = self
+                .state_machine
+                .get_content_from_ids_with_version(content_keys_set)
+                .await?;
+            let mut content_metadata = content_metadata
+                .first()
+                .ok_or_else(|| anyhow!("Content with id {} not found", current_root))?
+                .clone();
+            content_metadata.tombstoned = true;
+            updated_content.push(content_metadata);
+
+            let children = self.state_machine.get_content_children(&current_root);
+            queue.extend(children.iter().cloned());
+        }
+
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::TombstoneContentTree {
+                namespace: namespace.to_string(),
+                content_metadata: updated_content,
+            },
+            new_state_changes: state_changes,
+            state_changes_processed: vec![],
+        };
+
+        self.forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("Unable to tombstone content metadata: {}", e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Get content based on id's without version. Will fetch the latest version
+    /// for each one
     pub async fn get_content_metadata_batch(
         &self,
         content_ids: Vec<String>,
@@ -1049,13 +1140,30 @@ impl App {
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
-    pub async fn get_content_tree_metadata(
+    /// Get specific piece of content. This uses a content id with a specific
+    /// version
+    pub async fn get_content_metadata_with_version(
+        &self,
+        content_id: &ContentMetadataId,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.state_machine
+            .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
+            .await
+    }
+
+    pub fn get_content_tree_metadata(
         &self,
         content_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
+        self.state_machine.get_content_tree_metadata(content_id)
+    }
+
+    pub fn get_content_tree_metadata_with_version(
+        &self,
+        content_id: &ContentMetadataId,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine
-            .get_content_tree_metadata(content_id)
-            .await
+            .get_content_tree_metadata_with_version(content_id)
     }
 
     pub async fn create_tasks(
@@ -1110,6 +1218,19 @@ impl App {
             .state_machine
             .get_tasks_for_executor(executor_id, limit)
             .await?;
+        Ok(tasks)
+    }
+
+    #[cfg(test)]
+    pub async fn list_all_unfinished_tasks(&self) -> Result<Vec<internal_api::Task>> {
+        let tasks: Vec<internal_api::Task> = self
+            .state_machine
+            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
+            .await?
+            .into_iter()
+            .map(|(_, value)| value)
+            .filter(|task| task.outcome != internal_api::TaskOutcome::Success)
+            .collect();
         Ok(tasks)
     }
 
@@ -1221,6 +1342,12 @@ impl App {
         self.state_machine.get_unfinished_tasks_by_extractor().await
     }
 
+    pub async fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
+        self.state_machine
+            .are_content_tasks_completed(content_id)
+            .await
+    }
+
     pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {
         self.state_machine
             .insert_executor_running_task_count(executor_id, task_count)
@@ -1327,7 +1454,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{ContentMetadata, Index, TaskOutcome};
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index, TaskOutcome};
 
     use crate::{
         state::{
@@ -1423,34 +1550,24 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         let content = ContentMetadata {
-            id: "content_id".to_string(),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
 
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let state_change = node.unprocessed_state_change_events().await?;
+        let state_change = state_change.first().unwrap();
         let task = indexify_internal_api::Task {
             id: "id".into(),
             content_metadata: content.clone(),
             ..Default::default()
         };
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateTasks {
-                tasks: vec![task.clone()],
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-
-        let read_back = {
-            move |node: Arc<App>| async move {
-                match node.task_with_id("id").await {
-                    Ok(read_result) if read_result.id == "id" => Ok(true),
-                    Ok(_) => Ok(false),
-                    Err(_) => Ok(false),
-                }
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
+        node.create_tasks(vec![task.clone()], &state_change.id)
+            .await?;
+        let retr_task = node.task_with_id(&task.id).await?;
+        assert_eq!(retr_task, task);
         Ok(())
     }
 
@@ -1462,9 +1579,17 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
+        let content = ContentMetadata {
+            id: ContentMetadataId::new("content_id"),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content.clone()]).await?;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         //  First create a task and ensure it's written
         let content = ContentMetadata {
-            id: "content_id".to_string(),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
@@ -1492,7 +1617,7 @@ mod tests {
         };
         cluster.read_own_write(request, read_back, true).await?;
 
-        //  Second, assign the task to some executor
+        //  assign the task to some executor
         let assignments: HashMap<TaskId, ExecutorId> =
             vec![("task_id".into(), "executor_id".into())]
                 .into_iter()
@@ -1527,9 +1652,8 @@ mod tests {
         let node = cluster.get_raft_node(0)?;
 
         //  Create a piece of content
-        let content_id = "content_id";
         let content_metadata = ContentMetadata {
-            id: content_id.into(),
+            id: ContentMetadataId::new("content_id"),
             content_type: "text/plain".into(),
             ..Default::default()
         };
@@ -1578,7 +1702,7 @@ mod tests {
 
         //  Create a task and ensure that it can be read back
         let content = ContentMetadata {
-            id: "content_id".to_string(),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
@@ -1712,7 +1836,7 @@ mod tests {
         let mut content_metadata_vec: Vec<ContentMetadata> = Vec::new();
         for i in 0..content_size {
             let content_metadata = ContentMetadata {
-                id: format!("id{}", i),
+                id: ContentMetadataId::new(&format!("id{}", i)),
                 ..Default::default()
             };
             content_metadata_vec.push(content_metadata);
@@ -1731,7 +1855,7 @@ mod tests {
             .get_content_metadata_batch(
                 content_metadata_vec
                     .iter()
-                    .map(|content| content.id.clone())
+                    .map(|content| content.id.id.clone())
                     .collect(),
             )
             .await?;
@@ -1739,9 +1863,9 @@ mod tests {
 
         //  Read back a specific piece of content
         let read_content = node
-            .get_conent_metadata(&content_metadata_vec[0].id)
+            .get_content_metadata_with_version(&content_metadata_vec[0].id)
             .await?;
-        assert_eq!(read_content, content_metadata_vec[0]);
+        assert_eq!(read_content.first().unwrap(), &content_metadata_vec[0]);
 
         Ok(())
     }
@@ -1917,7 +2041,7 @@ mod tests {
         //  Create some content
         let content_labels = vec![("label1".to_string(), "value1".to_string())];
         let content_metadata = ContentMetadata {
-            id: "content_id_1".to_string(),
+            id: ContentMetadataId::new("content_id_1"),
             namespace: "namespace".into(),
             name: "name_1".into(),
             labels: content_labels.into_iter().collect(),
@@ -1929,7 +2053,7 @@ mod tests {
         let mut content_metadata_vec = vec![content_metadata];
         let content_labels = vec![("label1".to_string(), "value-mismatch".to_string())];
         let content_metadata = ContentMetadata {
-            id: "content_id_2".to_string(),
+            id: ContentMetadataId::new("content_id_2"),
             namespace: "namespace".into(),
             name: "name_2".into(),
             labels: content_labels.into_iter().collect(),
@@ -1942,12 +2066,12 @@ mod tests {
         node.create_content_batch(content_metadata_vec).await?;
 
         let policies = node
-            .filter_extraction_policy_for_content("content_id_1")
+            .filter_extraction_policy_for_content(&ContentMetadataId::new("content_id_1"))
             .await?;
         assert_eq!(policies.len(), 1);
 
         let policies = node
-            .filter_extraction_policy_for_content("content_id_2")
+            .filter_extraction_policy_for_content(&ContentMetadataId::new("content_id_2"))
             .await?;
         assert_eq!(policies.len(), 0);
 

@@ -183,7 +183,6 @@ pub mod raft_metrics {
             }
         }
 
-        //  TODO: Make the locks more granular and atomic
         static RAFT_METRICS: Lazy<RaftMetrics> = Lazy::new(RaftMetrics::new);
 
         pub fn incr_fail_connect_to_peer(node_addr: &str) {

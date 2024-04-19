@@ -287,7 +287,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc, time::Instant};
 
     use indexify_internal_api as internal_api;
-    use internal_api::ContentMetadata;
+    use internal_api::{ContentMetadata, ContentMetadataId};
     use serde_json::json;
 
     use super::*;
@@ -431,12 +431,13 @@ mod tests {
             .await?;
 
         let content = ContentMetadata {
-            id: "content_id".to_string(),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         shared_state
             .create_content_batch(vec![content.clone()])
             .await?;
+
         let task = create_task("test-task", &mock_extractor().name, "test-binding", content);
         shared_state
             .create_tasks(vec![task.clone()], &state_change_id)
@@ -510,7 +511,7 @@ mod tests {
         // Crate the tasks
         for i in 1..=50 {
             let content1 = ContentMetadata {
-                id: format!("content_id_{}", i),
+                id: ContentMetadataId::new(&format!("content_id_{}", i)),
                 ..Default::default()
             };
             let task1 = create_task(
@@ -521,7 +522,7 @@ mod tests {
             );
 
             let content2 = ContentMetadata {
-                id: format!("content_id_{}", i + 50),
+                id: ContentMetadataId::new(&format!("content_id_{}", i + 50)),
                 ..Default::default()
             };
             let task2 = create_task(
@@ -536,6 +537,7 @@ mod tests {
             content.push(content2);
         }
         shared_state.create_content_batch(content).await?;
+
         shared_state
             .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;
@@ -762,7 +764,7 @@ mod tests {
         // Crate the tasks
         for i in 1..=500 {
             let content1 = ContentMetadata {
-                id: format!("content_id_{}", i),
+                id: ContentMetadataId::new(&format!("content_id_{}", i)),
                 ..Default::default()
             };
             let task1 = create_task(
@@ -773,7 +775,7 @@ mod tests {
             );
 
             let content2 = ContentMetadata {
-                id: format!("content_id_{}", i + 500),
+                id: ContentMetadataId::new(&format!("content_id_{}", i + 500)),
                 ..Default::default()
             };
             let task2 = create_task(
@@ -788,6 +790,7 @@ mod tests {
             content.push(content2);
         }
         shared_state.create_content_batch(content).await?;
+
         shared_state
             .create_tasks(tasks.clone(), state_change_ids.first().unwrap())
             .await?;

@@ -318,7 +318,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
-    pub fn _get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
+    pub fn get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
         let node = self
             .nodes
             .get(&node_id)

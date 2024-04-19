@@ -3,6 +3,17 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use axum_typed_websockets::{Message, WebSocket};
 use indexify_proto::indexify_coordinator;
+use sha2::{
+    digest::{
+        consts::{B0, B1},
+        core_api::{CoreWrapper, CtVariableCoreWrapper},
+        typenum::{UInt, UTerm},
+    },
+    Digest,
+    OidSha256,
+    Sha256,
+    Sha256VarCore,
+};
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
@@ -18,8 +29,15 @@ struct Writing {
     created_at: i64,
     file_name: String,
     file_size: u64,
-    id: String, // DataManager ID
     writer: StoragePartWriter,
+    hasher: CoreWrapper<
+        CtVariableCoreWrapper<
+            Sha256VarCore,
+            UInt<UInt<UInt<UInt<UInt<UInt<UTerm, B1>, B0>, B0>, B0>, B0>, B0>,
+            OidSha256,
+        >,
+    >,
+    frame_count: u64,
 }
 
 #[derive(Debug)]
@@ -73,11 +91,6 @@ impl IngestExtractedContentState {
             .as_secs();
         let file_name = DataManager::make_file_name(None);
         let metadata = self.ingest_metadata.as_ref().unwrap();
-        let id = DataManager::make_id(
-            &metadata.namespace,
-            &file_name,
-            &Some(metadata.parent_content_id.clone()),
-        );
         let writer = self
             .state
             .data_manager
@@ -87,8 +100,9 @@ impl IngestExtractedContentState {
             created_at: ts as i64,
             file_name,
             file_size: 0,
-            id,
             writer,
+            hasher: Sha256::new(),
+            frame_count: 0,
         });
         Ok(())
     }
@@ -125,7 +139,11 @@ impl IngestExtractedContentState {
                 "received content frame without starting multipart content"
             )),
             FrameState::Writing(frame_state) => {
+                let frame_index_bytes = frame_state.frame_count.to_le_bytes(); //  NOTE: doing this so hash is consistent independent of platform
                 frame_state.file_size += payload.bytes.len() as u64;
+                frame_state.hasher.update(frame_index_bytes);
+                frame_state.hasher.update(&payload.bytes);
+                frame_state.frame_count += 1;
                 frame_state
                     .writer
                     .writer
@@ -141,7 +159,7 @@ impl IngestExtractedContentState {
         }
     }
 
-    async fn finish_content(&mut self, payload: FinishContent) -> Result<()> {
+    async fn finish_content(&mut self, payload: FinishContent) -> Result<String> {
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
                 "received finished extraction ingest without header metadata"
@@ -151,18 +169,23 @@ impl IngestExtractedContentState {
             "received finish multipart content for task: {}",
             self.ingest_metadata.as_ref().unwrap().task_id
         );
+        // let mut ret_id = None;
         match &mut self.frame_state {
-            FrameState::New => {
-                return Err(anyhow!(
-                    "received finish content without any content frames"
-                ));
-            }
+            FrameState::New => Err(anyhow!(
+                "received finish content without any content frames"
+            )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
-
                 let metadata = self.ingest_metadata.as_ref().unwrap();
+                let hash_result = frame_state.hasher.clone().finalize();
+                let content_hash = format!("{:x}", hash_result);
+                let id = DataManager::make_id(
+                    &metadata.namespace,
+                    &Some(metadata.parent_content_id.clone()),
+                    &content_hash,
+                );
                 let content_metadata = indexify_coordinator::ContentMetadata {
-                    id: frame_state.id.clone(),
+                    id: id.clone(),
                     file_name: frame_state.file_name.clone(),
                     parent_id: metadata.parent_content_id.clone(),
                     namespace: metadata.namespace.clone(),
@@ -172,6 +195,7 @@ impl IngestExtractedContentState {
                     labels: payload.labels,
                     source: metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
+                    hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
                 };
                 self.state
@@ -188,9 +212,10 @@ impl IngestExtractedContentState {
                     .node_content_bytes_extracted
                     .add(frame_state.file_size, &[]);
                 self.frame_state = FrameState::New;
+                Ok(id)
             }
         }
-        Ok(())
+        // Ok(ret_id)
     }
 
     async fn ensure_has_content_metadata(
@@ -319,7 +344,7 @@ impl IngestExtractedContentState {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, sync::Arc};
+    use std::sync::Arc;
 
     use indexify_internal_api::TaskOutcome;
     use serde_json::json;
@@ -443,7 +468,7 @@ mod tests {
         let payload = BeginExtractedContentIngest {
             task_id: "test".to_string(),
             namespace: "test".to_string(),
-            parent_content_id: "parent".to_string(),
+            parent_content_id: "".to_string(),
             extraction_policy: "test".to_string(),
             extractor: "test".to_string(),
             output_to_index_table_mapping: HashMap::new(),
@@ -548,7 +573,7 @@ mod tests {
         let payload = BeginExtractedContentIngest {
             task_id: "test".to_string(),
             namespace: "test".to_string(),
-            parent_content_id: "parent".to_string(),
+            parent_content_id: "".to_string(),
             extraction_policy: "test".to_string(),
             extractor: "test".to_string(),
             output_to_index_table_mapping: output_mappings,
@@ -560,12 +585,6 @@ mod tests {
         ingest_state.begin(payload.clone());
 
         ingest_state.begin_multipart_content().await.unwrap();
-
-        let id = if let FrameState::Writing(s) = &ingest_state.frame_state {
-            s.id.clone()
-        } else {
-            panic!("frame_state should be Writing");
-        };
 
         let mut payload = FinishContent {
             content_type: "test".to_string(),
@@ -588,7 +607,7 @@ mod tests {
             data: metadata1.clone(),
         });
 
-        ingest_state.finish_content(payload).await.unwrap();
+        let id = ingest_state.finish_content(payload).await.unwrap();
         if let FrameState::Writing(_) = ingest_state.frame_state {
             panic!("frame_state should be New");
         }
@@ -674,7 +693,7 @@ mod tests {
         let payload = BeginExtractedContentIngest {
             task_id: "test".to_string(),
             namespace: "test".to_string(),
-            parent_content_id: "parent".to_string(),
+            parent_content_id: "".to_string(),
             extraction_policy: "test".to_string(),
             extractor: "test".to_string(),
             output_to_index_table_mapping: output_mappings,
@@ -686,12 +705,6 @@ mod tests {
         ingest_state.begin(payload.clone());
 
         ingest_state.begin_multipart_content().await.unwrap();
-
-        let id = if let FrameState::Writing(s) = &ingest_state.frame_state {
-            s.id.clone()
-        } else {
-            panic!("frame_state should be Writing");
-        };
 
         let mut payload = FinishContent {
             content_type: "test".to_string(),
@@ -708,7 +721,7 @@ mod tests {
             data: metadata1.clone(),
         });
 
-        ingest_state.finish_content(payload).await.unwrap();
+        let id = ingest_state.finish_content(payload).await.unwrap();
         if let FrameState::Writing(_) = ingest_state.frame_state {
             panic!("frame_state should be New");
         }
@@ -719,7 +732,8 @@ mod tests {
             features: vec![Feature {
                 feature_type: FeatureType::Embedding,
                 name: "name1".to_string(),
-                data: json!({"values" : [1.0, 2.0, 3.0], "distance" : "cosine"}),
+                data: json!({"values" : [1.0, 2.0, 3.0], "distance" :
+    "cosine"}),
             }],
         };
 

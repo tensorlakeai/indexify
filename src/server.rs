@@ -6,7 +6,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Extension,
     Json,
     Router,
@@ -212,6 +212,12 @@ impl Server {
             .route(
                 "/namespaces/:namespace/upload_file",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/content/:content_id",
+                put(update_content)
+                    .with_state(namespace_endpoint_state.clone())
+                    .clone(),
             )
             .route(
                 "/namespaces/:namespace/content",
@@ -644,7 +650,7 @@ async fn list_content(
 async fn delete_content(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Json(body): Json<super::api::DeleteContentRequest>,
+    Json(body): Json<super::api::TombstoneContentRequest>,
 ) -> Result<Json<()>, IndexifyAPIError> {
     let request = indexify_coordinator::TombstoneContentRequest {
         namespace: namespace.clone(),
@@ -785,16 +791,41 @@ async fn upload_file(
                 "file_name is not present",
             ))?
             .to_string();
+        info!("user provided file name = {:?}", name);
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let name = nanoid::nanoid!(16);
+        let name = if !ext.is_empty() {
+            format!("{}.{}", name, ext)
+        } else {
+            name
+        };
+        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
         info!("writing to blob store, file name = {:?}", name);
+
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-        let size_bytes = state
+        let content_metadata = state
             .data_manager
-            .upload_file(&namespace, stream, &name)
+            .upload_file(&namespace, stream, &name, content_mime, None)
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
                     StatusCode::BAD_REQUEST,
                     &format!("failed to upload file: {}", e),
+                )
+            })?;
+        let size_bytes = content_metadata.size_bytes;
+        state
+            .data_manager
+            .create_content_metadata(content_metadata)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to create content for file: {}", e),
                 )
             })?;
         state.metrics.node_content_uploads.add(1, &[]);
@@ -803,6 +834,101 @@ async fn upload_file(
             .node_content_bytes_uploaded
             .add(size_bytes, &[]);
     }
+    Ok(())
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    put,
+    path = "/namespaces/{namespace}/content/:content_id",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
+        (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
+    ),
+)]
+#[axum::debug_handler]
+async fn update_content(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    mut files: Multipart,
+) -> Result<(), IndexifyAPIError> {
+    //  check that the content exists
+    let content_metadata = state
+        .data_manager
+        .get_content_metadata(&namespace, vec![content_id.clone()])
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    let content_metadata = content_metadata
+        .first()
+        .ok_or_else(|| IndexifyAPIError::not_found(&format!("content {} not found", content_id)))?;
+
+    while let Some(file) = files.next_field().await.unwrap() {
+        let name = file
+            .file_name()
+            .ok_or(IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                "file_name is not present",
+            ))?
+            .to_string();
+        info!("user provided file name = {:?}", name);
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        let name = nanoid::nanoid!(16);
+        let name = if !ext.is_empty() {
+            format!("{}.{}", name, ext)
+        } else {
+            name
+        };
+        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
+        info!("writing to blob store, file name = {:?}", name);
+
+        let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+        let new_content_metadata = state
+            .data_manager
+            .upload_file(
+                &namespace,
+                stream,
+                &name,
+                content_mime,
+                Some(&content_metadata.id),
+            )
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to upload file: {}", e),
+                )
+            })?;
+
+        if new_content_metadata.hash == content_metadata.hash {
+            info!("the content received is the same, not creating content metadata and removing the created file");
+            let _ = state
+                .data_manager
+                .delete_file(&new_content_metadata.storage_url)
+                .await
+                .map_err(|e| {
+                    tracing::error!("failed to delete file: {}", e);
+                });
+            return Ok(());
+        }
+
+        state
+            .data_manager
+            .create_content_metadata(new_content_metadata)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to create content for file: {}", e),
+                )
+            })?;
+    }
+
     Ok(())
 }
 

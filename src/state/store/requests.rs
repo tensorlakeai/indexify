@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    time::SystemTime,
-};
+use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api as internal_api;
 use internal_api::StateChange;
@@ -10,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{ExecutorId, TaskId};
 use crate::state::NodeId;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub new_state_changes: Vec<StateChange>,
@@ -23,7 +20,7 @@ pub struct StateChangeProcessed {
     pub processed_at: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum RequestPayload {
     //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
@@ -53,9 +50,6 @@ pub enum RequestPayload {
     CreateOrAssignGarbageCollectionTask {
         gc_tasks: Vec<internal_api::GarbageCollectionTask>,
     },
-    // CreateGarbageCollectionTasks {
-    //     gc_tasks: Vec<internal_api::GarbageCollectionTask>,
-    // },
     UpdateGarbageCollectionTask {
         gc_task: internal_api::GarbageCollectionTask,
         mark_finished: bool,
@@ -63,12 +57,12 @@ pub enum RequestPayload {
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    TombstoneContent {
-        namespace: String,
-        content_ids: HashSet<String>,
+    UpdateContent {
+        content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    RemoveTombstonedContent {
-        content_id: String,
+    TombstoneContentTree {
+        namespace: String,
+        content_metadata: Vec<internal_api::ContentMetadata>,
     },
     CreateExtractionPolicy {
         extraction_policy: internal_api::ExtractionPolicy,
