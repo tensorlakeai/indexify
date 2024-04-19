@@ -2041,7 +2041,7 @@ mod tests {
         //  Create some content
         let content_labels = vec![("label1".to_string(), "value1".to_string())];
         let content_metadata = ContentMetadata {
-            id: "content_id_1".to_string(),
+            id: ContentMetadataId::new("content_id_1"),
             namespace: "namespace".into(),
             name: "name_1".into(),
             labels: content_labels.into_iter().collect(),
@@ -2053,7 +2053,7 @@ mod tests {
         let mut content_metadata_vec = vec![content_metadata];
         let content_labels = vec![("label1".to_string(), "value-mismatch".to_string())];
         let content_metadata = ContentMetadata {
-            id: "content_id_2".to_string(),
+            id: ContentMetadataId::new("content_id_2"),
             namespace: "namespace".into(),
             name: "name_2".into(),
             labels: content_labels.into_iter().collect(),
@@ -2066,12 +2066,12 @@ mod tests {
         node.create_content_batch(content_metadata_vec).await?;
 
         let policies = node
-            .filter_extraction_policy_for_content("content_id_1")
+            .filter_extraction_policy_for_content(&ContentMetadataId::new("content_id_1"))
             .await?;
         assert_eq!(policies.len(), 1);
 
         let policies = node
-            .filter_extraction_policy_for_content("content_id_2")
+            .filter_extraction_policy_for_content(&ContentMetadataId::new("content_id_2"))
             .await?;
         assert_eq!(policies.len(), 0);
 
