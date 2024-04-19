@@ -70,6 +70,7 @@ nav:
   - Examples:
     - Scientific Journals: 'examples/Scientific_Journals.ipynb'
     - Image RAG: 'examples/Image_RAG_Structured_Extraction.ipynb'
+    - MoonDream Visual Description: 'examples/Moondream_Visual_Description_Index.ipynb'
     
 plugins: 
   - mkdocs-jupyter
