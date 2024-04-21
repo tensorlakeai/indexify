@@ -9,9 +9,9 @@ Below is an overview of what you can achieve by combining the PDF Extractors, wi
 ![PDF Extraction High Level](../images/PDF_Usecase.png)
 
 ## Extractors
-* tensorlake/pdf-extractor - A combined PDF extractor which can extract text, image and tables
-* tensorlake/ocrmypdf - Uses the ocrmypdf library which uses tessarect under the hood to extract text from PDFs.
-* tensorlake/easyocr - Uses EasyOCR to extract text from PDFs.
+* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - A combined PDF extractor which can extract text, image and tables
+* [**tensorlake/ocrmypdf**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf) - Uses the ocrmypdf library which uses tessarect under the hood to extract text from PDFs.
+* [**tensorlake/easyocr**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrpdf-gpu) - Uses EasyOCR to extract text from PDFs.
 
 ## Output Data Model
 ### Text
@@ -29,14 +29,16 @@ Every `Content` will have `page_number` as a metadata.
 
 ## How to Test PDF Extraction
 
-Start the Indexify Server 
+Download and Start the Indexify Server 
 ```bash
-indexify server -d
+curl https://tensorlake.ai | sh
+./indexify server -d
 ```
 
 Run a PDF Extractor 
 ```bash
-indexify-extractor join pdf_extractor.PDFExtactor
+indexify-extractor download hub://pdf/pdf-extractor
+indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
 ```
 
 Upload a PDF 
@@ -44,7 +46,7 @@ Upload a PDF
 ```python
 client = IndexifyClient()
 content_id = client.upload_file("foo.pdf")
-client.create_extraction_policy(...)
+client.create_extraction_policy(extractor="tensorlake/pdf-extractor", name="my-pdf-extractor")
 ```
 
 Inspect the extracted content
