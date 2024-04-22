@@ -1812,7 +1812,6 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(old_tree_ids, old_tree_ids_expected);
-
         let new_tree_ids = new_content_tree
             .iter()
             .map(|c| c.id.id.clone())
@@ -1826,6 +1825,16 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(new_tree_ids, new_tree_ids_expected);
+
+        //  check the reverse index invariants
+        let old_tree_children = coordinator.shared_state.state_machine.get_content_children(
+            &indexify_internal_api::ContentMetadataId::new_with_version("test_parent_id", 1),
+        );
+        let new_tree_children = coordinator.shared_state.state_machine.get_content_children(
+            &indexify_internal_api::ContentMetadataId::new_with_version("test_parent_id", 2),
+        );
+        assert_eq!(old_tree_children.len(), 2);
+        assert_eq!(new_tree_children.len(), 3);
 
         //  running the scheduler should garbage collect the old tree
         coordinator.run_scheduler().await?;
