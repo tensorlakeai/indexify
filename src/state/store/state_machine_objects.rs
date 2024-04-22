@@ -16,16 +16,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
+    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -1269,7 +1261,6 @@ impl IndexifyState {
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::UpdateContent { content_metadata } => {
-                //  TODO: update the content
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::TombstoneContentTree {

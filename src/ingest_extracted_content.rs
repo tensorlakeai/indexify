@@ -9,18 +9,13 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest,
-    OidSha256,
-    Sha256,
-    Sha256VarCore,
+    Digest, OidSha256, Sha256, Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
-    blob_storage::StoragePartWriter,
-    data_manager::DataManager,
+    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -169,7 +164,6 @@ impl IngestExtractedContentState {
             "received finish multipart content for task: {}",
             self.ingest_metadata.as_ref().unwrap().task_id
         );
-        // let mut ret_id = None;
         match &mut self.frame_state {
             FrameState::New => Err(anyhow!(
                 "received finish content without any content frames"
