@@ -63,6 +63,7 @@ pub struct NamespaceEndpointState {
     pub data_manager: Arc<DataManager>,
     pub coordinator_client: Arc<CoordinatorClient>,
     pub content_reader: Arc<ContentReader>,
+    pub registry: Arc<prometheus::Registry>,
     pub metrics: Arc<metrics::server::Metrics>,
 }
 
@@ -110,7 +111,7 @@ impl Server {
         Ok(Self { addr, config })
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&self, registry: Arc<prometheus::Registry>) -> Result<()> {
         // let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -158,6 +159,7 @@ impl Server {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            registry,
             metrics: Arc::new(crate::metrics::server::Metrics::new()),
         };
         let caches = Caches::new(self.config.cache.clone());
@@ -1281,7 +1283,7 @@ async fn get_raft_metrics_snapshot(
 async fn ingest_metrics(
     State(state): State<NamespaceEndpointState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
-    let metric_families = state.metrics.registry.gather();
+    let metric_families = state.registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();
     encoder.encode(&metric_families, &mut buffer).map_err(|_| {
