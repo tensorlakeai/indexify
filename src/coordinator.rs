@@ -1570,7 +1570,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_content_update() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1650,10 +1650,7 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
-        println!(
-            "Tasks after creating the first version of the root node {:#?}",
-            parent_content
-        );
+        assert_eq!(all_tasks.len(), 1);
         for mut task in all_tasks {
             task.outcome = internal_api::TaskOutcome::Success;
             coordinator
