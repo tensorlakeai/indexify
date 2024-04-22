@@ -391,6 +391,7 @@ mod tests {
 
         async fn new() -> TestCoordinator {
             let config = make_test_config();
+            let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap());
             let coordinator =
                 crate::coordinator_service::CoordinatorServer::new(Arc::new(config.clone()))
                     .await
