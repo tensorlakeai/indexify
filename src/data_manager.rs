@@ -25,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -466,6 +464,11 @@ impl DataManager {
         let id = nanoid!(16);
         id.hash(&mut s);
         format!("{:x}", s.finish())
+    }
+
+    /// Checks if the given string is a valid hexadecimal.
+    pub fn is_hex_string(s: &str) -> bool {
+        s.chars().all(|c| c.is_digit(16))
     }
 
     async fn write_content_bytes(

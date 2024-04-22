@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -567,6 +562,12 @@ async fn add_texts(
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
     for document in &payload.documents {
         if let Some(id) = &document.id {
+            if !DataManager::is_hex_string(id) {
+                return Err(IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("Invalid ID format: {}, ID must be a hex string", id),
+                ));
+            }
             let retrieved_content = state
                 .data_manager
                 .get_content_metadata(&namespace, vec![id.clone()])
@@ -807,6 +808,12 @@ async fn upload_file(
         .get("id")
         .cloned()
         .unwrap_or_else(DataManager::make_id);
+    if !DataManager::is_hex_string(&id) {
+        return Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "Invalid ID format, ID must be a hex string",
+        ));
+    }
 
     //  check if the id already exists for content metadata
     let retrieved_content = state
