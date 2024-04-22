@@ -173,11 +173,7 @@ impl IngestExtractedContentState {
                 let metadata = self.ingest_metadata.as_ref().unwrap();
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
-                let id = DataManager::make_id(
-                    &metadata.namespace,
-                    &Some(metadata.parent_content_id.clone()),
-                    &content_hash,
-                );
+                let id = DataManager::make_id();
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),

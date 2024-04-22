@@ -146,6 +146,7 @@ pub struct ExtractionPolicyResponse {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Text {
+    pub id: Option<String>,
     pub text: String,
     #[serde(default)]
     pub labels: HashMap<String, String>,
@@ -440,6 +441,13 @@ impl From<internal_api::Feature> for Feature {
             data: feature.data,
         }
     }
+}
+
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ContentWithId {
+    pub id: String,
+    pub content: Content,
 }
 
 #[serde_as]

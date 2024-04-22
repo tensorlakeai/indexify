@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -565,14 +560,33 @@ async fn add_texts(
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
+    for document in &payload.documents {
+        if let Some(id) = &document.id {
+            let retrieved_content = state
+                .data_manager
+                .get_content_metadata(&namespace, vec![id.clone()])
+                .await
+                .map_err(IndexifyAPIError::internal_error)?;
+            if !retrieved_content.is_empty() {
+                return Err(IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("content with the provided id {} already exists", id),
+                ));
+            }
+        }
+    }
+
     let content = payload
         .documents
         .iter()
-        .map(|d| api::Content {
-            content_type: mime::TEXT_PLAIN.to_string(),
-            bytes: d.text.as_bytes().to_vec(),
-            labels: d.labels.clone(),
-            features: vec![],
+        .map(|d| api::ContentWithId {
+            id: d.id.clone().unwrap_or_else(|| DataManager::make_id()),
+            content: api::Content {
+                content_type: mime::TEXT_PLAIN.to_string(),
+                bytes: d.text.as_bytes().to_vec(),
+                labels: d.labels.clone(),
+                features: vec![],
+            },
         })
         .collect();
     state
@@ -781,8 +795,27 @@ async fn download_content(
 async fn upload_file(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
+    Query(params): Query<HashMap<String, String>>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
+    let id = params
+        .get("id")
+        .cloned()
+        .unwrap_or_else(|| DataManager::make_id());
+
+    //  check if the id already exists for content metadata
+    let retrieved_content = state
+        .data_manager
+        .get_content_metadata(&namespace, vec![id.clone()])
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    if retrieved_content.len() != 0 {
+        return Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "content with the provided id already exists",
+        ));
+    }
+
     while let Some(file) = files.next_field().await.unwrap() {
         let name = file
             .file_name()
@@ -809,7 +842,7 @@ async fn upload_file(
         let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
         let content_metadata = state
             .data_manager
-            .upload_file(&namespace, stream, &name, content_mime, None)
+            .upload_file(&namespace, stream, &name, content_mime, Some(&id))
             .await
             .map_err(|e| {
                 IndexifyAPIError::new(
