@@ -25,7 +25,9 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -468,7 +470,7 @@ impl DataManager {
 
     /// Checks if the given string is a valid hexadecimal.
     pub fn is_hex_string(s: &str) -> bool {
-        s.chars().all(|c| c.is_digit(16))
+        s.chars().all(|c| c.is_ascii_hexdigit())
     }
 
     async fn write_content_bytes(
