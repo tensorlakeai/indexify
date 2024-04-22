@@ -3,10 +3,21 @@ use async_trait::async_trait;
 use qdrant_client::{
     client::{QdrantClient, QdrantClientConfig},
     qdrant::{
-        point_id::PointIdOptions::Num, points_selector::PointsSelectorOneOf,
-        vectors::VectorsOptions, vectors_config::Config, with_payload_selector::SelectorOptions,
-        CreateCollection, Distance, PointId, PointStruct, PointsIdsList, PointsSelector,
-        SearchPoints, VectorParams, VectorsConfig, WithPayloadSelector,
+        point_id::PointIdOptions::Num,
+        points_selector::PointsSelectorOneOf,
+        vectors::VectorsOptions,
+        vectors_config::Config,
+        with_payload_selector::SelectorOptions,
+        CreateCollection,
+        Distance,
+        PointId,
+        PointStruct,
+        PointsIdsList,
+        PointsSelector,
+        SearchPoints,
+        VectorParams,
+        VectorsConfig,
+        WithPayloadSelector,
     },
 };
 

@@ -20,12 +20,16 @@ use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
@@ -397,9 +401,8 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source
-                && self
-                    .get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source &&
+                self.get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -502,8 +505,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source
-                && self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source &&
+                self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -964,7 +967,8 @@ impl App {
                 continue;
             }
 
-            //  if the parent predecessor cannot be found or has no children, create the content
+            //  if the parent predecessor cannot be found or has no children, create the
+            // content
             let parent_prev_version_id = ContentMetadataId::new_with_version(
                 &incoming_content.parent_id.id,
                 latest_version_of_parent - 1,
@@ -989,7 +993,9 @@ impl App {
                 continue;
             }
 
-            //  compare the hashes of the predecessor's children to the incoming content's hash - if there is a match, flip the pointers because this is identical content
+            //  compare the hashes of the predecessor's children to the incoming content's
+            // hash - if there is a match, flip the pointers because this is identical
+            // content
             let content_with_matching_hash = parent_prev_version_tree
                 .iter()
                 .find(|content| content.hash == incoming_content.hash);
@@ -1470,7 +1476,8 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId, TaskId,
+                ExecutorId,
+                TaskId,
             },
             App,
         },
@@ -1743,9 +1750,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1
-                        && tasks_vec.first().unwrap().id == "task_id"
-                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1 &&
+                        tasks_vec.first().unwrap().id == "task_id" &&
+                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }

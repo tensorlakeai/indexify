@@ -7,7 +7,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension, Json, Router,
+    Extension,
+    Json,
+    Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
@@ -16,7 +18,10 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
+    self,
+    GcTaskAcknowledgement,
+    ListStateChangesRequest,
+    ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -580,7 +585,7 @@ async fn add_texts(
         .documents
         .iter()
         .map(|d| api::ContentWithId {
-            id: d.id.clone().unwrap_or_else(|| DataManager::make_id()),
+            id: d.id.clone().unwrap_or_else(DataManager::make_id),
             content: api::Content {
                 content_type: mime::TEXT_PLAIN.to_string(),
                 bytes: d.text.as_bytes().to_vec(),
@@ -801,7 +806,7 @@ async fn upload_file(
     let id = params
         .get("id")
         .cloned()
-        .unwrap_or_else(|| DataManager::make_id());
+        .unwrap_or_else(DataManager::make_id);
 
     //  check if the id already exists for content metadata
     let retrieved_content = state
@@ -809,7 +814,7 @@ async fn upload_file(
         .get_content_metadata(&namespace, vec![id.clone()])
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    if retrieved_content.len() != 0 {
+    if !retrieved_content.is_empty() {
         return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
             "content with the provided id already exists",

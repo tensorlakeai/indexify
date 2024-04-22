@@ -8,7 +8,11 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
+    ContentMetadataId,
+    GarbageCollectionTask,
+    OutputSchema,
+    StateChange,
+    StructuredDataSchema,
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
