@@ -86,11 +86,25 @@ cache:
     addr: redis://localhost:6379
 ```
 
-### API Server SSL
+### API Server TLS
+
+To set up mTLS for the indexify server, you first need to create a root certificate along with a client certificate and key pair along with a server certificate and key pair. The commands below will generate the certificates and keys and store them in a folder called `.dev-tls`.
+
+```
+local-dev-tls-insecure: ## Generate local development TLS certificates (insecure)
+	@mkdir -p .dev-tls && \
+	openssl req -x509 -newkey rsa:4096 -keyout .dev-tls/ca.key -out .dev-tls/ca.crt -days 365 -nodes -subj "/C=US/ST=TestState/L=TestLocale/O=IndexifyOSS/CN=localhost" && \
+	openssl req -new -newkey rsa:4096 -keyout .dev-tls/server.key -out .dev-tls/server.csr -nodes -config ./client_cert_config && \
+	openssl x509 -req -in .dev-tls/server.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/server.crt -days 365 -extensions v3_ca -extfile ./client_cert_config && \
+	openssl req -new -nodes -out .dev-tls/client.csr -newkey rsa:2048 -keyout .dev-tls/client.key -config ./client_cert_config && \
+	openssl x509 -req -in .dev-tls/client.csr -CA .dev-tls/ca.crt -CAkey .dev-tls/ca.key -CAcreateserial -out .dev-tls/client.crt -days 365 -extfile ./client_cert_config -extensions v3_ca
+```
+
+Once you have the certificates and keys generated, add the config below to your server config and provide the paths to where you have stored the root certificate and the server certificate and key pair.
 
 ```yaml
 tls:
-  api: false
+  api: true
   ca_file: .dev-tls/ca.crt        # Path to the CA certificate
   cert_file: .dev-tls/server.crt  # Path to the server certificate
   key_file: .dev-tls/server.key   # Path to the server private key

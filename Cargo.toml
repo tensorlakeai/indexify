@@ -6,6 +6,9 @@ authors = ["Diptanu Gon Choudhury <diptanu@tensorlake.ai>"]
 build = "build.rs"
 resolver = "2"
 
+[patch.crates-io]
+axum-server = { git = "https://github.com/grafbase/axum-server", branch = "rustls-0.23-tokio-rustls-0.26" }
+
 [workspace]
 members = [".", "crates/indexify_internal_api", "crates/indexify_proto"]
 
@@ -73,7 +76,7 @@ rust-embed = { version = "8.2.0", features = [
     "debug-embed",
     "interpolate-folder-path",
 ] }
-rustls = { version = "0.21" }
+rustls = { version = "0.23", features = ["std"] }
 rustls-pemfile = { version = "2.0.0" }
 rusqlite = { version = "0.30.0", features = ["bundled", "serde_json"] }
 serde = { version = "1", features = ["derive"] }
@@ -95,7 +98,7 @@ thiserror = "1"
 tonic = { version = "0.11.0", features = ["prost"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-rustls = { version = "0.25" }
+tokio-rustls = { version = "0.26" }
 tokio-util = {version ="0.7.10"}
 tower = { version = "0.4" }
 tower-http = { version = "0.5.1", default_features = false, features = [

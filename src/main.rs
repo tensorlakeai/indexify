@@ -1,4 +1,5 @@
 use clap::Parser;
+use rustls::crypto::CryptoProvider;
 use tracing_core::{Level, LevelFilter};
 use tracing_subscriber::{
     prelude::__tracing_subscriber_SubscriberExt,
@@ -26,11 +27,11 @@ mod extractor_router;
 mod forwardable_coordinator;
 mod garbage_collector;
 mod grpc_helper;
+mod ingest_extracted_content;
 mod metadata_storage;
 mod scheduler;
 mod test_util;
-//mod tls;
-mod ingest_extracted_content;
+mod tls;
 mod tonic_streamer;
 mod utils;
 mod vector_index;
@@ -84,6 +85,8 @@ async fn main() {
     // When this guard is dropped (at the end of this function, by default), the
     // opentelemetry tracer is automatically shut down.
     let _otel_guard = OtelGuard::new();
+
+    CryptoProvider::install_default(rustls::crypto::ring::default_provider()).unwrap();
 
     cmd::Cli::parse().run().await;
 }
