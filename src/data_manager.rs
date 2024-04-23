@@ -722,42 +722,6 @@ impl DataManager {
         .await
     }
 
-    pub async fn write_extracted_content(
-        &self,
-        ingest_metadata: BeginExtractedContentIngest,
-        extracted_content: api::ExtractedContent,
-    ) -> Result<()> {
-        let namespace = ingest_metadata.namespace.clone();
-        let mut new_content_metadata = Vec::new();
-        let mut features = HashMap::new();
-        for content in extracted_content.content_list {
-            let stream = futures::stream::once(async { Ok(Bytes::from(content.bytes)) });
-            let content_metadata = self
-                .write_content_bytes(
-                    namespace.as_str(),
-                    Box::pin(stream),
-                    &content.labels,
-                    content.content_type,
-                    None,
-                    Some(ingest_metadata.parent_content_id.to_string()),
-                    &ingest_metadata.extraction_policy,
-                    None,
-                )
-                .await?;
-            features.insert(content_metadata.id.clone(), content.features);
-            new_content_metadata.push(content_metadata.clone());
-        }
-        for content_meta in new_content_metadata {
-            self.create_content_and_write_features(
-                &content_meta,
-                &ingest_metadata,
-                features.get(&content_meta.id).unwrap().clone(),
-            )
-            .await?
-        }
-        Ok(())
-    }
-
     pub async fn query_content_source(
         &self,
         namespace: &str,
