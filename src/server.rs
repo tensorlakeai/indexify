@@ -320,7 +320,6 @@ impl Server {
         if use_tls {
             if let Some(tls_config) = self.config.tls.clone() {
                 let config = build_mtls_config(&tls_config)?;
-                println!("The built config {:#?}", config);
                 let rustls_config = RustlsConfig::from_config(config);
                 axum_server::tls_rustls::bind_rustls(self.addr, rustls_config)
                     .handle(handle)
