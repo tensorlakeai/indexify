@@ -2,7 +2,9 @@ use clap::Parser;
 use rustls::crypto::CryptoProvider;
 use tracing_core::{Level, LevelFilter};
 use tracing_subscriber::{
-    prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
+    prelude::__tracing_subscriber_SubscriberExt,
+    util::SubscriberInitExt,
+    Layer,
 };
 
 pub mod coordinator_filters;
