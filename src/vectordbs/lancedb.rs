@@ -174,7 +174,7 @@ impl VectorDb for LanceDb {
             let values = chunks.iter().map(|c| {
                 let metadata = c.metadata.as_object().unwrap();
                 let value = metadata.get(field.name());
-                value.map(|v| to_column(v))
+                value.map(to_column)
             });
             let array = values.collect::<StringArray>();
             arrays.push(Arc::new(array));
