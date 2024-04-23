@@ -65,6 +65,37 @@ impl VectorChunk {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum FilterOperator {
+    Eq,
+    Neq,
+}
+
+#[derive(Debug, Clone)]
+pub struct Filter {
+    pub key: String,
+    pub value: String,
+    pub operator: FilterOperator,
+}
+
+impl Filter {
+    pub fn from_str(filter: &str) -> Result<Self> {
+        // FIXME this is a very basic implementation, we should add more operators
+        let parts: Vec<&str> = filter.split('=').collect();
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid filter: {}", filter));
+        }
+        let key = parts[0].to_string();
+        let value = parts[1].to_string();
+        let operator = FilterOperator::Eq;
+        Ok(Self {
+            key,
+            value,
+            operator,
+        })
+    }
+}
+
 /// A trait that defines the interface for interacting with a vector database.
 /// The vector database is responsible for storing and querying vector
 /// embeddings.
@@ -99,6 +130,7 @@ pub trait VectorDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
+        filters: Vec<Filter>,
     ) -> Result<Vec<SearchResult>>;
 
     /// Deletes the specified vector index from the vector database.

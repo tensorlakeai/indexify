@@ -580,6 +580,7 @@ impl DataManager {
     fn combine_metadata(
         metadata: Vec<ExtractedMetadata>,
         features: &[api::Feature],
+        labels: HashMap<String, String>,
     ) -> serde_json::Value {
         let mut combined_metadata = serde_json::Map::new();
         for m in metadata {
@@ -595,6 +596,9 @@ impl DataManager {
                     }
                 }
             }
+        }
+        for (k, v) in labels {
+            combined_metadata.insert(k, serde_json::Value::String(v));
         }
         serde_json::Value::Object(combined_metadata)
     }
@@ -615,7 +619,8 @@ impl DataManager {
             .metadata_index_manager
             .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
             .await?;
-        let new_metadata = Self::combine_metadata(existing_metadata, &features);
+        let new_metadata =
+            Self::combine_metadata(existing_metadata, &features, content_meta.labels.clone());
         self.write_extracted_features(
             extractor_name,
             extraction_policy,
@@ -710,7 +715,8 @@ impl DataManager {
                     e.to_string()
                 )
             })?;
-        let combined_metadata = Self::combine_metadata(Vec::new(), &features);
+        let combined_metadata =
+            Self::combine_metadata(Vec::new(), &features, content_meta.labels.clone());
         self.write_extracted_features(
             &ingest_metadata.extractor,
             &ingest_metadata.extraction_policy,
@@ -804,6 +810,7 @@ impl DataManager {
         index_name: &str,
         query: &str,
         k: u64,
+        filters: Vec<String>,
     ) -> Result<Vec<ScoredText>> {
         let req = indexify_coordinator::GetIndexRequest {
             namespace: namespace.to_string(),
@@ -819,7 +826,7 @@ impl DataManager {
             .index
             .ok_or(anyhow!("Index not found"))?;
         self.vector_index_manager
-            .search(index, query, k as usize)
+            .search(index, query, k as usize, filters)
             .await
     }
 

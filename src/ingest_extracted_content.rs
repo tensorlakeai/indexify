@@ -189,7 +189,6 @@ impl IngestExtractedContentState {
                         labels.extend(content_meta.labels.clone());
                     }
                 }
-                print!("labels: {:?}", labels);
                 let metadata = self.ingest_metadata.as_ref().unwrap();
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);

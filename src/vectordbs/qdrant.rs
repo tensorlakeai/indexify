@@ -208,6 +208,7 @@ impl VectorDb for QdrantDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
+        filters: Vec<super::Filter>,
     ) -> Result<Vec<SearchResult>> {
         let result = self
             .create_client()?
@@ -302,7 +303,7 @@ mod tests {
             .unwrap();
 
         let results = qdrant
-            .search("hello-index".into(), vec![10., 8.], 1)
+            .search("hello-index".into(), vec![10., 8.], 1, vec![])
             .await
             .unwrap();
         assert_eq!(results.len(), 1);

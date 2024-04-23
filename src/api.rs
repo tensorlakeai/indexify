@@ -276,7 +276,7 @@ pub struct SearchRequest {
     pub query: String,
     pub k: Option<u64>,
     #[serde(default)]
-    pub filters: HashMap<String, String>
+    pub filters: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
