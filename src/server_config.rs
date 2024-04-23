@@ -401,7 +401,6 @@ pub struct ServerConfig {
     pub raft_port: u64,
     pub index_config: VectorIndexConfig,
     pub metadata_storage: MetadataStoreConfig,
-    pub db_url: String,
     #[serde(default)]
     pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
@@ -425,7 +424,6 @@ impl Default for ServerConfig {
             raft_port: default_raft_port(),
             index_config: VectorIndexConfig::default(),
             metadata_storage: MetadataStoreConfig::default(),
-            db_url: "postgres://postgres:postgres@localhost/indexify".into(),
             coordinator_addr: format!("localhost:{}", default_coordinator_port()),
             blob_storage: BlobStorageConfig {
                 s3: None,

@@ -63,6 +63,7 @@ pub struct NamespaceEndpointState {
     pub data_manager: Arc<DataManager>,
     pub coordinator_client: Arc<CoordinatorClient>,
     pub content_reader: Arc<ContentReader>,
+    pub registry: Arc<prometheus::Registry>,
     pub metrics: Arc<metrics::server::Metrics>,
 }
 
@@ -110,7 +111,7 @@ impl Server {
         Ok(Self { addr, config })
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&self, registry: Arc<prometheus::Registry>) -> Result<()> {
         // let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -158,6 +159,7 @@ impl Server {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            registry,
             metrics: Arc::new(crate::metrics::server::Metrics::new()),
         };
         let caches = Caches::new(self.config.cache.clone());
@@ -783,58 +785,68 @@ async fn upload_file(
     State(state): State<NamespaceEndpointState>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
-    while let Some(file) = files.next_field().await.unwrap() {
-        let name = file
-            .file_name()
-            .ok_or(IndexifyAPIError::new(
-                StatusCode::BAD_REQUEST,
-                "file_name is not present",
-            ))?
-            .to_string();
-        info!("user provided file name = {:?}", name);
-        let ext = std::path::Path::new(&name)
-            .extension()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default();
-        let name = nanoid::nanoid!(16);
-        let name = if !ext.is_empty() {
-            format!("{}.{}", name, ext)
-        } else {
-            name
-        };
-        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
-        info!("writing to blob store, file name = {:?}", name);
+    let mut labels = HashMap::new();
 
-        let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-        let content_metadata = state
-            .data_manager
-            .upload_file(&namespace, stream, &name, content_mime, None)
-            .await
-            .map_err(|e| {
+    while let Some(field) = files.next_field().await.unwrap() {
+        if let Some(name) = field.file_name() {
+            info!("user provided file name = {:?}", name);
+            let ext = std::path::Path::new(&name)
+                .extension()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default();
+            let name = nanoid::nanoid!(16);
+            let name = if !ext.is_empty() {
+                format!("{}.{}", name, ext)
+            } else {
+                name
+            };
+            let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
+            info!("writing to blob store, file name = {:?}", name);
+
+            let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+            let content_metadata = state
+                .data_manager
+                .upload_file(&namespace, stream, &name, content_mime, labels, None)
+                .await
+                .map_err(|e| {
+                    IndexifyAPIError::new(
+                        StatusCode::BAD_REQUEST,
+                        &format!("failed to upload file: {}", e),
+                    )
+                })?;
+            let size_bytes = content_metadata.size_bytes;
+            state
+                .data_manager
+                .create_content_metadata(content_metadata)
+                .await
+                .map_err(|e| {
+                    IndexifyAPIError::new(
+                        StatusCode::BAD_REQUEST,
+                        &format!("failed to create content for file: {}", e),
+                    )
+                })?;
+            state.metrics.node_content_uploads.add(1, &[]);
+            state
+                .metrics
+                .node_content_bytes_uploaded
+                .add(size_bytes, &[]);
+            return Ok(());
+        } else if let Some(name) = field.name() {
+            let name = name.to_string();
+            let value = field.text().await.map_err(|e| {
                 IndexifyAPIError::new(
                     StatusCode::BAD_REQUEST,
                     &format!("failed to upload file: {}", e),
                 )
             })?;
-        let size_bytes = content_metadata.size_bytes;
-        state
-            .data_manager
-            .create_content_metadata(content_metadata)
-            .await
-            .map_err(|e| {
-                IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("failed to create content for file: {}", e),
-                )
-            })?;
-        state.metrics.node_content_uploads.add(1, &[]);
-        state
-            .metrics
-            .node_content_bytes_uploaded
-            .add(size_bytes, &[]);
+            labels.insert(name, value);
+        }
     }
-    Ok(())
+    Err(IndexifyAPIError::new(
+        StatusCode::BAD_REQUEST,
+        "no file provided",
+    ))
 }
 
 #[tracing::instrument]
@@ -895,6 +907,7 @@ async fn update_content(
                 stream,
                 &name,
                 content_mime,
+                content_metadata.labels.clone(),
                 Some(&content_metadata.id),
             )
             .await
@@ -1281,7 +1294,7 @@ async fn get_raft_metrics_snapshot(
 async fn ingest_metrics(
     State(state): State<NamespaceEndpointState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
-    let metric_families = state.metrics.registry.gather();
+    let metric_families = state.registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();
     encoder.encode(&metric_families, &mut buffer).map_err(|_| {

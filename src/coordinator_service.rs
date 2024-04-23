@@ -819,7 +819,7 @@ pub struct CoordinatorServer {
 async fn metrics_handler(
     State(app): State<Arc<state::App>>,
 ) -> Result<axum::response::Response<axum::body::Body>, IndexifyAPIError> {
-    let metric_families = app.metrics.registry.gather();
+    let metric_families = app.registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();
     encoder.encode(&metric_families, &mut buffer).map_err(|_| {
@@ -855,7 +855,10 @@ fn start_server(app: &CoordinatorServer) -> Result<JoinHandle<Result<()>>> {
 }
 
 impl CoordinatorServer {
-    pub async fn new(config: Arc<ServerConfig>) -> Result<Self, anyhow::Error> {
+    pub async fn new(
+        config: Arc<ServerConfig>,
+        registry: Arc<prometheus::Registry>,
+    ) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let garbage_collector = GarbageCollector::new();
         let shared_state = state::App::new(
@@ -863,6 +866,7 @@ impl CoordinatorServer {
             None,
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
+            registry,
         )
         .await?;
         let coordinator_client = CoordinatorClient::new(&addr.to_string());

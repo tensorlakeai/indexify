@@ -45,7 +45,10 @@ use self::{
     state_machine_objects::{IndexifyState, IndexifyStateSnapshot},
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
-use crate::utils::OptionInspectNone;
+use crate::{
+    metrics::{state_machine::Metrics, Timer},
+    utils::OptionInspectNone,
+};
 
 pub type NamespaceName = String;
 pub type TaskId = String;
@@ -126,8 +129,6 @@ pub struct StateMachineData {
     /// State built from applying the raft log
     pub indexify_state: IndexifyState,
 
-    pub metrics: Mutex<crate::state::store::state_machine_objects::Metrics>,
-
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
 
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
@@ -143,6 +144,8 @@ pub struct StateMachineStore {
     pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
 
     snapshot_file_path: PathBuf,
+
+    metrics: Metrics,
 }
 
 impl StateMachineStore {
@@ -157,7 +160,6 @@ impl StateMachineStore {
                 last_applied_log_id: RwLock::new(None),
                 last_membership: RwLock::new(StoredMembership::default()),
                 indexify_state: IndexifyState::default(),
-                metrics: Mutex::new(crate::state::store::state_machine_objects::Metrics::default()),
                 state_change_tx: Arc::new(tx),
                 gc_tasks_tx,
             },
@@ -165,6 +167,7 @@ impl StateMachineStore {
             db,
             state_change_rx: rx,
             snapshot_file_path,
+            metrics: Metrics::new(),
         };
 
         let snapshot = sm.get_current_snapshot_()?;
@@ -572,6 +575,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         I: IntoIterator<Item = typ::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
     {
+        let _timer = Timer::start(&self.metrics.state_machine_apply);
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
         let mut change_events: Vec<StateChange> = Vec::new();

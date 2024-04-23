@@ -386,6 +386,7 @@ mod tests {
             None,
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
         )
         .await
         .unwrap();
@@ -420,6 +421,7 @@ mod tests {
             None,
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
         )
         .await
         .unwrap();
@@ -466,6 +468,7 @@ mod tests {
             None,
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
         )
         .await
         .unwrap();
@@ -702,6 +705,7 @@ mod tests {
             None,
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
         )
         .await
         .unwrap();

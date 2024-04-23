@@ -17,11 +17,15 @@ use super::{
     MetadataScanStream,
     MetadataStorage,
 };
-use crate::utils::{timestamp_secs, PostgresIndexName};
+use crate::{
+    metrics::{metadata_storage::Metrics, Timer},
+    utils::{timestamp_secs, PostgresIndexName},
+};
 
 pub struct PostgresIndexManager {
     pool: Pool<Postgres>,
     default_index_created: AtomicBool,
+    metrics: Metrics,
 }
 
 impl fmt::Debug for PostgresIndexManager {
@@ -38,6 +42,7 @@ impl PostgresIndexManager {
         Ok(Arc::new(Self {
             pool,
             default_index_created: AtomicBool::new(false),
+            metrics: Metrics::new(),
         }))
     }
 }
@@ -73,6 +78,7 @@ impl MetadataStorage for PostgresIndexManager {
     }
 
     async fn add_metadata(&self, namespace: &str, metadata: ExtractedMetadata) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.metadata_updated);
         if !self
             .default_index_created
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -100,6 +106,7 @@ impl MetadataStorage for PostgresIndexManager {
     }
 
     async fn remove_metadata(&self, namespace: &str, id: &str) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.metadata_deleted);
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!("DELETE FROM \"{table_name}\" WHERE id = $1");
         let _ = sqlx::query(&query).bind(id).execute(&self.pool).await?;
@@ -111,6 +118,7 @@ impl MetadataStorage for PostgresIndexManager {
         namespace: &str,
         content_id: &str,
     ) -> Result<Vec<ExtractedMetadata>> {
+        let _timer = Timer::start(&self.metrics.metadata_read);
         let index_table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!(
             "SELECT * FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2"
@@ -128,6 +136,7 @@ impl MetadataStorage for PostgresIndexManager {
     }
 
     async fn delete_metadata_for_content(&self, namespace: &str, content_id: &str) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.metadata_deleted);
         let index_table_name = PostgresIndexName::new(&table_name(namespace));
         let query =
             format!("DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2");
@@ -149,6 +158,7 @@ impl MetadataReader for PostgresIndexManager {
         namespace: &str,
         id: &str,
     ) -> Result<Option<ExtractedMetadata>> {
+        let _timer = Timer::start(&self.metrics.metadata_read);
         let table_name = PostgresIndexName::new(&table_name(namespace));
         let query = format!("SELECT * FROM \"{table_name}\" WHERE namespace = $2 and id = $3");
         let metadata = sqlx::query(&query)
