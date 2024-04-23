@@ -325,7 +325,7 @@ impl VectorDb for LanceDb {
         if filters.len() > 0 {
             query = query.only_if(from_filter_to_str(filters));
         }
-        let res = query 
+        let res = query
             .nearest_to(query_embedding)?
             .column("vector")
             .limit(k as usize)
