@@ -10,7 +10,7 @@ use axum::{
     Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
-use axum_server::Handle;
+use axum_server::{tls_rustls::RustlsConfig, Handle};
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
@@ -43,6 +43,7 @@ use crate::{
     metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
     metrics,
     server_config::ServerConfig,
+    tls::build_mtls_config,
     vector_index::VectorIndexManager,
     vectordbs,
 };
@@ -316,28 +317,26 @@ impl Server {
         }
 
         let handle = handle.clone();
-        axum_server::bind(self.addr)
-            .handle(handle)
-            .serve(app.into_make_service())
-            .await?;
-
-        // TODO: Bring all this back once axum_server upgrades to rustls 0.22
-        // since our TLS code is based on that
-        //if let Some(tls_config) = self.config.tls.clone() {
-        //    let config: Arc<rustls::ServerConfig> =
-        // build_mtls_config(&tls_config).await?;    let rustls_config =
-        // RustlsConfig::from_config(config);    let handle = handle.clone();
-        //    axum_server::bind_rustls(self.addr, rustls_config)
-        //        .handle(handle)
-        //        .serve(app.into_make_service())
-        //        .await?;
-        //} else {
-        // let handle = handle.clone();
-        // axum_server::bind(self.addr)
-        //     .handle(handle)
-        //     .serve(app.into_make_service())
-        //     .await?;
-        //}
+        if use_tls {
+            if let Some(tls_config) = self.config.tls.clone() {
+                let config = build_mtls_config(&tls_config)?;
+                println!("The built config {:#?}", config);
+                let rustls_config = RustlsConfig::from_config(config);
+                axum_server::tls_rustls::bind_rustls(self.addr, rustls_config)
+                    .handle(handle)
+                    .serve(app.into_make_service())
+                    .await
+                    .unwrap();
+            } else {
+                return Err(anyhow!("TLS is enabled but no TLS config provided"));
+            }
+        } else {
+            let handle = handle.clone();
+            axum_server::bind(self.addr)
+                .handle(handle)
+                .serve(app.into_make_service())
+                .await?;
+        }
 
         Ok(())
     }
