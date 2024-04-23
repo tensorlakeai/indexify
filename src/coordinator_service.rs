@@ -39,6 +39,8 @@ use indexify_proto::indexify_coordinator::{
     GetRaftMetricsSnapshotRequest,
     GetSchemaRequest,
     GetSchemaResponse,
+    GetTaskRequest,
+    GetTaskResponse,
     HeartbeatRequest,
     HeartbeatResponse,
     ListContentRequest,
@@ -633,6 +635,21 @@ impl CoordinatorService for CoordinatorServiceServer {
                 content_list: content_metadata,
             },
         ))
+    }
+
+    async fn get_task(
+        &self,
+        req: Request<GetTaskRequest>,
+    ) -> Result<Response<GetTaskResponse>, Status> {
+        let req = req.into_inner();
+        let task = self
+            .coordinator
+            .get_task(&req.task_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(Response::new(GetTaskResponse {
+            task: Some(task.into()),
+        }))
     }
 
     async fn get_content_tree_metadata(

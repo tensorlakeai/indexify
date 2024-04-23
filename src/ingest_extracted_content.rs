@@ -48,7 +48,7 @@ enum FrameState {
 
 pub struct IngestExtractedContentState {
     ingest_metadata: Option<BeginExtractedContentIngest>,
-    content_metadata: Option<indexify_coordinator::ContentMetadata>,
+    task: Option<indexify_coordinator::Task>,
     state: NamespaceEndpointState,
     frame_state: FrameState,
 }
@@ -57,19 +57,27 @@ impl IngestExtractedContentState {
     pub fn new(state: NamespaceEndpointState) -> Self {
         Self {
             ingest_metadata: None,
-            content_metadata: None,
+            task: None,
             state,
             frame_state: FrameState::New,
         }
     }
 
-    fn begin(&mut self, payload: BeginExtractedContentIngest) {
+    async fn begin(&mut self, payload: BeginExtractedContentIngest) -> Result<()> {
         info!(
             "beginning extraction ingest for task: {} index_tables: {}",
             payload.task_id,
             payload.index_tables.join(",")
         );
+        let task = self
+            .state
+            .coordinator_client
+            .get_task(&payload.task_id)
+            .await?
+            .ok_or(anyhow!("task not found"))?;
+        self.task.replace(task);
         self.ingest_metadata.replace(payload);
+        Ok(())
     }
 
     async fn write_content(&mut self, payload: ExtractedContent) -> Result<()> {
@@ -175,6 +183,13 @@ impl IngestExtractedContentState {
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
+                let mut labels = HashMap::from(payload.labels);
+                if let Some(task) = &self.task {
+                    if let Some(content_meta) = &task.content_metadata {
+                        labels.extend(content_meta.labels.clone());
+                    }
+                }
+                print!("labels: {:?}", labels);
                 let metadata = self.ingest_metadata.as_ref().unwrap();
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
@@ -187,7 +202,7 @@ impl IngestExtractedContentState {
                     mime: payload.content_type,
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
-                    labels: payload.labels,
+                    labels,
                     source: metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
                     hash: content_hash,
@@ -213,31 +228,6 @@ impl IngestExtractedContentState {
         // Ok(ret_id)
     }
 
-    async fn ensure_has_content_metadata(
-        &mut self,
-        content_id: String,
-    ) -> Result<indexify_coordinator::ContentMetadata> {
-        if self.content_metadata.is_none() {
-            let content_metas = self
-                .state
-                .coordinator_client
-                .get()
-                .await?
-                .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
-                    content_list: vec![content_id.clone()],
-                })
-                .await?
-                .into_inner()
-                .content_list;
-
-            let content_meta = content_metas
-                .get(&content_id)
-                .ok_or(anyhow!("No content metadata found"))?;
-            self.content_metadata.replace(content_meta.clone());
-        }
-        Ok(self.content_metadata.clone().unwrap())
-    }
-
     async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
@@ -245,8 +235,11 @@ impl IngestExtractedContentState {
             ));
         }
         let content_meta = self
-            .ensure_has_content_metadata(payload.content_id.clone())
-            .await?;
+            .task
+            .as_ref()
+            .map(|t| t.content_metadata.clone())
+            .flatten()
+            .ok_or(anyhow!("No content metadata found"))?;
         self.state
             .data_manager
             .write_existing_content_features(
@@ -291,7 +284,10 @@ impl IngestExtractedContentState {
             if let Ok(Message::Item(msg)) = msg {
                 match msg {
                     IngestExtractedContent::BeginExtractedContentIngest(payload) => {
-                        self.begin(payload);
+                        if let Err(e) = self.begin(payload).await {
+                            tracing::error!("Error beginning extraction ingest: {}", e);
+                            return;
+                        }
                     }
                     IngestExtractedContent::ExtractedContent(payload) => {
                         if let Err(e) = self.write_content(payload).await {
