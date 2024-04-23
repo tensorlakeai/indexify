@@ -472,7 +472,7 @@ mod tests {
             task_outcome: TaskOutcome::Success,
             index_tables: vec!["test".to_string()],
         };
-        ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
         let new_payload = ingest_state.ingest_metadata.clone().unwrap();
         assert_eq!(new_payload.task_id, payload.task_id);
         assert_eq!(new_payload.namespace, payload.namespace);
@@ -578,7 +578,7 @@ mod tests {
             index_tables: vec!["test_index1".to_string()],
         };
 
-        ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
 
         ingest_state.begin_multipart_content().await.unwrap();
 
@@ -698,7 +698,7 @@ mod tests {
             index_tables: vec!["test_index1".to_string()],
         };
 
-        ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
 
         ingest_state.begin_multipart_content().await.unwrap();
 
