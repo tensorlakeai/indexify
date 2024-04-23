@@ -567,14 +567,39 @@ async fn add_texts(
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
+    for document in &payload.documents {
+        if let Some(id) = &document.id {
+            if !DataManager::is_hex_string(id) {
+                return Err(IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("Invalid ID format: {}, ID must be a hex string", id),
+                ));
+            }
+            let retrieved_content = state
+                .data_manager
+                .get_content_metadata(&namespace, vec![id.clone()])
+                .await
+                .map_err(IndexifyAPIError::internal_error)?;
+            if !retrieved_content.is_empty() {
+                return Err(IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("content with the provided id {} already exists", id),
+                ));
+            }
+        }
+    }
+
     let content = payload
         .documents
         .iter()
-        .map(|d| api::Content {
-            content_type: mime::TEXT_PLAIN.to_string(),
-            bytes: d.text.as_bytes().to_vec(),
-            labels: d.labels.clone(),
-            features: vec![],
+        .map(|d| api::ContentWithId {
+            id: d.id.clone().unwrap_or_else(DataManager::make_id),
+            content: api::Content {
+                content_type: mime::TEXT_PLAIN.to_string(),
+                bytes: d.text.as_bytes().to_vec(),
+                labels: d.labels.clone(),
+                features: vec![],
+            },
         })
         .collect();
     state
@@ -783,9 +808,34 @@ async fn download_content(
 async fn upload_file(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
+    Query(params): Query<HashMap<String, String>>,
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut labels = HashMap::new();
+
+    let id = params
+        .get("id")
+        .cloned()
+        .unwrap_or_else(DataManager::make_id);
+    if !DataManager::is_hex_string(&id) {
+        return Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "Invalid ID format, ID must be a hex string",
+        ));
+    }
+
+    //  check if the id already exists for content metadata
+    let retrieved_content = state
+        .data_manager
+        .get_content_metadata(&namespace, vec![id.clone()])
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    if !retrieved_content.is_empty() {
+        return Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "content with the provided id already exists",
+        ));
+    }
 
     while let Some(field) = files.next_field().await.unwrap() {
         if let Some(name) = field.file_name() {
@@ -807,7 +857,7 @@ async fn upload_file(
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
             let content_metadata = state
                 .data_manager
-                .upload_file(&namespace, stream, &name, content_mime, labels, None)
+                .upload_file(&namespace, stream, &name, content_mime, labels, Some(&id))
                 .await
                 .map_err(|e| {
                     IndexifyAPIError::new(

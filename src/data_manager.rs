@@ -1,7 +1,7 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     fmt,
-    hash::{Hash, Hasher},
+    hash::{DefaultHasher, Hash, Hasher},
     str::FromStr,
     sync::Arc,
     time::SystemTime,
@@ -251,8 +251,13 @@ impl DataManager {
     }
 
     #[tracing::instrument(skip(self, content_list))]
-    pub async fn add_texts(&self, namespace: &str, content_list: Vec<api::Content>) -> Result<()> {
-        for text in content_list {
+    pub async fn add_texts(
+        &self,
+        namespace: &str,
+        content_list: Vec<api::ContentWithId>,
+    ) -> Result<()> {
+        for content_with_id in content_list {
+            let text = content_with_id.content;
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
             let content_metadata = self
                 .write_content_bytes(
@@ -263,7 +268,7 @@ impl DataManager {
                     None,
                     None,
                     "ingestion",
-                    None,
+                    Some(&content_with_id.id),
                 )
                 .await?;
 
@@ -455,14 +460,16 @@ impl DataManager {
         file_name.map(|f| f.to_string()).unwrap_or(nanoid!())
     }
 
-    pub fn make_id(namespace: &str, parent_id: &Option<String>, content_hash: &str) -> String {
+    pub fn make_id() -> String {
         let mut s = DefaultHasher::new();
-        namespace.hash(&mut s);
-        if let Some(parent_id) = &parent_id {
-            parent_id.hash(&mut s);
-        }
-        content_hash.hash(&mut s);
+        let id = nanoid!(16);
+        id.hash(&mut s);
         format!("{:x}", s.finish())
+    }
+
+    /// Checks if the given string is a valid hexadecimal.
+    pub fn is_hex_string(s: &str) -> bool {
+        s.chars().all(|c| c.is_ascii_hexdigit())
     }
 
     async fn write_content_bytes(
@@ -504,7 +511,7 @@ impl DataManager {
             .map(|(k, v)| (k, v.to_string()))
             .collect();
 
-        let mut id = DataManager::make_id(namespace, &parent_id, &content_hash);
+        let mut id = DataManager::make_id();
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
         }

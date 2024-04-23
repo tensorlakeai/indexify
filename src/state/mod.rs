@@ -919,131 +919,147 @@ impl App {
             .map(|c| (c.id.id.to_string(), c))
             .collect();
 
+        let mut new_content: Vec<internal_api::ContentMetadata> = Vec::new();
+        let mut content_to_update: Vec<internal_api::ContentMetadata> = Vec::new();
         let mut identical_content: Vec<internal_api::ContentMetadata> = Vec::new();
-        let mut content_to_be_updated: Vec<internal_api::ContentMetadata> = Vec::new();
-        let mut new_incoming_content: Vec<internal_api::ContentMetadata> = Vec::new();
 
-        for new_content in content_metadata {
-            if let Some(existing_content) = existing_content_map.get(&new_content.id.id.to_string())
+        for incoming_content in content_metadata {
+            if let Some(existing_content) =
+                existing_content_map.get(&incoming_content.id.id.to_string())
             {
-                //  some existing piece of content
-                if existing_content.hash != new_content.hash {
-                    //  the content has been updated
-                    let mut new_content = new_content.clone();
-                    new_content.id.version = existing_content.id.version + 1;
-                    content_to_be_updated.push(new_content);
+                if existing_content.hash != incoming_content.hash {
+                    //  this is a root node that is being updated
+                    let mut incoming_content = incoming_content.clone();
+                    incoming_content.id.version += 1;
+                    content_to_update.push(incoming_content);
                 } else {
-                    //  the content has not changed
-                    identical_content.push(new_content);
+                    tracing::warn!("Content with the same id and hash has been received");
                 }
-            } else {
-                //  this is fresh content
-                new_incoming_content.push(new_content);
+                continue;
             }
-        }
+            //  this is not some root node being updated
 
-        //  handle identical content
-        if !identical_content.is_empty() {
-            //  If the content is identical, find the latest version of the parent and flip
-            // the content node in the db with the same id to point to the new parent
-            let mut content_to_write = Vec::new();
-            for content in identical_content {
-                let latest_version_of_parent = self
-                    .state_machine
-                    .get_latest_version_of_content(&content.parent_id.id)
-                    .map_err(|e| {
-                        anyhow!(
-                            "Unable to get latest version of content {}: {}",
-                            content.parent_id,
-                            e
-                        )
-                    })?;
-                if latest_version_of_parent.is_none() {
-                    continue;
-                }
-                let latest_version_of_parent = latest_version_of_parent.unwrap();
-                let mut old_node = existing_content_map
-                    .get(&content.id.id.to_string())
-                    .unwrap()
-                    .clone();
-                old_node.parent_id = ContentMetadataId::new_with_version(
-                    &content.parent_id.id,
+            //  if the parent doesn't exist, create the content
+            if incoming_content.parent_id.id.is_empty() {
+                new_content.push(incoming_content);
+                continue;
+            }
+
+            //  find the latest version of the parent
+            let latest_version_of_parent = self
+                .state_machine
+                .get_latest_version_of_content(&incoming_content.parent_id.id)
+                .map_err(|e| {
+                    anyhow!(
+                        "Unable to get latest version of content {}: {}",
+                        incoming_content.parent_id,
+                        e
+                    )
+                })?;
+            if latest_version_of_parent.is_none() {
+                return Err(anyhow!(
+                    "Parent content with id {} not found",
+                    incoming_content.parent_id.id
+                ));
+            }
+            let latest_version_of_parent = latest_version_of_parent.unwrap();
+
+            //  if the latest version of the parent is the first version, create the content
+            if latest_version_of_parent == 1 {
+                new_content.push(incoming_content);
+                continue;
+            }
+
+            //  if the parent predecessor cannot be found or has no children, create the
+            // content
+            let parent_prev_version_id = ContentMetadataId::new_with_version(
+                &incoming_content.parent_id.id,
+                latest_version_of_parent - 1,
+            );
+            let parent_prev_version_tree = self
+                .state_machine
+                .get_content_tree_metadata_with_version(&parent_prev_version_id)
+                .map_err(|e| {
+                    anyhow!(
+                        "Unable to get content tree metadata with id {}: {}",
+                        parent_prev_version_id,
+                        e
+                    )
+                })?;
+            if parent_prev_version_tree.len() <= 1 {
+                let mut content = incoming_content.clone();
+                content.parent_id = ContentMetadataId::new_with_version(
+                    &incoming_content.parent_id.id,
                     latest_version_of_parent,
                 );
-                content_to_write.push(old_node);
+                new_content.push(content);
+                continue;
             }
+
+            //  compare the hashes of the predecessor's children to the incoming content's
+            // hash - if there is a match, flip the pointers because this is identical
+            // content
+            let content_with_matching_hash = parent_prev_version_tree
+                .iter()
+                .find(|content| content.hash == incoming_content.hash);
+            if content_with_matching_hash.is_none() {
+                let mut content = incoming_content.clone();
+                content.parent_id = ContentMetadataId::new_with_version(
+                    &incoming_content.parent_id.id,
+                    latest_version_of_parent,
+                );
+                new_content.push(content);
+                continue;
+            }
+
+            let mut content = incoming_content.clone();
+            content.parent_id = ContentMetadataId::new_with_version(
+                &incoming_content.parent_id.id,
+                latest_version_of_parent,
+            );
+            identical_content.push(content);
+        }
+
+        //  write the identical content
+        if !identical_content.is_empty() {
             let req = StateMachineUpdateRequest {
-                payload: RequestPayload::UpdateContent {
-                    content_metadata: content_to_write,
+                payload: RequestPayload::CreateContent {
+                    content_metadata: identical_content,
                 },
                 new_state_changes: vec![],
                 state_changes_processed: vec![],
             };
             self.forwardable_raft.client_write(req).await.map_err(|e| {
                 anyhow!(
-                    "unable to update identical content metadata: {}",
+                    "unable to create identical content metadata: {}",
                     e.to_string()
                 )
             })?;
         }
 
-        //  write the updated content
+        //  write the new and updated content
         let mut state_changes = Vec::new();
-        let mut content_to_write = content_to_be_updated.clone();
-        content_to_write.extend(new_incoming_content.clone());
+        let mut content_to_write = content_to_update.clone();
+        content_to_write.extend(new_content);
 
-        let mut updated_contents_to_write = Vec::new();
-
-        for mut content in content_to_write {
-            if !content.parent_id.id.is_empty() {
-                // Retrieve the latest version of the parent content
-                match self
-                    .state_machine
-                    .get_latest_version_of_content(&content.parent_id.id)
-                {
-                    Ok(Some(latest_version)) => {
-                        content.parent_id.version = latest_version;
-                    }
-                    Ok(None) => {
-                        // Error out if no parent is found
-                        tracing::error!(
-                            "Parent content with id {} not found",
-                            content.parent_id.id
-                        );
-                        return Err(anyhow!(
-                            "Parent content with id {} not found",
-                            content.parent_id.id
-                        ));
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
-                }
-            }
-            updated_contents_to_write.push(content);
-        }
-
-        for content in &updated_contents_to_write {
+        for content in &content_to_write {
             state_changes.push(StateChange::new(
                 content.id.to_string(),
                 internal_api::ChangeType::NewContent,
                 timestamp_secs(),
             ));
         }
-
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateContent {
-                content_metadata: updated_contents_to_write,
+                content_metadata: content_to_write,
             },
             new_state_changes: state_changes,
             state_changes_processed: vec![],
         };
-        let _ = self.forwardable_raft.client_write(req).await.map_err(|e| {
-            anyhow!(
-                "unable to create updated content metadata: {}",
-                e.to_string()
-            )
-        })?;
+        self.forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to create new content metadata: {}", e.to_string()))?;
 
         Ok(())
     }
@@ -1576,19 +1592,11 @@ mod tests {
 
     /// Test to determine that assigning a task to an executor works correctly
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
-
-        let content = ContentMetadata {
-            id: ContentMetadataId::new("content_id"),
-            ..Default::default()
-        };
-        node.create_content_batch(vec![content.clone()]).await?;
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
 
         //  First create a task and ensure it's written
         let content = ContentMetadata {

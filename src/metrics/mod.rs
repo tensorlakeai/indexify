@@ -619,6 +619,12 @@ pub mod metadata_storage {
         pub metadata_deleted: Histogram<f64>,
     }
 
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Metrics {
         pub fn new() -> Metrics {
             let meter = opentelemetry::global::meter("indexify-index");
@@ -663,6 +669,12 @@ pub mod vector_storage {
         pub vector_delete: Histogram<f64>,
     }
 
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Metrics {
         pub fn new() -> Metrics {
             let meter = opentelemetry::global::meter("indexify-index");
@@ -697,6 +709,12 @@ pub mod state_machine {
     #[derive(Debug)]
     pub struct Metrics {
         pub state_machine_apply: Histogram<f64>,
+    }
+
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl Metrics {
