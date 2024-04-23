@@ -4,7 +4,7 @@
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
 
-![Indexify High Level](docs/docs/images/Indexify_Home_Diagram.gif)
+![Indexify High Level](docs/docs/images/Indexify_KAT.gif)
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 

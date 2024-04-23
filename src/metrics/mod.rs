@@ -306,15 +306,27 @@ pub mod raft_metrics {
     }
 }
 
+use opentelemetry_sdk::metrics::SdkMeterProvider;
+
+pub fn init_provider() -> prometheus::Registry {
+    println!("Initializing metrics provider");
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .build();
+    let mut provider = SdkMeterProvider::builder();
+    if let Ok(exporter) = exporter {
+        provider = provider.with_reader(exporter);
+    };
+    opentelemetry::global::set_meter_provider(provider.build());
+    registry
+}
+
 pub mod server {
-    use opentelemetry::metrics::{Counter, MeterProvider};
-    use opentelemetry_sdk::metrics::SdkMeterProvider;
-    use prometheus::Registry;
+    use opentelemetry::metrics::Counter;
 
     #[derive(Debug)]
     pub struct Metrics {
-        pub registry: Registry,
-        pub provider: SdkMeterProvider,
         pub node_content_uploads: Counter<u64>,
         pub node_content_bytes_uploaded: Counter<u64>,
         pub node_content_extracted: Counter<u64>,
@@ -329,17 +341,7 @@ pub mod server {
 
     impl Metrics {
         pub fn new() -> Metrics {
-            let registry = Registry::new();
-            let exporter = opentelemetry_prometheus::exporter()
-                .with_registry(registry.clone())
-                .build();
-            let mut provider = SdkMeterProvider::builder();
-            if let Ok(exporter) = exporter {
-                provider = provider.with_reader(exporter);
-            };
-            let provider = provider.build();
-
-            let meter = provider.meter("indexify-server");
+            let meter = opentelemetry::global::meter("indexify-server");
             let node_content_uploads = meter
                 .u64_counter("indexify.server.node_content_uploads")
                 .with_description("Number of contents uploaded on this node")
@@ -357,8 +359,6 @@ pub mod server {
                 .with_description("Number of bytes extracted on this node")
                 .init();
             Metrics {
-                registry,
-                provider,
                 node_content_uploads,
                 node_content_bytes_uploaded,
                 node_content_extracted,
@@ -368,19 +368,56 @@ pub mod server {
     }
 }
 
+use opentelemetry::{
+    metrics::{Counter, Histogram},
+    KeyValue,
+};
+
+pub trait TimerUpdate {
+    fn add(&self, duration: Duration, labels: &[KeyValue]);
+}
+
+impl TimerUpdate for Counter<f64> {
+    fn add(&self, duration: Duration, labels: &[KeyValue]) {
+        self.add(duration.as_secs_f64(), labels);
+    }
+}
+
+impl TimerUpdate for Histogram<f64> {
+    fn add(&self, duration: Duration, labels: &[KeyValue]) {
+        self.record(duration.as_secs_f64(), labels);
+    }
+}
+
+pub struct Timer<'a, T: TimerUpdate + Sync> {
+    start: Instant,
+    metric: &'a T,
+}
+
+impl<'a, T: TimerUpdate + Sync> Timer<'a, T> {
+    pub fn start(metric: &'a T) -> Self {
+        Self {
+            start: Instant::now(),
+            metric,
+        }
+    }
+}
+
+impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
+    fn drop(&mut self) {
+        self.metric.add(self.start.elapsed(), &[]);
+    }
+}
+
 pub mod coordinator {
     use std::sync::{Arc, Mutex};
 
-    use opentelemetry::metrics::{MeterProvider, ObservableCounter, ObservableGauge};
-    use opentelemetry_sdk::metrics::SdkMeterProvider;
-    use prometheus::Registry;
+    use opentelemetry::metrics::{Histogram, ObservableCounter, ObservableGauge};
 
     use crate::state::store::StateMachineStore;
 
     #[derive(Debug)]
     pub struct Metrics {
-        pub registry: Registry,
-        pub provider: SdkMeterProvider,
         pub tasks_completed: ObservableCounter<u64>,
         pub tasks_errored: ObservableCounter<u64>,
         pub tasks_in_progress: ObservableGauge<u64>,
@@ -389,21 +426,12 @@ pub mod coordinator {
         pub content_bytes_uploaded: ObservableCounter<u64>,
         pub content_extracted: ObservableCounter<u64>,
         pub content_extracted_bytes: ObservableCounter<u64>,
+        pub scheduler_invocations: Histogram<f64>,
     }
 
     impl Metrics {
         pub fn new(app: Arc<StateMachineStore>) -> Metrics {
-            let registry = Registry::new();
-            let exporter = opentelemetry_prometheus::exporter()
-                .with_registry(registry.clone())
-                .build();
-            let mut provider = SdkMeterProvider::builder();
-            if let Ok(exporter) = exporter {
-                provider = provider.with_reader(exporter);
-            };
-            let provider = provider.build();
-
-            let meter = provider.meter("indexify-coordinator");
+            let meter = opentelemetry::global::meter("indexify-coordinator");
 
             let prev_value = Arc::new(Mutex::new(0));
             let tasks_completed = meter
@@ -560,9 +588,12 @@ pub mod coordinator {
                 .with_description("Number of bytes extracted")
                 .init();
 
+            let scheduler_invocations = meter
+                .f64_histogram("indexify.coordinator.scheduler_invocations")
+                .with_description("Scheduler invocation latencies in seconds")
+                .init();
+
             Metrics {
-                registry,
-                provider,
                 tasks_completed,
                 tasks_errored,
                 tasks_in_progress,
@@ -571,6 +602,132 @@ pub mod coordinator {
                 content_bytes_uploaded,
                 content_extracted,
                 content_extracted_bytes,
+                scheduler_invocations,
+            }
+        }
+    }
+}
+
+pub mod metadata_storage {
+    use opentelemetry::metrics::Histogram;
+
+    #[derive(Debug)]
+    pub struct Metrics {
+        pub metadata_read: Histogram<f64>,
+        pub metadata_added: Histogram<f64>,
+        pub metadata_updated: Histogram<f64>,
+        pub metadata_deleted: Histogram<f64>,
+    }
+
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Metrics {
+        pub fn new() -> Metrics {
+            let meter = opentelemetry::global::meter("indexify-index");
+
+            let metadata_read = meter
+                .f64_histogram("indexify.metadata_read")
+                .with_description("Metadata read latencies in seconds")
+                .init();
+
+            let metadata_added = meter
+                .f64_histogram("indexify.metadata_added")
+                .with_description("Metadata add latencies in seconds")
+                .init();
+
+            let metadata_updated = meter
+                .f64_histogram("indexify.metadata_updated")
+                .with_description("Metadata update latencies in seconds")
+                .init();
+
+            let metadata_deleted = meter
+                .f64_histogram("indexify.metadata_deleted")
+                .with_description("Metadata delete latencies in seconds")
+                .init();
+
+            Metrics {
+                metadata_read,
+                metadata_added,
+                metadata_updated,
+                metadata_deleted,
+            }
+        }
+    }
+}
+
+pub mod vector_storage {
+    use opentelemetry::metrics::Histogram;
+
+    #[derive(Debug)]
+    pub struct Metrics {
+        pub vector_upsert: Histogram<f64>,
+        pub vector_metadata_update: Histogram<f64>,
+        pub vector_delete: Histogram<f64>,
+    }
+
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Metrics {
+        pub fn new() -> Metrics {
+            let meter = opentelemetry::global::meter("indexify-index");
+
+            let vector_upsert = meter
+                .f64_histogram("indexify.vector_added")
+                .with_description("Vector update/insert latencies in seconds")
+                .init();
+
+            let vector_metadata_update = meter
+                .f64_histogram("indexify.vector_metadata_update")
+                .with_description("Vector metadata update latencies in seconds")
+                .init();
+
+            let vector_deleted = meter
+                .f64_histogram("indexify.vector_deleted")
+                .with_description("Vector delete latencies in seconds")
+                .init();
+
+            Metrics {
+                vector_metadata_update,
+                vector_upsert,
+                vector_delete: vector_deleted,
+            }
+        }
+    }
+}
+
+pub mod state_machine {
+    use opentelemetry::metrics::Histogram;
+
+    #[derive(Debug)]
+    pub struct Metrics {
+        pub state_machine_apply: Histogram<f64>,
+    }
+
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Metrics {
+        pub fn new() -> Metrics {
+            let meter = opentelemetry::global::meter("indexify-state-machine");
+
+            let state_machine_apply = meter
+                .f64_histogram("indexify.state_machine_apply")
+                .with_description("State machine apply changes latencies in seconds")
+                .init();
+
+            Metrics {
+                state_machine_apply,
             }
         }
     }

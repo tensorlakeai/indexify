@@ -27,6 +27,8 @@ impl Args {
             dev_mode,
         } = self;
 
+        let registry = Arc::new(crate::metrics::init_provider());
+
         info!("starting indexify server, version: {}", crate::VERSION);
         let config = if let Some(config_path) = config_path {
             ServerConfig::from_path(&config_path)
@@ -40,11 +42,14 @@ impl Args {
         let server =
             server::Server::new(Arc::new(config.clone())).expect("failed to create server");
 
-        let server_handle = tokio::spawn(async move {
-            server.run().await.unwrap();
+        let server_handle = tokio::spawn({
+            let registry = registry.clone();
+            async move {
+                server.run(registry).await.unwrap();
+            }
         });
         if dev_mode {
-            let coordinator = CoordinatorServer::new(Arc::new(config.clone()))
+            let coordinator = CoordinatorServer::new(Arc::new(config.clone()), registry)
                 .await
                 .expect("failed to create coordinator server");
             let coordinator_handle = tokio::spawn(async move {

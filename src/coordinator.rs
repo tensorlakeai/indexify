@@ -23,6 +23,7 @@ use crate::{
     coordinator_filters::*,
     forwardable_coordinator::ForwardableCoordinator,
     garbage_collector::GarbageCollector,
+    metrics::Timer,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
@@ -437,6 +438,8 @@ impl Coordinator {
 
     #[tracing::instrument(skip(self))]
     pub async fn run_scheduler(&self) -> Result<()> {
+        let _timer = Timer::start(&self.shared_state.metrics.scheduler_invocations);
+
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
         for change in state_changes {
             info!(
@@ -558,6 +561,7 @@ mod tests {
             None,
             garbage_collector.clone(),
             &config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
         )
         .await
         .unwrap();
@@ -1574,7 +1578,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[tracing_test::traced_test]
+    #[tracing_test::traced_test]
     async fn test_content_update() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1646,7 +1650,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "test_parent_id".into(),
             ..Default::default()
         };
         coordinator
@@ -1654,6 +1658,7 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
         for mut task in all_tasks {
             task.outcome = internal_api::TaskOutcome::Success;
             coordinator
@@ -1673,7 +1678,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "test_child_id_1".into(),
             ..Default::default()
         };
         let child_content_2 = indexify_coordinator::ContentMetadata {
@@ -1687,7 +1692,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "test_child_id_2".into(),
             ..Default::default()
         };
         coordinator
@@ -1695,6 +1700,7 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 2);
         for mut task in all_tasks {
             task.outcome = internal_api::TaskOutcome::Success;
             coordinator
@@ -1715,7 +1721,7 @@ mod tests {
             labels: HashMap::new(),
             source: "ingestion".to_string(),
             size_bytes: 100,
-            hash: "123".into(),
+            hash: "test_parent_id_new_hash".into(),
             ..Default::default()
         };
         coordinator
@@ -1723,12 +1729,13 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
         let mut update_task = all_tasks.first().unwrap().clone();
 
         //  Add one of the original children and 2 new children to the new version of
         // the root
         let new_child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
+            id: "test_child_id_1_new".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             parent_id: "test_parent_id".to_string(),
             file_name: "test_file".to_string(),
@@ -1738,7 +1745,7 @@ mod tests {
             labels: HashMap::new(),
             source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "test_child_id_1".into(),
             ..Default::default()
         };
         let new_child_content_2 = indexify_coordinator::ContentMetadata {
@@ -1750,9 +1757,9 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: extraction_policy_2.id.clone(),
+            source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "123".into(),
+            hash: "test_child_id_2_new".into(),
             ..Default::default()
         };
         let new_child_content_3 = indexify_coordinator::ContentMetadata {
@@ -1764,9 +1771,9 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: extraction_policy_2.id.clone(),
+            source: extraction_policy_1.id.clone(),
             size_bytes: 100,
-            hash: "".into(),
+            hash: "test_child_id_3".into(),
             ..Default::default()
         };
         coordinator
@@ -1783,6 +1790,9 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
 
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 2); //  only 2 tasks should be created because one of the children is identical
+
         //  check that the two content trees are present and their structure is correct
         let old_content_tree = coordinator
             .shared_state
@@ -1796,31 +1806,43 @@ mod tests {
                 id: "test_parent_id".to_string(),
                 version: 2,
             })?;
-        assert_eq!(old_content_tree.len(), 2); //  parent and old node
-        assert_eq!(new_content_tree.len(), 4);
+        assert_eq!(old_content_tree.len(), 3); // old parent and old children
+        assert_eq!(new_content_tree.len(), 4); // new parent and new children
         let old_tree_ids = old_content_tree
             .iter()
             .map(|c| c.id.id.clone())
             .collect::<HashSet<_>>();
-        let old_tree_ids_expected: HashSet<_> =
-            vec!["test_parent_id".to_string(), "test_child_id_2".to_string()]
-                .into_iter()
-                .collect();
+        let old_tree_ids_expected: HashSet<_> = vec![
+            "test_parent_id".to_string(),
+            "test_child_id_1".to_string(),
+            "test_child_id_2".to_string(),
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(old_tree_ids, old_tree_ids_expected);
-
         let new_tree_ids = new_content_tree
             .iter()
             .map(|c| c.id.id.clone())
             .collect::<HashSet<_>>();
         let new_tree_ids_expected: HashSet<_> = vec![
             "test_parent_id".to_string(),
-            "test_child_id_1".to_string(),
+            "test_child_id_1_new".to_string(),
             "test_child_id_2_new".to_string(),
             "test_child_id_3".to_string(),
         ]
         .into_iter()
         .collect();
         assert_eq!(new_tree_ids, new_tree_ids_expected);
+
+        //  check the reverse index invariants
+        let old_tree_children = coordinator.shared_state.state_machine.get_content_children(
+            &indexify_internal_api::ContentMetadataId::new_with_version("test_parent_id", 1),
+        );
+        let new_tree_children = coordinator.shared_state.state_machine.get_content_children(
+            &indexify_internal_api::ContentMetadataId::new_with_version("test_parent_id", 2),
+        );
+        assert_eq!(old_tree_children.len(), 2);
+        assert_eq!(new_tree_children.len(), 3);
 
         //  running the scheduler should garbage collect the old tree
         coordinator.run_scheduler().await?;

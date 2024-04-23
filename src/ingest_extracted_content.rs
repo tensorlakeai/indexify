@@ -169,7 +169,6 @@ impl IngestExtractedContentState {
             "received finish multipart content for task: {}",
             self.ingest_metadata.as_ref().unwrap().task_id
         );
-        // let mut ret_id = None;
         match &mut self.frame_state {
             FrameState::New => Err(anyhow!(
                 "received finish content without any content frames"
@@ -179,11 +178,7 @@ impl IngestExtractedContentState {
                 let metadata = self.ingest_metadata.as_ref().unwrap();
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
-                let id = DataManager::make_id(
-                    &metadata.namespace,
-                    &Some(metadata.parent_content_id.clone()),
-                    &content_hash,
-                );
+                let id = DataManager::make_id();
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
@@ -391,10 +386,15 @@ mod tests {
 
         async fn new() -> TestCoordinator {
             let config = make_test_config();
-            let coordinator =
-                crate::coordinator_service::CoordinatorServer::new(Arc::new(config.clone()))
-                    .await
-                    .expect("failed to create coordinator server");
+            let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap());
+            let registry = Arc::new(crate::metrics::init_provider());
+            let coordinator = crate::coordinator_service::CoordinatorServer::new(
+                Arc::new(config.clone()),
+                registry,
+            )
+            .await
+            .expect("failed to create coordinator server");
+
             let handle = tokio::spawn(async move {
                 coordinator.run().await.unwrap();
             });
@@ -433,6 +433,7 @@ mod tests {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            registry: Arc::new(metrics::init_provider()),
             metrics: Arc::new(metrics::server::Metrics::new()),
         };
         Ok(namespace_endpoint_state)

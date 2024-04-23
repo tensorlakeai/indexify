@@ -1,6 +1,6 @@
 # Reliable Extraction and Retrieval for AI Applications at Any Scale
 
-![Indexify High Level](images/Indexify_Home_Diagram.gif)
+![Indexify High Level](images/Indexify_KAT.gif)
 
 Indexify is an open-source engine for embedding, extract structured information, and transform unstructured data(video, audio, images and documents). Indexes are always kept updated as data is ingested. LLM applications can query content by semantic search and SQL queries on embedding and structured data.
 

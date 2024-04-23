@@ -1269,7 +1269,6 @@ impl IndexifyState {
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::UpdateContent { content_metadata } => {
-                //  TODO: update the content
                 self.set_content(db, &txn, content_metadata)?;
             }
             RequestPayload::TombstoneContentTree {

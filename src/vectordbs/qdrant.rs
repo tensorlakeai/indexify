@@ -309,7 +309,7 @@ mod tests {
     }
 
     fn make_id() -> String {
-        DataManager::make_id("namespace", &None, &nanoid::nanoid!())
+        DataManager::make_id()
     }
 
     #[tokio::test]
