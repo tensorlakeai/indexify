@@ -906,11 +906,14 @@ mod tests {
             },
         ];
 
-        let combined = DataManager::combine_metadata(Vec::new(), &features);
+        let labels = HashMap::from([("label1".to_string(), "value1".to_string())]);
+
+        let combined = DataManager::combine_metadata(Vec::new(), &features, labels);
         let expected = json!({
             "key1": "value1",
             "key2": "value2",
             "key3": "value3",
+            "label1": "value1",
         });
 
         assert_eq!(combined, expected);
