@@ -951,6 +951,11 @@ impl CoordinatorServer {
             })?;
         Ok(())
     }
+
+    // Used only for tests
+    pub fn get_coordinator(&self) -> Arc<Coordinator> {
+        self.coordinator.clone()
+    }
 }
 
 async fn run_scheduler(

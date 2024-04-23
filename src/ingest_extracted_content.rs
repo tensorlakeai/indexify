@@ -336,13 +336,15 @@ mod tests {
 
     use std::sync::Arc;
 
-    use indexify_internal_api::TaskOutcome;
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Task, TaskOutcome};
+    use nanoid::nanoid;
     use serde_json::json;
     use tokio::task::JoinHandle;
 
     use super::*;
     use crate::{
         blob_storage::{BlobStorage, ContentReader},
+        coordinator::{self, Coordinator},
         coordinator_client::CoordinatorClient,
         data_manager::DataManager,
         metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
@@ -370,6 +372,7 @@ mod tests {
     }
 
     struct TestCoordinator {
+        coordinator: Arc<Coordinator>,
         handle: JoinHandle<()>,
     }
 
@@ -383,15 +386,17 @@ mod tests {
             let config = make_test_config();
             let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap());
             let registry = Arc::new(crate::metrics::init_provider());
-            let coordinator = crate::coordinator_service::CoordinatorServer::new(
+            let coordinator_server = crate::coordinator_service::CoordinatorServer::new(
                 Arc::new(config.clone()),
                 registry,
             )
             .await
             .expect("failed to create coordinator server");
 
+            let coordinator = coordinator_server.get_coordinator();
+
             let handle = tokio::spawn(async move {
-                coordinator.run().await.unwrap();
+                coordinator_server.run().await.unwrap();
             });
             // wait until able to connect to coordinator
             loop {
@@ -400,7 +405,61 @@ mod tests {
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             }
-            TestCoordinator { handle }
+            let test_coordinator = TestCoordinator {
+                handle,
+                coordinator,
+            };
+            let content_metadata = ContentMetadata {
+                id: ContentMetadataId::new(&"1"),
+                name: "test".to_string(),
+                parent_id: ContentMetadataId::new(""),
+                namespace: "test".to_string(),
+                content_type: "text/plain".to_string(),
+                storage_url: "test".to_string(),
+                labels: HashMap::new(),
+                size_bytes: 0,
+                source: "test".to_string(),
+                created_at: 0,
+                hash: "test".to_string(),
+                extraction_policy_ids: HashMap::new(),
+                tombstoned: false,
+            };
+            test_coordinator
+                .create_content(content_metadata.clone())
+                .await
+                .unwrap();
+            let state_change_id = test_coordinator
+                .coordinator
+                .shared_state
+                .get_state_change_watcher()
+                .borrow_and_update()
+                .id
+                .clone();
+            test_coordinator
+                .create_task(Task::new("test", &content_metadata), &state_change_id)
+                .await
+                .unwrap();
+            test_coordinator
+        }
+
+        pub async fn create_content(&self, content: ContentMetadata) -> Result<()> {
+            let _ = self
+                .coordinator
+                .shared_state
+                .create_content_batch(vec![content])
+                .await
+                .unwrap();
+            Ok(())
+        }
+
+        pub async fn create_task(&self, task: Task, state_change_id: &str) -> Result<()> {
+            let _ = self
+                .coordinator
+                .shared_state
+                .create_tasks(vec![task], state_change_id)
+                .await
+                .unwrap();
+            Ok(())
         }
     }
 
