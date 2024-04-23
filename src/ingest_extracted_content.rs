@@ -386,10 +386,15 @@ mod tests {
 
         async fn new() -> TestCoordinator {
             let config = make_test_config();
-            let coordinator =
-                crate::coordinator_service::CoordinatorServer::new(Arc::new(config.clone()))
-                    .await
-                    .expect("failed to create coordinator server");
+            let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap());
+            let registry = Arc::new(crate::metrics::init_provider());
+            let coordinator = crate::coordinator_service::CoordinatorServer::new(
+                Arc::new(config.clone()),
+                registry,
+            )
+            .await
+            .expect("failed to create coordinator server");
+
             let handle = tokio::spawn(async move {
                 coordinator.run().await.unwrap();
             });
@@ -428,6 +433,7 @@ mod tests {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
             content_reader: Arc::new(ContentReader::new()),
+            registry: Arc::new(metrics::init_provider()),
             metrics: Arc::new(metrics::server::Metrics::new()),
         };
         Ok(namespace_endpoint_state)

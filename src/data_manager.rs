@@ -416,10 +416,9 @@ impl DataManager {
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
         mime_type: Mime,
+        labels: HashMap<String, String>,
         original_content_id: Option<&str>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
-        let labels = HashMap::new();
-
         let content_metadata = self
             .write_content_bytes(
                 namespace,

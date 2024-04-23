@@ -25,6 +25,7 @@ use lancedb::{
     Connection,
     Table,
 };
+use serde_json::Value;
 use tracing;
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
@@ -37,6 +38,13 @@ pub struct LanceDb {
 impl Debug for LanceDb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "LanceDb")
+    }
+}
+
+fn to_column(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        _ => value.to_string(),
     }
 }
 
@@ -166,7 +174,7 @@ impl VectorDb for LanceDb {
             let values = chunks.iter().map(|c| {
                 let metadata = c.metadata.as_object().unwrap();
                 let value = metadata.get(field.name());
-                value.map(|value| value.as_str().unwrap().to_string())
+                value.map(|v| to_column(v))
             });
             let array = values.collect::<StringArray>();
             arrays.push(Arc::new(array));
@@ -262,7 +270,7 @@ impl VectorDb for LanceDb {
 
         let mut update_op = tbl.update().only_if(format!("id = '{}'", content_id));
         for (key, value) in metadata.as_object().unwrap() {
-            update_op = update_op.column(key, format!("'{}'", value.as_str().unwrap()));
+            update_op = update_op.column(key, format!("'{}'", to_column(value)));
         }
         update_op
             .execute()
@@ -489,6 +497,24 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].metadata, new_metadata);
+
+        let new_metadata = json!({"key1": "value5", "key2": 20});
+        lance
+            .update_metadata(
+                "metadata-index",
+                content_ids[0].clone(),
+                new_metadata.clone(),
+            )
+            .await
+            .unwrap();
+        let result = lance
+            .get_points("metadata-index", vec![content_ids[0].clone()])
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        let result_map = result[0].metadata.as_object().unwrap();
+        assert_eq!(result_map.get("key1").unwrap().as_str().unwrap(), "value5");
+        assert_eq!(result_map.get("key2").unwrap().as_str().unwrap(), "20");
     }
 
     #[tokio::test]

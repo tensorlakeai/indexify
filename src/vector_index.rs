@@ -13,6 +13,7 @@ use crate::{
     blob_storage::ContentReader,
     coordinator_client::CoordinatorClient,
     extractor_router::ExtractorRouter,
+    metrics::{vector_storage::Metrics, Timer},
     vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
 };
 
@@ -21,6 +22,7 @@ pub struct VectorIndexManager {
     extractor_router: ExtractorRouter,
     coordinator_client: Arc<CoordinatorClient>,
     content_reader: Arc<ContentReader>,
+    metrics: Metrics,
 }
 
 impl fmt::Debug for VectorIndexManager {
@@ -46,6 +48,7 @@ impl VectorIndexManager {
             extractor_router,
             coordinator_client: coordinator_client.clone(),
             content_reader,
+            metrics: Metrics::new(),
         })
     }
 
@@ -74,6 +77,7 @@ impl VectorIndexManager {
         vector_index_name: &str,
         embeddings: Vec<ExtractedEmbeddings>,
     ) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.vector_upsert);
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
             let vector_chunk = VectorChunk::new(
@@ -90,6 +94,7 @@ impl VectorIndexManager {
     }
 
     pub async fn remove_embedding(&self, vector_index_name: &str, content_id: &str) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.vector_delete);
         self.vector_db
             .remove_embedding(vector_index_name, content_id)
             .await?;
@@ -110,6 +115,7 @@ impl VectorIndexManager {
         content_id: String,
         metadata: serde_json::Value,
     ) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.vector_metadata_update);
         self.vector_db
             .update_metadata(index, content_id, metadata)
             .await

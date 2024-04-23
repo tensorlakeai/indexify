@@ -127,6 +127,7 @@ pub struct App {
     pub node_addr: String,
     pub state_machine: Arc<StateMachineStore>,
     pub garbage_collector: Arc<GarbageCollector>,
+    pub registry: Arc<prometheus::Registry>,
     pub metrics: Metrics,
 }
 
@@ -141,6 +142,7 @@ impl App {
         overrides: Option<RaftConfigOverrides>,
         garbage_collector: Arc<GarbageCollector>,
         coordinator_addr: &str,
+        registry: Arc<prometheus::Registry>,
     ) -> Result<Arc<Self>> {
         let mut raft_config = openraft::Config {
             heartbeat_interval: 500,
@@ -237,6 +239,7 @@ impl App {
             node_addr: format!("{}:{}", server_config.listen_if, server_config.raft_port),
             state_machine,
             garbage_collector,
+            registry,
             metrics,
         });
 

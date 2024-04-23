@@ -23,6 +23,7 @@ use crate::{
     coordinator_filters::*,
     forwardable_coordinator::ForwardableCoordinator,
     garbage_collector::GarbageCollector,
+    metrics::Timer,
     scheduler::Scheduler,
     state::{RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
@@ -437,6 +438,8 @@ impl Coordinator {
 
     #[tracing::instrument(skip(self))]
     pub async fn run_scheduler(&self) -> Result<()> {
+        let _timer = Timer::start(&self.shared_state.metrics.scheduler_invocations);
+
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
         for change in state_changes {
             info!(
@@ -558,6 +561,7 @@ mod tests {
             None,
             garbage_collector.clone(),
             &config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
         )
         .await
         .unwrap();

@@ -22,7 +22,8 @@ impl Args {
                 config_path, e
             )
         });
-        let coordinator = CoordinatorServer::new(Arc::new(config))
+        let registry = Arc::new(crate::metrics::init_provider());
+        let coordinator = CoordinatorServer::new(Arc::new(config), registry)
             .await
             .expect("failed to create coordinator server");
         coordinator.run().await.expect("failed to run coordinator");
