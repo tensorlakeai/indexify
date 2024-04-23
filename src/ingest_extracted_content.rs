@@ -439,7 +439,7 @@ mod tests {
         let state = new_endpoint_state().await.unwrap();
         let ingest_state = IngestExtractedContentState::new(state);
         assert!(ingest_state.ingest_metadata.is_none());
-        assert!(ingest_state.content_metadata.is_none());
+        assert!(ingest_state.task.is_none());
         match ingest_state.frame_state {
             FrameState::New => (),
             _ => panic!("frame_state should be New"),
