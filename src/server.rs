@@ -784,6 +784,7 @@ async fn upload_file(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut labels = HashMap::new();
+
     while let Some(field) = files.next_field().await.unwrap() {
         if let Some(name) = field.file_name() {
             info!("user provided file name = {:?}", name);
@@ -804,14 +805,7 @@ async fn upload_file(
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
             let content_metadata = state
                 .data_manager
-                .upload_file(
-                    &namespace,
-                    stream,
-                    &name,
-                    content_mime,
-                    std::mem::take(&mut labels),
-                    None,
-                )
+                .upload_file(&namespace, stream, &name, content_mime, labels, None)
                 .await
                 .map_err(|e| {
                     IndexifyAPIError::new(
@@ -835,6 +829,7 @@ async fn upload_file(
                 .metrics
                 .node_content_bytes_uploaded
                 .add(size_bytes, &[]);
+            return Ok(());
         } else if let Some(name) = field.name() {
             let name = name.to_string();
             let value = field.text().await.map_err(|e| {
@@ -846,13 +841,10 @@ async fn upload_file(
             labels.insert(name, value);
         }
     }
-    if !labels.is_empty() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "no file provided",
-        ));
-    }
-    Ok(())
+    Err(IndexifyAPIError::new(
+        StatusCode::BAD_REQUEST,
+        "no file provided",
+    ))
 }
 
 #[tracing::instrument]
