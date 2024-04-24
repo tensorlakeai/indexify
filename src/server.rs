@@ -825,7 +825,7 @@ async fn upload_file(
     State(state): State<NamespaceEndpointState>,
     Query(params): Query<HashMap<String, String>>,
     mut files: Multipart,
-) -> Result<(), IndexifyAPIError> {
+) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels = HashMap::new();
 
     let id = params
@@ -896,7 +896,7 @@ async fn upload_file(
                 .metrics
                 .node_content_bytes_uploaded
                 .add(size_bytes, &[]);
-            return Ok(());
+            return Ok(Json(UploadFileResponse { content_id: id }));
         } else if let Some(name) = field.name() {
             let name = name.to_string();
             let value = field.text().await.map_err(|e| {
@@ -1226,6 +1226,7 @@ async fn index_search(
             &query.index,
             &query.query,
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
+            query.filters,
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;

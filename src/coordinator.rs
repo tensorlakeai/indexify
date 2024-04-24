@@ -253,6 +253,10 @@ impl Coordinator {
             .await
     }
 
+    pub async fn get_task(&self, task_id: &str) -> Result<internal_api::Task> {
+        self.shared_state.task_with_id(task_id).await
+    }
+
     pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,

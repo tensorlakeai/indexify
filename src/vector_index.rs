@@ -14,7 +14,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor_router::ExtractorRouter,
     metrics::{vector_storage::Metrics, Timer},
-    vectordbs::{CreateIndexParams, IndexDistance, VectorChunk, VectorDBTS},
+    vectordbs::{CreateIndexParams, Filter, IndexDistance, VectorChunk, VectorDBTS},
 };
 
 pub struct VectorIndexManager {
@@ -121,7 +121,13 @@ impl VectorIndexManager {
             .await
     }
 
-    pub async fn search(&self, index: Index, query: &str, k: usize) -> Result<Vec<ScoredText>> {
+    pub async fn search(
+        &self,
+        index: Index,
+        query: &str,
+        k: usize,
+        filters: Vec<String>,
+    ) -> Result<Vec<ScoredText>> {
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
@@ -137,11 +143,15 @@ impl VectorIndexManager {
             .features
             .pop()
             .ok_or(anyhow!("No embeddings were extracted"))?;
+        let filters = filters
+            .into_iter()
+            .map(|f| Filter::from_str(f.as_str()))
+            .collect::<Result<Vec<Filter>>>()?;
         let embedding: internal_api::Embedding =
             serde_json::from_value(feature.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
         let search_result = self
             .vector_db
-            .search(index.table_name, embedding.values, k as u64)
+            .search(index.table_name, embedding.values, k as u64, filters)
             .await?;
         let content_ids = search_result
             .iter()

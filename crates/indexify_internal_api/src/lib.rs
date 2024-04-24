@@ -322,6 +322,20 @@ impl Task {
     pub fn terminal_state(&self) -> bool {
         self.outcome != TaskOutcome::Unknown
     }
+
+    pub fn new(id: &str, content_metadata: &ContentMetadata) -> Self {
+        Self {
+            id: id.to_string(),
+            extractor: "".to_string(),
+            extraction_policy_id: "".to_string(),
+            output_index_table_mapping: HashMap::new(),
+            namespace: content_metadata.namespace.clone(),
+            content_metadata: content_metadata.clone(),
+            input_params: serde_json::Value::Null,
+            outcome: TaskOutcome::Unknown,
+            index_tables: Vec::new(),
+        }
+    }
 }
 
 impl Display for Task {

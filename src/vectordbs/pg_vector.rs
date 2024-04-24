@@ -134,6 +134,7 @@ impl VectorDb for PgVector {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
+        filters: Vec<super::Filter>,
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
         let query = format!(
@@ -236,7 +237,7 @@ mod tests {
             .unwrap();
 
         let results = vector_db
-            .search(index_name.into(), vec![10., 8.], 1)
+            .search(index_name.into(), vec![10., 8.], 1, vec![])
             .await
             .unwrap();
         assert_eq!(results.len(), 1);

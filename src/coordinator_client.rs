@@ -167,4 +167,15 @@ impl CoordinatorClient {
             assignments: response.into_inner().assignments,
         })
     }
+
+    pub async fn get_task(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<indexify_proto::indexify_coordinator::Task>> {
+        let request = tonic::Request::new(indexify_proto::indexify_coordinator::GetTaskRequest {
+            task_id: task_id.to_string(),
+        });
+        let response = self.get().await?.get_task(request).await?;
+        Ok(response.into_inner().task)
+    }
 }

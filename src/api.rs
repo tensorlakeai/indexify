@@ -275,6 +275,8 @@ pub struct SearchRequest {
     pub index: String,
     pub query: String,
     pub k: Option<u64>,
+    #[serde(default)]
+    pub filters: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -505,7 +507,6 @@ pub struct BeginMultiPartContent {
 pub enum IngestExtractedContent {
     BeginExtractedContentIngest(BeginExtractedContentIngest),
     ExtractedFeatures(ExtractedFeatures),
-    ExtractedContent(ExtractedContent),
     FinishExtractedContentIngest(FinishExtractedContentIngest),
     BeginMultipartContent(BeginMultiPartContent),
     MultipartContentFrame(ContentFrame),
@@ -526,11 +527,6 @@ pub struct BeginExtractedContentIngest {
     pub extraction_policy: String,
     pub extractor: String,
     pub index_tables: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ExtractedContent {
-    pub content_list: Vec<Content>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -634,4 +630,9 @@ pub struct IngestRemoteFileResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskAssignments {
     pub assignments: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UploadFileResponse {
+    pub content_id: String,
 }

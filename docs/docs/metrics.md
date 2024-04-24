@@ -19,3 +19,21 @@ The following metrics are specific to Indexify cluster operation:
 - indexify_coordinator_tasks_completed_total
 - indexify_coordinator_tasks_errored_total
 
+This is an example of prometheus configuration to collect metrics from server and coordinator hosts:
+
+```yaml
+scrape_configs:
+  - job_name: 'indexify-server-ingest'
+    metrics_path: /metrics/ingest
+    static_configs:
+      - targets: ['server:8900']
+
+  - job_name: 'indexify-server'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['server:8900']
+
+  - job_name: 'indexify-coordinator'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['coordinator:8960']
