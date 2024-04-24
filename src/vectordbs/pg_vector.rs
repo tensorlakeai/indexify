@@ -4,7 +4,7 @@ use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
-use crate::{server_config::PgVectorConfig, utils::PostgresIndexName};
+use crate::{server_config::PgVectorConfig, utils::PostgresIndexName, vectordbs::FilterOperator};
 
 #[derive(Debug)]
 pub struct PgVector {
@@ -137,9 +137,29 @@ impl VectorDb for PgVector {
         filters: Vec<super::Filter>,
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
-        let query = format!(
-            "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\" ORDER BY embedding <-> $1 LIMIT {k};"
+        let mut query = format!(
+            "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\""
         );
+        if !filters.is_empty() {
+            query.push_str(" WHERE ");
+            let filter_query = filters
+                .iter()
+                .map(|filter| {
+                    format!(
+                        "metadata->>'{}' {} '{}'",
+                        filter.key,
+                        match filter.operator {
+                            FilterOperator::Eq => "=",
+                            FilterOperator::Neq => "<>",
+                        },
+                        filter.value
+                    )
+                })
+                .collect::<Vec<String>>()
+                .join(" AND ");
+            query.push_str(&filter_query);
+        }
+        query.push_str(&format!(" ORDER BY embedding <-> $1 LIMIT {k};"));
         // TODO: confidence_score is a distance here, let's make sure that similarity /
         // distance is the same across vectors databases
         let embedding = Vector::from(query_embedding);
@@ -194,7 +214,14 @@ mod tests {
     use crate::{
         data_manager::DataManager,
         server_config::PgVectorConfig,
-        vectordbs::{pg_vector::PgVector, IndexDistance, VectorChunk, VectorDBTS},
+        vectordbs::{
+            pg_vector::PgVector,
+            Filter,
+            FilterOperator,
+            IndexDistance,
+            VectorChunk,
+            VectorDBTS,
+        },
     };
 
     #[tokio::test]
@@ -421,5 +448,136 @@ mod tests {
             .unwrap();
         let num_elements = vector_db.num_vectors(index_name).await.unwrap();
         assert_eq!(num_elements, 0);
+    }
+
+    #[tokio::test]
+    async fn test_search_filters() {
+        let index_name = "index_default.minil6.embedding";
+        let database_url = "postgres://postgres:postgres@localhost/indexify";
+        let vector_db: VectorDBTS = Arc::new(
+            PgVector::new(PgVectorConfig {
+                addr: database_url.to_string(),
+                m: 16,
+                efconstruction: 64,
+                efsearch: 40,
+            })
+            .await
+            .unwrap(),
+        );
+        // Drop index (this is idempotent)
+        vector_db.drop_index(index_name).await.unwrap();
+        vector_db
+            .create_index(CreateIndexParams {
+                vectordb_index_name: index_name.to_string(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+
+        let content_ids = vec![make_id(), make_id()];
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
+        let chunk = VectorChunk {
+            content_id: content_ids[0].clone(),
+            embedding: vec![0., 2.],
+            metadata: metadata1,
+        };
+        let metadata2 = json!({"key1": "value3", "key2": "value4"});
+        let chunk1 = VectorChunk {
+            content_id: content_ids[1].clone(),
+            embedding: vec![0., 3.],
+            metadata: metadata2,
+        };
+        vector_db
+            .add_embedding(index_name, vec![chunk, chunk1])
+            .await
+            .unwrap();
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![Filter {
+                    key: "key1".to_string(),
+                    value: "value1".to_string(),
+                    operator: FilterOperator::Eq,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![Filter {
+                    key: "key1".to_string(),
+                    value: "value1".to_string(),
+                    operator: FilterOperator::Neq,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![
+                    Filter {
+                        key: "key1".to_string(),
+                        value: "value1".to_string(),
+                        operator: FilterOperator::Neq,
+                    },
+                    Filter {
+                        key: "key2".to_string(),
+                        value: "value4".to_string(),
+                        operator: FilterOperator::Eq,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![
+                    Filter {
+                        key: "key1".to_string(),
+                        value: "value1".to_string(),
+                        operator: FilterOperator::Eq,
+                    },
+                    Filter {
+                        key: "key2".to_string(),
+                        value: "value4".to_string(),
+                        operator: FilterOperator::Eq,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 0);
+
+        assert_eq!(
+            vector_db
+                .search(index_name.to_string(), vec![0., 2.], 2, vec![])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }
