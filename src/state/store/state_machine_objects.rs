@@ -2054,7 +2054,6 @@ impl IndexifyState {
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
             pending_tasks_for_content: self.get_pending_tasks_for_content(),
-            metrics: self.metrics.lock().unwrap().clone(),
         }
     }
 
@@ -2116,7 +2115,6 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
-        self.metrics.lock().unwrap().clone_from(&snapshot.metrics);
     }
     //  END SNAPSHOT METHODS
 }
@@ -2135,7 +2133,6 @@ pub struct IndexifyStateSnapshot {
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     pending_tasks_for_content:
         HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
-    metrics: Metrics,
 }
 
 #[cfg(test)]
