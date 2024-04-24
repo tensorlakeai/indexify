@@ -1831,7 +1831,12 @@ impl IndexifyState {
             if let Some(bytes) = bytes_opt {
                 let policy =
                     serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
-                        .map_err(|e| StateMachineError::SerializationError(format!("get_extraction_policies from id: unable to deserialize json, {}", e.to_string())))?;
+                        .map_err(|e| {
+                            StateMachineError::SerializationError(format!(
+                                "get_extraction_policies from id: unable to deserialize json, {}",
+                                e.to_string()
+                            ))
+                        })?;
                 policies.push(policy);
             }
             // If None, the policy is not found; we simply skip it.
