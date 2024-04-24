@@ -45,52 +45,43 @@ enum FrameState {
     Writing(Writing),
 }
 
-pub struct IngestExtractedContentState {
-    ingest_metadata: Option<BeginExtractedContentIngest>,
-    task: Option<indexify_coordinator::Task>,
-    state: NamespaceEndpointState,
+struct ContentStateWriting {
+    ingest_metadata: BeginExtractedContentIngest,
+    task: indexify_coordinator::Task,
     frame_state: FrameState,
 }
 
-impl IngestExtractedContentState {
-    pub fn new(state: NamespaceEndpointState) -> Self {
-        Self {
-            ingest_metadata: None,
-            task: None,
-            state,
-            frame_state: FrameState::New,
+impl ContentStateWriting {
+    fn new(
+        ingest_metadata: BeginExtractedContentIngest,
+        task: indexify_coordinator::Task,
+    ) -> Result<Self> {
+        if task.content_metadata.is_none() {
+            return Err(anyhow!("task does not have content metadata"));
         }
+        Ok(Self {
+            ingest_metadata,
+            task,
+            frame_state: FrameState::New,
+        })
     }
 
-    async fn begin(&mut self, payload: BeginExtractedContentIngest) -> Result<()> {
-        info!(
-            "beginning extraction ingest for task: {} index_tables: {}",
-            payload.task_id,
-            payload.index_tables.join(",")
-        );
-        let task = self
-            .state
-            .coordinator_client
-            .get_task(&payload.task_id)
-            .await?
-            .ok_or(anyhow!("task not found"))?;
-        self.task.replace(task);
-        self.ingest_metadata.replace(payload);
-        Ok(())
+    fn content_metadata(&self) -> &indexify_coordinator::ContentMetadata {
+        self.task.content_metadata.as_ref().unwrap()
     }
 
-    async fn start_content(&mut self) -> Result<()> {
+    async fn start_content(&mut self, state: &NamespaceEndpointState) -> Result<()> {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
         let file_name = DataManager::make_file_name(None);
-        let metadata = self.ingest_metadata.as_ref().unwrap();
-        let writer = self
-            .state
-            .data_manager
-            .blob_store_writer(&metadata.namespace, &file_name)
-            .await?;
+        let writer = DataManager::blob_store_writer(
+            &state.data_manager,
+            &self.content_metadata().namespace,
+            &file_name,
+        )
+        .await?;
         self.frame_state = FrameState::Writing(Writing {
             created_at: ts as i64,
             file_name,
@@ -101,33 +92,16 @@ impl IngestExtractedContentState {
         Ok(())
     }
 
-    async fn begin_multipart_content(&mut self) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!("received begin content without header metadata"));
-        }
-        info!(
-            "beginning multipart content ingest for task: {}",
-            self.ingest_metadata.as_ref().unwrap().task_id
-        );
+    async fn begin_multipart_content(&mut self, state: &NamespaceEndpointState) -> Result<()> {
         match &self.frame_state {
-            FrameState::New => {
-                self.start_content().await?;
-            }
-            FrameState::Writing(_) => {
-                return Err(anyhow!(
-                    "received begin content without finishing previous content"
-                ));
-            }
+            FrameState::New => self.start_content(state).await,
+            FrameState::Writing(_) => Err(anyhow!(
+                "received begin content without finishing previous content"
+            )),
         }
-        Ok(())
     }
 
     async fn write_content_frame(&mut self, payload: ContentFrame) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!(
-                "received finished extraction ingest without header metadata"
-            ));
-        }
         match &mut self.frame_state {
             FrameState::New => Err(anyhow!(
                 "received content frame without starting multipart content"
@@ -150,56 +124,46 @@ impl IngestExtractedContentState {
         }
     }
 
-    async fn finish_content(&mut self, payload: FinishContent) -> Result<String> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!(
-                "received finished extraction ingest without header metadata"
-            ));
-        }
-        info!(
-            "received finish multipart content for task: {}",
-            self.ingest_metadata.as_ref().unwrap().task_id
-        );
+    async fn finish_content(
+        &mut self,
+        state: &NamespaceEndpointState,
+        payload: FinishContent,
+    ) -> Result<String> {
+        let mut labels = self.content_metadata().labels.clone();
         match &mut self.frame_state {
             FrameState::New => Err(anyhow!(
                 "received finish content without any content frames"
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
-                let mut labels = HashMap::from(payload.labels);
-                if let Some(task) = &self.task {
-                    if let Some(content_meta) = &task.content_metadata {
-                        labels.extend(content_meta.labels.clone());
-                    }
-                }
-                let metadata = self.ingest_metadata.as_ref().unwrap();
+                labels.extend(payload.labels);
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
                 let id = DataManager::make_id();
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
-                    parent_id: metadata.parent_content_id.clone(),
-                    namespace: metadata.namespace.clone(),
+                    parent_id: self.ingest_metadata.parent_content_id.clone(),
+                    namespace: self.ingest_metadata.namespace.clone(),
                     mime: payload.content_type,
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
                     labels,
-                    source: metadata.extraction_policy.clone(),
+                    source: self.ingest_metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
                 };
-                self.state
+                state
                     .data_manager
                     .create_content_and_write_features(
                         &content_metadata,
-                        self.ingest_metadata.as_ref().unwrap(),
+                        &self.ingest_metadata,
                         payload.features,
                     )
                     .await?;
-                self.state.metrics.node_content_extracted.add(1, &[]);
-                self.state
+                state.metrics.node_content_extracted.add(1, &[]);
+                state
                     .metrics
                     .node_content_bytes_extracted
                     .add(frame_state.file_size, &[]);
@@ -207,50 +171,106 @@ impl IngestExtractedContentState {
                 Ok(id)
             }
         }
-        // Ok(ret_id)
     }
 
-    async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!(
-                "received extracted features without header metadata"
-            ));
-        }
-        let content_meta = self
-            .task
-            .as_ref()
-            .map(|t| t.content_metadata.clone())
-            .flatten()
-            .ok_or(anyhow!("No content metadata found"))?;
-        self.state
+    async fn write_features(
+        &mut self,
+        state: &NamespaceEndpointState,
+        payload: ExtractedFeatures,
+    ) -> Result<()> {
+        state
             .data_manager
             .write_existing_content_features(
-                &self.ingest_metadata.clone().unwrap().extractor,
-                &self.ingest_metadata.clone().unwrap().extraction_policy,
-                &content_meta,
+                &self.ingest_metadata.extractor,
+                &self.ingest_metadata.extraction_policy,
+                self.content_metadata(),
                 payload.features,
-                &self
-                    .ingest_metadata
-                    .as_ref()
-                    .unwrap()
-                    .output_to_index_table_mapping,
-                &self.ingest_metadata.as_ref().unwrap().index_tables,
+                &self.ingest_metadata.output_to_index_table_mapping,
+                &self.ingest_metadata.index_tables,
             )
             .await
     }
+}
+
+enum ContentState {
+    Init,
+    Writing(ContentStateWriting),
+}
+
+pub struct IngestExtractedContentState {
+    state: NamespaceEndpointState,
+    content_state: ContentState,
+}
+
+impl IngestExtractedContentState {
+    pub fn new(state: NamespaceEndpointState) -> Self {
+        Self {
+            state,
+            content_state: ContentState::Init,
+        }
+    }
+
+    async fn begin(&mut self, payload: BeginExtractedContentIngest) -> Result<()> {
+        info!(
+            "beginning extraction ingest for task: {} index_tables: {}",
+            payload.task_id,
+            payload.index_tables.join(",")
+        );
+        let task = self
+            .state
+            .coordinator_client
+            .get_task(&payload.task_id)
+            .await?
+            .ok_or(anyhow!("task not found"))?;
+        self.content_state =
+            ContentState::Writing(ContentStateWriting::new(payload.clone(), task)?);
+        Ok(())
+    }
+
+    async fn begin_multipart_content(&mut self) -> Result<()> {
+        match &mut self.content_state {
+            ContentState::Writing(s) => s.begin_multipart_content(&self.state).await,
+            ContentState::Init => Err(anyhow!("received begin content without header metadata")),
+        }
+    }
+
+    async fn write_content_frame(&mut self, payload: ContentFrame) -> Result<()> {
+        match &mut self.content_state {
+            ContentState::Writing(s) => s.write_content_frame(payload).await,
+            ContentState::Init => Err(anyhow!("received content frame without header metadata")),
+        }
+    }
+
+    async fn finish_content(&mut self, payload: FinishContent) -> Result<String> {
+        match &mut self.content_state {
+            ContentState::Writing(s) => s.finish_content(&self.state, payload).await,
+            ContentState::Init => Err(anyhow!("received finish content without header metadata")),
+        }
+    }
+
+    async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
+        match &mut self.content_state {
+            ContentState::Writing(s) => s.write_features(&self.state, payload).await,
+            ContentState::Init => Err(anyhow!(
+                "received extracted features without header metadata"
+            )),
+        }
+    }
 
     async fn finish(&mut self) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            tracing::error!("received finished extraction ingest without header metadata");
-            return Err(anyhow!(
+        match &mut self.content_state {
+            ContentState::Writing(s) => {
+                self.state
+                    .data_manager
+                    .finish_extracted_content_write(s.ingest_metadata.clone())
+                    .await?;
+                self.content_state = ContentState::Init;
+                Ok(())
+            }
+            ContentState::Init => Err(anyhow!(
                 "received finished extraction ingest without header metadata"
-            ));
+            )),
         }
-        self.state
-            .data_manager
-            .finish_extracted_content_write(self.ingest_metadata.clone().unwrap())
-            .await?;
-        Ok(())
     }
 
     pub async fn run(
@@ -474,12 +494,7 @@ mod tests {
     async fn test_new() {
         let state = new_endpoint_state().await.unwrap();
         let ingest_state = IngestExtractedContentState::new(state);
-        assert!(ingest_state.ingest_metadata.is_none());
-        assert!(ingest_state.task.is_none());
-        match ingest_state.frame_state {
-            FrameState::New => (),
-            _ => panic!("frame_state should be New"),
-        }
+        assert!(matches!(ingest_state.content_state, ContentState::Init));
     }
 
     fn set_tracing() {
@@ -509,7 +524,11 @@ mod tests {
             index_tables: vec!["test".to_string()],
         };
         ingest_state.begin(payload.clone()).await.unwrap();
-        let new_payload = ingest_state.ingest_metadata.clone().unwrap();
+        let new_payload = if let ContentState::Writing(s) = &ingest_state.content_state {
+            s.ingest_metadata.clone()
+        } else {
+            panic!("content_state should be Writing");
+        };
         assert_eq!(new_payload.task_id, payload.task_id);
         assert_eq!(new_payload.namespace, payload.namespace);
         assert_eq!(new_payload.parent_content_id, payload.parent_content_id);
@@ -523,13 +542,15 @@ mod tests {
         assert_eq!(new_payload.task_outcome, payload.task_outcome);
 
         ingest_state.begin_multipart_content().await.unwrap();
-
-        let url = if let FrameState::Writing(s) = &ingest_state.frame_state {
-            s.writer.url.clone()
+        let url = if let ContentState::Writing(s) = &ingest_state.content_state {
+            if let FrameState::Writing(w) = &s.frame_state {
+                w.writer.url.clone()
+            } else {
+                panic!("frame_state should be Writing");
+            }
         } else {
-            panic!("frame_state should be Writing");
+            panic!("content_state should be Writing");
         };
-
         let payload = ContentFrame {
             bytes: vec![1, 2, 3],
         };
@@ -543,11 +564,15 @@ mod tests {
         };
         ingest_state.write_content_frame(payload).await.unwrap();
 
-        if let FrameState::Writing(s) = &ingest_state.frame_state {
-            assert_eq!(s.file_size, 9);
+        if let ContentState::Writing(s) = &ingest_state.content_state {
+            if let FrameState::Writing(s) = &s.frame_state {
+                assert_eq!(s.file_size, 9);
+            } else {
+                panic!("frame_state should be Writing");
+            }
         } else {
-            panic!("frame_state should be Writing");
-        }
+            panic!("content_state should be Writing");
+        };
 
         let payload = FinishContent {
             content_type: "test".to_string(),
@@ -556,8 +581,12 @@ mod tests {
         };
 
         ingest_state.finish_content(payload).await.unwrap();
-        if let FrameState::Writing(_) = ingest_state.frame_state {
-            panic!("frame_state should be New");
+        if let ContentState::Writing(s) = &ingest_state.content_state {
+            if !matches!(s.frame_state, FrameState::New) {
+                panic!("frame_state should be New");
+            }
+        } else {
+            panic!("content_state should be Writing");
         }
 
         // compare file content with written content
@@ -640,9 +669,6 @@ mod tests {
         });
 
         let id = ingest_state.finish_content(payload).await.unwrap();
-        if let FrameState::Writing(_) = ingest_state.frame_state {
-            panic!("frame_state should be New");
-        }
 
         // read entry for id from vector index
         let points = ingest_state
@@ -779,9 +805,6 @@ mod tests {
         });
 
         let id = ingest_state.finish_content(payload).await.unwrap();
-        if let FrameState::Writing(_) = ingest_state.frame_state {
-            panic!("frame_state should be New");
-        }
 
         let content_metadata = coordinator
             .coordinator
