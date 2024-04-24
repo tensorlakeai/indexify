@@ -505,7 +505,6 @@ pub struct BeginMultiPartContent {
 pub enum IngestExtractedContent {
     BeginExtractedContentIngest(BeginExtractedContentIngest),
     ExtractedFeatures(ExtractedFeatures),
-    ExtractedContent(ExtractedContent),
     FinishExtractedContentIngest(FinishExtractedContentIngest),
     BeginMultipartContent(BeginMultiPartContent),
     MultipartContentFrame(ContentFrame),
@@ -526,11 +525,6 @@ pub struct BeginExtractedContentIngest {
     pub extraction_policy: String,
     pub extractor: String,
     pub index_tables: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ExtractedContent {
-    pub content_list: Vec<Content>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]

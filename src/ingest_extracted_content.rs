@@ -72,18 +72,6 @@ impl IngestExtractedContentState {
         self.ingest_metadata.replace(payload);
     }
 
-    async fn write_content(&mut self, payload: ExtractedContent) -> Result<()> {
-        if self.ingest_metadata.is_none() {
-            return Err(anyhow!(
-                "received extracted content without header metadata"
-            ));
-        }
-        self.state
-            .data_manager
-            .write_extracted_content(self.ingest_metadata.clone().unwrap(), payload)
-            .await
-    }
-
     async fn start_content(&mut self) -> Result<()> {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -292,12 +280,6 @@ impl IngestExtractedContentState {
                 match msg {
                     IngestExtractedContent::BeginExtractedContentIngest(payload) => {
                         self.begin(payload);
-                    }
-                    IngestExtractedContent::ExtractedContent(payload) => {
-                        if let Err(e) = self.write_content(payload).await {
-                            tracing::error!("Error handling extracted content: {}", e);
-                            return;
-                        }
                     }
                     IngestExtractedContent::BeginMultipartContent(_) => {
                         if let Err(e) = self.begin_multipart_content().await {

@@ -263,9 +263,8 @@ impl DataManager {
                 .write_content_bytes(
                     namespace,
                     Box::pin(stream),
-                    &text.labels,
+                    text.labels,
                     text.content_type,
-                    None,
                     None,
                     "ingestion",
                     Some(&content_with_id.id),
@@ -423,10 +422,9 @@ impl DataManager {
             .write_content_bytes(
                 namespace,
                 data,
-                &labels,
+                labels,
                 mime_type.to_string(),
                 Some(name),
-                None,
                 "ingestion",
                 original_content_id,
             )
@@ -476,10 +474,9 @@ impl DataManager {
         &self,
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
-        labels: &HashMap<String, String>,
+        labels: HashMap<String, String>,
         content_type: String,
         file_name: Option<&str>,
-        parent_id: Option<String>,
         source: &str,
         original_content_id: Option<&str>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
@@ -505,12 +502,6 @@ impl DataManager {
         let hash_result = hasher.finalize();
         let content_hash = format!("{:x}", hash_result);
 
-        let labels = labels
-            .clone()
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string()))
-            .collect();
-
         let mut id = DataManager::make_id();
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
@@ -519,7 +510,7 @@ impl DataManager {
             id,
             file_name,
             storage_url: res.url,
-            parent_id: parent_id.unwrap_or_default(),
+            parent_id: "".to_string(),
             created_at: current_ts_secs as i64,
             mime: content_type,
             namespace: namespace.to_string(),
@@ -720,42 +711,6 @@ impl DataManager {
             &ingest_metadata.output_to_index_table_mapping,
         )
         .await
-    }
-
-    pub async fn write_extracted_content(
-        &self,
-        ingest_metadata: BeginExtractedContentIngest,
-        extracted_content: api::ExtractedContent,
-    ) -> Result<()> {
-        let namespace = ingest_metadata.namespace.clone();
-        let mut new_content_metadata = Vec::new();
-        let mut features = HashMap::new();
-        for content in extracted_content.content_list {
-            let stream = futures::stream::once(async { Ok(Bytes::from(content.bytes)) });
-            let content_metadata = self
-                .write_content_bytes(
-                    namespace.as_str(),
-                    Box::pin(stream),
-                    &content.labels,
-                    content.content_type,
-                    None,
-                    Some(ingest_metadata.parent_content_id.to_string()),
-                    &ingest_metadata.extraction_policy,
-                    None,
-                )
-                .await?;
-            features.insert(content_metadata.id.clone(), content.features);
-            new_content_metadata.push(content_metadata.clone());
-        }
-        for content_meta in new_content_metadata {
-            self.create_content_and_write_features(
-                &content_meta,
-                &ingest_metadata,
-                features.get(&content_meta.id).unwrap().clone(),
-            )
-            .await?
-        }
-        Ok(())
     }
 
     pub async fn query_content_source(
