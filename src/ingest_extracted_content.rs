@@ -37,7 +37,6 @@ struct Writing {
             OidSha256,
         >,
     >,
-    frame_count: u64,
 }
 
 #[derive(Debug)]
@@ -90,7 +89,6 @@ impl IngestExtractedContentState {
             file_size: 0,
             writer,
             hasher: Sha256::new(),
-            frame_count: 0,
         });
         Ok(())
     }
@@ -127,11 +125,8 @@ impl IngestExtractedContentState {
                 "received content frame without starting multipart content"
             )),
             FrameState::Writing(frame_state) => {
-                let frame_index_bytes = frame_state.frame_count.to_le_bytes(); //  NOTE: doing this so hash is consistent independent of platform
                 frame_state.file_size += payload.bytes.len() as u64;
-                frame_state.hasher.update(frame_index_bytes);
                 frame_state.hasher.update(&payload.bytes);
-                frame_state.frame_count += 1;
                 frame_state
                     .writer
                     .writer
