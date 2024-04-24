@@ -71,14 +71,13 @@ impl CoordinatorClient {
                 return Ok(CoordinatorServiceClient::new(channel));
             } else {
                 tracing::info!("connecting without TLS to coordinator service");
-                let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr))
-                    .await?;
+                let client =
+                    CoordinatorServiceClient::connect(format!("http://{}", &self.addr)).await?;
                 return Ok(client);
             }
         }
         tracing::info!("connecting without TLS to coordinator service");
-        let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr))
-            .await?;
+        let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr)).await?;
         Ok(client)
     }
 
