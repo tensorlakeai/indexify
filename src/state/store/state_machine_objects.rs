@@ -677,7 +677,7 @@ impl IndexifyState {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
         let _ = txn
             .put_cf(
-                &StateMachineColumns::StateChanges.cf(db),
+                &StateMachineColumns::ExtractionGraphs.cf(db),
                 &extraction_graph.id,
                 serialized_eg,
             )

@@ -1028,17 +1028,17 @@ impl From<SchemaColumnType> for SchemaColumn {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct StructuredDataSchema {
     pub columns: BTreeMap<String, SchemaColumn>,
-    pub content_source: String,
+    pub extraction_graph_id: String,
     pub namespace: String,
     pub id: String,
 }
 
 impl StructuredDataSchema {
-    pub fn new(content_source: &str, namespace: &str) -> Self {
-        let id = Self::schema_id(namespace, content_source);
+    pub fn new(extraction_graph_id: &str, namespace: &str) -> Self {
+        let id = Self::schema_id(namespace, extraction_graph_id);
         Self {
             columns: BTreeMap::new(),
-            content_source: content_source.to_string(),
+            extraction_graph_id: extraction_graph_id.to_string(),
             namespace: namespace.to_string(),
             id,
         }
@@ -1050,7 +1050,7 @@ impl StructuredDataSchema {
             columns.insert(column_name, column);
         }
         Ok(Self {
-            content_source: self.content_source.clone(),
+            extraction_graph_id: self.extraction_graph_id.clone(),
             columns,
             namespace: self.namespace.clone(),
             id: self.id.clone(),
