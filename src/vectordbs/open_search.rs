@@ -155,6 +155,7 @@ impl VectorDb for OpenSearchKnn {
         index_name: String,
         query_embedding: Vec<f32>,
         k: u64,
+        filters: Vec<super::Filter>,
     ) -> Result<Vec<SearchResult>> {
         let response = self
             .create_client()?
@@ -331,7 +332,7 @@ mod tests {
         }
 
         let results = opensearch
-            .search(TEST_INDEX_NAME.into(), vec![10., 8.], 1)
+            .search(TEST_INDEX_NAME.into(), vec![10., 8.], 1, vec![])
             .await
             .unwrap();
         assert_eq!(results.len(), 1);

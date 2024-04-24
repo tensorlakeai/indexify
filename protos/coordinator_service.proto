@@ -59,6 +59,8 @@ service CoordinatorService {
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
 
     rpc GetAllTaskAssignments(GetAllTaskAssignmentRequest) returns (TaskAssignments) {}
+
+    rpc GetTask(GetTaskRequest) returns (GetTaskResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -440,4 +442,12 @@ message GetAllTaskAssignmentRequest {
 
 message TaskAssignments {
     map<string, string> assignments = 1;
+}
+
+message GetTaskRequest {
+    string task_id = 1;
+}
+
+message GetTaskResponse {
+    Task task = 1;
 }

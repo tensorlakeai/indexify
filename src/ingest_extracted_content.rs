@@ -47,7 +47,7 @@ enum FrameState {
 
 pub struct IngestExtractedContentState {
     ingest_metadata: Option<BeginExtractedContentIngest>,
-    content_metadata: Option<indexify_coordinator::ContentMetadata>,
+    task: Option<indexify_coordinator::Task>,
     state: NamespaceEndpointState,
     frame_state: FrameState,
 }
@@ -56,19 +56,27 @@ impl IngestExtractedContentState {
     pub fn new(state: NamespaceEndpointState) -> Self {
         Self {
             ingest_metadata: None,
-            content_metadata: None,
+            task: None,
             state,
             frame_state: FrameState::New,
         }
     }
 
-    fn begin(&mut self, payload: BeginExtractedContentIngest) {
+    async fn begin(&mut self, payload: BeginExtractedContentIngest) -> Result<()> {
         info!(
             "beginning extraction ingest for task: {} index_tables: {}",
             payload.task_id,
             payload.index_tables.join(",")
         );
+        let task = self
+            .state
+            .coordinator_client
+            .get_task(&payload.task_id)
+            .await?
+            .ok_or(anyhow!("task not found"))?;
+        self.task.replace(task);
         self.ingest_metadata.replace(payload);
+        Ok(())
     }
 
     async fn start_content(&mut self) -> Result<()> {
@@ -158,6 +166,12 @@ impl IngestExtractedContentState {
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
+                let mut labels = HashMap::from(payload.labels);
+                if let Some(task) = &self.task {
+                    if let Some(content_meta) = &task.content_metadata {
+                        labels.extend(content_meta.labels.clone());
+                    }
+                }
                 let metadata = self.ingest_metadata.as_ref().unwrap();
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
@@ -170,7 +184,7 @@ impl IngestExtractedContentState {
                     mime: payload.content_type,
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
-                    labels: payload.labels,
+                    labels,
                     source: metadata.extraction_policy.clone(),
                     created_at: frame_state.created_at,
                     hash: content_hash,
@@ -196,31 +210,6 @@ impl IngestExtractedContentState {
         // Ok(ret_id)
     }
 
-    async fn ensure_has_content_metadata(
-        &mut self,
-        content_id: String,
-    ) -> Result<indexify_coordinator::ContentMetadata> {
-        if self.content_metadata.is_none() {
-            let content_metas = self
-                .state
-                .coordinator_client
-                .get()
-                .await?
-                .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
-                    content_list: vec![content_id.clone()],
-                })
-                .await?
-                .into_inner()
-                .content_list;
-
-            let content_meta = content_metas
-                .get(&content_id)
-                .ok_or(anyhow!("No content metadata found"))?;
-            self.content_metadata.replace(content_meta.clone());
-        }
-        Ok(self.content_metadata.clone().unwrap())
-    }
-
     async fn write_features(&mut self, payload: ExtractedFeatures) -> Result<()> {
         if self.ingest_metadata.is_none() {
             return Err(anyhow!(
@@ -228,8 +217,11 @@ impl IngestExtractedContentState {
             ));
         }
         let content_meta = self
-            .ensure_has_content_metadata(payload.content_id.clone())
-            .await?;
+            .task
+            .as_ref()
+            .map(|t| t.content_metadata.clone())
+            .flatten()
+            .ok_or(anyhow!("No content metadata found"))?;
         self.state
             .data_manager
             .write_existing_content_features(
@@ -274,7 +266,10 @@ impl IngestExtractedContentState {
             if let Ok(Message::Item(msg)) = msg {
                 match msg {
                     IngestExtractedContent::BeginExtractedContentIngest(payload) => {
-                        self.begin(payload);
+                        if let Err(e) = self.begin(payload).await {
+                            tracing::error!("Error beginning extraction ingest: {}", e);
+                            return;
+                        }
                     }
                     IngestExtractedContent::BeginMultipartContent(_) => {
                         if let Err(e) = self.begin_multipart_content().await {
@@ -318,13 +313,14 @@ mod tests {
 
     use std::sync::Arc;
 
-    use indexify_internal_api::TaskOutcome;
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Task, TaskOutcome};
     use serde_json::json;
     use tokio::task::JoinHandle;
 
     use super::*;
     use crate::{
         blob_storage::{BlobStorage, ContentReader},
+        coordinator::Coordinator,
         coordinator_client::CoordinatorClient,
         data_manager::DataManager,
         metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
@@ -352,6 +348,7 @@ mod tests {
     }
 
     struct TestCoordinator {
+        coordinator: Arc<Coordinator>,
         handle: JoinHandle<()>,
     }
 
@@ -365,15 +362,17 @@ mod tests {
             let config = make_test_config();
             let _ = std::fs::remove_dir_all(config.state_store.clone().path.unwrap());
             let registry = Arc::new(crate::metrics::init_provider());
-            let coordinator = crate::coordinator_service::CoordinatorServer::new(
+            let coordinator_server = crate::coordinator_service::CoordinatorServer::new(
                 Arc::new(config.clone()),
                 registry,
             )
             .await
             .expect("failed to create coordinator server");
 
+            let coordinator = coordinator_server.get_coordinator();
+
             let handle = tokio::spawn(async move {
-                coordinator.run().await.unwrap();
+                coordinator_server.run().await.unwrap();
             });
             // wait until able to connect to coordinator
             loop {
@@ -382,7 +381,62 @@ mod tests {
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             }
-            TestCoordinator { handle }
+            let test_coordinator = TestCoordinator {
+                handle,
+                coordinator,
+            };
+            let content_metadata = ContentMetadata {
+                id: ContentMetadataId::new(&"1"),
+                name: "test".to_string(),
+                parent_id: ContentMetadataId::new(""),
+                namespace: "test".to_string(),
+                content_type: "text/plain".to_string(),
+                storage_url: "test".to_string(),
+                labels: HashMap::new(),
+                size_bytes: 0,
+                source: "test".to_string(),
+                created_at: 0,
+                hash: "test".to_string(),
+                extraction_policy_ids: HashMap::new(),
+                tombstoned: false,
+            };
+            test_coordinator
+                .create_content(content_metadata.clone())
+                .await
+                .unwrap();
+            test_coordinator
+                .create_task(Task::new("test", &content_metadata))
+                .await
+                .unwrap();
+            test_coordinator
+        }
+
+        pub async fn create_content(&self, content: ContentMetadata) -> Result<()> {
+            let _ = self
+                .coordinator
+                .shared_state
+                .create_content_batch(vec![content])
+                .await
+                .unwrap();
+            Ok(())
+        }
+
+        pub async fn create_task(&self, task: Task) -> Result<()> {
+            let state_change_id = self
+                .coordinator
+                .shared_state
+                .get_state_change_watcher()
+                .borrow_and_update()
+                .id
+                .clone();
+
+            let _ = self
+                .coordinator
+                .shared_state
+                .create_tasks(vec![task], &state_change_id)
+                .await
+                .unwrap();
+            Ok(())
         }
     }
 
@@ -421,7 +475,7 @@ mod tests {
         let state = new_endpoint_state().await.unwrap();
         let ingest_state = IngestExtractedContentState::new(state);
         assert!(ingest_state.ingest_metadata.is_none());
-        assert!(ingest_state.content_metadata.is_none());
+        assert!(ingest_state.task.is_none());
         match ingest_state.frame_state {
             FrameState::New => (),
             _ => panic!("frame_state should be New"),
@@ -454,7 +508,7 @@ mod tests {
             task_outcome: TaskOutcome::Success,
             index_tables: vec!["test".to_string()],
         };
-        ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
         let new_payload = ingest_state.ingest_metadata.clone().unwrap();
         assert_eq!(new_payload.task_id, payload.task_id);
         assert_eq!(new_payload.namespace, payload.namespace);
@@ -520,7 +574,7 @@ mod tests {
         let state = new_endpoint_state().await.unwrap();
         let coordinator = TestCoordinator::new().await;
 
-        let mut ingest_state = IngestExtractedContentState::new(state);
+        let mut ingest_state = IngestExtractedContentState::new(state.clone());
         let output_mappings: HashMap<String, String> = vec![
             ("name1".to_string(), "test_index1".to_string()),
             ("name2".to_string(), "test_index2".to_string()),
@@ -554,13 +608,13 @@ mod tests {
             parent_content_id: "".to_string(),
             extraction_policy: "test".to_string(),
             extractor: "test".to_string(),
-            output_to_index_table_mapping: output_mappings,
+            output_to_index_table_mapping: output_mappings.clone(),
             executor_id: "test".to_string(),
             task_outcome: TaskOutcome::Success,
             index_tables: vec!["test_index1".to_string()],
         };
 
-        ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
 
         ingest_state.begin_multipart_content().await.unwrap();
 
@@ -602,6 +656,31 @@ mod tests {
         assert_eq!(points[0].content_id, id);
         assert_eq!(points[0].metadata, metadata1);
 
+        let content_metadata = coordinator
+            .coordinator
+            .get_content_metadata(vec![id.clone()])
+            .await
+            .unwrap();
+        coordinator
+            .create_task(Task::new("test_1", content_metadata.first().unwrap()))
+            .await
+            .unwrap();
+
+        let payload = BeginExtractedContentIngest {
+            task_id: "test_1".to_string(),
+            namespace: "test".to_string(),
+            parent_content_id: "".to_string(),
+            extraction_policy: "test".to_string(),
+            extractor: "test".to_string(),
+            output_to_index_table_mapping: output_mappings,
+            executor_id: "test".to_string(),
+            task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test_index1".to_string()],
+        };
+
+        let mut ingest_state = IngestExtractedContentState::new(state.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
+
         // update metadata for content_id
         let metadata2 = json!({"key1" : "value3", "key2" : "value4"});
         let payload = ExtractedFeatures {
@@ -640,7 +719,7 @@ mod tests {
         let state = new_endpoint_state().await.unwrap();
         let coordinator = TestCoordinator::new().await;
 
-        let mut ingest_state = IngestExtractedContentState::new(state);
+        let mut ingest_state = IngestExtractedContentState::new(state.clone());
         let output_mappings: HashMap<String, String> = vec![
             ("name1".to_string(), "test_index1".to_string()),
             ("name2".to_string(), "test_index2".to_string()),
@@ -674,13 +753,13 @@ mod tests {
             parent_content_id: "".to_string(),
             extraction_policy: "test".to_string(),
             extractor: "test".to_string(),
-            output_to_index_table_mapping: output_mappings,
+            output_to_index_table_mapping: output_mappings.clone(),
             executor_id: "test".to_string(),
             task_outcome: TaskOutcome::Success,
             index_tables: vec!["test_index1".to_string()],
         };
 
-        ingest_state.begin(payload.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
 
         ingest_state.begin_multipart_content().await.unwrap();
 
@@ -703,6 +782,31 @@ mod tests {
         if let FrameState::Writing(_) = ingest_state.frame_state {
             panic!("frame_state should be New");
         }
+
+        let content_metadata = coordinator
+            .coordinator
+            .get_content_metadata(vec![id.clone()])
+            .await
+            .unwrap();
+        coordinator
+            .create_task(Task::new("test_1", content_metadata.first().unwrap()))
+            .await
+            .unwrap();
+
+        let payload = BeginExtractedContentIngest {
+            task_id: "test_1".to_string(),
+            namespace: "test".to_string(),
+            parent_content_id: "".to_string(),
+            extraction_policy: "test".to_string(),
+            extractor: "test".to_string(),
+            output_to_index_table_mapping: output_mappings,
+            executor_id: "test".to_string(),
+            task_outcome: TaskOutcome::Success,
+            index_tables: vec!["test_index1".to_string()],
+        };
+
+        let mut ingest_state = IngestExtractedContentState::new(state.clone());
+        ingest_state.begin(payload.clone()).await.unwrap();
 
         // add embedding for content_id
         let payload = ExtractedFeatures {

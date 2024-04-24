@@ -1226,6 +1226,7 @@ async fn index_search(
             &query.index,
             &query.query,
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
+            query.filters,
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;

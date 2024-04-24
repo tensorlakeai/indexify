@@ -28,8 +28,19 @@ use lancedb::{
 use serde_json::Value;
 use tracing;
 
-use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
+use super::{CreateIndexParams, Filter, FilterOperator, SearchResult, VectorChunk, VectorDb};
 use crate::server_config::LancedbConfig;
+
+fn from_filter_to_str(filters: Vec<Filter>) -> String {
+    filters
+        .into_iter()
+        .map(|f| match f.operator {
+            FilterOperator::Eq => format!("{} = '{}'", f.key, f.value),
+            FilterOperator::Neq => format!("{} != '{}'", f.key, f.value),
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
 
 pub struct LanceDb {
     conn: Arc<Connection>,
@@ -307,10 +318,14 @@ impl VectorDb for LanceDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
+        filters: Vec<Filter>,
     ) -> Result<Vec<SearchResult>> {
         let tbl = self.conn.open_table(&index).execute().await?;
-        let res = tbl
-            .query()
+        let mut query = tbl.query();
+        if filters.len() > 0 {
+            query = query.only_if(from_filter_to_str(filters));
+        }
+        let res = query
             .nearest_to(query_embedding)?
             .column("vector")
             .limit(k as usize)
@@ -414,7 +429,7 @@ mod tests {
 
         assert_eq!(
             lance
-                .search("hello-index".to_string(), vec![0., 2.], 1)
+                .search("hello-index".to_string(), vec![0., 2.], 1, vec![])
                 .await
                 .unwrap()
                 .len(),
