@@ -263,9 +263,8 @@ impl DataManager {
                 .write_content_bytes(
                     namespace,
                     Box::pin(stream),
-                    &text.labels,
+                    text.labels,
                     text.content_type,
-                    None,
                     None,
                     "ingestion",
                     Some(&content_with_id.id),
@@ -423,10 +422,9 @@ impl DataManager {
             .write_content_bytes(
                 namespace,
                 data,
-                &labels,
+                labels,
                 mime_type.to_string(),
                 Some(name),
-                None,
                 "ingestion",
                 original_content_id,
             )
@@ -476,10 +474,9 @@ impl DataManager {
         &self,
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
-        labels: &HashMap<String, String>,
+        labels: HashMap<String, String>,
         content_type: String,
         file_name: Option<&str>,
-        parent_id: Option<String>,
         source: &str,
         original_content_id: Option<&str>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
@@ -505,12 +502,6 @@ impl DataManager {
         let hash_result = hasher.finalize();
         let content_hash = format!("{:x}", hash_result);
 
-        let labels = labels
-            .clone()
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string()))
-            .collect();
-
         let mut id = DataManager::make_id();
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
@@ -519,7 +510,7 @@ impl DataManager {
             id,
             file_name,
             storage_url: res.url,
-            parent_id: parent_id.unwrap_or_default(),
+            parent_id: "".to_string(),
             created_at: current_ts_secs as i64,
             mime: content_type,
             namespace: namespace.to_string(),
