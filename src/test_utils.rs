@@ -185,7 +185,7 @@ impl RaftTestCluster {
                 Arc::new(crate::metrics::init_provider()),
             )
             .await?;
-            let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);
+            let coordinator_client = CoordinatorClient::new(Arc::clone(&config));
             let garbage_collector = GarbageCollector::new();
             let coordinator = Coordinator::new(shared_state, coordinator_client, garbage_collector);
             nodes.insert(config.node_id, coordinator);

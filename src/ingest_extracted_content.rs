@@ -376,7 +376,7 @@ mod tests {
             });
             // wait until able to connect to coordinator
             loop {
-                if let Ok(_) = CoordinatorClient::new(&config.coordinator_addr).get().await {
+                if let Ok(_) = CoordinatorClient::new(Arc::new(config.clone())).get().await {
                     break;
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -443,7 +443,7 @@ mod tests {
     async fn new_endpoint_state() -> Result<NamespaceEndpointState> {
         let config = make_test_config();
         let vector_db = vectordbs::create_vectordb(config.index_config.clone()).await?;
-        let coordinator_client = Arc::new(CoordinatorClient::new(&config.coordinator_addr));
+        let coordinator_client = Arc::new(CoordinatorClient::new(Arc::new(config.clone())));
         let vector_index_manager = Arc::new(
             VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
                 .map_err(|e| anyhow!("unable to create vector index {}", e))?,

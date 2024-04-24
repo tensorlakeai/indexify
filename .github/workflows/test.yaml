@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Update APT package list
-        run: sudo apt-get update
+        run: sudo apt-get update || true  # skip errors as temp workaround for https://github.com/tensorlakeai/indexify/actions/runs/8814655533/job/24194983960#step:3:33
       - name: Install protoc
         run: sudo apt install -y protobuf-compiler npm
       - name: Set up Python 3.9
