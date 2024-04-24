@@ -8,8 +8,10 @@ use qdrant_client::{
         vectors::VectorsOptions,
         vectors_config::Config,
         with_payload_selector::SelectorOptions,
+        Condition,
         CreateCollection,
         Distance,
+        Filter,
         PointId,
         PointStruct,
         PointsIdsList,
@@ -24,7 +26,7 @@ use qdrant_client::{
 use super::{CreateIndexParams, VectorDb};
 use crate::{
     server_config::QdrantConfig,
-    vectordbs::{IndexDistance, SearchResult, VectorChunk},
+    vectordbs::{FilterOperator, IndexDistance, SearchResult, VectorChunk},
 };
 
 fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
@@ -210,6 +212,22 @@ impl VectorDb for QdrantDb {
         k: u64,
         filters: Vec<super::Filter>,
     ) -> Result<Vec<SearchResult>> {
+        let mut filter = None;
+        if !filters.is_empty() {
+            let mut must = Vec::new();
+            let mut must_not = Vec::new();
+            for f in filters {
+                match f.operator {
+                    FilterOperator::Eq => must.push(Condition::matches(f.key, f.value)),
+                    FilterOperator::Neq => must_not.push(Condition::matches(f.key, f.value)),
+                }
+            }
+            filter = Some(Filter {
+                must,
+                must_not,
+                ..Default::default()
+            });
+        }
         let result = self
             .create_client()?
             .search_points(&SearchPoints {
@@ -219,6 +237,7 @@ impl VectorDb for QdrantDb {
                 with_payload: Some(WithPayloadSelector {
                     selector_options: Some(SelectorOptions::Enable(true)),
                 }),
+                filter,
                 ..Default::default()
             })
             .await
@@ -272,7 +291,7 @@ mod tests {
     use crate::{
         data_manager::DataManager,
         server_config::QdrantConfig,
-        vectordbs::{IndexDistance, VectorChunk, VectorDBTS},
+        vectordbs::{Filter, FilterOperator, IndexDistance, VectorChunk, VectorDBTS},
     };
 
     #[tokio::test]
@@ -456,5 +475,127 @@ mod tests {
             .unwrap();
         let num_elements = qdrant.num_vectors(index_name).await.unwrap();
         assert_eq!(num_elements, 0);
+    }
+
+    #[tokio::test]
+    async fn test_search_filters() {
+        let index_name = "metadata-index";
+        let vector_db: VectorDBTS = Arc::new(QdrantDb::new(QdrantConfig {
+            addr: "http://localhost:6334".into(),
+        }));
+        vector_db.drop_index("metadata-index").await.unwrap();
+        vector_db
+            .create_index(CreateIndexParams {
+                vectordb_index_name: "metadata-index".into(),
+                vector_dim: 2,
+                distance: IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+
+        let content_ids = vec![make_id(), make_id()];
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
+        let chunk = VectorChunk {
+            content_id: content_ids[0].clone(),
+            embedding: vec![0., 2.],
+            metadata: metadata1,
+        };
+        let metadata2 = json!({"key1": "value3", "key2": "value4"});
+        let chunk1 = VectorChunk {
+            content_id: content_ids[1].clone(),
+            embedding: vec![0., 3.],
+            metadata: metadata2,
+        };
+        vector_db
+            .add_embedding(index_name, vec![chunk, chunk1])
+            .await
+            .unwrap();
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![Filter {
+                    key: "key1".to_string(),
+                    value: "value1".to_string(),
+                    operator: FilterOperator::Eq,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![Filter {
+                    key: "key1".to_string(),
+                    value: "value1".to_string(),
+                    operator: FilterOperator::Neq,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![
+                    Filter {
+                        key: "key1".to_string(),
+                        value: "value1".to_string(),
+                        operator: FilterOperator::Neq,
+                    },
+                    Filter {
+                        key: "key2".to_string(),
+                        value: "value4".to_string(),
+                        operator: FilterOperator::Eq,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![
+                    Filter {
+                        key: "key1".to_string(),
+                        value: "value1".to_string(),
+                        operator: FilterOperator::Eq,
+                    },
+                    Filter {
+                        key: "key2".to_string(),
+                        value: "value4".to_string(),
+                        operator: FilterOperator::Eq,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 0);
+
+        assert_eq!(
+            vector_db
+                .search(index_name.to_string(), vec![0., 2.], 2, vec![])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

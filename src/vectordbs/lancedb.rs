@@ -605,4 +605,70 @@ mod tests {
         let num_elements = lance.num_vectors(index_name).await.unwrap();
         assert_eq!(num_elements, 0);
     }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_search_filters() {
+        let _ = std::fs::remove_dir_all("/tmp/lance.db/");
+        let lance: VectorDBTS = Arc::new(
+            LanceDb::new(&LancedbConfig {
+                path: "/tmp/lance.db".to_string(),
+            })
+            .await
+            .unwrap(),
+        );
+        lance
+            .create_index(CreateIndexParams {
+                vectordb_index_name: "hello-index".into(),
+                vector_dim: 2,
+                distance: crate::vectordbs::IndexDistance::Cosine,
+                unique_params: None,
+            })
+            .await
+            .unwrap();
+        let metadata1 = json!({"key1": "value1", "key2": "value2"});
+        let chunk = VectorChunk {
+            content_id: "id1".into(),
+            embedding: vec![0., 2.],
+            metadata: metadata1,
+        };
+        let metadata2 = json!({"key1": "value3", "key2": "value4"});
+        let chunk1 = VectorChunk {
+            content_id: "id2".into(),
+            embedding: vec![0., 3.],
+            metadata: metadata2,
+        };
+        lance
+            .add_embedding("hello-index", vec![chunk, chunk1])
+            .await
+            .unwrap();
+
+        assert_eq!(lance.num_vectors("hello-index").await.unwrap(), 2);
+
+        assert_eq!(
+            lance
+                .search(
+                    "hello-index".to_string(),
+                    vec![0., 2.],
+                    2,
+                    vec![Filter {
+                        key: "key1".to_string(),
+                        value: "value1".to_string(),
+                        operator: FilterOperator::Eq
+                    }]
+                )
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            lance
+                .search("hello-index".to_string(), vec![0., 2.], 2, vec![])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
 }
