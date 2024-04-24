@@ -63,7 +63,8 @@ Inspect the extracted content
 ```python
 from indexify import IndexifyClient
 client = IndexifyClient()
-client.upload_file("/path/to/pdf.file")
+content_id = client.upload_file("/path/to/pdf.file")
+### Read back the extracted content 
 extracted_content = client.get_extracted_content(content_id=content_id)
 print(extracted_content)
 ```
