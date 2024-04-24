@@ -555,7 +555,7 @@ mod tests {
         let config = Arc::new(ServerConfig::default());
         let _ = fs::remove_dir_all(config.state_store.clone().path.unwrap());
         let garbage_collector = GarbageCollector::new();
-        let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);
+        let coordinator_client = CoordinatorClient::new(Arc::clone(&config));
         let shared_state = App::new(
             config.clone(),
             None,

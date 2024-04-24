@@ -9,20 +9,25 @@ use indexify_proto::indexify_coordinator::{
 };
 use itertools::Itertools;
 use tokio::sync::Mutex;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, ClientTlsConfig};
 
-use crate::api::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments};
+use crate::{
+    api::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments},
+    server_config::ServerConfig,
+};
 
 #[derive(Debug)]
 pub struct CoordinatorClient {
+    config: Arc<ServerConfig>,
     addr: String,
     clients: Arc<Mutex<HashMap<String, CoordinatorServiceClient<Channel>>>>,
 }
 
 impl CoordinatorClient {
-    pub fn new(addr: &str) -> Self {
+    pub fn new(config: Arc<ServerConfig>) -> Self {
         Self {
-            addr: addr.to_string(),
+            addr: config.coordinator_addr.to_string(),
+            config,
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -42,21 +47,48 @@ impl CoordinatorClient {
         Ok(client)
     }
 
+    async fn create_tls_channel(&self) -> Result<CoordinatorServiceClient<Channel>> {
+        if let Some(tls_config) = self.config.coordinator_client_tls.as_ref() {
+            if tls_config.api {
+                tracing::info!("connecting via mTLS to coordinator service");
+                let cert = std::fs::read(tls_config.cert_file.clone())?;
+                let key = std::fs::read(tls_config.key_file.clone())?;
+                let ca_cert = tls_config
+                    .ca_file
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("ca_file is required"))?;
+                let ca_cert_contents = std::fs::read(ca_cert)?;
+
+                let tls_config = ClientTlsConfig::new()
+                    .ca_certificate(tonic::transport::Certificate::from_pem(&ca_cert_contents))
+                    .identity(tonic::transport::Identity::from_pem(&cert, &key))
+                    .domain_name("localhost");
+                let endpoint = format!("https://{}", &self.addr);
+                let channel = Channel::from_shared(endpoint)?
+                    .tls_config(tls_config)?
+                    .connect()
+                    .await?;
+                return Ok(CoordinatorServiceClient::new(channel));
+            } else {
+                tracing::info!("connecting without TLS to coordinator service");
+                let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr))
+                    .await?;
+                return Ok(client);
+            }
+        }
+        tracing::info!("connecting without TLS to coordinator service");
+        let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr))
+            .await?;
+        Ok(client)
+    }
+
     pub async fn get(&self) -> Result<CoordinatorServiceClient<Channel>> {
         let mut clients = self.clients.lock().await;
         if let Some(client) = clients.get(&self.addr) {
             return Ok(client.clone());
         }
 
-        let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr))
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to connect to coordinator: {} at addr {}",
-                    e,
-                    self.addr
-                )
-            })?;
+        let client = self.create_tls_channel().await?;
         clients.insert(self.addr.to_string(), client.clone());
         Ok(client)
     }

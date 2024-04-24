@@ -869,7 +869,7 @@ impl CoordinatorServer {
             registry,
         )
         .await?;
-        let coordinator_client = CoordinatorClient::new(&addr.to_string());
+        let coordinator_client = CoordinatorClient::new(Arc::clone(&config));
 
         let coordinator = Coordinator::new(
             shared_state.clone(),
@@ -914,6 +914,46 @@ impl CoordinatorServer {
             )
             .await;
         });
+
+        if let Some(tls_config) = self.config.coordinator_tls.as_ref() {
+            if tls_config.api {
+                tracing::info!("starting coordinator grpc server with TLS enabled");
+                let cert = tokio::fs::read(tls_config.cert_file.clone()).await?;
+                let key = tokio::fs::read(tls_config.key_file.clone()).await?;
+                let identity = tonic::transport::Identity::from_pem(cert, key);
+
+                let mut tonic_tls_config =
+                    tonic::transport::ServerTlsConfig::new().identity(identity);
+                if let Some(ca_file) = &tls_config.ca_file {
+                    let client_ca_cert = tokio::fs::read(ca_file).await?;
+                    let client_ca_cert = tonic::transport::Certificate::from_pem(client_ca_cert);
+                    tonic_tls_config = tonic_tls_config.client_ca_root(client_ca_cert);
+                }
+
+                tonic::transport::Server::builder()
+                    .tls_config(tonic_tls_config)?
+                    .add_service(srvr)
+                    .serve_with_shutdown(self.addr, async move {
+                        let _ = shutdown_signal(shutdown_tx).await;
+                        let res = shared_state.stop().await;
+                        if let Err(err) = res {
+                            error!("error stopping server: {:?}", err);
+                        }
+                        self.server_handle.shutdown();
+                    })
+                    .await
+                    .map_err(|e| {
+                        anyhow!(
+                            "unable to start grpc server: {} addr: {}",
+                            e.to_string(),
+                            self.addr
+                        )
+                    })?;
+                return Ok(());
+            }
+        }
+
+        tracing::info!("starting coordinator grpc server with TLS disabled");
         tonic::transport::Server::builder()
             .add_service(srvr)
             .serve_with_shutdown(self.addr, async move {

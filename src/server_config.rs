@@ -310,6 +310,24 @@ impl TlsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CoordinatorTls {
+    pub api: bool,
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CoordinatorClientTls {
+    pub api: bool,
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerPeer {
     pub addr: String,
     pub node_id: u64,
@@ -405,6 +423,8 @@ pub struct ServerConfig {
     pub coordinator_addr: String,
     pub blob_storage: BlobStorageConfig,
     pub tls: Option<TlsConfig>,
+    pub coordinator_tls: Option<CoordinatorTls>,
+    pub coordinator_client_tls: Option<CoordinatorClientTls>,
     pub seed_node: String,
     pub node_id: u64,
     /// cache is the configuration for the server-side cache.
@@ -432,6 +452,8 @@ impl Default for ServerConfig {
                 }),
             },
             tls: None,
+            coordinator_tls: None,
+            coordinator_client_tls: None,
             seed_node: "localhost:8970".into(),
             node_id: 0,
             cache: ServerCacheConfig::default(),
