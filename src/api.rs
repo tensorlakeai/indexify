@@ -379,6 +379,7 @@ pub struct ListContentResponse {
 pub struct ContentMetadata {
     pub id: String,
     pub parent_id: String,
+    pub root_content_id: String,
     pub namespace: String,
     pub name: String,
     pub mime_type: String,
@@ -395,6 +396,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
         Self {
             id: value.id,
             parent_id: value.parent_id,
+            root_content_id: value.root_content_id,
             namespace: value.namespace,
             name: value.file_name,
             mime_type: value.mime,
