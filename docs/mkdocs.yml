@@ -1,4 +1,5 @@
 site_name: ""
+site_url: https://getindexify.ai/
 
 repo_url: https://github.com/tensorlakeai/indexify
 repo_name: tensorlakeai/indexify
