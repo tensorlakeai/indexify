@@ -516,7 +516,10 @@ pub enum IngestExtractedContent {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct IngestExtractedContentResponse {}
+pub enum IngestExtractedContentResponse {
+    Success,
+    Error(String),
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct BeginExtractedContentIngest {
