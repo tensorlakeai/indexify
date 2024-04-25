@@ -1263,7 +1263,7 @@ impl IndexifyState {
                 txn.commit()
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
-                //  Remove the the extractor from the executor -> extractor mapping table
+                //  Remove the extractors from the executor -> extractor mapping table
                 if let Some(executor_meta) = executor_meta {
                     for extractor in &executor_meta.extractors {
                         self.extractor_executors_table
