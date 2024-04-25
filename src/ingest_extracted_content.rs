@@ -10,18 +10,13 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest,
-    OidSha256,
-    Sha256,
-    Sha256VarCore,
+    Digest, OidSha256, Sha256, Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
-    blob_storage::StoragePartWriter,
-    data_manager::DataManager,
+    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -178,6 +173,7 @@ impl ContentStateWriting {
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
+                    extraction_graph_names: vec![], //  EGTODO: How do i set the extraction graph here? It should be only a single extraction graph
                 };
                 state
                     .data_manager
@@ -477,6 +473,7 @@ mod tests {
                 hash: "test".to_string(),
                 extraction_policy_ids: HashMap::new(),
                 tombstoned: false,
+                extraction_graph_names: vec![],
             };
             test_coordinator
                 .create_content(content_metadata.clone())

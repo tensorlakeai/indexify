@@ -643,11 +643,12 @@ async fn add_texts(
                 labels: d.labels.clone(),
                 features: vec![],
             },
+            extraction_graph_names: payload.extraction_graph_names.clone(),
         })
         .collect();
     state
         .data_manager
-        .add_texts(&namespace, content)
+        .add_texts(&namespace, content, payload.extraction_graph_names)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -842,6 +843,12 @@ async fn download_content(
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct UploadFileQueryParams {
+    id: Option<String>,
+    extraction_graph_names: Option<Vec<String>>,
+}
+
 #[tracing::instrument]
 #[utoipa::path(
     post,
@@ -857,15 +864,12 @@ async fn download_content(
 async fn upload_file(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<UploadFileQueryParams>,
     mut files: Multipart,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels = HashMap::new();
 
-    let id = params
-        .get("id")
-        .cloned()
-        .unwrap_or_else(DataManager::make_id);
+    let id = params.id.clone().unwrap_or_else(DataManager::make_id);
     if !DataManager::is_hex_string(&id) {
         return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
@@ -906,7 +910,15 @@ async fn upload_file(
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
             let content_metadata = state
                 .data_manager
-                .upload_file(&namespace, stream, &name, content_mime, labels, Some(&id))
+                .upload_file(
+                    &namespace,
+                    stream,
+                    &name,
+                    content_mime,
+                    labels,
+                    Some(&id),
+                    params.extraction_graph_names.unwrap_or_else(|| vec![]),
+                )
                 .await
                 .map_err(|e| {
                     IndexifyAPIError::new(
@@ -1008,6 +1020,7 @@ async fn update_content(
                 content_mime,
                 content_metadata.labels.clone(),
                 Some(&content_metadata.id),
+                vec![],
             )
             .await
             .map_err(|e| {

@@ -565,7 +565,7 @@ fn content_request_to_content_metadata(
 ) -> Result<Vec<internal_api::ContentMetadata>> {
     let mut content_meta_list = Vec::new();
     for content in content_list {
-        let c: internal_api::ContentMetadata = content.try_into()?;
+        let c: internal_api::ContentMetadata = content.into();
         content_meta_list.push(c.clone());
     }
     Ok(content_meta_list)
@@ -645,6 +645,7 @@ mod tests {
                 size_bytes: 100,
                 hash: "".to_string(),
                 extraction_policy_ids: HashMap::new(),
+                extraction_graph_names: vec![],
             }])
             .await?;
 
@@ -716,6 +717,7 @@ mod tests {
                 size_bytes: 100,
                 hash: "".to_string(),
                 extraction_policy_ids: HashMap::new(),
+                extraction_graph_names: vec![],
             }])
             .await?;
         coordinator.run_scheduler().await?;
@@ -1418,12 +1420,12 @@ mod tests {
         //  before tombstone
         let content_matching_policy = coordinator
             .shared_state
-            .content_matching_policy(&extraction_policy_1.id)
+            .match_contents_for_extraction_policy(&extraction_policy_1.id)
             .await?;
         assert_eq!(content_matching_policy.len(), 1);
         let policies_matching_content = coordinator
             .shared_state
-            .filter_extraction_policy_for_content(&parent_content_internal.id)
+            .match_extraction_policies_for_content(&parent_content_internal.id)
             .await?;
         assert_eq!(policies_matching_content.len(), 1);
 
@@ -1435,12 +1437,12 @@ mod tests {
         //  after tombstone
         let content_matching_policy = coordinator
             .shared_state
-            .content_matching_policy(&extraction_policy_1.id)
+            .match_contents_for_extraction_policy(&extraction_policy_1.id)
             .await?;
         assert_eq!(content_matching_policy.len(), 0);
         let policies_matching_content = coordinator
             .shared_state
-            .filter_extraction_policy_for_content(&parent_content_internal.id)
+            .match_extraction_policies_for_content(&parent_content_internal.id)
             .await?;
         assert_eq!(policies_matching_content.len(), 0);
 

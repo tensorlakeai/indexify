@@ -16,19 +16,15 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{schema, ToSchema};
 
-pub type ExtractionPolicyName = String;
-pub type ExtractorName = String;
+pub type ExtractionGraphId = String;
+pub type ExtractionGraphName = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionGraph {
-    pub id: String,
-    // Name of the extractor
-    pub name: String,
+    pub id: ExtractionGraphId,
+    pub name: ExtractionGraphName,
     pub namespace: String,
-
-    // Child policies of the root policy
-    // Policy ID -> Set of child policy IDs
     pub extraction_policies: HashSet<String>,
 }
 
@@ -146,6 +142,8 @@ pub enum OutputSchema {
     #[serde(rename = "attributes")]
     Attributes(HashMap<String, SchemaColumn>),
 }
+
+pub type ExtractorName = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ExtractorDescription {
@@ -547,6 +545,8 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
     }
 }
 
+pub type ExtractionPolicyName = String;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionPolicy {
@@ -757,6 +757,7 @@ pub struct ContentMetadata {
     pub tombstoned: bool,
     pub hash: String,
     pub extraction_policy_ids: HashMap<String, u64>,
+    pub extraction_graph_names: Vec<ExtractionGraphName>,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -777,6 +778,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             size_bytes: value.size_bytes,
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
+            extraction_graph_names: vec![],
         }
     }
 }
@@ -811,6 +813,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             tombstoned: false,
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
+            extraction_graph_names: value.extraction_graph_names,
         }
     }
 }
@@ -837,6 +840,7 @@ impl Default for ContentMetadata {
             extraction_policy_ids: HashMap::new(),
             tombstoned: false,
             hash: "test_hash".to_string(),
+            extraction_graph_names: vec![],
         }
     }
 }

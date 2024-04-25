@@ -156,6 +156,7 @@ pub struct Text {
 pub struct TextAddRequest {
     pub documents: Vec<Text>,
     pub sync: Option<bool>,
+    pub extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -474,6 +475,7 @@ impl From<internal_api::Feature> for Feature {
 pub struct ContentWithId {
     pub id: String,
     pub content: Content,
+    pub extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
 }
 
 #[serde_as]

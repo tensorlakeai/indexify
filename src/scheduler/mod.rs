@@ -93,7 +93,7 @@ impl Scheduler {
             internal_api::ChangeType::NewExtractionPolicy => {
                 let content_list = self
                     .shared_state
-                    .content_matching_policy(&state_change.object_id)
+                    .match_contents_for_extraction_policy(&state_change.object_id)
                     .await?;
                 self.create_task_list(&state_change.object_id, content_list)
                     .await?
@@ -101,7 +101,7 @@ impl Scheduler {
             internal_api::ChangeType::NewContent => {
                 let extraction_policies = self
                     .shared_state
-                    .filter_extraction_policy_for_content(
+                    .match_extraction_policies_for_content(
                         &state_change.object_id.clone().try_into()?,
                     )
                     .await?;

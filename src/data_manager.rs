@@ -272,6 +272,7 @@ impl DataManager {
         &self,
         namespace: &str,
         content_list: Vec<api::ContentWithId>,
+        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<()> {
         for content_with_id in content_list {
             let text = content_with_id.content;
@@ -285,10 +286,10 @@ impl DataManager {
                     None,
                     "ingestion",
                     Some(&content_with_id.id),
+                    extraction_graph_names.clone(),
                 )
                 .await?;
 
-            //  Content id either does not exist or hash is different
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
@@ -431,6 +432,7 @@ impl DataManager {
         mime_type: Mime,
         labels: HashMap<String, String>,
         original_content_id: Option<&str>,
+        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let content_metadata = self
             .write_content_bytes(
@@ -441,6 +443,7 @@ impl DataManager {
                 Some(name),
                 "ingestion",
                 original_content_id,
+                extraction_graph_names,
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
@@ -493,6 +496,7 @@ impl DataManager {
         file_name: Option<&str>,
         source: &str,
         original_content_id: Option<&str>,
+        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -534,6 +538,7 @@ impl DataManager {
             size_bytes: res.size_bytes,
             hash: content_hash,
             extraction_policy_ids: HashMap::new(),
+            extraction_graph_names,
         })
     }
 

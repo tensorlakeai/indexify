@@ -369,7 +369,7 @@ impl App {
     /// policies based on certain filters and checks which policies can be
     /// applied to the content It's the mirror equivalent to
     /// content_matching_policy
-    pub async fn filter_extraction_policy_for_content(
+    pub async fn match_extraction_policies_for_content(
         &self,
         content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
@@ -454,7 +454,7 @@ impl App {
     /// If the content metadata does not match any extractor bindings, returns
     /// an empty list Any filtration of extractor bindings based on content
     /// metadata should be done in this function.
-    pub async fn content_matching_policy(
+    pub async fn match_contents_for_extraction_policy(
         &self,
         policy_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
@@ -1879,14 +1879,16 @@ mod tests {
 
         //  Fetch the content based on the policy id and check that the retrieved
         // content is correct
-        let matched_content = node.content_matching_policy(&extraction_policy.id).await?;
+        let matched_content = node
+            .match_contents_for_extraction_policy(&extraction_policy.id)
+            .await?;
         assert_eq!(matched_content.len(), 1);
         assert_eq!(matched_content.first().unwrap(), &content_metadata);
 
         //  Fetch the policy based on the content id and check that the retrieved policy
         // is correct
         let matched_policies = node
-            .filter_extraction_policy_for_content(&content_metadata.id)
+            .match_extraction_policies_for_content(&content_metadata.id)
             .await?;
         assert_eq!(matched_policies.len(), 1);
         assert_eq!(matched_policies.first().unwrap(), &extraction_policy);
@@ -2011,12 +2013,12 @@ mod tests {
         node.create_content_batch(content_metadata_vec).await?;
 
         let policies = node
-            .filter_extraction_policy_for_content(&ContentMetadataId::new("content_id_1"))
+            .match_extraction_policies_for_content(&ContentMetadataId::new("content_id_1"))
             .await?;
         assert_eq!(policies.len(), 1);
 
         let policies = node
-            .filter_extraction_policy_for_content(&ContentMetadataId::new("content_id_2"))
+            .match_extraction_policies_for_content(&ContentMetadataId::new("content_id_2"))
             .await?;
         assert_eq!(policies.len(), 0);
 
