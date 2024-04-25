@@ -130,6 +130,7 @@ impl ContentStateWriting {
         payload: FinishContent,
     ) -> Result<String> {
         let mut labels = self.content_metadata().labels.clone();
+        let root_content_id = self.content_metadata().root_content_id.clone();
         match &mut self.frame_state {
             FrameState::New => Err(anyhow!(
                 "received finish content without any content frames"
@@ -144,6 +145,7 @@ impl ContentStateWriting {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
                     parent_id: self.ingest_metadata.parent_content_id.clone(),
+                    root_content_id,
                     namespace: self.ingest_metadata.namespace.clone(),
                     mime: payload.content_type,
                     size_bytes: frame_state.file_size,
@@ -409,6 +411,7 @@ mod tests {
                 id: ContentMetadataId::new(&"1"),
                 name: "test".to_string(),
                 parent_id: ContentMetadataId::new(""),
+                root_content_id: "1".to_string(),
                 namespace: "test".to_string(),
                 content_type: "text/plain".to_string(),
                 storage_url: "test".to_string(),
@@ -691,6 +694,7 @@ mod tests {
             .create_task(Task::new("test_1", content_metadata.first().unwrap()))
             .await
             .unwrap();
+        assert_eq!(content_metadata.first().unwrap().root_content_id, "1");
 
         let payload = BeginExtractedContentIngest {
             task_id: "test_1".to_string(),

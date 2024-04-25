@@ -507,10 +507,11 @@ impl DataManager {
             id = original_content_id.unwrap().to_string();
         }
         Ok(indexify_coordinator::ContentMetadata {
-            id,
+            id: id.clone(),
             file_name,
             storage_url: res.url,
             parent_id: "".to_string(),
+            root_content_id: id,
             created_at: current_ts_secs as i64,
             mime: content_type,
             namespace: namespace.to_string(),

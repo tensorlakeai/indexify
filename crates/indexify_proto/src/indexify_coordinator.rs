@@ -488,6 +488,8 @@ pub struct ContentMetadata {
         ::prost::alloc::string::String,
         u64,
     >,
+    #[prost(string, tag = "13")]
+    pub root_content_id: ::prost::alloc::string::String,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
