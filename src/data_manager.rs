@@ -178,22 +178,17 @@ impl DataManager {
                     .vector_index_manager
                     .create_index(&table_name, embedding_schema.clone())
                     .await?;
-                //  TODO: What do we pass for index_name? The output_index_name_mapping was removed from the extraction policy
-                // self.create_index_metadata(
-                //     namespace,
-                //     table_name,
-                //     table_name,
-                //     schema_json,
-                //     &ep_req.name,
-                //     &extractor_name,
-                // )
-                // .await?;
             }
         }
 
-        for index in &response.indexes {
-            //  flip the indexes to be visible
-        }
+        let req = indexify_coordinator::SetIndexesVisibleRequest {
+            indexes: response.indexes.clone(),
+        };
+        self.coordinator_client
+            .get()
+            .await?
+            .set_indexes_visible(req)
+            .await?;
 
         let index_names = response
             .indexes
@@ -243,35 +238,6 @@ impl DataManager {
             .collect();
         Ok(index_names)
     }
-
-    // async fn create_index_metadata(
-    //     &self,
-    //     namespace: &str,
-    //     index_name: &str,
-    //     table_name: &str,
-    //     schema: serde_json::Value,
-    //     extraction_policy: &str,
-    //     extractor: &str,
-    // ) -> Result<()> {
-    //     let index = indexify_coordinator::CreateIndexRequest {
-    //         index: Some(indexify_coordinator::Index {
-    //             name: index_name.to_string(),
-    //             table_name: table_name.to_string(),
-    //             namespace: namespace.to_string(),
-    //             schema: serde_json::to_value(schema).unwrap().to_string(),
-    //             extraction_policy: extraction_policy.to_string(),
-    //             extractor: extractor.to_string(),
-    //         }),
-    //     };
-    //     let req = GrpcHelper::into_req(index);
-    //     let _resp = self
-    //         .coordinator_client
-    //         .get()
-    //         .await?
-    //         .create_index(req)
-    //         .await?;
-    //     Ok(())
-    // }
 
     pub async fn list_content(
         &self,

@@ -1481,7 +1481,7 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Index, TaskOutcome};
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, TaskOutcome};
 
     use crate::{
         state::{
