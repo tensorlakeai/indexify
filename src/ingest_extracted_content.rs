@@ -25,6 +25,20 @@ use crate::{
     server::NamespaceEndpointState,
 };
 
+// Web socket status codes start with 1000, 1000 and 1001 is success.
+const WS_PROTOCOL_ERROR: u16 = 1002;
+
+fn msg_type_str(msg: &IngestExtractedContent) -> &'static str {
+    match msg {
+        IngestExtractedContent::BeginExtractedContentIngest(_) => "BeginExtractedContentIngest",
+        IngestExtractedContent::BeginMultipartContent(_) => "BeginMultipartContent",
+        IngestExtractedContent::MultipartContentFrame(_) => "MultipartContentFrame",
+        IngestExtractedContent::FinishMultipartContent(_) => "FinishMultipartContent",
+        IngestExtractedContent::ExtractedFeatures(_) => "ExtractedFeatures",
+        IngestExtractedContent::FinishExtractedContentIngest(_) => "FinishExtractedContentIngest",
+    }
+}
+
 #[derive(Debug)]
 struct Writing {
     created_at: i64,
@@ -281,6 +295,7 @@ impl IngestExtractedContentState {
         while let Some(msg) = socket.recv().await {
             match msg {
                 Ok(Message::Item(msg)) => {
+                    let msg_type = msg_type_str(&msg);
                     let res = match msg {
                         IngestExtractedContent::BeginExtractedContentIngest(payload) => {
                             self.begin(payload).await
@@ -311,10 +326,10 @@ impl IngestExtractedContentState {
                         }
                     };
                     if let Err(e) = res {
-                        tracing::error!("Error handling message {:?}", e);
+                        tracing::error!("Error handling message {:?} {:?}", msg_type, e);
                         let _ = socket
                             .send(Message::Close(Some(ws::CloseFrame {
-                                code: 1002,
+                                code: WS_PROTOCOL_ERROR,
                                 reason: e.to_string().into(),
                             })))
                             .await;
@@ -332,7 +347,7 @@ impl IngestExtractedContentState {
                     tracing::error!("error receiving message: {:?}", err);
                     let _ = socket
                         .send(Message::Close(Some(ws::CloseFrame {
-                            code: 1002,
+                            code: WS_PROTOCOL_ERROR,
                             reason: "invalid message".into(),
                         })))
                         .await;
