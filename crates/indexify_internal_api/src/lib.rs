@@ -505,10 +505,39 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContentMetadataId {
     pub id: String,
     pub version: u64,
+}
+
+use serde::{Deserializer, Serializer};
+
+impl Serialize for ContentMetadataId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = format!("{}:{}", self.id, self.version);
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for ContentMetadataId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() != 2 {
+            return Err(serde::de::Error::custom("expected id:version"));
+        }
+        Ok(ContentMetadataId {
+            id: parts[0].to_string(),
+            version: parts[1].parse().map_err(serde::de::Error::custom)?,
+        })
+    }
 }
 
 impl ContentMetadataId {
