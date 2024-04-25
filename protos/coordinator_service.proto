@@ -185,7 +185,7 @@ message Content {
 message RegisterExecutorRequest {
     string executor_id = 1;
     string addr = 2;
-    Extractor extractor = 3;
+    repeated Extractor extractors = 3;
 }
 
 message RegisterExecutorResponse {

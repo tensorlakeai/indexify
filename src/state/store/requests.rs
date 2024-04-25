@@ -28,10 +28,11 @@ pub enum RequestPayload {
         address: String,
         coordinator_addr: String,
     },
+    // TODO: edwin
     RegisterExecutor {
         addr: String,
         executor_id: String,
-        extractor: internal_api::ExtractorDescription,
+        extractors: Vec<internal_api::ExtractorDescription>,
         ts_secs: u64,
     },
     RemoveExecutor {

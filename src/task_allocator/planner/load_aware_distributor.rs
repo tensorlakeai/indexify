@@ -167,7 +167,7 @@ impl LoadAwareDistributor {
                 .unwrap_or(None);
             match executor {
                 Some(executor) => {
-                    let extractor_name = executor.extractor.name.clone();
+                    let extractor_names =executor.extractors.into_iter().map(|e| e.name).collect::<Vec<String>>();
 
                     let running_task_count = executor_running_task_count
                         .get(executor_id)
@@ -175,14 +175,16 @@ impl LoadAwareDistributor {
                         .unwrap_or_default();
 
                     // Update or create the heap for the extractor and add the executor's load.
-                    executors_load_min_heap
-                        .entry(extractor_name)
-                        .or_default()
-                        // use `Reverse` here to make it a min-heap
-                        .push(Reverse(ExecutorLoad {
-                            executor_id: executor_id.clone(),
-                            running_task_count,
-                        }));
+                    for extractor_name in extractor_names {
+                        executors_load_min_heap
+                            .entry(extractor_name)
+                            .or_default()
+                            // use `Reverse` here to make it a min-heap
+                            .push(Reverse(ExecutorLoad {
+                                executor_id: executor_id.clone(),
+                                running_task_count,
+                            }));
+                    }
                 }
                 None => {
                     // Inconsistency: an executor is in the running task count but not in
@@ -291,7 +293,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{server_config::ServerConfig, state::App, test_util::db_utils::mock_extractor};
+    use crate::{server_config::ServerConfig, state::App, test_util::db_utils::{mock_extractor, mock_extractors}};
 
     fn create_task(
         id: &str,
@@ -429,7 +431,7 @@ mod tests {
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
         let state_change_id = shared_state
-            .register_executor("localhost:8956", "test_executor_id", mock_extractor())
+            .register_executor("localhost:8956", "test_executor_id", mock_extractors())
             .await?;
 
         let content = ContentMetadata {
@@ -495,7 +497,7 @@ mod tests {
                 .register_executor(
                     format!("localhost:{}", 8955 + i).as_str(),
                     format!("text_executor{}", i).as_str(),
-                    text_extractor.clone(),
+                    vec![text_extractor.clone()],
                 )
                 .await?;
             state_change_ids.push(state_change_id);
@@ -503,7 +505,7 @@ mod tests {
                 .register_executor(
                     format!("localhost:{}", 8965 + i).as_str(),
                     format!("json_executor{}", i).as_str(),
-                    json_extractor.clone(),
+                    vec![json_extractor.clone()],
                 )
                 .await?;
             state_change_ids.push(state_change_id);
@@ -738,7 +740,7 @@ mod tests {
                 shared_state.register_executor(
                     text_executors[i - 1].0.as_str(),
                     text_executors[i - 1].1.as_str(),
-                    text_extractor.clone(),
+                    vec![text_extractor.clone()],
                 )
             }))
             .await
@@ -758,7 +760,7 @@ mod tests {
             shared_state.register_executor(
                 json_executors[i - 1].0.as_str(),
                 json_executors[i - 1].1.as_str(),
-                json_extractor.clone(),
+                vec![json_extractor.clone()],
             )
         }))
         .await;

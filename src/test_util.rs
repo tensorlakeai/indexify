@@ -26,4 +26,8 @@ pub mod db_utils {
             input_mime_types: vec!["text/plain".to_string()],
         }
     }
+
+    pub fn mock_extractors() -> Vec<internal_api::ExtractorDescription> {
+        vec![mock_extractor()]
+    }
 }

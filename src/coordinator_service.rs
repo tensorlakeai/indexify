@@ -302,19 +302,25 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
     }
 
+    // TODO: edwin
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,
     ) -> Result<tonic::Response<RegisterExecutorResponse>, tonic::Status> {
         let request = request.into_inner();
-        let extractor = request
-            .extractor
-            .ok_or(tonic::Status::aborted("missing extractor"))?;
+
+        let extractors = request
+            .extractors
+            .into_iter()
+            .map(|e| e.into())
+            .collect::<Vec<internal_api::ExtractorDescription>>();
+
         let _resp = self
             .coordinator
-            .register_executor(&request.addr, &request.executor_id, extractor.into())
+            .register_executor(&request.addr, &request.executor_id, extractors.into())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
         Ok(tonic::Response::new(RegisterExecutorResponse {
             executor_id: request.executor_id,
         }))

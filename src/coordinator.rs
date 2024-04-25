@@ -189,15 +189,17 @@ impl Coordinator {
         Ok(addresses)
     }
 
+    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
         executor_id: &str,
-        extractor: internal_api::ExtractorDescription,
+        extractors: Vec<internal_api::ExtractorDescription>,
     ) -> Result<()> {
+        println!("fuck");
         let _ = self
             .shared_state
-            .register_executor(addr, executor_id, extractor)
+            .register_executor(addr, executor_id, extractors)
             .await;
         Ok(())
     }
@@ -551,7 +553,7 @@ mod tests {
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
         state::App,
-        test_util::db_utils::{mock_extractor, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
+        test_util::db_utils::{mock_extractor, mock_extractors, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE},
         test_utils::RaftTestCluster,
     };
 
@@ -617,7 +619,7 @@ mod tests {
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", mock_extractor())
+            .register_executor("localhost:8956", "test_executor_id", mock_extractors())
             .await?;
         coordinator
             .create_policy(
@@ -713,7 +715,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -767,7 +769,7 @@ mod tests {
         let extractor_2_name = "MockExtractor2".to_string();
         extractor_2.name = extractor_2_name.clone();
         coordinator
-            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .register_executor("localhost:8957", "test_executor_id_2", vec![extractor_2.clone()])
             .await?;
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_2".to_string(),
@@ -848,7 +850,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -905,7 +907,7 @@ mod tests {
         let extractor_2_name = "MockExtractor2".to_string();
         extractor_2.name = extractor_2_name.clone();
         coordinator
-            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .register_executor("localhost:8957", "test_executor_id_2", vec![extractor_2.clone()])
             .await?;
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_2".to_string(),
@@ -970,7 +972,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -997,7 +999,7 @@ mod tests {
         let extractor_2_name = "MockExtractor2".to_string();
         extractor_2.name = extractor_2_name.clone();
         coordinator
-            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .register_executor("localhost:8957", "test_executor_id_2", vec![extractor_2.clone()])
             .await?;
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_2".to_string(),
@@ -1104,7 +1106,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -1131,7 +1133,7 @@ mod tests {
         let extractor_2_name = "MockExtractor2".to_string();
         extractor_2.name = extractor_2_name.clone();
         coordinator
-            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .register_executor("localhost:8957", "test_executor_id_2", vec![extractor_2.clone()])
             .await?;
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_2".to_string(),
@@ -1300,7 +1302,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -1419,7 +1421,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -1447,7 +1449,7 @@ mod tests {
         let extractor_2_name = "MockExtractor2".to_string();
         extractor_2.name = extractor_2_name.clone();
         coordinator
-            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .register_executor("localhost:8957", "test_executor_id_2", vec![extractor_2.clone()])
             .await?;
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_2".to_string(),
@@ -1592,7 +1594,7 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", extractor.clone())
+            .register_executor("localhost:8956", "test_executor_id", vec![extractor.clone()])
             .await?;
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_1".to_string(),
@@ -1620,7 +1622,7 @@ mod tests {
         let extractor_2_name = "MockExtractor2".to_string();
         extractor_2.name = extractor_2_name.clone();
         coordinator
-            .register_executor("localhost:8957", "test_executor_id_2", extractor_2.clone())
+            .register_executor("localhost:8957", "test_executor_id_2", vec![extractor_2.clone()])
             .await?;
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: "extraction_policy_id_2".to_string(),
@@ -1881,7 +1883,7 @@ mod tests {
         };
         let addr = "addr";
         coordinator
-            .register_executor(addr, executor_id, extractor)
+            .register_executor(addr, executor_id, vec![extractor])
             .await?;
 
         //  Create the extraction policy under the namespace of the content
@@ -1949,7 +1951,7 @@ mod tests {
         };
         let addr = "addr_2";
         coordinator
-            .register_executor(addr, executor_id, extractor)
+            .register_executor(addr, executor_id, vec![extractor])
             .await?;
 
         //  Create the extraction policy under the namespace of the content
