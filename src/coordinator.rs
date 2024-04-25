@@ -9,15 +9,9 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId,
-    ExtractionGraph,
-    ExtractionPolicy,
-    GarbageCollectionTask,
-    OutputSchema,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadataId, ExtractionGraph, ExtractionPolicy, GarbageCollectionTask, OutputSchema,
+    StateChange, StructuredDataSchema,
 };
-use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info};
 
@@ -181,9 +175,8 @@ impl Coordinator {
         self.shared_state.get_index(&id).await
     }
 
-    pub async fn create_index(&self, namespace: &str, index: internal_api::Index) -> Result<()> {
-        let id = index.id();
-        self.shared_state.create_index(namespace, index, id).await
+    pub async fn set_indexes_visible(&self, indexes: Vec<internal_api::Index>) -> Result<()> {
+        self.shared_state.set_indexes(indexes).await
     }
 
     pub async fn get_extractor_coordinates(&self, extractor_name: &str) -> Result<Vec<String>> {
@@ -331,8 +324,48 @@ impl Coordinator {
         &self,
         extraction_graph: ExtractionGraph,
         extraction_policies: Vec<ExtractionPolicy>,
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<Vec<internal_api::Index>> {
+        let structured_data_schema = StructuredDataSchema::default();
+        let mut indexes_to_create = Vec::new();
+        for extraction_policy in &extraction_policies {
+            let extractor = self.get_extractor(&extraction_policy.extractor).await?;
+            if extractor.input_params != serde_json::Value::Null {
+                extractor.validate_input_params(&extraction_policy.input_params)?;
+            }
+            for (output_name, output_schema) in extractor.outputs {
+                match output_schema {
+                    OutputSchema::Embedding(embeddings) => {
+                        let mut index_to_create = internal_api::Index {
+                            id: "".to_string(),
+                            namespace: extraction_policy.namespace.clone(),
+                            name: format!("{}.{}", extraction_policy.name, output_name),
+                            table_name: format!(
+                                "{}.{}.{}",
+                                extraction_policy.namespace, extraction_policy.name, output_name
+                            ),
+                            schema: serde_json::to_value(embeddings).unwrap().to_string(),
+                            extraction_policy_name: extraction_policy.name.clone(),
+                            extractor_name: extractor.name.clone(),
+                            visibility: false,
+                        };
+                        index_to_create.id = index_to_create.id();
+                        indexes_to_create.push(index_to_create);
+                    }
+                    OutputSchema::Attributes(columns) => {
+                        structured_data_schema.merge(columns)?;
+                    }
+                }
+            }
+        }
+        self.shared_state
+            .create_extraction_graph(
+                extraction_graph,
+                extraction_policies,
+                structured_data_schema,
+                indexes_to_create,
+            )
+            .await?;
+        Ok(Vec::new())
     }
 
     pub async fn create_gc_tasks(
@@ -1609,11 +1642,7 @@ mod tests {
             name: "extraction_policy_name_1".to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
@@ -1640,11 +1669,7 @@ mod tests {
             id: "extraction_policy_id_2".to_string(),
             extractor: extractor_2_name.clone(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_index_name_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test.test_output".to_string(),
-            )]),
-            index_name_table_mapping: HashMap::from([(
+            output_table_mapping: HashMap::from([(
                 "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),

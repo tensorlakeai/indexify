@@ -42,7 +42,7 @@ service CoordinatorService {
 
     rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
 
-    rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
+    rpc SetIndexesVisible(SetIndexesVisibleRequest) returns (SetIndexesVisibleResponse) {}
 
     rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
 
@@ -146,12 +146,11 @@ message GetIndexResponse {
     Index index = 1;
 }
 
-message CreateIndexRequest {
-    Index index = 2;
+message SetIndexesVisibleRequest {
+    repeated Index indexes = 1;
 }
 
-message CreateIndexResponse {
-}
+message SetIndexesVisibleResponse {}
 
 message Index {
     string name = 1;
@@ -399,7 +398,7 @@ message Namespace {
 
 message GetSchemaRequest {
     string namespace = 1;
-    string content_source = 2;
+    string extraction_graph_name = 2;
 }
 
 message GetSchemaResponse {
@@ -407,8 +406,10 @@ message GetSchemaResponse {
 }
 
 message StructuredDataSchema {
-    string columns = 1;
-    string content_source = 2;
+    string id = 1;
+    string extraction_graph_name = 2;
+    string namespace = 3;
+    string columns = 4;
 }
 
 message GetAllSchemaRequest {

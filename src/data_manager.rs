@@ -12,7 +12,6 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self};
-use internal_api::ExtractorDescription;
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
@@ -26,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -137,7 +134,7 @@ impl DataManager {
         &self,
         namespace: &str,
         ep_req: &api::ExtractionPolicyRequest,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<internal_api::IndexName>> {
         info!(
             "adding extractor bindings namespace: {}, extractor: {}, binding: {}",
             namespace, ep_req.extractor, ep_req.name,
@@ -158,7 +155,7 @@ impl DataManager {
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs() as i64,
         };
-        let req = indexify_coordinator::CreateExtractionGraphRequest{
+        let req = indexify_coordinator::CreateExtractionGraphRequest {
             namespace: namespace.to_string(),
             name: ep_req.name.clone(),
             policies: vec![policy_req],
@@ -170,73 +167,52 @@ impl DataManager {
             .create_extraction_graph(req)
             .await?
             .into_inner();
-        let mut index_names = Vec::new();
-        let extractors = response
-            .extractors;
-        for (name, output_schema) in &extractor.embedding_schemas {
-            let embedding_schema: internal_api::EmbeddingSchema =
-                serde_json::from_str(output_schema)?;
-            let table_name = response.index_name_table_mapping.get(index_name).unwrap();
-            index_names.push(index_name.clone());
-            let schema_json = serde_json::to_value(&embedding_schema)?;
-            let _ = self
-                .vector_index_manager
-                .create_index(table_name, embedding_schema.clone())
-                .await?;
-            self.create_index_metadata(
-                namespace,
-                index_name,
-                table_name,
-                schema_json,
-                &ep_req.name,
-                &extractor.name,
-            )
-            .await?;
+        let extractors = response.extractors;
+        for (_, extractor) in extractors.iter() {
+            for (name, output_schema) in &extractor.embedding_schemas {
+                let embedding_schema: internal_api::EmbeddingSchema =
+                    serde_json::from_str(output_schema)?;
+                let table_name = response.extractor_output_table_mapping.get(name).unwrap();
+                // let schema_json = serde_json::to_value(&embedding_schema)?;
+                let _ = self
+                    .vector_index_manager
+                    .create_index(&table_name, embedding_schema.clone())
+                    .await?;
+                //  TODO: What do we pass for index_name? The output_index_name_mapping was removed from the extraction policy
+                // self.create_index_metadata(
+                //     namespace,
+                //     table_name,
+                //     table_name,
+                //     schema_json,
+                //     &ep_req.name,
+                //     &extractor_name,
+                // )
+                // .await?;
+            }
         }
 
+        for index in &response.indexes {
+            //  flip the indexes to be visible
+        }
+
+        let index_names = response
+            .indexes
+            .iter()
+            .map(|index| index.name.clone())
+            .collect();
         Ok(index_names)
-    }
-
-    async fn create_tables_for_extractors(&self, output_table_mappings:  extractors: Vec<indexify_coordinator::Extractor>) -> Result<Vec<String>> {
-        let mut index_names = Vec::new();
-        for extractor in extractors {
-        for (name, output_schema) in &extractor.embedding_schemas{
-            let embedding_schema: internal_api::EmbeddingSchema =
-                serde_json::from_str(output_schema)?;
-            let table_name = extractor.ou.get(index_name).unwrap();
-            index_names.push(index_name.clone());
-            let schema_json = serde_json::to_value(&embedding_schema)?;
-            let _ = self
-                .vector_index_manager
-                .create_index(table_name, embedding_schema.clone())
-                .await?;
-            self.create_index_metadata(
-                namespace,
-                index_name,
-                table_name,
-                schema_json,
-                &ep_req.name,
-                &extractor.name,
-            )
-            .await?;
-        }
-
-
-        }
-
     }
 
     pub async fn create_extraction_graph(
         &self,
-        namespace: &str,
         req: ExtractionGraphRequest,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<internal_api::IndexName>> {
         let mut extraction_policies = Vec::new();
         for ep in req.policies {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
             let req = indexify_coordinator::ExtractionPolicyRequest {
-                namespace: namespace.to_string(),
+                namespace: req.namespace.to_string(),
                 extractor: ep.extractor.clone(),
                 name: ep.name.clone(),
                 filters: ep.filters_eq.clone().unwrap_or_default(),
@@ -248,37 +224,54 @@ impl DataManager {
             };
             extraction_policies.push(req);
         }
-        Ok(vec![])
-    }
-
-    async fn create_index_metadata(
-        &self,
-        namespace: &str,
-        index_name: &str,
-        table_name: &str,
-        schema: serde_json::Value,
-        extraction_policy: &str,
-        extractor: &str,
-    ) -> Result<()> {
-        let index = indexify_coordinator::CreateIndexRequest {
-            index: Some(indexify_coordinator::Index {
-                name: index_name.to_string(),
-                table_name: table_name.to_string(),
-                namespace: namespace.to_string(),
-                schema: serde_json::to_value(schema).unwrap().to_string(),
-                extraction_policy: extraction_policy.to_string(),
-                extractor: extractor.to_string(),
-            }),
+        let req = indexify_coordinator::CreateExtractionGraphRequest {
+            namespace: req.namespace,
+            name: req.name,
+            policies: extraction_policies,
         };
-        let req = GrpcHelper::into_req(index);
-        let _resp = self
+        let response = self
             .coordinator_client
             .get()
             .await?
-            .create_index(req)
-            .await?;
-        Ok(())
+            .create_extraction_graph(req)
+            .await?
+            .into_inner();
+        let index_names = response
+            .indexes
+            .iter()
+            .map(|index| index.name.clone())
+            .collect();
+        Ok(index_names)
     }
+
+    // async fn create_index_metadata(
+    //     &self,
+    //     namespace: &str,
+    //     index_name: &str,
+    //     table_name: &str,
+    //     schema: serde_json::Value,
+    //     extraction_policy: &str,
+    //     extractor: &str,
+    // ) -> Result<()> {
+    //     let index = indexify_coordinator::CreateIndexRequest {
+    //         index: Some(indexify_coordinator::Index {
+    //             name: index_name.to_string(),
+    //             table_name: table_name.to_string(),
+    //             namespace: namespace.to_string(),
+    //             schema: serde_json::to_value(schema).unwrap().to_string(),
+    //             extraction_policy: extraction_policy.to_string(),
+    //             extractor: extractor.to_string(),
+    //         }),
+    //     };
+    //     let req = GrpcHelper::into_req(index);
+    //     let _resp = self
+    //         .coordinator_client
+    //         .get()
+    //         .await?
+    //         .create_index(req)
+    //         .await?;
+    //     Ok(())
+    // }
 
     pub async fn list_content(
         &self,

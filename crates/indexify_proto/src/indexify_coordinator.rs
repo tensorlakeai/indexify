@@ -115,13 +115,13 @@ pub struct GetIndexResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateIndexRequest {
-    #[prost(message, optional, tag = "2")]
-    pub index: ::core::option::Option<Index>,
+pub struct SetIndexesVisibleRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub indexes: ::prost::alloc::vec::Vec<Index>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateIndexResponse {}
+pub struct SetIndexesVisibleResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Index {
@@ -555,7 +555,7 @@ pub struct GetSchemaRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub content_source: ::prost::alloc::string::String,
+    pub extraction_graph_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -567,9 +567,13 @@ pub struct GetSchemaResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StructuredDataSchema {
     #[prost(string, tag = "1")]
-    pub columns: ::prost::alloc::string::String,
+    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub content_source: ::prost::alloc::string::String,
+    pub extraction_graph_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub columns: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1384,11 +1388,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn create_index(
+        pub async fn set_indexes_visible(
             &mut self,
-            request: impl tonic::IntoRequest<super::CreateIndexRequest>,
+            request: impl tonic::IntoRequest<super::SetIndexesVisibleRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreateIndexResponse>,
+            tonic::Response<super::SetIndexesVisibleResponse>,
             tonic::Status,
         > {
             self.inner
@@ -1402,14 +1406,14 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateIndex",
+                "/indexify_coordinator.CoordinatorService/SetIndexesVisible",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "CreateIndex",
+                        "SetIndexesVisible",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1862,11 +1866,11 @@ pub mod coordinator_service_server {
             tonic::Response<super::GetIndexResponse>,
             tonic::Status,
         >;
-        async fn create_index(
+        async fn set_indexes_visible(
             &self,
-            request: tonic::Request<super::CreateIndexRequest>,
+            request: tonic::Request<super::SetIndexesVisibleRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreateIndexResponse>,
+            tonic::Response<super::SetIndexesVisibleResponse>,
             tonic::Status,
         >;
         async fn get_extractor_coordinates(
@@ -2933,25 +2937,28 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/CreateIndex" => {
+                "/indexify_coordinator.CoordinatorService/SetIndexesVisible" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateIndexSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct SetIndexesVisibleSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::CreateIndexRequest>
-                    for CreateIndexSvc<T> {
-                        type Response = super::CreateIndexResponse;
+                    > tonic::server::UnaryService<super::SetIndexesVisibleRequest>
+                    for SetIndexesVisibleSvc<T> {
+                        type Response = super::SetIndexesVisibleResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CreateIndexRequest>,
+                            request: tonic::Request<super::SetIndexesVisibleRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_index(&inner, request)
+                                <T as CoordinatorService>::set_indexes_visible(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -2964,7 +2971,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CreateIndexSvc(inner);
+                        let method = SetIndexesVisibleSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

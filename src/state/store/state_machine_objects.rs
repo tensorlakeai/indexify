@@ -17,17 +17,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractionGraphId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionGraphId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName,
+    SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -1093,7 +1084,6 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         namespace: &NamespaceName,
-        structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_name = JsonEncoder::encode(namespace)?;
         txn.put_cf(
@@ -1102,7 +1092,6 @@ impl IndexifyState {
             serialized_name,
         )
         .map_err(|e| StateMachineError::DatabaseError(format!("Error writing namespace: {}", e)))?;
-        self.set_schema(db, txn, structured_data_schema)?;
         Ok(())
     }
 
@@ -1213,7 +1202,7 @@ impl IndexifyState {
     }
 
     fn update_extraction_graph_reverse_idx(
-        &mut self,
+        &self,
         extraction_graph: &internal_api::ExtractionGraph,
         extraction_policies: &Vec<internal_api::ExtractionPolicy>,
         schema: internal_api::StructuredDataSchema,
@@ -1238,12 +1227,10 @@ impl IndexifyState {
         self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
-            RequestPayload::CreateIndex {
-                index,
-                namespace: _,
-                id,
-            } => {
-                self.set_index(db, &txn, index, id)?;
+            RequestPayload::SetIndex { indexes } => {
+                for index in indexes {
+                    self.set_index(db, &txn, index, &index.id)?;
+                }
             }
             RequestPayload::CreateTasks { tasks } => {
                 self.set_tasks(db, &txn, tasks)?;
@@ -1362,16 +1349,16 @@ impl IndexifyState {
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
-                updated_structured_data_schema,
-                new_structured_data_schema,
+                updated_structured_data_schema: _,
+                new_structured_data_schema: _,
             } => {
                 self.set_extraction_policy(db, &txn, extraction_policy)?;
             }
             RequestPayload::CreateNamespace {
                 name,
-                structured_data_schema,
+                structured_data_schema: _,
             } => {
-                self.set_namespace(db, &txn, name, structured_data_schema)?;
+                self.set_namespace(db, &txn, name)?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 self.set_processed_state_changes(db, &txn, state_changes)?;
@@ -1387,6 +1374,7 @@ impl IndexifyState {
                 extraction_graph,
                 extraction_policies,
                 structured_data_schema,
+                indexes,
             } => {
                 self.set_extraction_graph(
                     db,
@@ -1395,6 +1383,9 @@ impl IndexifyState {
                     extraction_policies,
                     structured_data_schema,
                 )?;
+                for index in indexes {
+                    self.set_index(db, &txn, index, &index.id)?;
+                }
             }
         };
 
@@ -1522,26 +1513,23 @@ impl IndexifyState {
                 extraction_graph,
                 extraction_policies,
                 structured_data_schema,
+                indexes,
             } => {
                 self.update_extraction_graph_reverse_idx(
                     &extraction_graph,
                     &extraction_policies,
                     structured_data_schema,
                 );
+                for index in indexes {
+                    self.namespace_index_table.insert(&index.name, &index.id);
+                }
+                Ok(())
             }
             RequestPayload::CreateNamespace {
                 name: _,
                 structured_data_schema,
             } => {
                 self.update_schema_reverse_idx(structured_data_schema);
-                Ok(())
-            }
-            RequestPayload::CreateIndex {
-                index: _,
-                namespace,
-                id,
-            } => {
-                self.namespace_index_table.insert(&namespace, &id);
                 Ok(())
             }
             RequestPayload::UpdateTask {

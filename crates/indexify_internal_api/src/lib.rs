@@ -16,6 +16,9 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{schema, ToSchema};
 
+pub type ExtractionPolicyName = String;
+pub type ExtractorName = String;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionGraph {
@@ -49,7 +52,10 @@ impl ExtractionGraphBuilder {
             .extraction_policies
             .clone()
             .ok_or(anyhow!("child policies can't be empty"))?;
-        let id = ExtractionGraph::create_id(&name, &namespace);
+        let id = self
+            .id
+            .clone()
+            .ok_or(anyhow!("extraction graph id can't be empty"))?;
         Ok(ExtractionGraph {
             id,
             name,
@@ -59,15 +65,20 @@ impl ExtractionGraphBuilder {
     }
 }
 
+pub type IndexName = String;
+pub type IndexId = String;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct Index {
     // TODO FIXME: Add the Index ID
+    pub id: IndexId,
     pub namespace: String,
-    pub name: String,
+    pub name: IndexName,
     pub table_name: String,
     pub schema: String,
-    pub extraction_policy: String,
-    pub extractor: String,
+    pub extraction_policy_name: ExtractionPolicyName,
+    pub extractor_name: ExtractorName,
+    pub visibility: bool,
 }
 
 impl Index {
@@ -92,8 +103,8 @@ impl From<Index> for indexify_coordinator::Index {
             name: value.name,
             table_name: value.table_name,
             schema: value.schema,
-            extractor: value.extractor,
-            extraction_policy: value.extraction_policy,
+            extractor: value.extractor_name,
+            extraction_policy: value.extraction_policy_name,
             namespace: value.namespace,
         }
     }
@@ -101,14 +112,18 @@ impl From<Index> for indexify_coordinator::Index {
 
 impl From<indexify_coordinator::Index> for Index {
     fn from(value: indexify_coordinator::Index) -> Self {
-        Self {
+        let mut index = Index {
+            id: "".to_string(),
             name: value.name,
             table_name: value.table_name,
             schema: value.schema,
-            extractor: value.extractor,
-            extraction_policy: value.extraction_policy,
+            extractor_name: value.extractor,
+            extraction_policy_name: value.extraction_policy,
             namespace: value.namespace,
-        }
+            visibility: false,
+        };
+        index.id = index.id();
+        index
     }
 }
 
@@ -134,7 +149,7 @@ pub enum OutputSchema {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ExtractorDescription {
-    pub name: String,
+    pub name: ExtractorName,
     pub description: String,
     pub input_params: serde_json::Value,
     pub outputs: HashMap<String, OutputSchema>,
@@ -537,7 +552,7 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
 pub struct ExtractionPolicy {
     pub id: String,
     pub graph_id: String,
-    pub name: String,
+    pub name: ExtractionPolicyName,
     pub namespace: String,
     pub extractor: String,
     pub filters: HashMap<String, String>,
@@ -1025,22 +1040,22 @@ impl From<SchemaColumnType> for SchemaColumn {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct StructuredDataSchema {
-    pub columns: BTreeMap<String, SchemaColumn>,
-    pub extraction_graph_id: String,
-    pub namespace: String,
     pub id: String,
+    pub extraction_graph_name: String,
+    pub namespace: String,
+    pub columns: BTreeMap<String, SchemaColumn>,
 }
 
 impl StructuredDataSchema {
-    pub fn new(extraction_graph_id: &str, namespace: &str) -> Self {
-        let id = Self::schema_id(namespace, extraction_graph_id);
+    pub fn new(extraction_graph_name: &str, namespace: &str) -> Self {
+        let id = Self::schema_id(namespace, extraction_graph_name);
         Self {
-            columns: BTreeMap::new(),
-            extraction_graph_id: extraction_graph_id.to_string(),
-            namespace: namespace.to_string(),
             id,
+            namespace: namespace.to_string(),
+            extraction_graph_name: extraction_graph_name.to_string(),
+            columns: BTreeMap::new(),
         }
     }
 
@@ -1050,10 +1065,10 @@ impl StructuredDataSchema {
             columns.insert(column_name, column);
         }
         Ok(Self {
-            extraction_graph_id: self.extraction_graph_id.clone(),
-            columns,
-            namespace: self.namespace.clone(),
             id: self.id.clone(),
+            namespace: self.namespace.clone(),
+            extraction_graph_name: self.extraction_graph_name.clone(),
+            columns,
         })
     }
 
@@ -1094,7 +1109,7 @@ impl StructuredDataSchema {
         let column_str = columns.join(", ");
         let schema_str = format!(
             r#"CREATE TABLE IF NOT EXISTS "{}" ({});"#,
-            self.content_source, column_str
+            self.extraction_graph_name, column_str
         );
 
         schema_str
@@ -1124,7 +1139,7 @@ mod test {
             ("b".to_string(), SchemaColumnType::Text.into()),
         ]);
         let result1 = result.merge(other1).unwrap();
-        assert_eq!(result1.content_source, "test");
+        assert_eq!(result1.id, "test");
         assert_eq!(result1.namespace, "test-namespace");
         assert_eq!(result1.columns.len(), 4);
 

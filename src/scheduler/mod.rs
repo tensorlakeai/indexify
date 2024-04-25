@@ -6,7 +6,6 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
-use internal_api::OutputSchema;
 use tracing::info;
 
 use crate::{
@@ -213,16 +212,13 @@ impl Scheduler {
             .shared_state
             .extractor_with_name(&extraction_policy.extractor)
             .await?;
-        let mut output_mapping: HashMap<String, String> = HashMap::new();
 
-        // Just store the mapping
+        let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let table_name = extraction_policy
-                .output_table_mapping
-                .get(name)
-                .unwrap();
+            let table_name = extraction_policy.output_table_mapping.get(name).unwrap();
             output_mapping.insert(name.clone(), table_name.clone());
         }
+
         let mut hasher = DefaultHasher::new();
         extraction_policy.name.hash(&mut hasher);
         extraction_policy.namespace.hash(&mut hasher);

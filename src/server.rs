@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -584,13 +579,13 @@ async fn create_extraction_policy(
 async fn create_extraction_graphs(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
-    Path(namespace): Path<String>,
+    Path(_namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractionGraphRequest>,
 ) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
     let indexes = state
         .data_manager
-        .create_extraction_graph(&namespace, payload)
+        .create_extraction_graph(payload)
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
@@ -1342,13 +1337,16 @@ async fn list_schemas(
         })?;
 
         let schema = internal_api::StructuredDataSchema {
-            columns,
-            content_source: schema.content_source.to_string(),
+            id: internal_api::StructuredDataSchema::schema_id(
+                &namespace,
+                &schema.extraction_graph_name,
+            ),
+            extraction_graph_name: schema.extraction_graph_name,
             namespace: namespace.clone(),
-            id: internal_api::StructuredDataSchema::schema_id(&namespace, &schema.content_source),
+            columns,
         };
 
-        ddls.insert(schema.content_source.to_string(), schema.to_ddl());
+        ddls.insert(schema.extraction_graph_name.to_string(), schema.to_ddl());
         schemas.push(schema);
     }
 

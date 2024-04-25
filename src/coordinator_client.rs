@@ -188,10 +188,10 @@ impl CoordinatorClient {
             .schemas
             .into_iter()
             .map(|schema| StructuredDataSchema {
+                id: "".to_string(),
+                extraction_graph_name: schema.extraction_graph_name,
                 namespace: namespace.to_string(),
                 columns: serde_json::from_str(&schema.columns).unwrap(),
-                content_source: schema.content_source,
-                id: "".to_string(),
             })
             .collect_vec();
         Ok(schemas)

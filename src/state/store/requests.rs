@@ -59,6 +59,7 @@ pub enum RequestPayload {
         extraction_graph: internal_api::ExtractionGraph,
         extraction_policies: Vec<internal_api::ExtractionPolicy>,
         structured_data_schema: internal_api::StructuredDataSchema,
+        indexes: Vec<internal_api::Index>,
     },
     CreateContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
@@ -74,10 +75,8 @@ pub enum RequestPayload {
         updated_structured_data_schema: Option<internal_api::StructuredDataSchema>,
         new_structured_data_schema: internal_api::StructuredDataSchema,
     },
-    CreateIndex {
-        index: internal_api::Index,
-        namespace: String,
-        id: String,
+    SetIndex {
+        indexes: Vec<internal_api::Index>,
     },
     UpdateTask {
         task: internal_api::Task,

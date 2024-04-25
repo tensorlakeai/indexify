@@ -14,22 +14,20 @@ use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
-use internal_api::{ContentMetadataId, ExtractionPolicy, StateChange, StructuredDataSchema};
+use internal_api::{
+    ContentMetadataId, ExtractionGraph, ExtractionPolicy, StateChange, StructuredDataSchema,
+};
 use itertools::Itertools;
 use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
@@ -398,8 +396,9 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source &&
-                self.get_extraction_policy(&content_metadata.source)
+            if extraction_policy.content_source != content_metadata.source
+                && self
+                    .get_extraction_policy(&content_metadata.source)
                     .await
                     .map_or(true, |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -498,8 +497,8 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source &&
-                self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != extraction_policy.content_source
+                && self.get_extraction_policy(&content.source).await.map_or(
                     true,
                     |retrieved_extraction_policy| {
                         extraction_policy.content_source != retrieved_extraction_policy.name
@@ -607,8 +606,7 @@ impl App {
             )],
             state_changes_processed: vec![],
         };
-        let _resp = self
-            .forwardable_raft
+        self.forwardable_raft
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
@@ -620,12 +618,6 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        // TODO: Add delete_extraction_policy. This will only
-        // remove the actual object from the forward and reverse indexes. Leave
-        // artifacts in place
-
-        //  Check if the extraction policy has already been created. If so, don't create
-        // it
         let existing_policies = self
             .state_machine
             .get_extraction_policies_from_ids(HashSet::from_iter(
@@ -639,8 +631,7 @@ impl App {
                     "The extraction policy with id {} already exists, ignoring this request",
                     extraction_policy.id
                 );
-                return Ok(()); // Return immediately if the policy already
-                               // exists.
+                return Ok(());
             }
         }
 
@@ -661,6 +652,43 @@ impl App {
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn create_extraction_graph(
+        &self,
+        extraction_graph: ExtractionGraph,
+        extraction_policies: Vec<ExtractionPolicy>,
+        structured_data_schema: StructuredDataSchema,
+        indexes: Vec<internal_api::Index>,
+    ) -> Result<()> {
+        let existing_graph = self
+            .state_machine
+            .get_from_cf::<ExtractionGraph, _>(
+                StateMachineColumns::ExtractionGraphs,
+                &extraction_graph.id,
+            )
+            .await?;
+        if existing_graph.is_some() {
+            return Err(anyhow!(
+                "Extraction graph with id {} already exists",
+                extraction_graph.id
+            ));
+        }
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateExtractionGraph {
+                extraction_graph,
+                extraction_policies,
+                structured_data_schema,
+                indexes,
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to create extraction graph: {}", e.to_string()))?;
         Ok(())
     }
 
@@ -1285,22 +1313,13 @@ impl App {
         Ok(index)
     }
 
-    pub async fn create_index(
-        &self,
-        namespace: &str,
-        index: internal_api::Index,
-        id: String,
-    ) -> Result<()> {
+    pub async fn set_indexes(&self, indexes: Vec<internal_api::Index>) -> Result<()> {
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateIndex {
-                namespace: namespace.to_string(),
-                index,
-                id,
-            },
+            payload: RequestPayload::SetIndex { indexes },
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
-        let _resp = self.forwardable_raft.client_write(req).await?;
+        self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -1468,86 +1487,12 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
         test_utils::RaftTestCluster,
     };
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_basic_read_own_write() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateIndex {
-                index: Index::default(),
-                namespace: "namespace".into(),
-                id: "id".into(),
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        let read_back = |node: Arc<App>| async move {
-            match node.get_index("id").await {
-                Ok(read_result) if read_result == Index::default() => Ok(true),
-                Ok(_) => Ok(false),
-                Err(_) => Ok(false), /*  NOTE: It isn't a mistake to return false here because if
-                                      * the index cannot be found `get_index` throws an error */
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_read_own_write_forwarding() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateIndex {
-                index: Index::default(),
-                namespace: "namespace".into(),
-                id: "id".into(),
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-
-        let read_back = |node: Arc<App>| async move {
-            match node.get_index("id").await {
-                Ok(read_result) if read_result == Index::default() => Ok(true),
-                Ok(_) => Ok(false),
-                Err(_) => Ok(false),
-            }
-        };
-        cluster.read_own_write(request, read_back, false).await?;
-        Ok(())
-    }
-
-    /// Test to determine that an index that was created can be read back
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_write_read_index() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-        let index_to_write = Index {
-            name: "name".into(),
-            namespace: "test".into(),
-            ..Default::default()
-        };
-        node.create_index("namespace", index_to_write.clone(), "id".into())
-            .await?;
-        let result = node.get_index("id").await?;
-        assert_eq!(index_to_write, result);
-        let indexes = node.list_indexes("namespace").await?;
-        assert!(indexes.len() == 1);
-        Ok(())
-    }
 
     /// Test to determine that a task that was created can be read back
     #[tokio::test]
@@ -1742,9 +1687,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
