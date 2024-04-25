@@ -72,7 +72,7 @@ pub enum StateMachineError {
     DatabaseError(String),
 
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
+    SerializationError(String),
 
     #[error("RocksDB transaction error: {0}")]
     TransactionError(String),

@@ -60,6 +60,18 @@ tls:
   cert_file: .dev-tls/server.crt # Path to the server certificate
   key_file: .dev-tls/server.key # Path to the server private key
 
+coordinator_tls:
+  api: false
+  ca_file: .dev-tls/ca.crt
+  cert_file: .dev-tls/server.crt
+  key_file: .dev-tls/server.key
+
+coordinator_client_tls:
+  api: false
+  ca_file: .dev-tls/ca.crt
+  cert_file: .dev-tls/client.crt
+  key_file: .dev-tls/client.key
+
 seed_node: localhost:8970
 node_id: 0
 

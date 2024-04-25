@@ -2,32 +2,41 @@
 
 PDF is a complex document type, and they can contain text, images and tabular data. Depending on the document type the strategy to extract information from PDF could vary. 
 
-We have developed a PDF extractor which can extract text, images and tables from PDF documents. Additionaly, you can use many other PDF extraction libraries which we have 
-packaged as an extractor. You can try out all the various extractors and see which one works best for your use-case.
+With Indexify, you can -
+1. Perform Data Extraction on PDFs: Extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices and receipts. Once you create these pipelines, Indexify will continously extract when documents are uploaded.
+2. Index PDFs - Extract text, images and tables(in the form of JSON) and add chunking, embedding extractors, structured data extractors in the pipeline to build indexes on vector stores and structured stores. LLMs can then query these indexes for Document Q and A.
 
 Below is an overview of what you can achieve by combining the PDF Extractors, with Embedding, Chunking and other structured data extractors. We have some examples as well below.
 ![PDF Extraction High Level](../images/PDF_Usecase.png)
 
+We have developed a PDF extractor which can extract text, images and tables from PDF documents. Additionaly, you can use many other PDF extraction libraries which we have 
+packaged as an extractor. You can try out all the various extractors and see which one works best for your use-case.
+
+
 ## Extractors
-* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - A combined PDF extractor which can extract text, image and tables
+* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - A combined PDF extractor which can extract text, image and tables. This combines many different models in a single package to make it easier to work with PDFs. We recommend starting here.
 * [**tensorlake/ocrmypdf**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf) - Uses the ocrmypdf library which uses tessarect under the hood to extract text from PDFs.
 * [**tensorlake/easyocr**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrpdf-gpu) - Uses EasyOCR to extract text from PDFs.
 
-## Output Data Model
-### Text
-We extract text from PDFs as `Content` with text in the `data` attribute and the mime type is set to `text/plain`. 
+## How to Test PDF Extraction Locally
+Download a PDF Extractor
+```bash
+indexify-extractor download hub://pdf/pdf-extractor
+indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
+```
 
-### Image 
-We extract images from PDFs as `Content` with bytes in the `data` attribute and the mime type is set to `image/png`. 
+Load it in a notebook or terminal
+```python
+from indexify_extractor_sdk import load_extractor, Content
+extractor, config_cls = load_extractor("pdf-extractor.pdf_extractor:PDFExtractor")
+content = Content.from_file("/path/to/file.pdf")
+results =  extractor.extract(content)
+print(results)
+```
 
-### Tables
-Tables are extracted as JSON 
+## Continuous PDF Extraction for Applications
 
-### Metadata
-Every `Content` will have `page_number` as a metadata. 
-
-
-## How to Test PDF Extraction
+#### Start Indexify Server and Extraction Policies
 
 Download and Start the Indexify Server 
 ```bash
@@ -35,24 +44,43 @@ curl https://tensorlake.ai | sh
 ./indexify server -d
 ```
 
-Run a PDF Extractor 
+Start a long running PDF Extractor 
 ```bash
 indexify-extractor download hub://pdf/pdf-extractor
 indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
 ```
 
-Upload a PDF 
-
 ```python
+from indexify import IndexifyClient
 client = IndexifyClient()
-content_id = client.upload_file("foo.pdf")
 client.create_extraction_policy(extractor="tensorlake/pdf-extractor", name="my-pdf-extractor")
 ```
 
+##### Upload PDFs from your application 
+
+
 Inspect the extracted content
 ```python
-extracted_content = client.derived_content_of(content_id=content_id)
+from indexify import IndexifyClient
+client = IndexifyClient()
+content_id = client.upload_file("/path/to/pdf.file")
+### Read back the extracted content 
+extracted_content = client.get_extracted_content(content_id=content_id)
+print(extracted_content)
 ```
+
+## Data Model of tensorlake/pdf-extractor
+### Text
+Extracts text from PDFs as `Content` with text in the `data` attribute and the mime type is set to `text/plain`. 
+
+### Image 
+Extracts images from PDFs as `Content` with bytes in the `data` attribute and the mime type is set to `image/png`. 
+
+### Tables
+Tables are extracted as JSON 
+
+### Metadata
+Every `Content` will have `page_number` as a metadata. 
 
 
 

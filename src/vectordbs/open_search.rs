@@ -155,7 +155,7 @@ impl VectorDb for OpenSearchKnn {
         index_name: String,
         query_embedding: Vec<f32>,
         k: u64,
-        filters: Vec<super::Filter>,
+        _filters: Vec<super::Filter>,
     ) -> Result<Vec<SearchResult>> {
         let response = self
             .create_client()?

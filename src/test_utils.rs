@@ -185,7 +185,7 @@ impl RaftTestCluster {
                 Arc::new(crate::metrics::init_provider()),
             )
             .await?;
-            let coordinator_client = CoordinatorClient::new(&config.coordinator_addr);
+            let coordinator_client = CoordinatorClient::new(Arc::clone(&config));
             let garbage_collector = GarbageCollector::new();
             let coordinator = Coordinator::new(shared_state, coordinator_client, garbage_collector);
             nodes.insert(config.node_id, coordinator);
@@ -319,7 +319,7 @@ impl RaftTestCluster {
         Ok(())
     }
 
-    pub fn get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
+    pub fn _get_coordinator_node(&self, node_id: NodeId) -> anyhow::Result<Arc<Coordinator>> {
         let node = self
             .nodes
             .get(&node_id)

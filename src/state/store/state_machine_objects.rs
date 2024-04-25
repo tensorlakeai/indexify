@@ -1831,7 +1831,12 @@ impl IndexifyState {
             if let Some(bytes) = bytes_opt {
                 let policy =
                     serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
-                        .map_err(StateMachineError::SerializationError)?;
+                        .map_err(|e| {
+                            StateMachineError::SerializationError(format!(
+                                "get_extraction_policies from id: unable to deserialize json, {}",
+                                e.to_string()
+                            ))
+                        })?;
                 policies.push(policy);
             }
             // If None, the policy is not found; we simply skip it.
@@ -2054,7 +2059,6 @@ impl IndexifyState {
             schemas_by_namespace: self.get_schemas_by_namespace(),
             content_children_table: self.get_content_children_table(),
             pending_tasks_for_content: self.get_pending_tasks_for_content(),
-            metrics: self.metrics.lock().unwrap().clone(),
         }
     }
 
@@ -2116,12 +2120,11 @@ impl IndexifyState {
         *executor_running_task_count_guard = snapshot.executor_running_task_count;
         *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
         *content_children_table_guard = snapshot.content_children_table;
-        self.metrics.lock().unwrap().clone_from(&snapshot.metrics);
     }
     //  END SNAPSHOT METHODS
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct IndexifyStateSnapshot {
     unassigned_tasks: HashSet<TaskId>,
     unprocessed_state_changes: HashSet<StateChangeId>,
@@ -2135,7 +2138,6 @@ pub struct IndexifyStateSnapshot {
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     pending_tasks_for_content:
         HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
-    metrics: Metrics,
 }
 
 #[cfg(test)]

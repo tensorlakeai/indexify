@@ -129,7 +129,7 @@ impl Server {
             false => info!("starting indexify server with TLS disabled"),
         }
         let vector_db = vectordbs::create_vectordb(self.config.index_config.clone()).await?;
-        let coordinator_client = Arc::new(CoordinatorClient::new(&self.config.coordinator_addr));
+        let coordinator_client = Arc::new(CoordinatorClient::new(Arc::clone(&self.config)));
         let vector_index_manager = Arc::new(
             VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
                 .map_err(|e| anyhow!("unable to create vector index {}", e))?,
