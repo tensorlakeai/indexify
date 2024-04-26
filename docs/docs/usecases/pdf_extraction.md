@@ -86,6 +86,12 @@ Every `Content` will have `page_number` as a metadata.
 
 ## Examples 
 
+### Schema based HOA Documents
+[Notebook for Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
+
+### Multi-state Terms Documents
+[Notebook for Multi-state Terms Documents](../examples/Sixt.ipynb)
+
 ### Invoices
 [Notebook for Invoices](../examples/Invoices.ipynb)
 
