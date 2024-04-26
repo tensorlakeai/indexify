@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
+    default,
     fmt::{self, Display},
     hash::{Hash, Hasher},
     str::FromStr,
@@ -525,25 +526,49 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
     }
 }
 
+pub type ExtractionPolicyId = String;
 pub type ExtractionPolicyName = String;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ContentSource {
+    ExtractionGraphId(ExtractionGraphId),
+    ExtractionPolicyId(ExtractionPolicyId),
+}
+
+impl Default for ContentSource {
+    fn default() -> Self {
+        ContentSource::ExtractionPolicyId(ExtractionPolicyId::default())
+    }
+}
+
+impl From<ContentSource> for String {
+    fn from(source: ContentSource) -> Self {
+        String::from(&source)
+    }
+}
+
+impl From<&ContentSource> for String {
+    fn from(value: &ContentSource) -> Self {
+        match value {
+            ContentSource::ExtractionGraphId(id) => id.clone(),
+            ContentSource::ExtractionPolicyId(id) => id.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionPolicy {
-    pub id: String,
+    pub id: ExtractionPolicyId,
     pub graph_id: String,
     pub name: ExtractionPolicyName,
     pub namespace: String,
     pub extractor: String,
     pub filters: HashMap<String, String>,
     pub input_params: serde_json::Value,
-
     // Extractor Output -> Table Name
     pub output_table_mapping: HashMap<String, String>,
-
-    // The source of the content - ingestion, name of some extractor binding
-    // which produces the content by invoking an extractor
-    pub content_source: String,
+    // The source of the content this policy will match against. Will either be the graph id or a parent policy id
+    pub content_source: ContentSource,
 }
 
 impl std::hash::Hash for ExtractionPolicy {
@@ -553,21 +578,88 @@ impl std::hash::Hash for ExtractionPolicy {
     }
 }
 
-impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
-    fn from(value: ExtractionPolicy) -> Self {
+impl ExtractionPolicy {
+    pub fn to_coordinator_policy(
+        value: ExtractionPolicy,
+        content_source: String,
+    ) -> indexify_coordinator::ExtractionPolicy {
         let mut filters = HashMap::new();
         for filter in value.filters {
             filters.insert(filter.0, filter.1.to_string());
         }
-
-        Self {
+        indexify_coordinator::ExtractionPolicy {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
             filters,
             input_params: value.input_params.to_string(),
-            content_source: value.content_source,
+            content_source,
         }
+    }
+}
+
+// impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
+//     fn from(value: ExtractionPolicy) -> Self {
+//         let mut filters = HashMap::new();
+//         for filter in value.filters {
+//             filters.insert(filter.0, filter.1.to_string());
+//         }
+
+//         Self {
+//             id: value.id,
+//             extractor: value.extractor,
+//             name: value.name,
+//             filters,
+//             input_params: value.input_params.to_string(),
+//             content_source: value.content_source,
+//         }
+//     }
+// }
+
+impl ExtractionPolicyBuilder {
+    pub fn build(
+        &self,
+        graph_id: &str,
+        extractor_description: ExtractorDescription,
+    ) -> Result<ExtractionPolicy> {
+        let input_params = self.input_params.clone().unwrap_or_default();
+        extractor_description.validate_input_params(&input_params)?;
+        let ns = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is not present"))?;
+        let name = self.name.clone().ok_or(anyhow!("name is not present"))?;
+        let extractor = self
+            .extractor
+            .clone()
+            .ok_or(anyhow!("extractor is not present"))?;
+
+        let content_source = self
+            .content_source
+            .clone()
+            .ok_or(anyhow!("content source is not present"))?;
+        let mut s = DefaultHasher::new();
+        name.hash(&mut s);
+        ns.hash(&mut s);
+        graph_id.hash(&mut s);
+        let id = s.finish().to_string();
+
+        let mut output_table_mapping = HashMap::new();
+        for output_name in extractor_description.outputs.keys() {
+            let index_table_name = format!("{}.{}.{}.{}", ns, graph_id, name, output_name);
+            output_table_mapping.insert(output_name.clone(), index_table_name.clone());
+        }
+        Ok(ExtractionPolicy {
+            id,
+            graph_id: graph_id.to_string(),
+            name,
+            namespace: ns,
+            extractor,
+            filters: self.filters.clone().unwrap_or_default(),
+            input_params: self.input_params.clone().unwrap_or_default(),
+            output_table_mapping,
+            content_source,
+        })
     }
 }
 
@@ -673,52 +765,7 @@ impl Default for ContentMetadataId {
     }
 }
 
-impl ExtractionPolicyBuilder {
-    pub fn build(
-        &self,
-        graph_id: &str,
-        extractor_description: ExtractorDescription,
-    ) -> Result<ExtractionPolicy> {
-        let input_params = self.input_params.clone().unwrap_or_default();
-        extractor_description.validate_input_params(&input_params)?;
-        let ns = self
-            .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is not present"))?;
-        let name = self.name.clone().ok_or(anyhow!("name is not present"))?;
-        let extractor = self
-            .extractor
-            .clone()
-            .ok_or(anyhow!("extractor is not present"))?;
-
-        let content_source = self
-            .content_source
-            .clone()
-            .ok_or(anyhow!("content source is not present"))?;
-        let mut s = DefaultHasher::new();
-        name.hash(&mut s);
-        ns.hash(&mut s);
-        graph_id.hash(&mut s);
-        let id = s.finish().to_string();
-
-        let mut output_table_mapping = HashMap::new();
-        for output_name in extractor_description.outputs.keys() {
-            let index_table_name = format!("{}.{}.{}.{}", ns, graph_id, name, output_name);
-            output_table_mapping.insert(output_name.clone(), index_table_name.clone());
-        }
-        Ok(ExtractionPolicy {
-            id,
-            graph_id: graph_id.to_string(),
-            name,
-            namespace: ns,
-            extractor,
-            filters: self.filters.clone().unwrap_or_default(),
-            input_params: self.input_params.clone().unwrap_or_default(),
-            output_table_mapping,
-            content_source,
-        })
-    }
-}
+pub type NamespaceName = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
@@ -727,6 +774,8 @@ pub struct ContentMetadata {
     pub root_content_id: Option<String>,
     // Namespace name == Namespace ID
     pub namespace: String,
+    pub parent_id: ContentMetadataId,
+    pub namespace: NamespaceName,
     pub name: String,
     pub content_type: String,
     pub labels: HashMap<String, String>,
@@ -736,7 +785,7 @@ pub struct ContentMetadata {
     pub size_bytes: u64,
     pub tombstoned: bool,
     pub hash: String,
-    pub extraction_policy_ids: HashMap<String, u64>,
+    pub extraction_policy_ids: HashMap<String, u64>, //  map of completion time for each extraction policy id
     pub extraction_graph_ids: Vec<ExtractionGraphId>,
 }
 
@@ -893,22 +942,34 @@ impl TaskResult {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Namespace {
-    pub name: String,
+    pub name: NamespaceName,
     pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
-impl From<Namespace> for indexify_coordinator::Namespace {
-    fn from(value: Namespace) -> Self {
-        Self {
+impl Namespace {
+    pub fn to_coordinator_namespace(
+        value: Namespace,
+        extraction_policies: Vec<indexify_coordinator::ExtractionPolicy>,
+    ) -> indexify_coordinator::Namespace {
+        indexify_coordinator::Namespace {
             name: value.name,
-            policies: value
-                .extraction_policies
-                .into_iter()
-                .map(|b| b.into())
-                .collect(),
+            policies: extraction_policies,
         }
     }
 }
+
+// impl From<Namespace> for indexify_coordinator::Namespace {
+//     fn from(value: Namespace) -> Self {
+//         Self {
+//             name: value.name,
+//             policies: value
+//                 .extraction_policies
+//                 .into_iter()
+//                 .map(|b| b.into())
+//                 .collect(),
+//         }
+//     }
+// }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {

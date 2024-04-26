@@ -44,7 +44,6 @@ use crate::{
     utils::OptionInspectNone,
 };
 
-pub type NamespaceName = String;
 pub type TaskId = String;
 pub type StateChangeId = String;
 pub type ContentId = String;
@@ -301,7 +300,7 @@ impl StateMachineStore {
     }
 
     /// This method fetches a key from a specific column family
-    pub async fn get_from_cf<T, K>(
+    pub fn get_from_cf<T, K>(
         &self,
         column: StateMachineColumns,
         key: K,

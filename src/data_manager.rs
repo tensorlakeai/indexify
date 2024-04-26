@@ -173,7 +173,6 @@ impl DataManager {
                 let embedding_schema: internal_api::EmbeddingSchema =
                     serde_json::from_str(output_schema)?;
                 let table_name = response.extractor_output_table_mapping.get(name).unwrap();
-                // let schema_json = serde_json::to_value(&embedding_schema)?;
                 let _ = self
                     .vector_index_manager
                     .create_index(&table_name, embedding_schema.clone())

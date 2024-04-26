@@ -340,8 +340,7 @@ impl App {
         {
             let event = self
                 .state_machine
-                .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)
-                .await?
+                .get_from_cf::<StateChange, _>(StateMachineColumns::StateChanges, event_id)?
                 .ok_or_else(|| anyhow::anyhow!("Event with id {} not found", event_id))?;
             state_changes.push(event.clone());
         }
@@ -396,13 +395,14 @@ impl App {
             //  Check whether the sources match. Make an additional check in case the
             // content has  a source which is an extraction policy id instead of
             // a name
-            if extraction_policy.content_source != content_metadata.source
-                && self
-                    .get_extraction_policy(&content_metadata.source)
-                    .await
-                    .map_or(true, |retrieved_extraction_policy| {
-                        extraction_policy.content_source != retrieved_extraction_policy.name
-                    })
+            if String::from(&extraction_policy.content_source) != content_metadata.source
+                && self.get_extraction_policy(&content_metadata.source).map_or(
+                    true,
+                    |retrieved_extraction_policy| {
+                        String::from(&extraction_policy.content_source)
+                            != retrieved_extraction_policy.name
+                    },
+                )
             {
                 continue;
             }
@@ -416,9 +416,7 @@ impl App {
                 continue;
             }
             // check if the mimetype matches
-            let extractor = self
-                .extractor_with_name(&extraction_policy.extractor)
-                .await?;
+            let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
                     "content {} does not match extractor {}",
@@ -432,11 +430,10 @@ impl App {
         Ok(matched_policies)
     }
 
-    pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
+    pub fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let extraction_policy = self
             .state_machine
-            .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)
-            .await?
+            .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)?
             .ok_or_else(|| anyhow::anyhow!("Extraction policy with id {} not found", id))?;
         Ok(extraction_policy)
     }
@@ -458,11 +455,9 @@ impl App {
         &self,
         policy_id: &str,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let extraction_policy = self.get_extraction_policy(policy_id).await?;
+        let extraction_policy = self.get_extraction_policy(policy_id)?;
         // get the extractor so we can check the mimetype
-        let extractor = self
-            .extractor_with_name(&extraction_policy.extractor)
-            .await?;
+        let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
 
         let content_list = {
             let content_list = self
@@ -497,11 +492,12 @@ impl App {
         for content in content_list {
             //  Check whether the sources match. Make an additional check in case the
             // content has a source which is an extraction policy id instead of a name
-            if content.source != extraction_policy.content_source
-                && self.get_extraction_policy(&content.source).await.map_or(
+            if content.source != String::from(&extraction_policy.content_source)
+                && self.get_extraction_policy(&content.source).map_or(
                     true,
                     |retrieved_extraction_policy| {
-                        extraction_policy.content_source != retrieved_extraction_policy.name
+                        String::from(&extraction_policy.content_source)
+                            != retrieved_extraction_policy.name
                     },
                 )
             {
@@ -526,8 +522,7 @@ impl App {
         for task_id in self.state_machine.get_unassigned_tasks().await.iter() {
             let task = self
                 .state_machine
-                .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
-                .await?
+                .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)?
                 .ok_or_else(|| {
                     anyhow!(
                         "Unable to get task with id {} from state machine store",
@@ -662,13 +657,10 @@ impl App {
         structured_data_schema: StructuredDataSchema,
         indexes: Vec<internal_api::Index>,
     ) -> Result<()> {
-        let existing_graph = self
-            .state_machine
-            .get_from_cf::<ExtractionGraph, _>(
-                StateMachineColumns::ExtractionGraphs,
-                &extraction_graph.id,
-            )
-            .await?;
+        let existing_graph = self.state_machine.get_from_cf::<ExtractionGraph, _>(
+            StateMachineColumns::ExtractionGraphs,
+            &extraction_graph.id,
+        )?;
         if existing_graph.is_some() {
             return Err(anyhow!(
                 "Extraction graph with id {} already exists",
@@ -777,7 +769,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn extractor_with_name(
+    pub fn extractor_with_name(
         &self,
         extractor: &str,
     ) -> Result<internal_api::ExtractorDescription> {
@@ -786,8 +778,7 @@ impl App {
             .get_from_cf::<internal_api::ExtractorDescription, _>(
                 StateMachineColumns::Extractors,
                 extractor,
-            )
-            .await?
+            )?
             .ok_or_else(|| anyhow!("Extractor with name {} not found", extractor))?;
         Ok(extractor)
     }
@@ -924,8 +915,7 @@ impl App {
             .get_from_cf::<internal_api::ExecutorMetadata, _>(
                 StateMachineColumns::Executors,
                 executor_id,
-            )
-            .await?
+            )?
             .ok_or_else(|| anyhow!("Executor with id {} not found", executor_id))?;
         Ok(executor)
     }
@@ -1290,8 +1280,7 @@ impl App {
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
         let task = self
             .state_machine
-            .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)
-            .await?
+            .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)?
             .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
         Ok(task)
     }
@@ -1302,8 +1291,7 @@ impl App {
     ) -> Result<internal_api::GarbageCollectionTask> {
         let gc_task = self
             .state_machine
-            .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)
-            .await?
+            .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)?
             .ok_or_else(|| anyhow!("Garbage collection task with id {} not found", gc_task_id))?;
         Ok(gc_task)
     }
@@ -1324,8 +1312,7 @@ impl App {
     pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
         let index = self
             .state_machine
-            .get_from_cf::<internal_api::Index, _>(StateMachineColumns::IndexTable, id)
-            .await?
+            .get_from_cf::<internal_api::Index, _>(StateMachineColumns::IndexTable, id)?
             .ok_or_else(|| anyhow!("Index with id {} not found", id))?;
         Ok(index)
     }
@@ -1359,8 +1346,10 @@ impl App {
         let id = StructuredDataSchema::schema_id(namespace, content_source);
         let schema = self
             .state_machine
-            .get_from_cf::<StructuredDataSchema, _>(StateMachineColumns::StructuredDataSchemas, &id)
-            .await?
+            .get_from_cf::<StructuredDataSchema, _>(
+                StateMachineColumns::StructuredDataSchemas,
+                &id,
+            )?
             .ok_or_else(|| anyhow!("Schema with id {} not found", id))?;
         Ok(schema)
     }
@@ -1774,7 +1763,7 @@ mod tests {
         let extractors = node.list_extractors().await?;
         assert_eq!(extractors.len(), 1);
 
-        let retrieved_extractor = node.extractor_with_name(&extractor.name).await?;
+        let retrieved_extractor = node.extractor_with_name(&extractor.name)?;
         assert_eq!(retrieved_extractor, extractor);
 
         //  Remove the executor that was created and assert that it was removed
@@ -1870,7 +1859,9 @@ mod tests {
         //  Create the extraction policy under the namespace of the content
         let extraction_policy = indexify_internal_api::ExtractionPolicy {
             namespace: content_metadata.namespace.clone(),
-            content_source: "source".into(),
+            content_source: indexify_internal_api::ContentSource::ExtractionPolicyId(
+                "source".to_string(),
+            ),
             extractor: extractor.name,
             filters: vec![
                 ("label1".to_string(), "value1".to_string()),
@@ -1891,7 +1882,7 @@ mod tests {
         assert_eq!(read_policy.len(), 1);
 
         //  Read the policy back using the id
-        let read_policy = node.get_extraction_policy(&extraction_policy.id).await?;
+        let read_policy = node.get_extraction_policy(&extraction_policy.id)?;
         assert_eq!(read_policy, extraction_policy);
 
         //  Fetch the content based on the policy id and check that the retrieved
@@ -1992,7 +1983,9 @@ mod tests {
         //  Create the extraction policy under the namespace of the content
         let extraction_policy = indexify_internal_api::ExtractionPolicy {
             namespace: namespace.into(),
-            content_source: "source".into(),
+            content_source: indexify_internal_api::ContentSource::ExtractionPolicyId(
+                "source".to_string(),
+            ),
             extractor: extractor.name,
             filters: vec![("label1".to_string(), "value1".to_string())]
                 .into_iter()

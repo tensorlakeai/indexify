@@ -73,10 +73,7 @@ impl Scheduler {
     ) -> Result<Vec<String>> {
         let mut tables = Vec::new();
         for policy in policies {
-            let extractor = self
-                .shared_state
-                .extractor_with_name(&policy.extractor)
-                .await?;
+            let extractor = self.shared_state.extractor_with_name(&policy.extractor)?;
             for name in extractor.outputs.keys() {
                 let table_name = policy.output_table_mapping.get(name).unwrap();
                 tables.push(table_name.clone());
@@ -185,8 +182,7 @@ impl Scheduler {
         for content in &contents {
             let extraction_policy = self
                 .shared_state
-                .get_extraction_policy(extraction_policy_id)
-                .await?;
+                .get_extraction_policy(extraction_policy_id)?;
             let tables = self
                 .tables_for_policies(&[extraction_policy.clone()])
                 .await?;
@@ -206,12 +202,10 @@ impl Scheduler {
     ) -> Result<internal_api::Task> {
         let extraction_policy = self
             .shared_state
-            .get_extraction_policy(extraction_policy_id)
-            .await?;
+            .get_extraction_policy(extraction_policy_id)?;
         let extractor = self
             .shared_state
-            .extractor_with_name(&extraction_policy.extractor)
-            .await?;
+            .extractor_with_name(&extraction_policy.extractor)?;
 
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {

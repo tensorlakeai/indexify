@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -104,6 +104,11 @@ type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Stat
 type GCTasksResponseStream =
     Pin<Box<dyn tokio_stream::Stream<Item = Result<CoordinatorCommand, Status>> + Send + Sync>>;
 
+pub struct ExtractionPolicyCreationResult {
+    extraction_policies: Vec<internal_api::ExtractionPolicy>,
+    extractors: Vec<internal_api::ExtractorDescription>,
+}
+
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
     shutdown_rx: Receiver<()>,
@@ -118,6 +123,100 @@ impl<'a> Extractor for MetadataMap<'a> {
 
     fn keys(&self) -> Vec<&str> {
         self.0.keys().map(|key| key.as_str()).collect::<Vec<_>>()
+    }
+}
+
+impl CoordinatorServiceServer {
+    fn create_extraction_policies_for_graph(
+        &self,
+        extraction_graph: &CreateExtractionGraphRequest,
+    ) -> Result<ExtractionPolicyCreationResult> {
+        let mut name_to_policy_mapping = HashMap::new();
+        let mut parent_child_policy_mapping = HashMap::new();
+        let graph_id =
+            ExtractionGraph::create_id(&extraction_graph.name, &extraction_graph.namespace);
+        let mut root_policy_name = None;
+        for extraction_policy in &extraction_graph.policies {
+            name_to_policy_mapping
+                .insert(extraction_policy.name.clone(), extraction_policy.clone());
+            if extraction_policy.content_source == extraction_graph.name {
+                //  this is the root policy
+                if root_policy_name.is_some() {
+                    return Err(anyhow!("More than one root policy found"));
+                }
+                root_policy_name = Some(extraction_policy.name.clone());
+                parent_child_policy_mapping
+                    .entry(extraction_policy.name.clone())
+                    .or_insert_with(HashSet::new);
+            } else {
+                parent_child_policy_mapping
+                    .entry(extraction_policy.content_source.clone())
+                    .or_insert_with(HashSet::new)
+                    .insert(extraction_policy.name.clone());
+            }
+        }
+
+        let root_policy_name = match root_policy_name {
+            Some(name) => name,
+            None => return Err(anyhow!("No root policy found")),
+        };
+
+        let mut extraction_policies = Vec::new();
+        let mut extractors = Vec::new();
+        let mut queue = VecDeque::new();
+        queue.push_back((root_policy_name.clone(), graph_id.clone()));
+
+        while let Some((policy_name, parent_id)) = queue.pop_front() {
+            let policy_request = name_to_policy_mapping.get(&policy_name).unwrap().clone();
+            let input_params = serde_json::from_str(&policy_request.input_params)
+                .map_err(|e| anyhow!(format!("unable to parse input_params: {}", e)))?;
+            let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
+            let policy = {
+                if policy_name == root_policy_name {
+                    let policy = ExtractionPolicyBuilder::default()
+                        .namespace(policy_request.namespace)
+                        .name(policy_request.name)
+                        .extractor(policy_request.extractor)
+                        .filters(policy_request.filters)
+                        .input_params(input_params)
+                        .content_source(internal_api::ContentSource::ExtractionGraphId(parent_id))
+                        .build(&graph_id, extractor.clone())
+                        .map_err(|e| anyhow!(e))?;
+                    policy
+                } else {
+                    let policy = ExtractionPolicyBuilder::default()
+                        .namespace(policy_request.namespace)
+                        .name(policy_request.name)
+                        .extractor(policy_request.extractor)
+                        .filters(policy_request.filters)
+                        .input_params(input_params)
+                        .content_source(internal_api::ContentSource::ExtractionPolicyId(parent_id))
+                        .build(&graph_id, extractor.clone())
+                        .map_err(|e| anyhow!(e))?;
+                    policy
+                }
+            };
+            // let policy = ExtractionPolicyBuilder::default()
+            //     .namespace(policy_request.namespace)
+            //     .name(policy_request.name)
+            //     .extractor(policy_request.extractor)
+            //     .filters(policy_request.filters)
+            //     .input_params(input_params)
+            //     .content_source(parent_id)
+            //     .build(&graph_id, extractor.clone())
+            //     .map_err(|e| anyhow!(e))?;
+            extraction_policies.push(policy.clone());
+            extractors.push(extractor.clone());
+            if let Some(children) = parent_child_policy_mapping.get(&policy_name) {
+                for child_name in children {
+                    queue.push_back((child_name.clone(), policy.id.clone()));
+                }
+            }
+        }
+        Ok(ExtractionPolicyCreationResult {
+            extraction_policies,
+            extractors,
+        })
     }
 }
 
@@ -180,34 +279,18 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<CreateExtractionGraphResponse>, tonic::Status> {
         let request = request.into_inner();
         let graph_id = ExtractionGraph::create_id(&request.name, &request.namespace);
-        let mut policies = vec![];
-        let mut policy_ids = HashSet::new();
-        let mut extractors = HashMap::new();
-        let mut extractor_output_table_mapping = HashMap::new();
+        // let mut policy_ids = HashSet::new();
         let indexes = Vec::new();
-        for ep in request.policies.iter() {
-            let input_params = serde_json::from_str(&ep.input_params).map_err(|e| {
-                tonic::Status::aborted(format!("unable to parse input_params: {}", e))
+        let creation_result = self
+            .create_extraction_policies_for_graph(&request)
+            .map_err(|e| {
+                tonic::Status::aborted(format!("unable to create extraction policies: {}", e))
             })?;
-            let extractor = self
-                .coordinator
-                .get_extractor(&ep.extractor)
-                .await
-                .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-            let extraction_policy = ExtractionPolicyBuilder::default()
-                .namespace(request.namespace.clone())
-                .name(request.name.clone())
-                .extractor(ep.extractor.clone())
-                .filters(ep.filters.clone())
-                .input_params(input_params)
-                .content_source(ep.content_source.clone())
-                .build(&graph_id, extractor.clone())
-                .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-            policy_ids.insert(extraction_policy.id.clone());
-            policies.push(extraction_policy.clone());
-            extractors.insert(extractor.name.clone(), extractor.clone().into());
-            extractor_output_table_mapping.extend(extraction_policy.output_table_mapping);
-        }
+        let policy_ids = creation_result
+            .extraction_policies
+            .iter()
+            .map(|ep| ep.id.clone())
+            .collect();
         let graph = ExtractionGraphBuilder::default()
             .id(graph_id)
             .namespace(request.namespace.clone())
@@ -216,19 +299,32 @@ impl CoordinatorService for CoordinatorServiceServer {
             .build()
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         self.coordinator
-            .create_extraction_graph(graph.clone(), policies.clone())
+            .create_extraction_graph(graph.clone(), creation_result.extraction_policies.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies: HashMap<_, _> = policies
+        let policies: HashMap<_, _> = self
+            .coordinator
+            .internal_extraction_policy_to_external(creation_result.extraction_policies.clone())
+            .map_err(|e| tonic::Status::aborted(format!("unable to convert policies: {}", e)))?
+            .into_iter()
+            .map(|policy| (policy.id.clone(), policy.clone()))
+            .collect();
+        let extractors: HashMap<_, _> = creation_result
+            .extractors
             .iter()
-            .map(|policy| (policy.id.clone(), policy.clone().into()))
+            .map(|extractor| (extractor.name.clone(), extractor.clone().into()))
+            .collect();
+        let extractor_output_table_mapping: HashMap<_, _> = creation_result
+            .extraction_policies
+            .iter()
+            .flat_map(|policy| policy.output_table_mapping.clone())
             .collect();
         Ok(tonic::Response::new(CreateExtractionGraphResponse {
             graph_id: graph.id,
             extractors,
             policies,
-            extractor_output_table_mapping,
             indexes,
+            extractor_output_table_mapping,
         }))
     }
 
@@ -242,10 +338,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_policies(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies = extraction_policies
-            .into_iter()
-            .map(|b| b.into())
-            .collect::<Vec<indexify_coordinator::ExtractionPolicy>>();
+        let policies = self
+            .coordinator
+            .internal_extraction_policy_to_external(extraction_policies)
+            .map_err(|e| tonic::Status::aborted(format!("unable to convert policies: {}", e)))?;
 
         Ok(tonic::Response::new(ListExtractionPoliciesResponse {
             policies,
@@ -278,10 +374,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let namespaces = namespaces
-            .into_iter()
-            .map(|r| r.into())
-            .collect::<Vec<indexify_coordinator::Namespace>>();
+        let namespaces = self
+            .coordinator
+            .internal_namespace_to_external(namespaces)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(
             indexify_coordinator::ListNamespaceResponse { namespaces },
         ))
@@ -296,11 +392,19 @@ impl CoordinatorService for CoordinatorServiceServer {
             .coordinator
             .get_namespace(&namespace)
             .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
+        let namespace = self
+            .coordinator
+            .internal_namespace_to_external(vec![namespace])
+            .map_err(|e| tonic::Status::aborted(format!("unable to convert namespace: {}", e)))?;
+        let namespace = namespace
+            .first()
+            .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
 
         Ok(tonic::Response::new(
             indexify_coordinator::GetNamespaceResponse {
-                namespace: namespace.map(|n| n.into()),
+                namespace: Some(namespace.clone()),
             },
         ))
     }
