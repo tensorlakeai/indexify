@@ -17,6 +17,10 @@ This extractor extractors an "identity-"embedding for a piece of text, or file. 
 This extractor extractors an embedding for a piece of text.
 It uses the huggingface [Jina model](https://huggingface.co/jinaai/jina-embeddings-v2-base-en) which is an English, monolingual embedding model supporting 8192 sequence length. It is based on a Bert architecture (JinaBert) that supports the symmetric bidirectional variant of ALiBi to allow longer sequence length.
 
+#### [Arctic - Sentence Transformer](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/arctic)
+This extractor extractors an embedding for a piece of text.
+It uses the huggingface [Snowflake's Arctic-embed-m](https://huggingface.co/Snowflake/snowflake-arctic-embed-m). The snowflake-arctic-embedding models achieve state-of-the-art performance on the MTEB/BEIR leaderboard for each of their size variants.
+
 #### [MiniLML6 - Sentence Transformer](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/minilm-l6)
 This extractor extractors an embedding for a piece of text.
 It uses the huggingface [MiniLM-6 model](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), which is a tiny but very robust emebdding model for text.
