@@ -433,6 +433,37 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
     }
 }
 
+#[derive(Serialize, Debug, Deserialize, Clone, ToSchema)]
+pub struct Task {
+    pub id: String,
+    pub extractor: String,
+    pub extraction_policy_id: String,
+    pub output_index_table_mapping: HashMap<String, String>,
+    pub namespace: String,
+    pub content_metadata: ContentMetadata,
+    pub input_params: serde_json::Value,
+    pub outcome: i32,
+    pub index_tables: Vec<String>,
+}
+
+impl From<indexify_coordinator::Task> for Task {
+    fn from(value: indexify_coordinator::Task) -> Self {
+        Self {
+            id: value.id,
+            extractor: value.extractor,
+            extraction_policy_id: value.extraction_policy_id,
+            output_index_table_mapping: value.output_index_mapping,
+            namespace: value.namespace,
+            content_metadata: value
+                .content_metadata
+                .map_or_else(Default::default, Into::into), //  EGTODO: Is this correct?
+            input_params: serde_json::Value::String(value.input_params),
+            outcome: value.outcome, //  EGTODO: Is it correct to just return i32 for value outcome?
+            index_tables: value.index_tables,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, EnumString, ToSchema)]
 pub enum FeatureType {
     #[serde(rename = "embedding")]
@@ -603,7 +634,7 @@ pub struct ListTasks {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasksResponse {
-    pub tasks: Vec<internal_api::Task>,
+    pub tasks: Vec<Task>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

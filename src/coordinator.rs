@@ -88,7 +88,7 @@ impl Coordinator {
             task_id, executor_id, outcome
         );
         let mut task = self.shared_state.task_with_id(task_id).await?;
-        let content_meta_list = content_request_to_content_metadata(content_list)?;
+        let content_meta_list = self.external_content_metadata_to_internal(content_list)?;
         task.outcome = outcome;
         self.shared_state
             .update_task(task, Some(executor_id.to_string()), content_meta_list)
@@ -131,11 +131,26 @@ impl Coordinator {
         self.shared_state.list_extractors().await
     }
 
-    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<internal_api::Task>> {
+    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<indexify_coordinator::Task>> {
         let tasks = self
             .shared_state
             .tasks_for_executor(executor_id, Some(10))
             .await?;
+        let tasks = tasks
+            .into_iter()
+            .map(|task| -> Result<indexify_coordinator::Task> {
+                let content_metadata = self
+                    .internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
+                let content_metadata = content_metadata.first().ok_or_else(|| {
+                    anyhow!(format!(
+                        "could not convert content metadata {}",
+                        task.content_metadata.id.id
+                    ))
+                })?;
+                let task = internal_api::Task::to_coordinator_task(task, content_metadata.clone());
+                Ok(task)
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
 
@@ -151,10 +166,27 @@ impl Coordinator {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
-    ) -> Result<Vec<internal_api::Task>> {
-        self.shared_state
+    ) -> Result<Vec<indexify_coordinator::Task>> {
+        let tasks = self
+            .shared_state
             .list_tasks(namespace, extraction_policy)
-            .await
+            .await?;
+        let tasks = tasks
+            .into_iter()
+            .map(|task| -> Result<indexify_coordinator::Task> {
+                let content_metadata = self
+                    .internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
+                let content_metadata = content_metadata.first().ok_or_else(|| {
+                    anyhow!(format!(
+                        "could not convert content metadata {}",
+                        task.content_metadata.id.id
+                    ))
+                })?;
+                let task = internal_api::Task::to_coordinator_task(task, content_metadata.clone());
+                Ok(task)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(tasks)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -250,14 +282,32 @@ impl Coordinator {
     pub async fn get_content_metadata(
         &self,
         content_ids: Vec<String>,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.shared_state
+    ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
+        let content = self
+            .shared_state
             .get_content_metadata_batch(content_ids)
-            .await
+            .await?;
+        let content = self.internal_content_metadata_to_external(content)?;
+        Ok(content)
     }
 
-    pub async fn get_task(&self, task_id: &str) -> Result<internal_api::Task> {
-        self.shared_state.task_with_id(task_id).await
+    pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
+        let task = self.shared_state.task_with_id(task_id).await?;
+        let extraction_graph_names = self
+            .shared_state
+            .get_extraction_graphs(&task.content_metadata.extraction_graph_ids)?
+            .ok_or_else(|| anyhow!("could not find extraction graph for content {}", task.id))?
+            .into_iter()
+            .map(|eg| eg.id)
+            .collect();
+        let coordinator_metadata = internal_api::ContentMetadata::to_coordinator_metadata(
+            task.content_metadata.clone(),
+            extraction_graph_names,
+        );
+        Ok(internal_api::Task::to_coordinator_task(
+            task,
+            coordinator_metadata,
+        ))
     }
 
     pub async fn get_task_and_root_content(
@@ -281,8 +331,10 @@ impl Coordinator {
     pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.shared_state.get_content_tree_metadata(content_id)
+    ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
+        let content_tree = self.shared_state.get_content_tree_metadata(content_id)?;
+        let content_tree = self.internal_content_metadata_to_external(content_tree)?;
+        Ok(content_tree)
     }
 
     pub async fn get_extractor(
@@ -519,11 +571,58 @@ impl Coordinator {
         self.shared_state.get_state_change_watcher()
     }
 
+    pub fn internal_content_metadata_to_external(
+        &self,
+        content_list: Vec<internal_api::ContentMetadata>,
+    ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
+        let mut content_meta_list = Vec::new();
+        for content in content_list {
+            let extraction_graphs = self
+                .shared_state
+                .get_extraction_graphs(&content.extraction_graph_ids)?
+                .ok_or_else(|| {
+                    anyhow!("could not find extraction graph for content {}", content.id)
+                })?;
+            let extraction_graph_names = extraction_graphs.into_iter().map(|eg| eg.name).collect();
+            let content: indexify_coordinator::ContentMetadata =
+                internal_api::ContentMetadata::to_coordinator_metadata(
+                    content,
+                    extraction_graph_names,
+                );
+            content_meta_list.push(content.clone());
+        }
+        Ok(content_meta_list)
+    }
+
+    pub fn external_content_metadata_to_internal(
+        &self,
+        content_list: Vec<indexify_coordinator::ContentMetadata>,
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        let mut content_meta_list = Vec::new();
+        for content in content_list {
+            let extraction_graphs = self
+                .shared_state
+                .get_extraction_graphs_by_name(&content.namespace, &content.extraction_graph_names)?
+                .ok_or_else(|| {
+                    anyhow!("could not find extraction graph for content {}", content.id)
+                })?;
+            let extraction_graph_ids = extraction_graphs.into_iter().map(|eg| eg.id).collect();
+
+            let content: internal_api::ContentMetadata =
+                internal_api::ContentMetadata::from_coordinator_metadata(
+                    content,
+                    extraction_graph_ids,
+                );
+            content_meta_list.push(content.clone());
+        }
+        Ok(content_meta_list)
+    }
+
     pub async fn create_content_metadata(
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
-        let content_meta_list = content_request_to_content_metadata(content_list)?;
+        let content_meta_list = self.external_content_metadata_to_internal(content_list)?;
         self.shared_state
             .create_content_batch(content_meta_list)
             .await?;
@@ -558,17 +657,6 @@ impl Coordinator {
     pub fn get_raft_metrics(&self) -> RaftMetrics {
         self.shared_state.get_raft_metrics()
     }
-}
-
-fn content_request_to_content_metadata(
-    content_list: Vec<indexify_coordinator::ContentMetadata>,
-) -> Result<Vec<internal_api::ContentMetadata>> {
-    let mut content_meta_list = Vec::new();
-    for content in content_list {
-        let c: internal_api::ContentMetadata = content.into();
-        content_meta_list.push(c.clone());
-    }
-    Ok(content_meta_list)
 }
 
 #[cfg(test)]

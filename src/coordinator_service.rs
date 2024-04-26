@@ -167,12 +167,11 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(ListContentResponse {
-            content_list: content_list
-                .into_iter()
-                .map(|c| c.into())
-                .collect::<Vec<indexify_coordinator::ContentMetadata>>(),
-        }))
+        let content_list = self
+            .coordinator
+            .internal_content_metadata_to_external(content_list)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(ListContentResponse { content_list }))
     }
 
     async fn create_extraction_graph(
@@ -533,7 +532,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                                     }
                                 }
                                 Ok(tasks) => {
-                                    let tasks = tasks.into_iter().map(|t| t.into()).collect::<Vec<indexify_coordinator::Task>>();
+                                    // let tasks = tasks.into_iter().map(|t| t.into()).collect::<Vec<indexify_coordinator::Task>>();
                                     let resp = HeartbeatResponse {
                                         executor_id: executor_id.clone(),
                                         tasks,
@@ -654,11 +653,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<GetContentMetadataRequest>,
     ) -> Result<Response<indexify_coordinator::GetContentMetadataResponse>, Status> {
         let req = req.into_inner();
-        let content_list = self
+        let content_metadata = self
             .coordinator
             .get_content_metadata(req.content_list)
             .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .iter()
+            .map(|c| (c.id.clone(), c.clone()))
+            .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
                 content_list: content_list.into_iter().map(Into::into).collect(),
@@ -711,13 +713,9 @@ impl CoordinatorService for CoordinatorServiceServer {
             .get_content_tree_metadata(&req.content_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let parsed_content_tree: Vec<indexify_coordinator::ContentMetadata> = content_tree_metadata
-            .iter()
-            .map(|c| c.clone().into())
-            .collect();
         Ok(Response::new(
             indexify_coordinator::GetContentTreeMetadataResponse {
-                content_list: parsed_content_tree,
+                content_list: content_tree_metadata,
             },
         ))
     }
@@ -756,7 +754,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_tasks(&req.namespace, extraction_policy)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let tasks = tasks.into_iter().map(|t| t.into()).collect();
         Ok(Response::new(indexify_coordinator::ListTasksResponse {
             tasks,
         }))

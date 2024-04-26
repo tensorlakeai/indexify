@@ -473,7 +473,7 @@ mod tests {
                 hash: "test".to_string(),
                 extraction_policy_ids: HashMap::new(),
                 tombstoned: false,
-                extraction_graph_names: vec![],
+                extraction_graph_ids: vec![],
             };
             test_coordinator
                 .create_content(content_metadata.clone())
@@ -712,7 +712,8 @@ mod tests {
 
         let content_metadata = coordinator
             .coordinator
-            .get_content_metadata(vec![id.clone()])
+            .shared_state
+            .get_content_metadata_batch(vec![id.clone()])
             .await
             .unwrap();
         coordinator
@@ -824,7 +825,8 @@ mod tests {
 
         let content_metadata = coordinator
             .coordinator
-            .get_content_metadata(vec![id.clone()])
+            .shared_state
+            .get_content_metadata_batch(vec![id.clone()])
             .await
             .unwrap();
         coordinator

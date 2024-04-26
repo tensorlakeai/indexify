@@ -423,26 +423,17 @@ impl Task {
             index_tables: Vec::new(),
         }
     }
-}
 
-impl Display for Task {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Task(id: {}, extractor: {}, extraction_policy_id: {}, namespace: {}, content_id: {}, outcome: {:?})",
-            self.id, self.extractor, self.extraction_policy_id, self.namespace, self.content_metadata.id.id, self.outcome
-        )
-    }
-}
-
-impl From<Task> for indexify_coordinator::Task {
-    fn from(value: Task) -> Self {
+    pub fn to_coordinator_task(
+        value: Task,
+        content_metadata: indexify_coordinator::ContentMetadata,
+    ) -> indexify_coordinator::Task {
         let outcome: indexify_coordinator::TaskOutcome = value.outcome.into();
-        Self {
+        indexify_coordinator::Task {
             id: value.id,
             extractor: value.extractor,
             namespace: value.namespace,
-            content_metadata: Some(value.content_metadata.into()),
+            content_metadata: Some(content_metadata),
             input_params: value.input_params.to_string(),
             extraction_policy_id: value.extraction_policy_id,
             output_index_mapping: value.output_index_table_mapping,
@@ -452,24 +443,13 @@ impl From<Task> for indexify_coordinator::Task {
     }
 }
 
-impl TryFrom<indexify_coordinator::Task> for Task {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::Task) -> Result<Self> {
-        let content_metadata: ContentMetadata = value.content_metadata.unwrap().try_into()?;
-        let outcome: TaskOutcome =
-            indexify_coordinator::TaskOutcome::try_from(value.outcome)?.into();
-        Ok(Self {
-            id: value.id,
-            extractor: value.extractor,
-            namespace: value.namespace,
-            content_metadata,
-            input_params: serde_json::from_str(&value.input_params).unwrap(),
-            extraction_policy_id: value.extraction_policy_id,
-            output_index_table_mapping: value.output_index_mapping,
-            outcome,
-            index_tables: value.index_tables,
-        })
+impl Display for Task {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Task(id: {}, extractor: {}, extraction_policy_id: {}, namespace: {}, content_id: {}, outcome: {:?})",
+            self.id, self.extractor, self.extraction_policy_id, self.namespace, self.content_metadata.id.id, self.outcome
+        )
     }
 }
 
@@ -757,7 +737,7 @@ pub struct ContentMetadata {
     pub tombstoned: bool,
     pub hash: String,
     pub extraction_policy_ids: HashMap<String, u64>,
-    pub extraction_graph_names: Vec<ExtractionGraphName>,
+    pub extraction_graph_ids: Vec<ExtractionGraphId>,
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -813,10 +793,29 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             tombstoned: false,
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
-            extraction_graph_names: value.extraction_graph_names,
+            extraction_graph_ids,
         }
     }
-}
+
+// impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
+//     fn from(value: ContentMetadata) -> Self {
+//         Self {
+//             id: value.id.id,
+//             parent_id: value.parent_id.id,
+//             file_name: value.name,
+//             mime: value.content_type,
+//             labels: value.labels,
+//             storage_url: value.storage_url,
+//             created_at: value.created_at,
+//             namespace: value.namespace,
+//             source: value.source,
+//             size_bytes: value.size_bytes,
+//             hash: value.hash,
+//             extraction_policy_ids: value.extraction_policy_ids,
+//             extraction_graph_names: vec![],
+//         }
+//     }
+// }
 
 impl Default for ContentMetadata {
     fn default() -> Self {
@@ -840,7 +839,7 @@ impl Default for ContentMetadata {
             extraction_policy_ids: HashMap::new(),
             tombstoned: false,
             hash: "test_hash".to_string(),
-            extraction_graph_names: vec![],
+            extraction_graph_ids: vec![],
         }
     }
 }

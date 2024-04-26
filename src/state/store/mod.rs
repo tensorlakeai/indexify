@@ -419,6 +419,27 @@ impl StateMachineStore {
         self.data.indexify_state.get_schemas(ids, &self.db)
     }
 
+    pub fn get_extraction_graphs(
+        &self,
+        extraction_graph_ids: &Vec<String>,
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionGraph>>> {
+        self.data
+            .indexify_state
+            .get_extraction_graphs(extraction_graph_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_extraction_graphs_by_name(
+        &self,
+        namespace: &str,
+        graph_names: &[String],
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionGraph>>> {
+        self.data
+            .indexify_state
+            .get_extraction_graphs_by_name(namespace, graph_names, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
         self.data
             .indexify_state

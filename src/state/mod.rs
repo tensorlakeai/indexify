@@ -692,6 +692,23 @@ impl App {
         Ok(())
     }
 
+    pub fn get_extraction_graphs(
+        &self,
+        extraction_graph_ids: &Vec<String>,
+    ) -> Result<Option<Vec<ExtractionGraph>>> {
+        self.state_machine
+            .get_extraction_graphs(extraction_graph_ids)
+    }
+
+    pub fn get_extraction_graphs_by_name(
+        &self,
+        namespace: &str,
+        graph_names: &[String],
+    ) -> Result<Option<Vec<ExtractionGraph>>> {
+        self.state_machine
+            .get_extraction_graphs_by_name(namespace, graph_names)
+    }
+
     pub async fn update_task(
         &self,
         task: internal_api::Task,

@@ -363,6 +363,11 @@ pub struct ExtractionGraphTable {
 }
 
 impl ExtractionGraphTable {
+    pub fn get(&self, namespace: &NamespaceName) -> HashSet<ExtractionGraphId> {
+        let guard = self.eg_by_namespace.read().unwrap();
+        guard.get(namespace).cloned().unwrap_or_default()
+    }
+
     pub fn insert(&self, namespace: &NamespaceName, id: &ExtractionGraphId) {
         let mut guard = self.eg_by_namespace.write().unwrap();
         guard
@@ -737,22 +742,6 @@ impl IndexifyState {
         txn.put_cf(StateMachineColumns::IndexTable.cf(db), id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         Ok(())
-    }
-
-    fn _get_task(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        task_id: &TaskId,
-    ) -> Result<internal_api::Task, StateMachineError> {
-        let serialized_task = txn
-            .get_cf(StateMachineColumns::Tasks.cf(db), task_id)
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!("Task {} not found", task_id))
-            })?;
-        let task = JsonEncoder::decode(&serialized_task)?;
-        Ok(task)
     }
 
     fn set_tasks(
@@ -2015,6 +2004,86 @@ impl IndexifyState {
             schemas.push(schema);
         }
         Ok(schemas)
+    }
+
+    pub fn get_extraction_graphs(
+        &self,
+        extraction_graph_ids: &Vec<ExtractionGraphId>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<Vec<internal_api::ExtractionGraph>>, StateMachineError> {
+        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids
+            .iter()
+            .map(|egid| (cf, egid.as_bytes()))
+            .collect();
+        let serialized_graphs = db.multi_get_cf(keys);
+        let mut graphs: Vec<internal_api::ExtractionGraph> = Vec::new();
+        for serialized_graph in serialized_graphs {
+            match serialized_graph {
+                Ok(graph) => {
+                    if graph.is_some() {
+                        let deserialized_graph =
+                            JsonEncoder::decode::<internal_api::ExtractionGraph>(&graph.unwrap())?;
+                        graphs.push(deserialized_graph);
+                    } else {
+                        return Err(StateMachineError::DatabaseError(
+                            "Extraction graph not found".into(),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Err(StateMachineError::TransactionError(e.to_string()));
+                }
+            }
+        }
+        if graphs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(graphs))
+        }
+    }
+
+    pub fn get_extraction_graphs_by_name(
+        &self,
+        namespace: &str,
+        graph_names: &[String],
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<Vec<internal_api::ExtractionGraph>>, StateMachineError> {
+        let extraction_graph_ids_in_ns = self.extraction_graphs_by_ns.get(&namespace.to_string());
+        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids_in_ns
+            .iter()
+            .map(|egid| (cf, egid.as_bytes()))
+            .collect();
+        let serialized_graphs = db.multi_get_cf(keys);
+        let mut graphs: Vec<internal_api::ExtractionGraph> = Vec::new();
+        for serialized_graph in serialized_graphs {
+            match serialized_graph {
+                Ok(graph) => {
+                    if graph.is_some() {
+                        let deserialized_graph =
+                            JsonEncoder::decode::<internal_api::ExtractionGraph>(&graph.unwrap())?;
+                        graphs.push(deserialized_graph);
+                    } else {
+                        return Err(StateMachineError::DatabaseError(
+                            "Extraction graph not found".into(),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Err(StateMachineError::TransactionError(e.to_string()));
+                }
+            }
+        }
+        let matching_graphs: Vec<internal_api::ExtractionGraph> = graphs
+            .into_iter()
+            .filter(|graph| graph_names.contains(&graph.name))
+            .collect();
+        if matching_graphs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(matching_graphs))
+        }
     }
 
     pub fn get_coordinator_addr(
