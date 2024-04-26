@@ -521,14 +521,8 @@ pub struct IngestExtractedContentResponse {}
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct BeginExtractedContentIngest {
     pub task_id: String,
-    pub namespace: String,
-    pub output_to_index_table_mapping: HashMap<String, String>,
-    pub parent_content_id: String,
     pub executor_id: String,
     pub task_outcome: internal_api::TaskOutcome,
-    pub extraction_policy: String,
-    pub extractor: String,
-    pub index_tables: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]

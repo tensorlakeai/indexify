@@ -47,7 +47,6 @@ impl MetadataStorage for SqliteIndexManager {
             id TEXT PRIMARY KEY,
             namespace TEXT,
             extractor TEXT,
-            extractor_policy_name TEXT,
             content_source TEXT,
             index_name TEXT,
             data JSONB,
@@ -85,10 +84,10 @@ impl MetadataStorage for SqliteIndexManager {
         let query = format!(
             "
             INSERT INTO {index_name} (
-                id, namespace, extractor, extractor_policy_name,
+                id, namespace, extractor,
                 content_source, index_name, data, content_id,
                 parent_content_id, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;
         "
         );
@@ -96,7 +95,6 @@ impl MetadataStorage for SqliteIndexManager {
             .bind(metadata.id)
             .bind(namespace)
             .bind(metadata.extractor_name)
-            .bind(metadata.extraction_policy)
             .bind(metadata.content_source)
             .bind(index_name.to_string())
             .bind(metadata.metadata)

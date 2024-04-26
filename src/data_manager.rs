@@ -534,8 +534,6 @@ impl DataManager {
             task_id: begin_ingest.task_id,
             outcome: outcome as i32,
             content_list: Vec::new(),
-            content_id: begin_ingest.parent_content_id,
-            extraction_policy_name: begin_ingest.extraction_policy,
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {
@@ -559,7 +557,7 @@ impl DataManager {
         };
         let index_table = output_index_map
             .get(name)
-            .ok_or(anyhow!("index table not found"))?;
+            .ok_or(anyhow!("index table not {} found", name))?;
         self.vector_index_manager
             .add_embedding(index_table, vec![embeddings])
             .await
@@ -597,11 +595,10 @@ impl DataManager {
 
     pub async fn write_existing_content_features(
         &self,
-        extractor_name: &str,
-        extraction_policy: &str,
-        content_meta: &indexify_coordinator::ContentMetadata,
+        extractor: &str,
+        content_metadata: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
-        output_index_map: &HashMap<String, String>,
+        output_index_mapping: &HashMap<String, String>,
         index_tables: &[String],
     ) -> Result<()> {
         let metadata_updated = features
@@ -609,30 +606,32 @@ impl DataManager {
             .any(|feature| matches!(feature.feature_type, api::FeatureType::Metadata));
         let existing_metadata = self
             .metadata_index_manager
-            .get_metadata_for_content(&content_meta.namespace, &content_meta.id)
+            .get_metadata_for_content(&content_metadata.namespace, &content_metadata.id)
             .await?;
-        let new_metadata =
-            Self::combine_metadata(existing_metadata, &features, content_meta.labels.clone());
+        let new_metadata = Self::combine_metadata(
+            existing_metadata,
+            &features,
+            content_metadata.labels.clone(),
+        );
         self.write_extracted_features(
-            extractor_name,
-            extraction_policy,
-            content_meta,
+            extractor,
+            content_metadata,
             features.clone(),
             &new_metadata,
-            output_index_map,
+            output_index_mapping,
         )
         .await?;
         if metadata_updated && !new_metadata.as_object().unwrap().is_empty() {
             // For all embeddings not updated with new values, update their metadata
             for index in index_tables {
-                if !index_in_features(output_index_map, &features, index) {
+                if !index_in_features(output_index_mapping, &features, index) {
                     info!(
                         "updating metadata for content {} index {}",
-                        content_meta.id.clone(),
+                        content_metadata.id.clone(),
                         index
                     );
                     self.vector_index_manager
-                        .update_metadata(index, content_meta.id.clone(), new_metadata.clone())
+                        .update_metadata(index, content_metadata.id.clone(), new_metadata.clone())
                         .await?;
                 }
             }
@@ -642,9 +641,8 @@ impl DataManager {
 
     pub async fn write_extracted_features(
         &self,
-        extractor_name: &str,
-        extraction_policy: &str,
-        content_meta: &indexify_coordinator::ContentMetadata,
+        extractor: &str,
+        content_metadata: &indexify_coordinator::ContentMetadata,
         features: Vec<api::Feature>,
         metadata: &serde_json::Value,
         output_index_map: &HashMap<String, String>,
@@ -659,7 +657,7 @@ impl DataManager {
                     self.write_extracted_embedding(
                         &feature.name,
                         &embedding_payload.values,
-                        &content_meta.id,
+                        &content_metadata.id,
                         output_index_map,
                         metadata.clone(),
                     )
@@ -667,16 +665,15 @@ impl DataManager {
                 }
                 api::FeatureType::Metadata => {
                     let extracted_attributes = ExtractedMetadata::new(
-                        &content_meta.id,
-                        &content_meta.parent_id,
-                        &content_meta.source,
+                        &content_metadata.id,
+                        &content_metadata.parent_id,
+                        &content_metadata.source,
                         feature.data.clone(),
-                        extractor_name,
-                        extraction_policy,
+                        extractor,
                     );
                     info!("adding metadata to index {}", feature.data.to_string());
                     self.metadata_index_manager
-                        .add_metadata(&content_meta.namespace, extracted_attributes)
+                        .add_metadata(&content_metadata.namespace, extracted_attributes)
                         .await?;
                 }
                 _ => {
@@ -689,12 +686,13 @@ impl DataManager {
 
     pub async fn create_content_and_write_features(
         &self,
-        content_meta: &indexify_coordinator::ContentMetadata,
-        ingest_metadata: &BeginExtractedContentIngest,
+        content_metadata: &indexify_coordinator::ContentMetadata,
+        extractor: &str,
         features: Vec<api::Feature>,
+        output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
         let req = indexify_coordinator::CreateContentRequest {
-            content: Some(content_meta.clone()),
+            content: Some(content_metadata.clone()),
         };
         self.coordinator_client
             .get()
@@ -708,14 +706,13 @@ impl DataManager {
                 )
             })?;
         let combined_metadata =
-            Self::combine_metadata(Vec::new(), &features, content_meta.labels.clone());
+            Self::combine_metadata(Vec::new(), &features, content_metadata.labels.clone());
         self.write_extracted_features(
-            &ingest_metadata.extractor,
-            &ingest_metadata.extraction_policy,
-            content_meta,
+            extractor,
+            content_metadata,
             features,
             &combined_metadata,
-            &ingest_metadata.output_to_index_table_mapping,
+            output_index_map,
         )
         .await
     }
