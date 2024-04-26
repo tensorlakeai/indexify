@@ -138,7 +138,7 @@ impl VectorDb for PgVector {
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
         let mut query = format!(
-            "SELECT content_id, CAST(1 - ($1 <-> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\""
+            "SELECT content_id, CAST(1 - ($1 <=> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\""
         );
         if !filters.is_empty() {
             query.push_str(" WHERE ");
@@ -159,7 +159,7 @@ impl VectorDb for PgVector {
                 .join(" AND ");
             query.push_str(&filter_query);
         }
-        query.push_str(&format!(" ORDER BY embedding <-> $1 LIMIT {k};"));
+        query.push_str(&format!(" ORDER BY embedding <=> $1 LIMIT {k};"));
         // TODO: confidence_score is a distance here, let's make sure that similarity /
         // distance is the same across vectors databases
         let embedding = Vector::from(query_embedding);
