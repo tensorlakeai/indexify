@@ -827,14 +827,12 @@ impl App {
         self.state_machine.get_namespace(namespace).await
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
         executor_id: &str,
         extractors: Vec<internal_api::ExtractorDescription>,
     ) -> Result<String> {
-        println!("fuck2");
         let state_change = StateChange::new(
             executor_id.to_string(),
             internal_api::ChangeType::ExecutorAdded,

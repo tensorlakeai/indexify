@@ -28,7 +28,6 @@ pub enum RequestPayload {
         address: String,
         coordinator_addr: String,
     },
-    // TODO: edwin
     RegisterExecutor {
         addr: String,
         executor_id: String,
