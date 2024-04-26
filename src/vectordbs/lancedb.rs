@@ -320,13 +320,18 @@ impl VectorDb for LanceDb {
         k: u64,
         filters: Vec<Filter>,
     ) -> Result<Vec<SearchResult>> {
+        // FIXME remove the hardcoding to cosine
+        // We need to pass the distance metric from
+        // data manager to the vector db
         let tbl = self.conn.open_table(&index).execute().await?;
-        let mut query = tbl.query();
+        let mut query = tbl
+            .vector_search(query_embedding)
+            .map_err(|e| anyhow!("unable to create vector search query: {}", e))?
+            .distance_type(lancedb::DistanceType::Cosine);
         if filters.len() > 0 {
             query = query.only_if(from_filter_to_str(filters));
         }
         let res = query
-            .nearest_to(query_embedding)?
             .column("vector")
             .limit(k as usize)
             .execute()
