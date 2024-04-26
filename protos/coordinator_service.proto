@@ -90,8 +90,6 @@ message UpdateTaskRequest {
     string task_id = 2;
     TaskOutcome outcome = 3;
     repeated ContentMetadata content_list = 4;
-    string content_id = 5;
-    string extraction_policy_name = 6;
 }
 
 message ListStateChangesRequest {
