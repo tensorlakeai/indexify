@@ -11,7 +11,7 @@ use derive_builder::Builder;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
 use nanoid::nanoid;
-use serde::{Deserialize, Serialize};
+use serde::{de::value, Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
@@ -775,6 +775,10 @@ pub struct ContentMetadata {
     // Namespace name == Namespace ID
     pub namespace: String,
     pub parent_id: ContentMetadataId,
+<<<<<<< HEAD
+=======
+    pub root_content_id: ContentMetadataId,
+>>>>>>> 199065d (changed root content id from String to ContentMetadataId)
     pub namespace: NamespaceName,
     pub name: String,
     pub content_type: String,
@@ -846,25 +850,25 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
         }
     }
 
-// impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
-//     fn from(value: ContentMetadata) -> Self {
-//         Self {
-//             id: value.id.id,
-//             parent_id: value.parent_id.id,
-//             file_name: value.name,
-//             mime: value.content_type,
-//             labels: value.labels,
-//             storage_url: value.storage_url,
-//             created_at: value.created_at,
-//             namespace: value.namespace,
-//             source: value.source,
-//             size_bytes: value.size_bytes,
-//             hash: value.hash,
-//             extraction_policy_ids: value.extraction_policy_ids,
-//             extraction_graph_names: vec![],
-//         }
-//     }
-// }
+ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
+     fn from(value: ContentMetadata) -> Self {
+         Self {
+             id: value.id.id,
+             parent_id: value.parent_id.id,
+             file_name: value.name,
+             mime: value.content_type,
+             labels: value.labels,
+             storage_url: value.storage_url,
+             created_at: value.created_at,
+             namespace: value.namespace,
+             source: value.source,
+             size_bytes: value.size_bytes,
+             hash: value.hash,
+             extraction_policy_ids: value.extraction_policy_ids,
+             extraction_graph_names: value.extraction_graph_names,
+         }
+     }
+ }
 
 impl Default for ContentMetadata {
     fn default() -> Self {

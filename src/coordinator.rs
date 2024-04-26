@@ -136,7 +136,6 @@ impl Coordinator {
                         extraction_graph.name.clone(),
                     ));
                 }
-                _ => {}
             }
         }
         Ok(policies_to_return)
