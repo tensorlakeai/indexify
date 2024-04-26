@@ -993,7 +993,9 @@ impl IndexifyState {
                 &extractor.name,
                 serialized_extractor,
             )
-            .map_err(|e| StateMachineError::DatabaseError(format!("Error writing extractor: {}", e)))?;
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -1254,7 +1256,7 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
                 //  Remove the extractors from the executor -> extractor mapping table
-                for extractor in &executor_meta.extractors{
+                for extractor in &executor_meta.extractors {
                     self.extractor_executors_table
                         .remove(&extractor.name, &executor_meta.id);
                 }
@@ -1341,7 +1343,8 @@ impl IndexifyState {
                 extractors,
                 ts_secs,
             } => {
-                // Inserts the executor list of extractors to the executor -> extractor mapping table
+                // Inserts the executor list of extractors to the executor -> extractor mapping
+                // table
                 for extractor in &extractors {
                     self.extractor_executors_table
                         .insert(&extractor.name, &executor_id);

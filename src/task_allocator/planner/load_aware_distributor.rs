@@ -167,7 +167,11 @@ impl LoadAwareDistributor {
                 .unwrap_or(None);
             match executor {
                 Some(executor) => {
-                    let extractor_names =executor.extractors.into_iter().map(|e| e.name).collect::<Vec<String>>();
+                    let extractor_names = executor
+                        .extractors
+                        .into_iter()
+                        .map(|e| e.name)
+                        .collect::<Vec<String>>();
 
                     let running_task_count = executor_running_task_count
                         .get(executor_id)
@@ -293,7 +297,11 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{server_config::ServerConfig, state::App, test_util::db_utils::{mock_extractor, mock_extractors}};
+    use crate::{
+        server_config::ServerConfig,
+        state::App,
+        test_util::db_utils::{mock_extractor, mock_extractors},
+    };
 
     fn create_task(
         id: &str,
