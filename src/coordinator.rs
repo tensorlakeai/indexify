@@ -106,7 +106,9 @@ impl Coordinator {
         let mut policies_to_return = Vec::new();
         for policy in policy_list {
             match policy.content_source {
-                internal_api::ContentSource::ExtractionPolicyId(ref extraction_policy_id) => {
+                internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
+                    ref extraction_policy_id,
+                ) => {
                     let parent_policy = self
                         .shared_state
                         .get_extraction_policy(extraction_policy_id)?;
@@ -115,7 +117,9 @@ impl Coordinator {
                         parent_policy.name,
                     ));
                 }
-                internal_api::ContentSource::ExtractionGraphId(ref extraction_graph_id) => {
+                internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
+                    ref extraction_graph_id,
+                ) => {
                     let extraction_graph = self
                         .shared_state
                         .get_extraction_graphs(&vec![extraction_graph_id.clone()])?
@@ -826,7 +830,7 @@ mod tests {
                         "test_output".to_string(),
                         "test_namespace.test.test_output".to_string(),
                     )]),
-                    content_source: internal_api::ContentSource::ExtractionPolicyId(
+                    content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                         "ingestion".to_string(),
                     ),
                 },
@@ -922,7 +926,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -977,7 +981,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 extraction_policy_1.name,
             ),
             ..Default::default()
@@ -1061,7 +1065,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -1119,7 +1123,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 extraction_policy_1.name,
             ),
             ..Default::default()
@@ -1187,7 +1191,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -1215,7 +1219,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 extraction_policy_1.name,
             ),
             ..Default::default()
@@ -1325,7 +1329,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -1353,7 +1357,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 extraction_policy_1.name,
             ),
             ..Default::default()
@@ -1522,7 +1526,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -1643,7 +1647,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -1672,7 +1676,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 extraction_policy_1.name,
             ),
             ..Default::default()
@@ -1820,7 +1824,7 @@ mod tests {
                 "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 "ingestion".to_string(),
             ),
             ..Default::default()
@@ -1849,7 +1853,7 @@ mod tests {
                 "test.test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ContentSource::ExtractionPolicyId(
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                 extraction_policy_1.name,
             ),
             ..Default::default()
@@ -2104,7 +2108,9 @@ mod tests {
         //  Create the extraction policy under the namespace of the content
         let extraction_policy = indexify_internal_api::ExtractionPolicy {
             namespace: namespace.into(),
-            content_source: internal_api::ContentSource::ExtractionPolicyId("source".to_string()),
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
+                "source".to_string(),
+            ),
             extractor: extractor_name.into(),
             id: "1".into(),
             name: "1".into(),
@@ -2174,7 +2180,9 @@ mod tests {
             id: "2".into(),
             name: "2".into(),
             namespace: namespace.into(),
-            content_source: internal_api::ContentSource::ExtractionPolicyId("source".to_string()),
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
+                "source".to_string(),
+            ),
             extractor: extractor_name.into(),
             filters: vec![("label1".to_string(), "value1".to_string())]
                 .into_iter()

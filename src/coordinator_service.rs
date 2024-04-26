@@ -179,7 +179,11 @@ impl CoordinatorServiceServer {
                         .extractor(policy_request.extractor)
                         .filters(policy_request.filters)
                         .input_params(input_params)
-                        .content_source(internal_api::ContentSource::ExtractionGraphId(parent_id))
+                        .content_source(
+                            internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
+                                parent_id,
+                            ),
+                        )
                         .build(&graph_id, extractor.clone())
                         .map_err(|e| anyhow!(e))?;
                     policy
@@ -190,7 +194,11 @@ impl CoordinatorServiceServer {
                         .extractor(policy_request.extractor)
                         .filters(policy_request.filters)
                         .input_params(input_params)
-                        .content_source(internal_api::ContentSource::ExtractionPolicyId(parent_id))
+                        .content_source(
+                            internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
+                                parent_id,
+                            ),
+                        )
                         .build(&graph_id, extractor.clone())
                         .map_err(|e| anyhow!(e))?;
                     policy

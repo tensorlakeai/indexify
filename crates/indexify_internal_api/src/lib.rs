@@ -1,6 +1,5 @@
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
-    default,
     fmt::{self, Display},
     hash::{Hash, Hasher},
     str::FromStr,
@@ -529,28 +528,28 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
 pub type ExtractionPolicyId = String;
 pub type ExtractionPolicyName = String;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ContentSource {
+pub enum ExtractionPolicyContentSource {
     ExtractionGraphId(ExtractionGraphId),
     ExtractionPolicyId(ExtractionPolicyId),
 }
 
-impl Default for ContentSource {
+impl Default for ExtractionPolicyContentSource {
     fn default() -> Self {
-        ContentSource::ExtractionPolicyId(ExtractionPolicyId::default())
+        ExtractionPolicyContentSource::ExtractionPolicyId(ExtractionPolicyId::default())
     }
 }
 
-impl From<ContentSource> for String {
-    fn from(source: ContentSource) -> Self {
+impl From<ExtractionPolicyContentSource> for String {
+    fn from(source: ExtractionPolicyContentSource) -> Self {
         String::from(&source)
     }
 }
 
-impl From<&ContentSource> for String {
-    fn from(value: &ContentSource) -> Self {
+impl From<&ExtractionPolicyContentSource> for String {
+    fn from(value: &ExtractionPolicyContentSource) -> Self {
         match value {
-            ContentSource::ExtractionGraphId(id) => id.clone(),
-            ContentSource::ExtractionPolicyId(id) => id.clone(),
+            ExtractionPolicyContentSource::ExtractionGraphId(id) => id.clone(),
+            ExtractionPolicyContentSource::ExtractionPolicyId(id) => id.clone(),
         }
     }
 }
@@ -568,7 +567,7 @@ pub struct ExtractionPolicy {
     // Extractor Output -> Table Name
     pub output_table_mapping: HashMap<String, String>,
     // The source of the content this policy will match against. Will either be the graph id or a parent policy id
-    pub content_source: ContentSource,
+    pub content_source: ExtractionPolicyContentSource,
 }
 
 impl std::hash::Hash for ExtractionPolicy {
