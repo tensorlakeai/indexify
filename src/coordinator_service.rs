@@ -65,6 +65,8 @@ use indexify_proto::indexify_coordinator::{
     RegisterIngestionServerResponse,
     RemoveIngestionServerRequest,
     RemoveIngestionServerResponse,
+    SetIndexesVisibleRequest,
+    SetIndexesVisibleResponse,
     TaskAssignments,
     TombstoneContentRequest,
     TombstoneContentResponse,
@@ -82,7 +84,8 @@ use opentelemetry::{
 use prometheus::Encoder;
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder};
 use tokio::{
-    select, signal,
+    select,
+    signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -95,8 +98,12 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, Instrument};
 
 use crate::{
-    api::IndexifyAPIError, coordinator::Coordinator, coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
+    api::IndexifyAPIError,
+    coordinator::Coordinator,
+    coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector,
+    server_config::ServerConfig,
+    state,
     tonic_streamer::DropReceiver,
 };
 
@@ -173,7 +180,7 @@ impl CoordinatorServiceServer {
             let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
             let policy = {
                 if policy_name == root_policy_name {
-                    let policy = ExtractionPolicyBuilder::default()
+                    ExtractionPolicyBuilder::default()
                         .namespace(policy_request.namespace)
                         .name(policy_request.name)
                         .extractor(policy_request.extractor)
@@ -185,10 +192,9 @@ impl CoordinatorServiceServer {
                             ),
                         )
                         .build(&graph_id, extractor.clone())
-                        .map_err(|e| anyhow!(e))?;
-                    policy
+                        .map_err(|e| anyhow!(e))?
                 } else {
-                    let policy = ExtractionPolicyBuilder::default()
+                    ExtractionPolicyBuilder::default()
                         .namespace(policy_request.namespace)
                         .name(policy_request.name)
                         .extractor(policy_request.extractor)
@@ -200,8 +206,7 @@ impl CoordinatorServiceServer {
                             ),
                         )
                         .build(&graph_id, extractor.clone())
-                        .map_err(|e| anyhow!(e))?;
-                    policy
+                        .map_err(|e| anyhow!(e))?
                 }
             };
             // let policy = ExtractionPolicyBuilder::default()
@@ -751,7 +756,6 @@ impl CoordinatorService for CoordinatorServiceServer {
                 index.visibility = true;
                 index
             })
-            .into_iter()
             .collect();
         self.coordinator
             .set_indexes_visible(indexes)
@@ -807,9 +811,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .get_task(&req.task_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(GetTaskResponse {
-            task: Some(task.into()),
-        }))
+        Ok(Response::new(GetTaskResponse { task: Some(task) }))
     }
 
     async fn get_ingestion_info(

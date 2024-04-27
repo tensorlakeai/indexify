@@ -17,8 +17,17 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractionGraphId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName,
-    SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId,
+    ExtractionGraphId,
+    ExtractionPolicyId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -2031,7 +2040,7 @@ impl IndexifyState {
                         .map_err(|e| {
                             StateMachineError::SerializationError(format!(
                                 "get_extraction_policies from id: unable to deserialize json, {}",
-                                e.to_string()
+                                e
                             ))
                         })?;
                 policies.push(policy);

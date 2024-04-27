@@ -10,13 +10,18 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest, OidSha256, Sha256, Sha256VarCore,
+    Digest,
+    OidSha256,
+    Sha256,
+    Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
+    api::*,
+    blob_storage::StoragePartWriter,
+    data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -377,8 +382,14 @@ mod tests {
     use std::sync::Arc;
 
     use indexify_internal_api::{
-        ContentMetadata, ExtractionGraph, ExtractionPolicy, ExtractionPolicyContentSource,
-        ExtractorDescription, StructuredDataSchema, Task, TaskOutcome,
+        ContentMetadata,
+        ExtractionGraph,
+        ExtractionPolicy,
+        ExtractionPolicyContentSource,
+        ExtractorDescription,
+        StructuredDataSchema,
+        Task,
+        TaskOutcome,
     };
     use serde_json::json;
     use tokio::task::JoinHandle;
@@ -420,7 +431,7 @@ mod tests {
         content_metadata: &ContentMetadata,
         extraction_policy: ExtractionPolicy,
     ) -> Task {
-        let mut task = Task::new(task_id, &content_metadata, extraction_policy);
+        let mut task = Task::new(task_id, content_metadata, extraction_policy);
         task.output_index_table_mapping = vec![
             ("name1".to_string(), "test_index1".to_string()),
             ("name2".to_string(), "test_index2".to_string()),

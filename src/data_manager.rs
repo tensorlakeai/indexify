@@ -25,7 +25,9 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -192,7 +194,7 @@ impl DataManager {
                 let table_name = response.extractor_output_table_mapping.get(name).unwrap();
                 let _ = self
                     .vector_index_manager
-                    .create_index(&table_name, embedding_schema.clone())
+                    .create_index(table_name, embedding_schema.clone())
                     .await?;
             }
         }

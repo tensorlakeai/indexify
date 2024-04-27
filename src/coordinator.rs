@@ -9,8 +9,16 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionGraphId, ExtractionGraphName, ExtractionPolicy,
-    ExtractionPolicyId, GarbageCollectionTask, NamespaceName, OutputSchema, StateChange,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionGraphId,
+    ExtractionGraphName,
+    ExtractionPolicy,
+    ExtractionPolicyId,
+    GarbageCollectionTask,
+    NamespaceName,
+    OutputSchema,
+    StateChange,
     StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
@@ -92,7 +100,7 @@ impl Coordinator {
                     ) => {
                         let extraction_policy = self
                             .shared_state
-                            .get_extraction_policy(&extraction_policy_id)?;
+                            .get_extraction_policy(extraction_policy_id)?;
                         sources.push(extraction_policy.name);
                     }
                 }
@@ -119,7 +127,7 @@ impl Coordinator {
         }
         let extraction_graphs = self
             .shared_state
-            .get_extraction_graphs_by_name(&namespace, &extraction_graph_names)?
+            .get_extraction_graphs_by_name(namespace, extraction_graph_names)?
             .ok_or_else(|| anyhow!("could not find extraction graph for content {}", content_id))?;
         Ok(extraction_graphs.into_iter().map(|eg| eg.id).collect())
     }
@@ -272,6 +280,7 @@ impl Coordinator {
         }
         Ok(namespaces_to_return)
     }
+
     //  END CONVERSION METHODS
 
     pub async fn list_content(
@@ -1085,7 +1094,8 @@ mod tests {
             0
         );
 
-        //  Create a separate piece of content metadata which will not trigger task creation
+        //  Create a separate piece of content metadata which will not trigger task
+        // creation
         let content_metadata = indexify_coordinator::ContentMetadata {
             id: "test".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
@@ -1568,7 +1578,8 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
 
-        //  check that tasks have been created for the first level for the first extractor
+        //  check that tasks have been created for the first level for the first
+        // extractor
         let tasks = shared_state.tasks_for_executor(executor_id_1, None).await?;
         assert_eq!(tasks.len(), 1);
 
@@ -1608,7 +1619,8 @@ mod tests {
             .await?;
         coordinator.run_scheduler().await?;
 
-        //  check that tasks have been created for the second level for the second extractor
+        //  check that tasks have been created for the second level for the second
+        // extractor
         let tasks = shared_state.tasks_for_executor(executor_id_2, None).await?;
         assert_eq!(tasks.len(), 2);
 
@@ -1832,7 +1844,8 @@ mod tests {
             .create_content_metadata(vec![child_content_1_child.clone()])
             .await?;
 
-        //  Build a separate content tree where parent_content_2 is the root using the second extraction graph
+        //  Build a separate content tree where parent_content_2 is the root using the
+        // second extraction graph
         let parent_content_2 = indexify_coordinator::ContentMetadata {
             id: "test_parent_id_2".to_string(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),

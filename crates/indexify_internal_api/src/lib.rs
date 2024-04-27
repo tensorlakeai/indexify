@@ -583,7 +583,8 @@ pub struct ExtractionPolicy {
     pub input_params: serde_json::Value,
     // Extractor Output -> Table Name
     pub output_table_mapping: HashMap<String, String>,
-    // The source of the content this policy will match against. Will either be the graph id or a parent policy id
+    // The source of the content this policy will match against. Will either be the graph id or a
+    // parent policy id
     pub content_source: ExtractionPolicyContentSource,
 }
 
@@ -818,7 +819,8 @@ pub struct ContentMetadata {
     pub size_bytes: u64,
     pub tombstoned: bool,
     pub hash: String,
-    pub extraction_policy_ids: HashMap<ExtractionPolicyId, u64>, //  map of completion time for each extraction policy id
+    pub extraction_policy_ids: HashMap<ExtractionPolicyId, u64>, /*  map of completion time for
+                                                                  * each extraction policy id */
     pub extraction_graph_ids: Vec<ExtractionGraphId>,
 }
 

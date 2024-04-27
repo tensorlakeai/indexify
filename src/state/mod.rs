@@ -15,20 +15,29 @@ use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionPolicy, ExtractionPolicyId, NamespaceName,
-    StateChange, StructuredDataSchema,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicy,
+    ExtractionPolicyId,
+    NamespaceName,
+    StateChange,
+    StructuredDataSchema,
 };
 use itertools::Itertools;
 use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode, TokioRuntime,
+    BasicNode,
+    TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId, ExecutorIdRef, Response, TaskId,
+    ExecutorId,
+    ExecutorIdRef,
+    Response,
+    TaskId,
 };
 use tokio::{
     sync::{
@@ -1439,7 +1448,8 @@ mod tests {
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId, TaskId,
+                ExecutorId,
+                TaskId,
             },
             App,
         },
@@ -1639,9 +1649,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1
-                        && tasks_vec.first().unwrap().id == "task_id"
-                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1 &&
+                        tasks_vec.first().unwrap().id == "task_id" &&
+                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
