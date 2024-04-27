@@ -410,11 +410,15 @@ impl Task {
         self.outcome != TaskOutcome::Unknown
     }
 
-    pub fn new(id: &str, content_metadata: &ContentMetadata) -> Self {
+    pub fn new(
+        id: &str,
+        content_metadata: &ContentMetadata,
+        extraction_policy: ExtractionPolicy,
+    ) -> Self {
         Self {
             id: id.to_string(),
             extractor: "".to_string(),
-            extraction_policy_id: "".to_string(),
+            extraction_policy_id: extraction_policy.id.to_string(),
             output_index_table_mapping: HashMap::new(),
             namespace: content_metadata.namespace.clone(),
             content_metadata: content_metadata.clone(),
@@ -594,6 +598,7 @@ impl ExtractionPolicy {
     pub fn to_coordinator_policy(
         value: ExtractionPolicy,
         content_source: String,
+        graph_name: ExtractionGraphName,
     ) -> indexify_coordinator::ExtractionPolicy {
         let mut filters = HashMap::new();
         for filter in value.filters {
@@ -606,6 +611,7 @@ impl ExtractionPolicy {
             filters,
             input_params: value.input_params.to_string(),
             content_source,
+            graph_name,
         }
     }
 }

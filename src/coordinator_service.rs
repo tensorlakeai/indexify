@@ -332,6 +332,27 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    async fn get_extraction_policy(
+        &self,
+        request: tonic::Request<GetExtractionPolicyRequest>,
+    ) -> Result<tonic::Response<GetExtractionPolicyResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let extraction_policy = self
+            .coordinator
+            .get_extraction_policy(request.extraction_policy_id)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let policy = self
+            .coordinator
+            .internal_extraction_policy_to_external(vec![extraction_policy])
+            .map_err(|e| tonic::Status::aborted(format!("unable to convert policies: {}", e)))?;
+        let policy = policy.first().ok_or_else(|| {
+            tonic::Status::not_found("extraction policy not converted from internal to external")
+        })?;
+        Ok(tonic::Response::new(GetExtractionPolicyResponse {
+            policy: Some(policy.clone()),
+        }))
+    }
+
     async fn list_extraction_policies(
         &self,
         request: tonic::Request<ListExtractionPoliciesRequest>,

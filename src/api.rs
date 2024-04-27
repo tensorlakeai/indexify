@@ -24,6 +24,7 @@ pub struct ExtractionPolicy {
     pub filters_eq: Option<HashMap<String, String>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
+    pub graph_name: String,
 }
 
 impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
@@ -38,6 +39,21 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
                 .map(|v| v.to_string())
                 .unwrap_or("{}".to_string()),
             content_source: value.content_source.unwrap_or("ingestion".to_string()),
+            graph_name: value.graph_name,
+        }
+    }
+}
+
+impl From<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
+    fn from(value: indexify_coordinator::ExtractionPolicy) -> Self {
+        Self {
+            id: value.id,
+            extractor: value.extractor,
+            name: value.name,
+            filters_eq: Some(value.filters),
+            input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
+            content_source: Some(value.content_source),
+            graph_name: value.graph_name,
         }
     }
 }
@@ -61,6 +77,7 @@ impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
                 filters_eq: Some(policy.filters),
                 input_params: Some(serde_json::from_str(&policy.input_params)?),
                 content_source: Some(policy.content_source),
+                graph_name: policy.graph_name,
             });
         }
         Ok(Self {

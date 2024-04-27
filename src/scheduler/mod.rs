@@ -106,10 +106,6 @@ impl Scheduler {
                     let task = self
                         .create_task(&extraction_policy.id, &content, &tables)
                         .await?;
-                    println!(
-                        "created task {:#?} for policy id {}",
-                        task, extraction_policy.id
-                    );
                     tasks.push(task);
                 }
                 tasks

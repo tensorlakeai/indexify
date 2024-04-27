@@ -10,7 +10,8 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
     ContentMetadataId, ExtractionGraph, ExtractionGraphId, ExtractionGraphName, ExtractionPolicy,
-    GarbageCollectionTask, NamespaceName, OutputSchema, StateChange, StructuredDataSchema,
+    ExtractionPolicyId, GarbageCollectionTask, NamespaceName, OutputSchema, StateChange,
+    StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info};
@@ -65,10 +66,42 @@ impl Coordinator {
                     anyhow!("could not find extraction graph for content {}", content.id)
                 })?;
             let extraction_graph_names = extraction_graphs.into_iter().map(|eg| eg.name).collect();
+            let mut sources = Vec::new();
+            for source in &content.source {
+                match source {
+                    internal_api::ContentMetadataSource::ExtractionGraphId(extraction_graph_id) => {
+                        let extraction_graph = self
+                            .shared_state
+                            .get_extraction_graphs(&vec![extraction_graph_id.to_string()])?
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "could not find extraction graph with id: {}",
+                                    extraction_graph_id
+                                )
+                            })?;
+                        let extraction_graph = extraction_graph.first().ok_or_else(|| {
+                            anyhow!(
+                                "could not find extraction graph with id: {}",
+                                extraction_graph_id
+                            )
+                        })?;
+                        sources.push(extraction_graph.name.clone());
+                    }
+                    internal_api::ContentMetadataSource::ExtractionPolicyId(
+                        extraction_policy_id,
+                    ) => {
+                        let extraction_policy = self
+                            .shared_state
+                            .get_extraction_policy(&extraction_policy_id)?;
+                        sources.push(extraction_policy.name);
+                    }
+                }
+            }
             let content: indexify_coordinator::ContentMetadata =
                 internal_api::ContentMetadata::to_coordinator_metadata(
                     content,
                     extraction_graph_names,
+                    sources,
                 );
             content_meta_list.push(content.clone());
         }
@@ -95,6 +128,7 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
+        println!("transofrming {:#?}", content_list);
         let mut content_meta_list = Vec::new();
         for content in content_list {
             let extraction_graph_ids = self.get_extraction_graph_ids_from_names(
@@ -163,6 +197,24 @@ impl Coordinator {
     ) -> Result<Vec<indexify_coordinator::ExtractionPolicy>> {
         let mut policies_to_return = Vec::new();
         for policy in policy_list {
+            let graph_name = self
+                .shared_state
+                .get_extraction_graphs(&vec![policy.graph_id.clone()])?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "could not find extraction graph with id: {}",
+                        policy.graph_id
+                    )
+                })?;
+            let graph_name = &graph_name
+                .first()
+                .ok_or_else(|| {
+                    anyhow!(
+                        "could not find extraction graph with id: {}",
+                        policy.graph_id
+                    )
+                })?
+                .name;
             match policy.content_source {
                 internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
                     ref extraction_policy_id,
@@ -173,6 +225,7 @@ impl Coordinator {
                     policies_to_return.push(internal_api::ExtractionPolicy::to_coordinator_policy(
                         policy,
                         parent_policy.name,
+                        graph_name.clone(),
                     ));
                 }
                 internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
@@ -196,6 +249,7 @@ impl Coordinator {
                     policies_to_return.push(internal_api::ExtractionPolicy::to_coordinator_policy(
                         policy,
                         extraction_graph.name.clone(),
+                        graph_name.clone(),
                     ));
                 }
             }
@@ -236,6 +290,13 @@ impl Coordinator {
         list_content_filter(content, source, parent_id, labels_eq)
             .map(Ok)
             .collect::<Result<Vec<indexify_coordinator::ContentMetadata>>>()
+    }
+
+    pub fn get_extraction_policy(
+        &self,
+        id: ExtractionPolicyId,
+    ) -> Result<internal_api::ExtractionPolicy> {
+        self.shared_state.get_extraction_policy(&id)
     }
 
     pub async fn list_policies(
@@ -462,20 +523,18 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        let extraction_graph_names = self
-            .shared_state
-            .get_extraction_graphs(&task.content_metadata.extraction_graph_ids)?
-            .ok_or_else(|| anyhow!("could not find extraction graph for content {}", task.id))?
-            .into_iter()
-            .map(|eg| eg.id)
-            .collect();
-        let coordinator_metadata = internal_api::ContentMetadata::to_coordinator_metadata(
-            task.content_metadata.clone(),
-            extraction_graph_names,
-        );
+        println!("got task from state {:#?}", task);
+        let coordinator_metadata =
+            self.internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
+        let coordinator_metadata = coordinator_metadata.first().ok_or_else(|| {
+            anyhow!(format!(
+                "could not convert content metadata {}",
+                task.content_metadata.id.id
+            ))
+        })?;
         Ok(internal_api::Task::to_coordinator_task(
             task,
-            coordinator_metadata,
+            coordinator_metadata.clone(),
         ))
     }
 

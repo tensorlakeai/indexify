@@ -130,6 +130,23 @@ impl DataManager {
         namespace.try_into()
     }
 
+    pub async fn get_extraction_policy(&self, id: &str) -> Result<api::ExtractionPolicy> {
+        let req = indexify_coordinator::GetExtractionPolicyRequest {
+            extraction_policy_id: id.to_string(),
+        };
+        let resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_extraction_policy(req)
+            .await?
+            .into_inner();
+        let policy = resp
+            .policy
+            .ok_or_else(|| anyhow!("extraction policy not found"))?;
+        Ok(policy.into())
+    }
+
     pub async fn create_extraction_policy(
         &self,
         namespace: &str,

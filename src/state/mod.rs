@@ -384,6 +384,9 @@ impl App {
             )
         })?;
         println!("the content {:#?}", content_metadata);
+        if content_metadata.extraction_graph_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let extraction_graphs = self
             .get_extraction_graphs(&content_metadata.extraction_graph_ids)?
             .ok_or_else(|| anyhow!("failed to get extraction graphs for content {}", content_id))?;
