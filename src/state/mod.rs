@@ -410,7 +410,8 @@ impl App {
             {
                 continue;
             }
-            if extraction_policy.filters.iter().all(|(name, value)| {
+            if !extraction_policy.filters.iter().all(|(name, value)| {
+                let r = content_metadata.labels.get(name);
                 content_metadata
                     .labels
                     .get(name)
@@ -1421,7 +1422,11 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+        time::Duration,
+    };
 
     use indexify_internal_api::{ContentMetadata, ContentMetadataId, TaskOutcome};
 
@@ -1896,7 +1901,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_filter_extraction_policies_for_content() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
@@ -1915,21 +1920,35 @@ mod tests {
         node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
-        //  Create the extraction policy under the namespace of the content
-        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+        //  Create the extraction graph
+        let extraction_graph_id = "extraction_graph_id";
+        let extraction_policy_id = "extraction_policy_id";
+        let extraction_graph = indexify_internal_api::ExtractionGraph {
+            id: extraction_graph_id.into(),
             namespace: namespace.into(),
-            content_source:
-                indexify_internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                    "source".to_string(),
-                ),
+            extraction_policies: vec!["extraction_policy_id".into()].into_iter().collect(),
+            name: "extraction_graph_name".into(),
+        };
+        let extraction_policy = indexify_internal_api::ExtractionPolicy {
+            id: extraction_policy_id.into(),
+            namespace: namespace.into(),
+            content_source: indexify_internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
+                extraction_graph_id.to_string(),
+            ),
             extractor: extractor.name,
             filters: vec![("label1".to_string(), "value1".to_string())]
                 .into_iter()
                 .collect(),
             ..Default::default()
         };
-        node.create_extraction_policy(extraction_policy.clone(), None)
-            .await?;
+        let structured_data_schema = indexify_internal_api::StructuredDataSchema::default();
+        node.create_extraction_graph(
+            extraction_graph,
+            vec![extraction_policy],
+            structured_data_schema,
+            vec![], //  no indexes
+        )
+        .await?;
 
         //  Create some content
         let content_labels = vec![("label1".to_string(), "value1".to_string())];
@@ -1941,9 +1960,10 @@ mod tests {
             content_type: "*/*".into(),
             source: vec![
                 indexify_internal_api::ContentMetadataSource::ExtractionGraphId(
-                    "source".to_string(),
+                    extraction_graph_id.to_string(),
                 ),
             ],
+            extraction_graph_ids: vec![extraction_graph_id.to_string()],
             ..Default::default()
         };
 
@@ -1957,9 +1977,10 @@ mod tests {
             content_type: "*/*".into(),
             source: vec![
                 indexify_internal_api::ContentMetadataSource::ExtractionGraphId(
-                    "source".to_string(),
+                    extraction_graph_id.to_string(),
                 ),
             ],
+            extraction_graph_ids: vec![extraction_graph_id.to_string()],
             ..Default::default()
         };
         content_metadata_vec.push(content_metadata);
