@@ -610,24 +610,6 @@ impl ExtractionPolicy {
     }
 }
 
-// impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
-//     fn from(value: ExtractionPolicy) -> Self {
-//         let mut filters = HashMap::new();
-//         for filter in value.filters {
-//             filters.insert(filter.0, filter.1.to_string());
-//         }
-
-//         Self {
-//             id: value.id,
-//             extractor: value.extractor,
-//             name: value.name,
-//             filters,
-//             input_params: value.input_params.to_string(),
-//             content_source: value.content_source,
-//         }
-//     }
-// }
-
 impl ExtractionPolicyBuilder {
     pub fn build(
         &self,

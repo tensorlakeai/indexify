@@ -383,14 +383,20 @@ impl App {
                 content_id.to_string()
             )
         })?;
+        println!("the content {:#?}", content_metadata);
         let extraction_graphs = self
             .get_extraction_graphs(&content_metadata.extraction_graph_ids)?
             .ok_or_else(|| anyhow!("failed to get extraction graphs for content {}", content_id))?;
+        println!("the graphs {:#?}", extraction_graphs);
         let extraction_policy_ids: HashSet<ExtractionPolicyId> = extraction_graphs
             .iter()
             .flat_map(|eg| eg.extraction_policies.iter())
             .cloned()
             .collect();
+        println!(
+            "the extraction policy ids in the graph {:#?}",
+            extraction_policy_ids
+        );
         let extraction_policies = self
             .state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids)?
@@ -400,6 +406,7 @@ impl App {
                     content_id
                 )
             })?;
+        println!("the extraction policies {:#?}", extraction_policies);
         let mut matched_policies = Vec::new();
         for extraction_policy in extraction_policies {
             if !content_metadata
@@ -1421,11 +1428,7 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use indexify_internal_api::{ContentMetadata, ContentMetadataId, TaskOutcome};
 

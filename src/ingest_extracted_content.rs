@@ -173,7 +173,7 @@ impl ContentStateWriting {
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
-                    extraction_graph_names: vec![], //  EGTODO: How do i set the extraction graph here? It should be only a single extraction graph
+                    extraction_graph_names: vec![], //  EGTODO: How do i set the extraction graph here? It should be only a single extraction graph. Fetch the extraction policy using the id and take the graph_id from there and then get the graph name and set it
                 };
                 state
                     .data_manager
