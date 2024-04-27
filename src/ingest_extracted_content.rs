@@ -377,9 +377,8 @@ mod tests {
     use std::sync::Arc;
 
     use indexify_internal_api::{
-        ContentMetadata, ContentMetadataId, ContentMetadataSource, ExtractionGraph,
-        ExtractionPolicy, ExtractionPolicyContentSource, ExtractorDescription,
-        StructuredDataSchema, Task, TaskOutcome,
+        ContentMetadata, ExtractionGraph, ExtractionPolicy, ExtractionPolicyContentSource,
+        ExtractorDescription, StructuredDataSchema, Task, TaskOutcome,
     };
     use serde_json::json;
     use tokio::task::JoinHandle;
