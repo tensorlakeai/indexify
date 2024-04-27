@@ -411,7 +411,6 @@ impl App {
                 continue;
             }
             if !extraction_policy.filters.iter().all(|(name, value)| {
-                let r = content_metadata.labels.get(name);
                 content_metadata
                     .labels
                     .get(name)

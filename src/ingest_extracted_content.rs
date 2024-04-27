@@ -169,7 +169,7 @@ impl ContentStateWriting {
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
                     labels,
-                    source: self.task.extraction_policy_id.clone(),
+                    source: vec![self.task.extraction_policy_id.clone()],
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
