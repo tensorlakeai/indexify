@@ -796,7 +796,7 @@ mod tests {
     };
 
     use indexify_internal_api as internal_api;
-    use indexify_proto::indexify_coordinator::{self, StructuredDataSchema};
+    use indexify_proto::indexify_coordinator::{self};
 
     use super::Coordinator;
     use crate::{
