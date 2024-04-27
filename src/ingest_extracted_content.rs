@@ -372,7 +372,9 @@ mod tests {
 
     use std::sync::Arc;
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Task, TaskOutcome};
+    use indexify_internal_api::{
+        ContentMetadata, ContentMetadataId, ContentMetadataSource, Task, TaskOutcome,
+    };
     use serde_json::json;
     use tokio::task::JoinHandle;
 
@@ -468,7 +470,9 @@ mod tests {
                 storage_url: "test".to_string(),
                 labels: HashMap::new(),
                 size_bytes: 0,
-                source: "test".to_string(),
+                source: vec![ContentMetadataSource::ExtractionPolicyId(
+                    "test".to_string(),
+                )],
                 created_at: 0,
                 hash: "test".to_string(),
                 extraction_policy_ids: HashMap::new(),

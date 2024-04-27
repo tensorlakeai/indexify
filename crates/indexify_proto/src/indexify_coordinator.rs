@@ -503,8 +503,8 @@ pub struct ContentMetadata {
     pub created_at: i64,
     #[prost(string, tag = "8")]
     pub namespace: ::prost::alloc::string::String,
-    #[prost(string, tag = "9")]
-    pub source: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "9")]
+    pub source: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(uint64, tag = "10")]
     pub size_bytes: u64,
     #[prost(string, tag = "11")]

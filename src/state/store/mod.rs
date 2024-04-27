@@ -340,13 +340,24 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_extraction_policies_from_ids(
+    pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
     ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
         self.data
             .indexify_state
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_extraction_policies_from_names(
+        &self,
+        namespace: &str,
+        policy_names: &[String],
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
+        self.data
+            .indexify_state
+            .get_extraction_policies_by_name(&namespace.to_string(), policy_names, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -370,7 +381,7 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_content_from_ids_with_version(
+    pub fn get_content_from_ids_with_version(
         &self,
         content_ids: Vec<ContentMetadataId>,
     ) -> Result<Vec<Option<ContentMetadata>>> {
@@ -469,7 +480,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_unprocessed_state_changes()
     }
 
-    pub async fn get_content_namespace_table(
+    pub fn get_content_namespace_table(
         &self,
     ) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
         self.data.indexify_state.get_content_namespace_table()

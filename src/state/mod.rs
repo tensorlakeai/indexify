@@ -15,7 +15,8 @@ use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionPolicy, StateChange, StructuredDataSchema,
+    ContentMetadataId, ExtractionGraph, ExtractionPolicy, ExtractionPolicyId, NamespaceName,
+    StateChange, StructuredDataSchema,
 };
 use itertools::Itertools;
 use network::Network;
@@ -376,38 +377,40 @@ impl App {
         if content_metadata.tombstoned {
             return Ok(vec![]);
         }
-        let extraction_policy_ids = {
-            self.state_machine
-                .get_extraction_policies_table()
-                .await
-                .get(&content_metadata.namespace)
-                .cloned()
-                .unwrap_or_default()
-        };
+        let content_metadata = content_metadata.first().ok_or_else(|| {
+            anyhow!(
+                "content metadata with id {} not found",
+                content_id.to_string()
+            )
+        })?;
+        let extraction_graphs = self
+            .get_extraction_graphs(&content_metadata.extraction_graph_ids)?
+            .ok_or_else(|| anyhow!("failed to get extraction graphs for content {}", content_id))?;
+        let extraction_policy_ids: HashSet<ExtractionPolicyId> = extraction_graphs
+            .iter()
+            .flat_map(|eg| eg.extraction_policies.iter())
+            .cloned()
+            .collect();
         let extraction_policies = self
             .state_machine
-            .get_extraction_policies_from_ids(extraction_policy_ids)
-            .await?
-            .unwrap_or_else(Vec::new);
-
-        let mut matched_policies = Vec::new();
-        for extraction_policy in &extraction_policies {
-            //  Check whether the sources match. Make an additional check in case the
-            // content has  a source which is an extraction policy id instead of
-            // a name
-            if String::from(&extraction_policy.content_source) != content_metadata.source
-                && self.get_extraction_policy(&content_metadata.source).map_or(
-                    true,
-                    |retrieved_extraction_policy| {
-                        String::from(&extraction_policy.content_source)
-                            != retrieved_extraction_policy.name
-                    },
+            .get_extraction_policies_from_ids(extraction_policy_ids)?
+            .ok_or_else(|| {
+                anyhow!(
+                    "failed to get extraction policies for content {}",
+                    content_id
                 )
+            })?;
+        let mut matched_policies = Vec::new();
+        for extraction_policy in extraction_policies {
+            if !content_metadata
+                .source
+                .contains(&internal_api::ContentMetadataSource::from(
+                    &extraction_policy.content_source,
+                ))
             {
                 continue;
             }
-            // Check if all filters match the content metadata labels. If not, skip.
-            if !extraction_policy.filters.iter().all(|(name, value)| {
+            if extraction_policy.filters.iter().all(|(name, value)| {
                 content_metadata
                     .labels
                     .get(name)
@@ -415,7 +418,6 @@ impl App {
             }) {
                 continue;
             }
-            // check if the mimetype matches
             let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
             if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
                 info!(
@@ -425,8 +427,9 @@ impl App {
                 );
                 continue;
             }
-            matched_policies.push(extraction_policy.clone());
+            matched_policies.push(extraction_policy);
         }
+
         Ok(matched_policies)
     }
 
@@ -444,77 +447,15 @@ impl App {
     ) -> Result<Option<Vec<ExtractionPolicy>>> {
         self.state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids)
-            .await
     }
 
-    /// Returns the extractor bindings that match the content metadata
-    /// If the content metadata does not match any extractor bindings, returns
-    /// an empty list Any filtration of extractor bindings based on content
-    /// metadata should be done in this function.
-    pub async fn match_contents_for_extraction_policy(
+    pub fn get_extraction_policies_from_names(
         &self,
-        policy_id: &str,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let extraction_policy = self.get_extraction_policy(policy_id)?;
-        // get the extractor so we can check the mimetype
-        let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
-
-        let content_list = {
-            let content_list = self
-                .state_machine
-                .get_content_namespace_table()
-                .await
-                .get(&extraction_policy.namespace)
-                .cloned()
-                .unwrap_or_default();
-            let mut content_meta_list = Vec::new();
-            for content_id in content_list {
-                let content_metadata = self
-                    .state_machine
-                    .get_content_by_id_and_version(&content_id)
-                    .await?
-                    .ok_or(anyhow!("Unable to get content with id {}", content_id.id))?;
-
-                // if the content metadata mimetype does not match the extractor, skip it
-                //  if the content metadata is tombstoned, skip it
-                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
-                    continue;
-                }
-                if content_metadata.tombstoned {
-                    continue;
-                }
-                content_meta_list.push(content_metadata.clone());
-            }
-            content_meta_list
-        };
-
-        let mut matched_content_list = Vec::new();
-        for content in content_list {
-            //  Check whether the sources match. Make an additional check in case the
-            // content has a source which is an extraction policy id instead of a name
-            if content.source != String::from(&extraction_policy.content_source)
-                && self.get_extraction_policy(&content.source).map_or(
-                    true,
-                    |retrieved_extraction_policy| {
-                        String::from(&extraction_policy.content_source)
-                            != retrieved_extraction_policy.name
-                    },
-                )
-            {
-                continue;
-            }
-            let is_match = &extraction_policy.filters.iter().all(|(name, value)| {
-                content
-                    .labels
-                    .get(name)
-                    .map(|v| v == value)
-                    .unwrap_or(false)
-            });
-            if extraction_policy.filters.is_empty() || *is_match {
-                matched_content_list.push(content);
-            }
-        }
-        Ok(matched_content_list)
+        namespace: &NamespaceName,
+        policy_names: &[String],
+    ) -> Result<Option<Vec<ExtractionPolicy>>> {
+        self.state_machine
+            .get_extraction_policies_from_names(namespace, policy_names)
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
@@ -580,13 +521,11 @@ impl App {
         let content_ids = self
             .state_machine
             .get_content_namespace_table()
-            .await
             .get(namespace)
             .cloned()
             .unwrap_or_default();
         self.state_machine
-            .get_content_from_ids_with_version(content_ids.into_iter().collect_vec())
-            .await
+            .get_content_from_ids_with_version(content_ids)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -613,12 +552,11 @@ impl App {
         extraction_policy: ExtractionPolicy,
         updated_structured_data_schema: Option<StructuredDataSchema>,
     ) -> Result<()> {
-        let existing_policies = self
-            .state_machine
-            .get_extraction_policies_from_ids(HashSet::from_iter(
-                vec![extraction_policy.id.clone()].into_iter(),
-            ))
-            .await?;
+        let existing_policies =
+            self.state_machine
+                .get_extraction_policies_from_ids(HashSet::from_iter(
+                    vec![extraction_policy.id.clone()].into_iter(),
+                ))?;
 
         if let Some(policies) = existing_policies {
             if !policies.is_empty() {
@@ -796,8 +734,7 @@ impl App {
         };
         let extraction_policies = self
             .state_machine
-            .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())
-            .await?
+            .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())?
             .unwrap_or_else(Vec::new);
         Ok(extraction_policies)
     }
@@ -838,8 +775,7 @@ impl App {
             };
             let extraction_policies = self
                 .state_machine
-                .get_extraction_policies_from_ids(extraction_policy_ids)
-                .await?
+                .get_extraction_policies_from_ids(extraction_policy_ids)?
                 .unwrap_or_else(Vec::new);
 
             let namespace = internal_api::Namespace {
@@ -1796,9 +1732,7 @@ mod tests {
             .await?;
 
         //  Read the content back
-        let read_content = node
-            .list_content(&content_metadata_vec.first().unwrap().namespace)
-            .await?;
+        let read_content = node.list_content(&content_metadata_vec.first().unwrap().namespace)?;
         assert_eq!(read_content.len(), content_size);
 
         //  Read back all the pieces of content
@@ -2005,7 +1939,11 @@ mod tests {
             name: "name_1".into(),
             labels: content_labels.into_iter().collect(),
             content_type: "*/*".into(),
-            source: "source".into(),
+            source: vec![
+                indexify_internal_api::ContentMetadataSource::ExtractionGraphId(
+                    "source".to_string(),
+                ),
+            ],
             ..Default::default()
         };
 
@@ -2017,7 +1955,11 @@ mod tests {
             name: "name_2".into(),
             labels: content_labels.into_iter().collect(),
             content_type: "*/*".into(),
-            source: "source".into(),
+            source: vec![
+                indexify_internal_api::ContentMetadataSource::ExtractionGraphId(
+                    "source".to_string(),
+                ),
+            ],
             ..Default::default()
         };
         content_metadata_vec.push(content_metadata);

@@ -283,9 +283,9 @@ impl DataManager {
                     text.labels,
                     text.content_type,
                     None,
-                    "ingestion",
+                    &extraction_graph_names,
                     Some(&content_with_id.id),
-                    extraction_graph_names.clone(),
+                    &extraction_graph_names,
                 )
                 .await?;
 
@@ -339,6 +339,7 @@ impl DataManager {
         file: &str,
         mime: &str,
         labels: HashMap<String, String>,
+        extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<String> {
         if !(["https://", "http://", "s3://", "file://"]
             .iter()
@@ -360,7 +361,7 @@ impl DataManager {
             mime: mime.to_string(),
             namespace: namespace.to_string(),
             labels,
-            source: "ingestion".to_string(),
+            source: extraction_graph_names.to_vec(),
             size_bytes: 0,
             hash: "".to_string(),
             ..Default::default()
@@ -440,9 +441,9 @@ impl DataManager {
                 labels,
                 mime_type.to_string(),
                 Some(name),
-                "ingestion",
+                &extraction_graph_names,
                 original_content_id,
-                extraction_graph_names,
+                &extraction_graph_names,
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
@@ -493,9 +494,9 @@ impl DataManager {
         labels: HashMap<String, String>,
         content_type: String,
         file_name: Option<&str>,
-        source: &str,
+        source: &[String],
         original_content_id: Option<&str>,
-        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
+        extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -533,11 +534,11 @@ impl DataManager {
             mime: content_type,
             namespace: namespace.to_string(),
             labels,
-            source: source.to_string(),
+            source: source.to_vec(),
             size_bytes: res.size_bytes,
             hash: content_hash,
             extraction_policy_ids: HashMap::new(),
-            extraction_graph_names,
+            extraction_graph_names: extraction_graph_names.to_vec(),
         })
     }
 
@@ -699,6 +700,8 @@ impl DataManager {
                     .await?;
                 }
                 api::FeatureType::Metadata => {
+                    assert_eq!(content_meta.source.len(), 1); // content meta source should be singular at this point
+                    let source = content_meta.source.first().unwrap();
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_metadata.id.id,
                         &content_metadata

@@ -2006,6 +2006,90 @@ impl IndexifyState {
         Ok(schemas)
     }
 
+    /// This method tries to retrieve all policies based on id's. If it cannot
+    /// find any, it skips them. If it encounters an error at any point
+    /// during the transaction, it returns out immediately
+    pub fn get_extraction_policies_from_ids(
+        &self,
+        extraction_policy_ids: HashSet<String>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
+        let txn = db.transaction();
+
+        let mut policies = Vec::new();
+        for id in extraction_policy_ids.iter() {
+            let bytes_opt = txn
+                .get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    id.as_bytes(),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+            if let Some(bytes) = bytes_opt {
+                let policy =
+                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
+                        .map_err(|e| {
+                            StateMachineError::SerializationError(format!(
+                                "get_extraction_policies from id: unable to deserialize json, {}",
+                                e.to_string()
+                            ))
+                        })?;
+                policies.push(policy);
+            }
+            // If None, the policy is not found; we simply skip it.
+        }
+
+        if policies.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(policies))
+        }
+    }
+
+    pub fn get_extraction_policies_by_name(
+        &self,
+        namespace: &NamespaceName,
+        policy_names: &[String],
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Option<Vec<internal_api::ExtractionPolicy>>, StateMachineError> {
+        let policy_ids_in_ns = self.extraction_policies_table.get(&namespace.to_string());
+        let cf = StateMachineColumns::ExtractionPolicies.cf(db);
+        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = policy_ids_in_ns
+            .iter()
+            .map(|policy_id| (cf, policy_id.as_bytes()))
+            .collect();
+        let serialized_policies = db.multi_get_cf(keys);
+        let mut policies: Vec<internal_api::ExtractionPolicy> = Vec::new();
+        for serialized_policy in serialized_policies {
+            match serialized_policy {
+                Ok(policy) => {
+                    if policy.is_some() {
+                        let policy = JsonEncoder::decode::<internal_api::ExtractionPolicy>(
+                            &policy.unwrap(),
+                        )?;
+                        policies.push(policy);
+                    } else {
+                        return Err(StateMachineError::DatabaseError(
+                            "extraction policy not found".into(),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Err(StateMachineError::TransactionError(e.to_string()));
+                }
+            }
+        }
+        let matching_policies: Vec<internal_api::ExtractionPolicy> = policies
+            .into_iter()
+            .filter(|policy| policy_names.contains(&policy.name))
+            .collect();
+        if matching_policies.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(matching_policies))
+        }
+    }
+
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<ExtractionGraphId>,

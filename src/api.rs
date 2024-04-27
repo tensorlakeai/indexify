@@ -390,7 +390,7 @@ pub struct ContentMetadata {
     pub labels: HashMap<String, String>,
     pub storage_url: String,
     pub created_at: i64,
-    pub source: String,
+    pub source: Vec<String>,
     pub size: u64,
     pub hash: String,
 }
@@ -693,6 +693,7 @@ pub struct IngestRemoteFile {
     pub url: String,
     pub mime_type: String,
     pub labels: HashMap<String, String>,
+    pub extraction_graph_names: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

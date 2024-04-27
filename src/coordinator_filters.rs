@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use indexify_internal_api as internal_api;
+use indexify_proto::indexify_coordinator;
 
 /// filter for content metadata
 pub fn list_content_filter<'a>(
-    content: impl IntoIterator<Item = internal_api::ContentMetadata> + 'a,
+    content: impl IntoIterator<Item = indexify_coordinator::ContentMetadata> + 'a,
     source: &'a str,
     parent_id: &'a str,
     labels_eq: &'a HashMap<String, String>,
-) -> impl Iterator<Item = internal_api::ContentMetadata> + 'a {
+) -> impl Iterator<Item = indexify_coordinator::ContentMetadata> + 'a {
     let content_vec: Vec<_> = content.into_iter().collect();
     content_vec
         .into_iter()
@@ -34,8 +34,6 @@ pub fn list_content_filter<'a>(
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
-
-    use internal_api::ContentMetadataId;
 
     use super::*;
 
@@ -110,33 +108,33 @@ mod test {
         let filtered_content =
             list_content_filter(content.clone(), "", "", &no_labels_filter).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 4);
-        assert_eq!(filtered_content[0].id.id, "1");
-        assert_eq!(filtered_content[1].id.id, "2");
-        assert_eq!(filtered_content[2].id.id, "3");
-        assert_eq!(filtered_content[3].id.id, "4");
+        assert_eq!(filtered_content[0].id, "1");
+        assert_eq!(filtered_content[1].id, "2");
+        assert_eq!(filtered_content[2].id, "3");
+        assert_eq!(filtered_content[3].id, "4");
 
         // source filter
         let filtered_content =
             list_content_filter(content.clone(), "source1", "", &no_labels_filter)
                 .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
-        assert_eq!(filtered_content[0].id.id, "1");
-        assert_eq!(filtered_content[1].id.id, "3");
+        assert_eq!(filtered_content[0].id, "1");
+        assert_eq!(filtered_content[1].id, "3");
 
         // parent_id and source filter
         let filtered_content =
             list_content_filter(content.clone(), "source1", "parent2::v1", &no_labels_filter)
                 .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
-        assert_eq!(filtered_content[0].id.id, "3");
+        assert_eq!(filtered_content[0].id, "3");
 
         // parent_id filter
         let filtered_content =
             list_content_filter(content.clone(), "", "parent2::v1", &no_labels_filter)
                 .collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 2);
-        assert_eq!(filtered_content[0].id.id, "2");
-        assert_eq!(filtered_content[1].id.id, "3");
+        assert_eq!(filtered_content[0].id, "2");
+        assert_eq!(filtered_content[1].id, "3");
 
         // labels filter - empty - skips the labels filter
         let filtered_content =
@@ -152,7 +150,7 @@ mod test {
         let filtered_content =
             list_content_filter(content.clone(), "", "", &labels_eq).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
-        assert_eq!(filtered_content[0].id.id, "1");
+        assert_eq!(filtered_content[0].id, "1");
 
         // labels filter - exact match multiple labels
         let labels_eq = {
@@ -164,7 +162,7 @@ mod test {
         let filtered_content =
             list_content_filter(content.clone(), "", "", &labels_eq).collect::<Vec<_>>();
         assert_eq!(filtered_content.len(), 1);
-        assert_eq!(filtered_content[0].id.id, "3");
+        assert_eq!(filtered_content[0].id, "3");
     }
 }
 

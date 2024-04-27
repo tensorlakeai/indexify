@@ -274,10 +274,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let content_list = self
-            .coordinator
-            .internal_content_metadata_to_external(content_list)
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ListContentResponse { content_list }))
     }
 

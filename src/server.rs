@@ -673,6 +673,7 @@ async fn ingest_remote_file(
             &payload.url,
             &payload.mime_type,
             payload.labels,
+            &payload.extraction_graph_names,
         )
         .await
         .map_err(|e| {

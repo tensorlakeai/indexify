@@ -87,14 +87,6 @@ impl Scheduler {
         state_change: StateChange,
     ) -> Result<Vec<internal_api::Task>> {
         let tasks = match &state_change.change_type {
-            internal_api::ChangeType::NewExtractionPolicy => {
-                let content_list = self
-                    .shared_state
-                    .match_contents_for_extraction_policy(&state_change.object_id)
-                    .await?;
-                self.create_task_list(&state_change.object_id, content_list)
-                    .await?
-            }
             internal_api::ChangeType::NewContent => {
                 let extraction_policies = self
                     .shared_state
@@ -171,27 +163,6 @@ impl Scheduler {
             return Ok(TaskAllocationPlan(task_allocation_plan));
         }
         Ok(TaskAllocationPlan(HashMap::new()))
-    }
-
-    pub async fn create_task_list(
-        &self,
-        extraction_policy_id: &str,
-        contents: Vec<internal_api::ContentMetadata>,
-    ) -> Result<Vec<internal_api::Task>> {
-        let mut tasks = Vec::new();
-        for content in &contents {
-            let extraction_policy = self
-                .shared_state
-                .get_extraction_policy(extraction_policy_id)?;
-            let tables = self
-                .tables_for_policies(&[extraction_policy.clone()])
-                .await?;
-            let new_tasks = self
-                .create_task(extraction_policy_id, content, &tables)
-                .await?;
-            tasks.push(new_tasks);
-        }
-        Ok(tasks)
     }
 
     pub async fn create_task(
