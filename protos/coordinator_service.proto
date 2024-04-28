@@ -161,6 +161,7 @@ message Index {
     string schema = 4;
     string extraction_policy = 5;
     string extractor = 6;
+    string graph_name = 7;
 }
 
 message Embedding {

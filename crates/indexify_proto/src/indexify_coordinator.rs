@@ -137,6 +137,8 @@ pub struct Index {
     pub extraction_policy: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub extractor: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub graph_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

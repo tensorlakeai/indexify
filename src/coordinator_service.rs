@@ -188,7 +188,7 @@ impl CoordinatorServiceServer {
                                 parent_id,
                             ),
                         )
-                        .build(&graph_id, extractor.clone())
+                        .build(&graph_id, &extraction_graph.name, extractor.clone())
                         .map_err(|e| anyhow!(e))?
                 } else {
                     ExtractionPolicyBuilder::default()
@@ -202,7 +202,7 @@ impl CoordinatorServiceServer {
                                 parent_id,
                             ),
                         )
-                        .build(&graph_id, extractor.clone())
+                        .build(&graph_id, &extraction_graph.name, extractor.clone())
                         .map_err(|e| anyhow!(e))?
                 }
             };

@@ -66,7 +66,6 @@ pub type IndexId = String;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct Index {
-    // TODO FIXME: Add the Index ID
     pub id: IndexId,
     pub namespace: String,
     pub name: IndexName,
@@ -74,6 +73,7 @@ pub struct Index {
     pub schema: String,
     pub extraction_policy_name: ExtractionPolicyName,
     pub extractor_name: ExtractorName,
+    pub graph_name: ExtractionGraphName,
     pub visibility: bool,
 }
 
@@ -83,6 +83,25 @@ impl Index {
         self.namespace.hash(&mut s);
         self.name.hash(&mut s);
         format!("{:x}", s.finish())
+    }
+
+    pub fn build_name(&self, output_name: &String) -> String {
+        format!(
+            "{}.{}.{}",
+            self.graph_name,
+            self.extraction_policy_name,
+            output_name.to_string()
+        )
+    }
+
+    pub fn build_table_name(&self, output_name: &String) -> String {
+        format!(
+            "{}.{}.{}.{}",
+            self.namespace,
+            self.graph_name,
+            self.extraction_policy_name,
+            output_name.to_string()
+        )
     }
 }
 
@@ -102,6 +121,7 @@ impl From<Index> for indexify_coordinator::Index {
             extractor: value.extractor_name,
             extraction_policy: value.extraction_policy_name,
             namespace: value.namespace,
+            graph_name: value.graph_name,
         }
     }
 }
@@ -116,6 +136,7 @@ impl From<indexify_coordinator::Index> for Index {
             extractor_name: value.extractor,
             extraction_policy_name: value.extraction_policy,
             namespace: value.namespace,
+            graph_name: value.graph_name,
             visibility: false,
         };
         index.id = index.id();
@@ -621,6 +642,7 @@ impl ExtractionPolicyBuilder {
     pub fn build(
         &self,
         graph_id: &str,
+        graph_name: &str,
         extractor_description: ExtractorDescription,
     ) -> Result<ExtractionPolicy> {
         let input_params = self.input_params.clone().unwrap_or_default();
@@ -647,7 +669,8 @@ impl ExtractionPolicyBuilder {
 
         let mut output_table_mapping = HashMap::new();
         for output_name in extractor_description.outputs.keys() {
-            let index_table_name = format!("{}.{}.{}.{}", ns, graph_id, name, output_name);
+            let index_table_name = format!("{}.{}.{}.{}", ns, graph_name, name, output_name);
+            println!("the extraction policy table name {}", index_table_name);
             output_table_mapping.insert(output_name.clone(), index_table_name.clone());
         }
         Ok(ExtractionPolicy {

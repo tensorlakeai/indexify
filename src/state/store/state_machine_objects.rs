@@ -744,6 +744,7 @@ impl IndexifyState {
         index: &internal_api::Index,
         id: &String,
     ) -> Result<(), StateMachineError> {
+        println!("setting the index {:#?}", index);
         let serialized_index = JsonEncoder::encode(index)?;
         txn.put_cf(StateMachineColumns::IndexTable.cf(db), id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;

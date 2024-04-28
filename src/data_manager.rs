@@ -874,6 +874,7 @@ impl DataManager {
             namespace: namespace.to_string(),
             name: index_name.to_string(),
         };
+        println!("the index search request {:#?}", req);
         let index = self
             .coordinator_client
             .get()

@@ -384,9 +384,11 @@ impl Coordinator {
 
     pub async fn get_index(&self, namespace: &str, name: &str) -> Result<internal_api::Index> {
         let mut s = DefaultHasher::new();
+        println!("get index namespace {} name {}", namespace, name);
         namespace.hash(&mut s);
         name.hash(&mut s);
         let id = format!("{:x}", s.finish());
+        println!("the id being searched for index {:#?}", id);
         self.shared_state.get_index(&id).await
     }
 
@@ -572,16 +574,16 @@ impl Coordinator {
                         let mut index_to_create = internal_api::Index {
                             id: "".to_string(),
                             namespace: extraction_policy.namespace.clone(),
-                            name: format!("{}.{}", extraction_policy.name, output_name),
-                            table_name: format!(
-                                "{}.{}.{}",
-                                extraction_policy.namespace, extraction_policy.name, output_name
-                            ),
+                            name: "".to_string(),
+                            table_name: "".to_string(),
                             schema: serde_json::to_value(embeddings).unwrap().to_string(),
                             extraction_policy_name: extraction_policy.name.clone(),
                             extractor_name: extractor.name.clone(),
+                            graph_name: extraction_graph.name.clone(),
                             visibility: false,
                         };
+                        index_to_create.name = index_to_create.build_name(&output_name);
+                        index_to_create.table_name = index_to_create.build_table_name(&output_name);
                         index_to_create.id = index_to_create.id();
                         indexes_to_create.push(index_to_create);
                     }

@@ -1262,6 +1262,7 @@ async fn index_search(
     State(state): State<NamespaceEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
+    println!("received index search request {:#?}", query);
     let results = state
         .data_manager
         .search(
