@@ -16,7 +16,7 @@ use internal_api::{
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
     coordinator_client::CoordinatorClient,
@@ -446,7 +446,7 @@ impl Coordinator {
 
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
         for change in state_changes {
-            info!(
+            debug!(
                 "processing change event: {}, type: {}, id: {}",
                 change.id, change.change_type, change.object_id
             );
