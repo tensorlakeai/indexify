@@ -249,6 +249,28 @@ impl DataManager {
             .create_extraction_graph(req)
             .await?
             .into_inner();
+        let extractors = response.extractors;
+        for (_, extractor) in extractors.iter() {
+            for (name, output_schema) in &extractor.embedding_schemas {
+                let embedding_schema: internal_api::EmbeddingSchema =
+                    serde_json::from_str(output_schema)?;
+                let table_name = response.extractor_output_table_mapping.get(name).unwrap();
+                let _ = self
+                    .vector_index_manager
+                    .create_index(table_name, embedding_schema.clone())
+                    .await?;
+            }
+        }
+
+        let req = indexify_coordinator::UpdateIndexesStateRequest {
+            indexes: response.indexes.clone(),
+        };
+        self.coordinator_client
+            .get()
+            .await?
+            .update_indexes_state(req)
+            .await?;
+
         let index_names = response
             .indexes
             .iter()
