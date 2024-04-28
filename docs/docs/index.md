@@ -5,6 +5,7 @@
 Indexify is an open-source engine for embedding, extract structured information, and transform unstructured data(video, audio, images and documents). Indexes are always kept updated as data is ingested. LLM applications can query content by semantic search and SQL queries on embedding and structured data.
 
 [Join our Discord Community](https://discord.gg/8yQK6xRcj4){ .md-button .md-button--primary }
+[Talk To Us](https://calendly.com/diptanu/tensorlake-client-call){ .md-button .md-button--primary }
 
 ## Why Use Indexify 
 Building a product with LLMs often involves -
