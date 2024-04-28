@@ -19,9 +19,15 @@ import dspy
 from indexify import IndexifyClient
 from indexify_dspy import IndexifyRM
 
+```
+
+### Instantiate the Retreival Model
+You can create a Retreival Model to retreive from an index mantained by Indexify. Use the DSPy settings to confgiure the retreiver model.
+
+```python
 turbo = dspy.OpenAI(model="gpt-3.5-turbo")
 indexify_client = IndexifyClient()
-indexify_retriever_model = QdrantRM("index_name", indexify_client, k=3)
+indexify_retriever_model = IndexifyRM("index_name", indexify_client, k=3)
 
 dspy.settings.configure(lm=turbo, rm=indexify_retriever_model)
 ```
