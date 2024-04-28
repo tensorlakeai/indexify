@@ -84,7 +84,8 @@ use opentelemetry::{
 use prometheus::Encoder;
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder};
 use tokio::{
-    select, signal,
+    select,
+    signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -97,8 +98,12 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, Instrument};
 
 use crate::{
-    api::IndexifyAPIError, coordinator::Coordinator, coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
+    api::IndexifyAPIError,
+    coordinator::Coordinator,
+    coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector,
+    server_config::ServerConfig,
+    state,
     tonic_streamer::DropReceiver,
 };
 
