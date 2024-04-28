@@ -32,7 +32,6 @@ impl VectorDb for PgVector {
     /// we create a new table for each index.
     #[tracing::instrument]
     async fn create_index(&self, index: CreateIndexParams) -> Result<()> {
-        println!("called create_index in pg_vector");
         if let Err(err) = sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
             .execute(&self.pool)
             .await
@@ -65,7 +64,6 @@ impl VectorDb for PgVector {
 
     #[tracing::instrument]
     async fn add_embedding(&self, index: &str, chunks: Vec<VectorChunk>) -> Result<()> {
-        println!("called add_embedding in pg_vector");
         let index = PostgresIndexName::new(index);
 
         for chunk in chunks {

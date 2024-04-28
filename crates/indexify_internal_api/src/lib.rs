@@ -670,7 +670,6 @@ impl ExtractionPolicyBuilder {
         let mut output_table_mapping = HashMap::new();
         for output_name in extractor_description.outputs.keys() {
             let index_table_name = format!("{}.{}.{}.{}", ns, graph_name, name, output_name);
-            println!("the extraction policy table name {}", index_table_name);
             output_table_mapping.insert(output_name.clone(), index_table_name.clone());
         }
         Ok(ExtractionPolicy {

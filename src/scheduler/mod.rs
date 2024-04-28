@@ -88,14 +88,12 @@ impl Scheduler {
     ) -> Result<Vec<internal_api::Task>> {
         let tasks = match &state_change.change_type {
             internal_api::ChangeType::NewContent => {
-                println!("NEW CONTENT");
                 let extraction_policies = self
                     .shared_state
                     .match_extraction_policies_for_content(
                         &state_change.object_id.clone().try_into()?,
                     )
                     .await?;
-                println!("matching policies {:#?}", extraction_policies);
                 let content = self
                     .shared_state
                     .get_content_metadata_with_version(&state_change.object_id.clone().try_into()?)

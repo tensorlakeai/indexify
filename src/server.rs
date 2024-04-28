@@ -7,7 +7,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension, Json, Router,
+    Extension,
+    Json,
+    Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -16,7 +18,10 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
+    self,
+    GcTaskAcknowledgement,
+    ListStateChangesRequest,
+    ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -583,7 +588,6 @@ async fn create_extraction_graph(
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractionGraphRequest>,
 ) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
-    println!("The request {:#?}", payload);
     let indexes = state
         .data_manager
         .create_extraction_graph(payload)
@@ -880,7 +884,7 @@ async fn upload_file(
                 "extraction_graph_names parameter is required",
             )
         })?
-        .split(",")
+        .split(',')
         .map(|s| s.trim().to_string())
         .collect();
 
@@ -1273,7 +1277,6 @@ async fn index_search(
     State(state): State<NamespaceEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
-    println!("received index search request {:#?}", query);
     let results = state
         .data_manager
         .search(

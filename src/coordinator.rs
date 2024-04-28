@@ -9,8 +9,16 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionGraphId, ExtractionGraphName, ExtractionPolicy,
-    ExtractionPolicyId, GarbageCollectionTask, NamespaceName, OutputSchema, StateChange,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionGraphId,
+    ExtractionGraphName,
+    ExtractionPolicy,
+    ExtractionPolicyId,
+    GarbageCollectionTask,
+    NamespaceName,
+    OutputSchema,
+    StateChange,
     StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
@@ -384,16 +392,13 @@ impl Coordinator {
 
     pub async fn get_index(&self, namespace: &str, name: &str) -> Result<internal_api::Index> {
         let mut s = DefaultHasher::new();
-        println!("get index namespace {} name {}", namespace, name);
         namespace.hash(&mut s);
         name.hash(&mut s);
         let id = format!("{:x}", s.finish());
-        println!("the id being searched for index {:#?}", id);
         self.shared_state.get_index(&id).await
     }
 
     pub async fn update_indexes_state(&self, indexes: Vec<internal_api::Index>) -> Result<()> {
-        println!("updating indexes state {:#?}", indexes);
         self.shared_state.set_indexes(indexes).await
     }
 
@@ -479,7 +484,6 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        println!("got task from state {:#?}", task);
         let coordinator_metadata =
             self.internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
         let coordinator_metadata = coordinator_metadata.first().ok_or_else(|| {
@@ -599,7 +603,6 @@ impl Coordinator {
                 indexes_to_create.clone(),
             )
             .await?;
-        println!("The indexes created {:#?}", indexes_to_create);
         Ok(indexes_to_create)
     }
 
@@ -607,7 +610,6 @@ impl Coordinator {
         &self,
         state_change: &StateChange,
     ) -> Result<Vec<GarbageCollectionTask>> {
-        println!("creating gc tasks");
         let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
         let content_tree_metadata = self
             .shared_state
@@ -633,10 +635,6 @@ impl Coordinator {
                 .shared_state
                 .get_extraction_policies_from_ids(applied_extraction_policy_ids)
                 .await?;
-            println!(
-                "the applied extraction policies {:#?}",
-                applied_extraction_policies
-            );
             for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
                 output_tables.insert(
                     content_metadata.id.clone(),
@@ -763,9 +761,7 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
-        println!("received coordinator metadata {:#?}", content_list);
         let content_meta_list = self.external_content_metadata_to_internal(content_list)?;
-        println!("writing content metadata {:#?}", content_meta_list);
         self.shared_state
             .create_content_batch(content_meta_list)
             .await?;

@@ -679,12 +679,6 @@ impl IndexifyState {
         extraction_policies: &Vec<internal_api::ExtractionPolicy>,
         structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
-        println!("Setting the extraction graph {:#?}", extraction_graph);
-        println!("Setting the extraction policies {:#?}", extraction_policies);
-        println!(
-            "Setting the structured data schema {:#?}",
-            structured_data_schema
-        );
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
         let _ = txn
             .put_cf(
@@ -753,7 +747,6 @@ impl IndexifyState {
         index: &internal_api::Index,
         id: &String,
     ) -> Result<(), StateMachineError> {
-        println!("setting the index {:#?}", index);
         let serialized_index = JsonEncoder::encode(index)?;
         txn.put_cf(StateMachineColumns::IndexTable.cf(db), id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -1388,7 +1381,6 @@ impl IndexifyState {
                     extraction_policies,
                     structured_data_schema,
                 )?;
-                println!("Setting the indexes {:#?}", indexes);
                 for index in indexes {
                     self.set_index(db, &txn, index, &index.id)?;
                 }
