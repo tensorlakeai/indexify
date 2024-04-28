@@ -25,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -199,13 +197,13 @@ impl DataManager {
             }
         }
 
-        let req = indexify_coordinator::SetIndexesVisibleRequest {
+        let req = indexify_coordinator::UpdateIndexesStateRequest {
             indexes: response.indexes.clone(),
         };
         self.coordinator_client
             .get()
             .await?
-            .set_indexes_visible(req)
+            .update_indexes_state(req)
             .await?;
 
         let index_names = response

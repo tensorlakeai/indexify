@@ -44,7 +44,7 @@ service CoordinatorService {
 
     rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
 
-    rpc SetIndexesVisible(SetIndexesVisibleRequest) returns (SetIndexesVisibleResponse) {}
+    rpc UpdateIndexesState(UpdateIndexesStateRequest) returns (UpdateIndexesStateResponse) {}
 
     rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
 
@@ -148,11 +148,11 @@ message GetIndexResponse {
     Index index = 1;
 }
 
-message SetIndexesVisibleRequest {
+message UpdateIndexesStateRequest {
     repeated Index indexes = 1;
 }
 
-message SetIndexesVisibleResponse {}
+message UpdateIndexesStateResponse {}
 
 message Index {
     string name = 1;

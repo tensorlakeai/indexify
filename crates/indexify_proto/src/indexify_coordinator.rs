@@ -115,13 +115,13 @@ pub struct GetIndexResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetIndexesVisibleRequest {
+pub struct UpdateIndexesStateRequest {
     #[prost(message, repeated, tag = "1")]
     pub indexes: ::prost::alloc::vec::Vec<Index>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetIndexesVisibleResponse {}
+pub struct UpdateIndexesStateResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Index {
@@ -1434,11 +1434,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn set_indexes_visible(
+        pub async fn update_indexes_state(
             &mut self,
-            request: impl tonic::IntoRequest<super::SetIndexesVisibleRequest>,
+            request: impl tonic::IntoRequest<super::UpdateIndexesStateRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SetIndexesVisibleResponse>,
+            tonic::Response<super::UpdateIndexesStateResponse>,
             tonic::Status,
         > {
             self.inner
@@ -1452,14 +1452,14 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/SetIndexesVisible",
+                "/indexify_coordinator.CoordinatorService/UpdateIndexesState",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "SetIndexesVisible",
+                        "UpdateIndexesState",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1919,11 +1919,11 @@ pub mod coordinator_service_server {
             tonic::Response<super::GetIndexResponse>,
             tonic::Status,
         >;
-        async fn set_indexes_visible(
+        async fn update_indexes_state(
             &self,
-            request: tonic::Request<super::SetIndexesVisibleRequest>,
+            request: tonic::Request<super::UpdateIndexesStateRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SetIndexesVisibleResponse>,
+            tonic::Response<super::UpdateIndexesStateResponse>,
             tonic::Status,
         >;
         async fn get_extractor_coordinates(
@@ -3040,25 +3040,25 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/SetIndexesVisible" => {
+                "/indexify_coordinator.CoordinatorService/UpdateIndexesState" => {
                     #[allow(non_camel_case_types)]
-                    struct SetIndexesVisibleSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct UpdateIndexesStateSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::SetIndexesVisibleRequest>
-                    for SetIndexesVisibleSvc<T> {
-                        type Response = super::SetIndexesVisibleResponse;
+                    > tonic::server::UnaryService<super::UpdateIndexesStateRequest>
+                    for UpdateIndexesStateSvc<T> {
+                        type Response = super::UpdateIndexesStateResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::SetIndexesVisibleRequest>,
+                            request: tonic::Request<super::UpdateIndexesStateRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::set_indexes_visible(
+                                <T as CoordinatorService>::update_indexes_state(
                                         &inner,
                                         request,
                                     )
@@ -3074,7 +3074,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = SetIndexesVisibleSvc(inner);
+                        let method = UpdateIndexesStateSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

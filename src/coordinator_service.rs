@@ -84,8 +84,7 @@ use opentelemetry::{
 use prometheus::Encoder;
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder};
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -98,12 +97,8 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, Instrument};
 
 use crate::{
-    api::IndexifyAPIError,
-    coordinator::Coordinator,
-    coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector,
-    server_config::ServerConfig,
-    state,
+    api::IndexifyAPIError, coordinator::Coordinator, coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
     tonic_streamer::DropReceiver,
 };
 
@@ -209,15 +204,6 @@ impl CoordinatorServiceServer {
                         .map_err(|e| anyhow!(e))?
                 }
             };
-            // let policy = ExtractionPolicyBuilder::default()
-            //     .namespace(policy_request.namespace)
-            //     .name(policy_request.name)
-            //     .extractor(policy_request.extractor)
-            //     .filters(policy_request.filters)
-            //     .input_params(input_params)
-            //     .content_source(parent_id)
-            //     .build(&graph_id, extractor.clone())
-            //     .map_err(|e| anyhow!(e))?;
             extraction_policies.push(policy.clone());
             extractors.push(extractor.clone());
             if let Some(children) = parent_child_policy_mapping.get(&policy_name) {
@@ -743,10 +729,10 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn set_indexes_visible(
+    async fn update_indexes_state(
         &self,
-        request: Request<SetIndexesVisibleRequest>,
-    ) -> Result<Response<SetIndexesVisibleResponse>, Status> {
+        request: Request<UpdateIndexesStateRequest>,
+    ) -> Result<Response<UpdateIndexesStateResponse>, Status> {
         let indexes: Vec<internal_api::Index> = request
             .into_inner()
             .indexes
@@ -761,7 +747,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .set_indexes_visible(indexes)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(SetIndexesVisibleResponse {}))
+        Ok(Response::new(UpdateIndexesStateResponse {}))
     }
 
     async fn get_extractor_coordinates(
