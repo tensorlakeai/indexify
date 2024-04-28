@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -181,8 +176,8 @@ impl Server {
                 post(create_extraction_policy).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespace/:namespace/extraction_graphs",
-                post(create_extraction_graphs).with_state(namespace_endpoint_state.clone()),
+                "/namespaces/:namespace/extraction_graph",
+                post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/indexes",
@@ -572,22 +567,23 @@ async fn create_extraction_policy(
 
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/extraction_policies",
-    request_body = ExtractionPolicyRequest,
+    path = "/namespace/{namespace}/extraction_graph",
+    request_body = ExtractionGraphRequest,
     tag = "indexify",
     responses(
-        (status = 200, description = "Extractor policy added successfully", body = ExtractionPolicyResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction policy to namespace")
+        (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction graph to namespace")
     ),
 )]
 #[axum::debug_handler]
-async fn create_extraction_graphs(
+async fn create_extraction_graph(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
     Path(_namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractionGraphRequest>,
 ) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
+    println!("The request {:#?}", payload);
     let indexes = state
         .data_manager
         .create_extraction_graph(payload)

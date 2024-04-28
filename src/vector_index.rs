@@ -77,6 +77,10 @@ impl VectorIndexManager {
         vector_index_name: &str,
         embeddings: Vec<ExtractedEmbeddings>,
     ) -> Result<()> {
+        println!(
+            "trying to add embedding to vector index {}",
+            vector_index_name
+        );
         let _timer = Timer::start(&self.metrics.vector_upsert);
         let mut vector_chunks = Vec::new();
         embeddings.iter().for_each(|embedding| {
@@ -89,6 +93,7 @@ impl VectorIndexManager {
             );
             vector_chunks.push(vector_chunk);
         });
+        println!("calling add_embedding on vector db");
         self.vector_db
             .add_embedding(vector_index_name, vector_chunks)
             .await?;

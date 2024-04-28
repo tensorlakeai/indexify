@@ -185,7 +185,7 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
 
 impl ExtractorDescription {
     pub fn validate_input_params(&self, input_params: &serde_json::Value) -> Result<()> {
-        if self.input_params != serde_json::Value::Null {
+        if self.input_params == serde_json::Value::Null {
             return Ok(());
         }
         let input_params_schema = JSONSchema::compile(&self.input_params).map_err(|e| {

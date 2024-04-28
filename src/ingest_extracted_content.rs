@@ -10,18 +10,13 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest,
-    OidSha256,
-    Sha256,
-    Sha256VarCore,
+    Digest, OidSha256, Sha256, Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
-    blob_storage::StoragePartWriter,
-    data_manager::DataManager,
+    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -148,6 +143,7 @@ impl ContentStateWriting {
         state: &NamespaceEndpointState,
         payload: FinishContent,
     ) -> Result<String> {
+        println!("finishing content frame");
         let mut labels = self.content_metadata().labels.clone();
         let parent_id = self.content_metadata().id.clone();
         match &mut self.frame_state {
@@ -184,6 +180,11 @@ impl ContentStateWriting {
                     extraction_policy_ids: HashMap::new(),
                     extraction_graph_names: vec![extraction_policy.graph_name],
                 };
+                println!(
+                    "writing coordinator metadata after finishing content frame {:#?}",
+                    content_metadata
+                );
+                println!("with the task {:#?}", self.task);
                 state
                     .data_manager
                     .create_content_and_write_features(
@@ -331,6 +332,7 @@ impl IngestExtractedContentState {
                             }
                         }
                         IngestExtractedContent::ExtractedFeatures(payload) => {
+                            println!("received extracted features message");
                             self.write_features(payload).await
                         }
                         IngestExtractedContent::FinishExtractedContentIngest(_) => {
@@ -382,14 +384,8 @@ mod tests {
     use std::sync::Arc;
 
     use indexify_internal_api::{
-        ContentMetadata,
-        ExtractionGraph,
-        ExtractionPolicy,
-        ExtractionPolicyContentSource,
-        ExtractorDescription,
-        StructuredDataSchema,
-        Task,
-        TaskOutcome,
+        ContentMetadata, ExtractionGraph, ExtractionPolicy, ExtractionPolicyContentSource,
+        ExtractorDescription, StructuredDataSchema, Task, TaskOutcome,
     };
     use serde_json::json;
     use tokio::task::JoinHandle;

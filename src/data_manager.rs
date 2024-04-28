@@ -25,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -221,6 +219,7 @@ impl DataManager {
         req: ExtractionGraphRequest,
     ) -> Result<Vec<internal_api::IndexName>> {
         let mut extraction_policies = Vec::new();
+        println!("The serialized policies {:#?}", req.policies);
         for ep in req.policies {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
@@ -242,6 +241,7 @@ impl DataManager {
             name: req.name,
             policies: extraction_policies,
         };
+        print!("The request being sent {:#?}", req);
         let response = self
             .coordinator_client
             .get()
@@ -292,6 +292,10 @@ impl DataManager {
         content_list: Vec<api::ContentWithId>,
         extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<()> {
+        println!(
+            "Adding texts with extraction graph names {:#?}",
+            extraction_graph_names
+        );
         for content_with_id in content_list {
             let text = content_with_id.content;
             let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
@@ -590,6 +594,10 @@ impl DataManager {
         root_content_metadata: Option<internal_api::ContentMetadata>,
         content_metadata: internal_api::ContentMetadata,
     ) -> Result<()> {
+        println!(
+            "writing for name {}, content_id {}, output_index_map {:#?}",
+            name, content_id, output_index_map
+        );
         let embeddings = internal_api::ExtractedEmbeddings {
             content_id: content_id.to_string(),
             embedding: embedding.to_vec(),
@@ -644,6 +652,7 @@ impl DataManager {
         output_index_mapping: &HashMap<String, String>,
         index_tables: &[String],
     ) -> Result<()> {
+        println!("write_existing_content_features");
         let metadata_updated = features
             .iter()
             .any(|feature| matches!(feature.feature_type, api::FeatureType::Metadata));
@@ -721,6 +730,7 @@ impl DataManager {
                 api::FeatureType::Metadata => {
                     assert_eq!(content_metadata.source.len(), 1); // content meta source should be singular at this point
                     let source = content_metadata.source.first().unwrap(); //EGTODO: Check this again. Make sure source is correct
+                    println!("writing to source {}", source);
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_metadata.id.id,
                         &content_metadata
