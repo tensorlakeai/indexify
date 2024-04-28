@@ -9,8 +9,16 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionGraphId, ExtractionGraphName, ExtractionPolicy,
-    ExtractionPolicyId, GarbageCollectionTask, NamespaceName, OutputSchema, StateChange,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionGraphId,
+    ExtractionGraphName,
+    ExtractionPolicy,
+    ExtractionPolicyId,
+    GarbageCollectionTask,
+    NamespaceName,
+    OutputSchema,
+    StateChange,
     StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
