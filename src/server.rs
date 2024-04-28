@@ -7,9 +7,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
-    Json,
-    Router,
+    Extension, Json, Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -18,10 +16,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -853,7 +848,7 @@ async fn download_content(
 #[derive(Debug, serde::Deserialize)]
 struct UploadFileQueryParams {
     id: Option<String>,
-    extraction_graph_names: Option<Vec<String>>,
+    extraction_graph_names: Option<String>,
 }
 
 #[tracing::instrument]
@@ -875,6 +870,19 @@ async fn upload_file(
     mut files: Multipart,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels = HashMap::new();
+
+    let extraction_graph_names = params
+        .extraction_graph_names
+        .clone()
+        .ok_or_else(|| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                "extraction_graph_names parameter is required",
+            )
+        })?
+        .split(",")
+        .map(|s| s.trim().to_string())
+        .collect();
 
     let id = params.id.clone().unwrap_or_else(DataManager::make_id);
     if !DataManager::is_hex_string(&id) {
@@ -924,9 +932,7 @@ async fn upload_file(
                     content_mime,
                     labels,
                     Some(&id),
-                    params
-                        .extraction_graph_names
-                        .unwrap_or_else(std::vec::Vec::new),
+                    extraction_graph_names,
                 )
                 .await
                 .map_err(|e| {

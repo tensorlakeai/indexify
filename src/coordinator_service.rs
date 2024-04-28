@@ -88,8 +88,7 @@ use opentelemetry::{
 use prometheus::Encoder;
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder};
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -102,12 +101,8 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, Instrument};
 
 use crate::{
-    api::IndexifyAPIError,
-    coordinator::Coordinator,
-    coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector,
-    server_config::ServerConfig,
-    state,
+    api::IndexifyAPIError, coordinator::Coordinator, coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
     tonic_streamer::DropReceiver,
 };
 
@@ -184,37 +179,22 @@ impl CoordinatorServiceServer {
             let input_params = serde_json::from_str(&policy_request.input_params)
                 .map_err(|e| anyhow!(format!("unable to parse input_params: {}", e)))?;
             let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
-            let policy = {
+            let content_source = {
                 if policy_name == root_policy_name {
-                    ExtractionPolicyBuilder::default()
-                        .namespace(policy_request.namespace)
-                        .name(policy_request.name)
-                        .extractor(policy_request.extractor)
-                        .filters(policy_request.filters)
-                        .input_params(input_params)
-                        .content_source(
-                            internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                                parent_id,
-                            ),
-                        )
-                        .build(&graph_id, &extraction_graph.name, extractor.clone())
-                        .map_err(|e| anyhow!(e))?
+                    internal_api::ExtractionPolicyContentSource::ExtractionGraphId(parent_id)
                 } else {
-                    ExtractionPolicyBuilder::default()
-                        .namespace(policy_request.namespace)
-                        .name(policy_request.name)
-                        .extractor(policy_request.extractor)
-                        .filters(policy_request.filters)
-                        .input_params(input_params)
-                        .content_source(
-                            internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                                parent_id,
-                            ),
-                        )
-                        .build(&graph_id, &extraction_graph.name, extractor.clone())
-                        .map_err(|e| anyhow!(e))?
+                    internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(parent_id)
                 }
             };
+            let policy = ExtractionPolicyBuilder::default()
+                .namespace(policy_request.namespace)
+                .name(policy_request.name)
+                .extractor(policy_request.extractor)
+                .filters(policy_request.filters)
+                .input_params(input_params)
+                .content_source(content_source)
+                .build(&graph_id, &extraction_graph.name, extractor.clone())
+                .map_err(|e| anyhow!(e))?;
             extraction_policies.push(policy.clone());
             extractors.push(extractor.clone());
             if let Some(children) = parent_child_policy_mapping.get(&policy_name) {

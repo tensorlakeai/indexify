@@ -9,16 +9,8 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId,
-    ExtractionGraph,
-    ExtractionGraphId,
-    ExtractionGraphName,
-    ExtractionPolicy,
-    ExtractionPolicyId,
-    GarbageCollectionTask,
-    NamespaceName,
-    OutputSchema,
-    StateChange,
+    ContentMetadataId, ExtractionGraph, ExtractionGraphId, ExtractionGraphName, ExtractionPolicy,
+    ExtractionPolicyId, GarbageCollectionTask, NamespaceName, OutputSchema, StateChange,
     StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
@@ -573,9 +565,7 @@ impl Coordinator {
         let mut indexes_to_create = Vec::new();
         for extraction_policy in &extraction_policies {
             let extractor = self.get_extractor(&extraction_policy.extractor)?;
-            if extractor.input_params != serde_json::Value::Null {
-                extractor.validate_input_params(&extraction_policy.input_params)?;
-            }
+            extractor.validate_input_params(&extraction_policy.input_params)?;
             for (output_name, output_schema) in extractor.outputs {
                 match output_schema {
                     OutputSchema::Embedding(embeddings) => {
