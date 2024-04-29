@@ -690,13 +690,15 @@ impl App {
         }
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
         if mark_finished && task.outcome == internal_api::TaskOutcome::Success {
-            state_changes.push(StateChange::new(
-                task.id.clone(),
-                internal_api::ChangeType::TaskCompleted {
-                    content_id: task.content_metadata.id.clone(),
-                },
-                timestamp_secs(),
-            ));
+            if task.content_metadata.id.version > 1 {
+                state_changes.push(StateChange::new(
+                    task.id.clone(),
+                    internal_api::ChangeType::TaskCompleted {
+                        content_id: task.content_metadata.id.clone(),
+                    },
+                    timestamp_secs(),
+                ));
+            }
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
