@@ -2,6 +2,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     sync::Arc,
+    vec,
 };
 
 use anyhow::{anyhow, Ok, Result};
@@ -25,8 +26,9 @@ use crate::{
     garbage_collector::GarbageCollector,
     metrics::Timer,
     scheduler::Scheduler,
-    state::{RaftMetrics, SharedState},
+    state::{store::requests::StateChangeProcessed, RaftMetrics, SharedState},
     task_allocator::TaskAllocator,
+    utils,
 };
 
 pub struct Coordinator {
@@ -431,12 +433,12 @@ impl Coordinator {
             .tombstone_content_batch_with_version(
                 &content_metadata.namespace,
                 &[content_metadata.id.clone()],
+                vec![StateChangeProcessed {
+                    state_change_id: change.id.clone(),
+                    processed_at: utils::timestamp_secs(),
+                }],
             )
             .await?;
-        self.shared_state
-            .mark_change_events_as_processed(vec![change])
-            .await?;
-
         Ok(())
     }
 

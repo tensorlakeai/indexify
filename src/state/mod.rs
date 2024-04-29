@@ -1090,7 +1090,7 @@ impl App {
             updated_content_ids.push(id.clone());
         }
 
-        self.tombstone_content_batch_with_version(namespace, &updated_content_ids)
+        self.tombstone_content_batch_with_version(namespace, &updated_content_ids, vec![])
             .await?;
 
         Ok(())
@@ -1100,6 +1100,7 @@ impl App {
         &self,
         namespace: &str,
         content_ids: &[ContentMetadataId],
+        state_changes_processed: Vec<StateChangeProcessed>,
     ) -> Result<(), anyhow::Error> {
         let mut state_changes = vec![];
 
@@ -1138,7 +1139,7 @@ impl App {
                 content_metadata: updated_content,
             },
             new_state_changes: state_changes,
-            state_changes_processed: vec![],
+            state_changes_processed,
         };
 
         self.forwardable_raft
