@@ -47,6 +47,15 @@ client.upload_file(path="../path/to/file")
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/yolo-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500 --workers=1
     ```
 
+### How to test Yolo Extractor Locally
+Load Yolo Extractor in a notebook or terminal
+```python
+from indexify_extractor_sdk import load_extractor, Content
+extractor, config_cls = load_extractor("yolo.yolo_extractor:YoloExtractor")
+content = Content.from_file("/path/to/file.jpg")
+results =  extractor.extract(content)
+print(results)
+```
 
 ### Create an Extraction Policy
 ```

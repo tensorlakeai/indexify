@@ -65,7 +65,15 @@ On another terminal start the text chunking extractor
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9503:9503 tensorlake/chunk-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9503 --listen-port=9503
     ```
 
-
+### How to test Speech To Text Extractor Locally
+Load Speech To Text Extractor in a notebook or terminal
+```python
+from indexify_extractor_sdk import load_extractor, Content
+extractor, config_cls = load_extractor("whisper-asr.whisper_extractor:WhisperExtractor")
+content = Content.from_file("/path/to/file.mp3")
+results =  extractor.extract(content)
+print(results)
+```
 
 ### Create Extraction Policies
 Instantiate the Indexify Client 
