@@ -2,24 +2,41 @@
 
 Indexify complements DSPy by providing a robust platform for indexing large volume of multi-modal content such as PDFs, raw text, audio and video. It provides a retriever API to retrieve context for LLMs.
 
-In this example, we demonstrate how a DSPy Retrieval Model (RM) can be created, and used like any other DSPy module. We create a simple custom Retriever Model that extends DSPy's base [Retrieve class](https://dspy-docs.vercel.app/docs/deep-dive/retrieval_models_clients/custom-rm-client). 
+We provide a Indexify Retreival Module for DSPy, that works with DSPy.
 
 It will act as a wrapper that internally uses your indexify client for indexing and querying but externally leverages the modularity and design of DSPy.  
 
 
 ### Install the Indexify DSPy retriever package - 
 ```bash
-pip install indexify-dspy
+pip install indexify-dspy indexify
 ```
 
 ### Import the necessary libraries
 
 ```python
-# Import the necessary libraries
 import dspy
-
-from typing import Optional, Union
 from indexify import IndexifyClient
+from indexify_dspy import IndexifyRM
+
+```
+
+### Instantiate the Retreival Model
+You can create a Retreival Model to retreive from an index mantained by Indexify. Use the DSPy settings to confgiure the retreiver model.
+
+```python
+turbo = dspy.OpenAI(model="gpt-3.5-turbo")
+indexify_client = IndexifyClient()
+indexify_retriever_model = IndexifyRM("index_name", indexify_client, k=3)
+
+dspy.settings.configure(lm=turbo, rm=indexify_retriever_model)
+```
+
+Using the Retreival Model is very simple
+```python
+retrieve = dspy.Retrieve(k=3)
+question = "Who are the NBA Finals MVPs"
+topK_passages = retrieve(question).passages
 ```
 
 ### Create an indexify client and populate it with some documents
@@ -42,52 +59,6 @@ indexify_client.add_extraction_policy(
 
 Initialize the IndexifyRM class
 
-
-```python
-class IndexifyRM(dspy.Retrieve):
-    def __init__(
-        self,
-        indexify_client: IndexifyClient,
-        k: int = 3,
-    ):
-        """Initialize the IndexifyRM."""
-        self._indexify_client = indexify_client
-        super().__init__(k=k)
-```
-
-Define the forward logic for retrieving and formatting the results. In our example, we take in a set of string queries, the index name to query documents from, and number of results to return(optional) and perform queries with our indexify client. 
-
-```python
-    def forward(
-        self,
-        query_or_queries: Union[str, list[str]],
-        index_name: str,
-        k: Optional[int]
-    ) -> dspy.Prediction:
-
-        queries = (
-            [query_or_queries]
-            if isinstance(query_or_queries, str)
-            else query_or_queries
-        )
-        queries = [q for q in queries if q]  # Filter empty queries
-        k = k if k is not None else self.k
-
-        results = []
-        for query in queries:
-            response = self._indexify_client.search_index(
-                index_name, 
-                query, 
-                k
-            )
-            results.extend(response)
-
-        return dspy.Prediction(
-            passages=[result["text"] for result in results],
-        )
-```
-
-
 ### Using the RM class 
 ```python
 retrieve = IndexifyRM(indexify_client)
@@ -95,4 +66,19 @@ topk_passages = retrieve("Sports", "minilml6.embedding", k=2).passages
 print(topk_passages)
 ```
 
+### Setting up DSPy Module with Indexify
+
 You can use IndexifyRM like any other DSPy module or build your own wrapper for retrieval using the Indexify client following this example.  
+
+```python
+class RAG(dspy.Module):
+    def __init__(self, num_passages=2):
+        super().__init__()
+
+        self.retrieve = dspy.Retrieve(k=num_passages)
+        ...
+
+    def forward(self, question):
+        context = self.retrieve(question).passages
+        ...
+``` 

@@ -37,10 +37,6 @@ pub struct UpdateTaskRequest {
     pub outcome: i32,
     #[prost(message, repeated, tag = "4")]
     pub content_list: ::prost::alloc::vec::Vec<ContentMetadata>,
-    #[prost(string, tag = "5")]
-    pub content_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
-    pub extraction_policy_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
