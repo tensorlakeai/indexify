@@ -616,6 +616,7 @@ pub struct SqlQueryResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IngestRemoteFile {
+    pub id: Option<String>,
     pub url: String,
     pub mime_type: String,
     pub labels: HashMap<String, String>,

@@ -318,6 +318,7 @@ impl DataManager {
     pub async fn ingest_remote_file(
         &self,
         namespace: &str,
+        id: Option<String>,
         file: &str,
         mime: &str,
         labels: HashMap<String, String>,
@@ -332,7 +333,7 @@ impl DataManager {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
-        let id = nanoid!(16);
+        let id = id.unwrap_or(nanoid!(16));
         let content_metadata = indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name: file.to_string(),
