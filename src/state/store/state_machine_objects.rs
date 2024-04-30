@@ -961,23 +961,22 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
-    ) -> Result<internal_api::ExecutorMetadata, StateMachineError> {
+    ) -> Result<Option<internal_api::ExecutorMetadata>, StateMachineError> {
         //  Get a handle on the executor before deleting it from the DB
         let executors_cf = StateMachineColumns::Executors.cf(db);
-        let serialized_executor = txn
-            .get_cf(executors_cf, executor_id)
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
-            })?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!("Executor {} not found", executor_id))
-            })?;
-        let executor_meta =
-            JsonEncoder::decode::<internal_api::ExecutorMetadata>(&serialized_executor)?;
-        txn.delete_cf(executors_cf, executor_id).map_err(|e| {
-            StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
-        })?;
-        Ok(executor_meta)
+        match txn.get_cf(executors_cf, executor_id).map_err(|e| {
+            StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
+        })? {
+            Some(executor) => {
+                let executor_meta =
+                    JsonEncoder::decode::<internal_api::ExecutorMetadata>(&executor)?;
+                txn.delete_cf(executors_cf, executor_id).map_err(|e| {
+                    StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
+                })?;
+                Ok(Some(executor_meta))
+            }
+            None => Ok(None),
+        }
     }
 
     fn set_extractor(
@@ -1252,8 +1251,10 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
                 //  Remove the the extractor from the executor -> extractor mapping table
-                self.extractor_executors_table
-                    .remove(&executor_meta.extractor.name, &executor_meta.id);
+                if let Some(executor_meta) = executor_meta {
+                    self.extractor_executors_table
+                        .remove(&executor_meta.extractor.name, &executor_meta.id);
+                }
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
