@@ -18,7 +18,7 @@ Indexify keeps vectordbs, structured databases(postgres) updated by automaticall
 * **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
 * Create **Extraction Graph** to describe **data transformation** and extraction of **embedding** and **structured extraction**.
 * **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
-* **Extractor SDK** allows adding new extraction capabilities, and many readily avaialble extractors for **PDF**, **Image** and **Video** indexing and extraction.
+* **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
 * Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
 * Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
 * Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
