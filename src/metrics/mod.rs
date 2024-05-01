@@ -602,16 +602,10 @@ pub mod coordinator {
                 .with_callback({
                     let app = app.clone();
                     move |observer| {
-                        let counts = &app
-                            .data
-                            .indexify_state
-                            .metrics
-                            .lock()
-                            .unwrap()
-                            .tasks_per_executor;
+                        let counts = app.data.indexify_state.executor_running_task_count.inner();
                         for (executor_id, count) in counts.iter() {
                             observer.observe(
-                                *count,
+                                (*count).try_into().unwrap(),
                                 &[KeyValue::new("executor_id", executor_id.to_string())],
                             );
                         }
