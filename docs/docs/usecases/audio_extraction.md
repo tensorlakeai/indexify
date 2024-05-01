@@ -19,7 +19,7 @@ On another terminal start the embedding extractor which we will use to index tex
 
     ```bash
     indexify-extractor download hub://embedding/minilm-l6
-    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    indexify-extractor join-server
     ```
   
 === "Docker"
@@ -44,7 +44,7 @@ On another terminal start a Whisper based Speech To Text Extractor
 
     ```bash
     indexify-extractor download hub://audio/whisper-asr
-    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor 
+    indexify-extractor join-server
     ```
 === "Docker"
 
@@ -57,7 +57,7 @@ On another terminal start the text chunking extractor
 
     ```bash
     indexify-extractor download hub://text/chunking
-    indexify-extractor join-server chunking.chunk_extractor:ChunkExtractor
+    indexify-extractor join-server
     ```
 === "Docker"
 

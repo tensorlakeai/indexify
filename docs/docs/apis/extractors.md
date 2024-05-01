@@ -32,7 +32,7 @@ If you want to pass in the contents of a file into the payload use `--file </pat
 ### Running the extractor to continuously extract ingested content
 You can run the extractor as a long running process to continuosly receive stream of content and extract them from the Indexify control plane. You can run as many instances of the extractors you want and achieve scalability.
 ```shell
-indexify-extractor join-server <extractor_module:ClassNameofExtractor> --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
+indexify-extractor join-server --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
 ```
 The addresses here can be found from Indexify server's configuration.
 

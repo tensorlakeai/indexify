@@ -38,7 +38,7 @@ client.upload_file(path="../path/to/file")
 
     ```shell
     indexify-extractor download hub://image/yolo
-    indexify-extractor join-server yolo.yolo_extractor:YoloExtractor
+    indexify-extractor join-server
     ```
 
 === "Docker"
@@ -82,7 +82,7 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
 
     ```bash
     indexify-extractor download hub://embedding/clip_embedding
-    indexify-extractor join-server clip_embedding.openai_clip_extractor:ClipEmbeddingExtractor
+    indexify-extractor join-server
     ```
 === "Docker"
 

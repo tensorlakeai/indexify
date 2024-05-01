@@ -100,7 +100,7 @@ Once the extractor SDK and extractors are downloaded, start and join them to the
 === "Shell"
 
     ```shell
-    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    indexify-extractor join-server
     ```
 
 === "Docker"

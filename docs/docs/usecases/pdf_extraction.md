@@ -22,7 +22,7 @@ packaged as an extractor. You can try out all the various extractors and see whi
 Download a PDF Extractor
 ```bash
 indexify-extractor download hub://pdf/pdf-extractor
-indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
+indexify-extractor join-server
 ```
 
 Load it in a notebook or terminal
@@ -47,7 +47,7 @@ curl https://tensorlake.ai | sh
 Start a long running PDF Extractor 
 ```bash
 indexify-extractor download hub://pdf/pdf-extractor
-indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
+indexify-extractor join-server
 ```
 
 ```python

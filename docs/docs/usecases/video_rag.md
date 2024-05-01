@@ -38,7 +38,7 @@ Start the audio extractor
 === "Shell"
 
     ```bash
-    indexify-extractor join-server audio-extractor.audio_extractor:AudioExtractor
+    indexify-extractor join-server
     ```
 === "Docker"
 
@@ -50,7 +50,7 @@ Start the minilm embedding extractor
 === "Shell"
 
     ```shell
-    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    indexify-extractor join-server
     ```
 === "Docker"
 
@@ -62,7 +62,7 @@ Start the whisper extractor
 === "Shell"
 
     ```bash
-    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor 
+    indexify-extractor join-server 
     ```
 === "Docker"
 
@@ -74,7 +74,7 @@ Start the chunk extractor
 === "Shell"
 
     ```bash
-    indexify-extractor join-server chunking.chunk_extractor:ChunkExtractor
+    indexify-extractor join-server
     ```
 === "Docker"
 
