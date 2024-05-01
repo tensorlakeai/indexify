@@ -16,7 +16,7 @@ impl JsonEncode for JsonEncoder {
         serde_json::to_vec(value).map_err(|e| {
             StateMachineError::SerializationError(format!(
                 "error serializing into json: {}, type: {}, value: {:?}",
-                e.to_string(),
+                e,
                 type_name::<T>(),
                 value
             ))
@@ -27,7 +27,7 @@ impl JsonEncode for JsonEncoder {
         serde_json::from_slice(bytes).map_err(|e| {
             StateMachineError::SerializationError(format!(
                 "error deserializing from json bytes, {}, value: {:?}",
-                e.to_string(),
+                e,
                 type_name::<T>()
             ))
         })

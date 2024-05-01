@@ -529,6 +529,9 @@ pub struct Metrics {
     /// Number of tasks total
     pub tasks_completed: u64,
 
+    /// Tasks per executor
+    pub tasks_per_executor: HashMap<String, u64>,
+
     /// Number of tasks completed with errors
     pub tasks_completed_with_errors: u64,
 
@@ -552,6 +555,19 @@ impl Metrics {
             TaskOutcome::Failed => self.tasks_completed_with_errors += 1,
             _ => (),
         }
+    }
+
+    fn add_task_for_executor(&mut self, executor_id: String) {
+        self.tasks_per_executor
+            .entry(executor_id)
+            .and_modify(|e| *e += 1)
+            .or_insert(1);
+    }
+
+    fn remove_task_for_executor(&mut self, executor_id: String) {
+        self.tasks_per_executor
+            .entry(executor_id)
+            .and_modify(|e| *e -= 1);
     }
 }
 
@@ -1369,6 +1385,9 @@ impl IndexifyState {
 
                     self.executor_running_task_count
                         .increment_running_task_count(&executor_id);
+
+                    let mut guard = self.metrics.lock().unwrap();
+                    guard.add_task_for_executor(executor_id);
                 }
                 Ok(())
             }
@@ -1455,15 +1474,19 @@ impl IndexifyState {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
-                    if let Some(executor_id) = executor_id {
+                    if let Some(ref executor_id) = executor_id {
                         self.executor_running_task_count
-                            .decrement_running_task_count(&executor_id);
+                            .decrement_running_task_count(executor_id);
                     }
                     let content_id = task.content_metadata.id;
                     self.pending_tasks_for_content.remove(
                         &content_id,
                         &task.extraction_policy_id,
                         &task.id,
+                    );
+                    let mut guard = self.metrics.lock().unwrap();
+                    guard.remove_task_for_executor(
+                        executor_id.expect("Task should have an executor id"),
                     );
                 }
                 for content in content_metadata {
@@ -1835,7 +1858,7 @@ impl IndexifyState {
                         .map_err(|e| {
                             StateMachineError::SerializationError(format!(
                                 "get_extraction_policies from id: unable to deserialize json, {}",
-                                e.to_string()
+                                e
                             ))
                         })?;
                 policies.push(policy);
