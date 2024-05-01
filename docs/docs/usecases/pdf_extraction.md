@@ -14,8 +14,10 @@ packaged as an extractor. You can try out all the various extractors and see whi
 
 
 ## Extractors
-* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - A combined PDF extractor which can extract text, image and tables. This combines many different models in a single package to make it easier to work with PDFs. We recommend starting here.
-* [**tensorlake/ocrmypdf**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf) - Uses the ocrmypdf library which uses tessarect under the hood to extract text from PDFs.
+* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - Extract text, images and tables as strings, bytes and json respectively using this extractor.
+* [**tensorlake/ocrmypdf**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf) - Extract text content from image based pdf files using this ocrmypdf based extractor.
+* [**tensorlake/unstructuredio**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/unstructuredio) - This extractor uses unstructured.io to extract pieces of pdf document into separate plain text content data.
+* [**tensorlake/layoutlm-document-qa-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/layoutlm_document_qa) - This is a fine-tuned version of the multi-modal [LayoutLM](https://aka.ms/layoutlm) model for the task of question answering on documents. It has been fine-tuned using both the SQuAD2.0 and [DocVQA](https://www.docvqa.org/) datasets.
 * [**tensorlake/easyocr**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrpdf-gpu) - Uses EasyOCR to extract text from PDFs.
 
 ## How to Test PDF Extraction Locally
