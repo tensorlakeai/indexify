@@ -39,6 +39,7 @@ impl ExtractorRouter {
                 features: vec![],
                 labels: HashMap::new(),
             },
+            extractor_name: extractor_name.to_string(),
             input_params,
         };
 
