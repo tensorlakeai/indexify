@@ -135,6 +135,7 @@ impl VectorIndexManager {
             labels: HashMap::new(),
         };
         info!("Extracting searching from index {:?}", index);
+        // TODO: Add metrics to measure latency of embedding extraction from query
         let feature = self
             .extractor_router
             .extract_content(&index.extractor, content, None)
@@ -149,6 +150,7 @@ impl VectorIndexManager {
             .collect::<Result<Vec<Filter>>>()?;
         let embedding: internal_api::Embedding =
             serde_json::from_value(feature.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
+        // TODO: Add metrics to measure latency of search
         let search_result = self
             .vector_db
             .search(index.table_name, embedding.values, k as u64, filters)
@@ -160,6 +162,7 @@ impl VectorIndexManager {
         let req = indexify_coordinator::GetContentMetadataRequest {
             content_list: content_ids.clone(),
         };
+        // TODO: Add metrics to measure latency of getting content metadata
         let content_metadata_list = self
             .coordinator_client
             .get()
@@ -195,7 +198,7 @@ impl VectorIndexManager {
             })?;
             content_byte_map.insert(id.clone(), bytes);
         }
-
+        // TODO: Add metrics to measure latency of reading content bytes from S3
         let mut index_search_results = Vec::new();
         for result in search_result {
             let content = content_byte_map.get(result.content_id.as_str());

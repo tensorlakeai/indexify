@@ -638,7 +638,13 @@ async fn ingest_remote_file(
 ) -> Result<Json<IngestRemoteFileResponse>, IndexifyAPIError> {
     let content_id = state
         .data_manager
-        .ingest_remote_file(&namespace, &payload.url, &payload.mime_type, payload.labels)
+        .ingest_remote_file(
+            &namespace,
+            payload.id,
+            &payload.url,
+            &payload.mime_type,
+            payload.labels,
+        )
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
