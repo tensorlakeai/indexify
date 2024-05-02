@@ -7,6 +7,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    task::{Context, Poll},
 };
 
 use anyhow::{anyhow, Result};
@@ -69,6 +70,7 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
+use opentelemetry::{global, propagation::Extractor};
 use prometheus::Encoder;
 use tokio::{
     select,
@@ -80,8 +82,9 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-use tonic::{Request, Response, Status, Streaming};
-use tracing::{error, info};
+use tonic::{body::BoxBody, Request, Response, Status, Streaming};
+use tower::{Layer, Service, ServiceBuilder};
+use tracing::{error, info, Instrument};
 
 use crate::{
     api::IndexifyAPIError,
@@ -101,6 +104,18 @@ type GCTasksResponseStream =
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
     shutdown_rx: Receiver<()>,
+}
+
+struct MetadataMap<'a>(&'a reqwest::header::HeaderMap);
+
+impl<'a> Extractor for MetadataMap<'a> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|metadata| metadata.to_str().ok())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|key| key.as_str()).collect::<Vec<_>>()
+    }
 }
 
 #[tonic::async_trait]
@@ -851,6 +866,66 @@ async fn metrics_handler(
     )))
 }
 
+#[derive(Debug, Clone, Default)]
+struct TraceLayer;
+
+impl<S> Layer<S> for TraceLayer {
+    type Service = TraceWrapper<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        TraceWrapper { inner: service }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TraceWrapper<S> {
+    inner: S,
+}
+
+type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+impl<S, ReqBody> Service<tonic::codegen::http::request::Request<ReqBody>> for TraceWrapper<S>
+where
+    S: Service<
+            tonic::codegen::http::request::Request<ReqBody>,
+            Response = tonic::codegen::http::response::Response<BoxBody>,
+        > + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+    ReqBody: Send + 'static,
+{
+    type Error = S::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+    type Response = S::Response;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: tonic::codegen::http::request::Request<ReqBody>) -> Self::Future {
+        let mut inner = self.inner.clone();
+
+        let remote_ctx =
+            global::get_text_map_propagator(|prop| prop.extract(&MetadataMap(req.headers())));
+
+        let uri = req.uri();
+        let span = tracing::span!(tracing::Level::TRACE, "grpc", uri=%uri);
+        span.set_parent(remote_ctx);
+
+        let future = async move {
+            let response = inner.call(req).await?;
+
+            Ok(response)
+        }
+        .instrument(span);
+
+        Box::pin(future)
+    }
+}
+
 fn start_server(app: &CoordinatorServer) -> Result<JoinHandle<Result<()>>> {
     let server = axum::Router::new()
         .route("/metrics", get(metrics_handler))
@@ -932,6 +1007,10 @@ impl CoordinatorServer {
             .await;
         });
 
+        let layer = ServiceBuilder::new()
+            .layer(TraceLayer::default())
+            .into_inner();
+
         if let Some(tls_config) = self.config.coordinator_tls.as_ref() {
             if tls_config.api {
                 tracing::info!("starting coordinator grpc server with TLS enabled");
@@ -949,6 +1028,7 @@ impl CoordinatorServer {
 
                 tonic::transport::Server::builder()
                     .tls_config(tonic_tls_config)?
+                    .layer(layer)
                     .add_service(srvr)
                     .serve_with_shutdown(self.addr, async move {
                         let _ = shutdown_signal(shutdown_tx).await;
@@ -972,6 +1052,7 @@ impl CoordinatorServer {
 
         tracing::info!("starting coordinator grpc server with TLS disabled");
         tonic::transport::Server::builder()
+            .layer(layer)
             .add_service(srvr)
             .serve_with_shutdown(self.addr, async move {
                 let _ = shutdown_signal(shutdown_tx).await;

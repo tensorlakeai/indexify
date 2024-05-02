@@ -1,26 +1,59 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use axum::{http::StatusCode, Json};
 use indexify_internal_api::StructuredDataSchema;
-use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_client::CoordinatorServiceClient,
-};
+use indexify_proto::indexify_coordinator::{self, coordinator_service_client};
 use itertools::Itertools;
+use opentelemetry::propagation::{Injector, TextMapPropagator};
 use tokio::sync::Mutex;
-use tonic::transport::{Channel, ClientTlsConfig};
+use tonic::{
+    service::Interceptor,
+    transport::{Channel, ClientTlsConfig},
+    Request,
+    Status,
+};
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
     api::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments},
     server_config::ServerConfig,
 };
 
+#[derive(Debug, Clone)]
+pub struct OpenTelemetryInjector;
+
+struct MetadataMap<'a>(&'a mut tonic::metadata::MetadataMap);
+
+impl Interceptor for OpenTelemetryInjector {
+    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
+        let propagator = opentelemetry_sdk::propagation::TraceContextPropagator::new();
+        let ctx = Span::current().context();
+        propagator.inject_context(&ctx, &mut MetadataMap(request.metadata_mut()));
+        Ok(request)
+    }
+}
+
+impl<'a> Injector for MetadataMap<'a> {
+    fn set(&mut self, key: &str, value: String) {
+        if let Ok(key) = tonic::metadata::MetadataKey::from_bytes(key.as_bytes()) {
+            if let Ok(val) = tonic::metadata::MetadataValue::try_from(&value) {
+                self.0.insert(key, val);
+            }
+        }
+    }
+}
+
+pub type CoordinatorServiceClient = coordinator_service_client::CoordinatorServiceClient<
+    tonic::service::interceptor::InterceptedService<Channel, OpenTelemetryInjector>,
+>;
+
 #[derive(Debug)]
 pub struct CoordinatorClient {
     config: Arc<ServerConfig>,
     addr: String,
-    clients: Arc<Mutex<HashMap<String, CoordinatorServiceClient<Channel>>>>,
+    clients: Arc<Mutex<HashMap<String, CoordinatorServiceClient>>>,
 }
 
 impl CoordinatorClient {
@@ -32,7 +65,7 @@ impl CoordinatorClient {
         }
     }
 
-    pub async fn get_coordinator(&self, addr: &str) -> Result<CoordinatorServiceClient<Channel>> {
+    pub async fn get_coordinator(&self, addr: &str) -> Result<CoordinatorServiceClient> {
         let mut clients = self.clients.lock().await;
         if let Some(client) = clients.get(addr) {
             return Ok(client.clone());
@@ -40,15 +73,17 @@ impl CoordinatorClient {
 
         tracing::info!("connecting to coordinator at {}", addr);
 
-        let client = CoordinatorServiceClient::connect(format!("http://{}", addr))
-            .await
-            .map_err(|e| anyhow!("unable to connect to coordinator: {} at addr {}", e, addr))?;
+        let channel = Channel::from_shared(addr.to_string())?.connect().await?;
+        let client = coordinator_service_client::CoordinatorServiceClient::with_interceptor(
+            channel,
+            OpenTelemetryInjector,
+        );
         clients.insert(addr.to_string(), client.clone());
         Ok(client)
     }
 
-    async fn create_tls_channel(&self) -> Result<CoordinatorServiceClient<Channel>> {
-        if let Some(tls_config) = self.config.coordinator_client_tls.as_ref() {
+    async fn create_tls_channel(&self) -> Result<CoordinatorServiceClient> {
+        let channel = if let Some(tls_config) = self.config.coordinator_client_tls.as_ref() {
             if tls_config.api {
                 tracing::info!("connecting via mTLS to coordinator service");
                 let cert = std::fs::read(tls_config.cert_file.clone())?;
@@ -63,25 +98,24 @@ impl CoordinatorClient {
                     .ca_certificate(tonic::transport::Certificate::from_pem(&ca_cert_contents))
                     .identity(tonic::transport::Identity::from_pem(&cert, &key))
                     .domain_name("localhost");
-                let endpoint = format!("https://{}", &self.addr);
-                let channel = Channel::from_shared(endpoint)?
-                    .tls_config(tls_config)?
-                    .connect()
-                    .await?;
-                return Ok(CoordinatorServiceClient::new(channel));
+                Channel::from_shared(format!("https://{}", &self.addr))?.tls_config(tls_config)?
             } else {
                 tracing::info!("connecting without TLS to coordinator service");
-                let client =
-                    CoordinatorServiceClient::connect(format!("http://{}", &self.addr)).await?;
-                return Ok(client);
+                Channel::from_shared(format!("http://{}", &self.addr))?
             }
-        }
-        tracing::info!("connecting without TLS to coordinator service");
-        let client = CoordinatorServiceClient::connect(format!("http://{}", &self.addr)).await?;
+        } else {
+            tracing::info!("connecting without TLS to coordinator service");
+            Channel::from_shared(format!("http://{}", &self.addr))?
+        };
+        let channel = channel.connect().await?;
+        let client = coordinator_service_client::CoordinatorServiceClient::with_interceptor(
+            channel,
+            OpenTelemetryInjector,
+        );
         Ok(client)
     }
 
-    pub async fn get(&self) -> Result<CoordinatorServiceClient<Channel>> {
+    pub async fn get(&self) -> Result<CoordinatorServiceClient> {
         let mut clients = self.clients.lock().await;
         if let Some(client) = clients.get(&self.addr) {
             return Ok(client.clone());

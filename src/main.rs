@@ -1,11 +1,17 @@
+use anyhow::{anyhow, Result};
 use clap::Parser;
+use opentelemetry::{global, trace::TracerProvider, KeyValue};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{
+    propagation::TraceContextPropagator,
+    runtime,
+    runtime::Tokio,
+    trace::{BatchConfig, RandomIdGenerator},
+    Resource,
+};
 use rustls::crypto::CryptoProvider;
 use tracing_core::{Level, LevelFilter};
-use tracing_subscriber::{
-    prelude::__tracing_subscriber_SubscriberExt,
-    util::SubscriberInitExt,
-    Layer,
-};
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Layer};
 
 pub mod coordinator_filters;
 pub mod coordinator_service;
@@ -41,17 +47,93 @@ mod vectordbs;
 #[cfg(test)]
 mod test_utils;
 
+fn setup_stdout_tracing() -> Result<()> {
+    global::set_text_map_propagator(TraceContextPropagator::new());
+    let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+        .with_batch_exporter(
+            opentelemetry_stdout::SpanExporterBuilder::default()
+                .with_encoder(|writer, data| {
+                    serde_json::to_writer_pretty(writer, &data).unwrap();
+                    Ok(())
+                })
+                .build(),
+            Tokio,
+        )
+        .build();
+    let tracer = provider.tracer("indexify");
+    global::set_tracer_provider(provider);
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_opentelemetry::layer().with_tracer(tracer));
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        Err(anyhow!("failed to set global default subscriber: {}", e))
+    } else {
+        Ok(())
+    }
+}
+
+fn setup_otlp_tracing() -> Result<()> {
+    let endpoint = match std::env::var("INDEXIFY_TRACE_ENDPOINT") {
+        Ok(s) => s,
+        Err(_) => return Err(anyhow!("trace endpoint not configured")),
+    };
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_trace_config(
+            opentelemetry_sdk::trace::Config::default()
+                .with_id_generator(RandomIdGenerator::default())
+                .with_resource(Resource::new(vec![KeyValue::new(
+                    "service.name",
+                    "indexify",
+                )])),
+        )
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .http()
+                .with_timeout(std::time::Duration::from_secs(10))
+                .with_endpoint(endpoint),
+        )
+        .with_batch_config(BatchConfig::default())
+        .install_batch(runtime::Tokio)?;
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_opentelemetry::layer().with_tracer(tracer));
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        Err(anyhow!("failed to set global default subscriber: {}", e))
+    } else {
+        Ok(())
+    }
+}
+
+fn setup_tracing(trace_type: &str) -> Result<()> {
+    match trace_type {
+        "stdout" => setup_stdout_tracing(),
+        "otlp" => setup_otlp_tracing(),
+        _ => Err(anyhow!("invalid trace type")),
+    }
+}
+
+fn setup_fmt_tracing() {
+    let subscriber = tracing_subscriber::Registry::default().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_filter(LevelFilter::from_level(Level::INFO)),
+    );
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        eprintln!("failed to set global default subscriber: {}", e);
+    }
+}
+
 struct OtelGuard;
 
 impl OtelGuard {
     fn new() -> Self {
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_writer(std::io::stderr)
-                    .with_filter(LevelFilter::from_level(Level::INFO)),
-            )
-            .init();
+        if let Ok(trace_type) = std::env::var("INDEXIFY_TRACE") {
+            if let Err(e) = setup_tracing(&trace_type) {
+                eprintln!("failed to setup tracing with type {}: {}", trace_type, e);
+                setup_fmt_tracing();
+            }
+        } else {
+            setup_fmt_tracing();
+        }
 
         OtelGuard
     }
