@@ -71,37 +71,19 @@ extracted_content = client.get_extracted_content(content_id=content_id)
 print(extracted_content)
 ```
 
-## Data Model of tensorlake/pdf-extractor
-### Text
-Extracts text from PDFs as `Content` with text in the `data` attribute and the mime type is set to `text/plain`. 
+## Explore various PDF Extractors
+| Extractors                                | Input Type | Output Type        | Output Example                                                                                                                                                               | Best For                        | Example Usage                                                                                                                                                                                                                                      |
+|-------------------------------------------|------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| tensorlake/layoutlm-document-qa-extractor | query, pdf | metadata           | [Feature(feature_type='metadata', name='metadata', value={'query': 'What is the invoice total?', 'answer': '$93.00', 'page': 0, 'score': 0.9743825197219849}, comment=None)] | Invoices Question Answering     | [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)                                                                                                                                                                        |
+| tensorlake/pdf-extractor                  | pdf        | text, image, table | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})] | Scientific Papers, Tabular Info | [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb), [Multi-state Terms Documents](../examples/Sixt.ipynb), [Scientific Journals](../examples/Scientific_Journals.ipynb), [SEC 10-K docs](../examples/SEC_10_K_docs.ipynb) |
+| tensorlake/ocrmypdf                       | pdf        | text               | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', value={'page': 1}, comment=None)], labels={})]              | Photocopied/Scanned PDFs        |                                                                                                                                                                                                                                                    |
+| tensorlake/ocrpdf-gpu                     | pdf        | text               | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})] | Photocopied/Scanned PDFs on GPU |                                                                                                                                                                                                                                                    |
+| tensorlake/unstructuredio                 | pdf, image | text               |                                                                                                                                                                              |                                 |                                                                                                                                                                                                                                                    |
 
-### Image 
-Extracts images from PDFs as `Content` with bytes in the `data` attribute and the mime type is set to `image/png`. 
-
-### Tables
-Tables are extracted as JSON 
-
-### Metadata
-Every `Content` will have `page_number` as a metadata. 
-
-
-
-## Examples 
-
-### Schema based HOA Documents
-[Notebook for Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
-
-### Multi-state Terms Documents
-[Notebook for Multi-state Terms Documents](../examples/Sixt.ipynb)
+## Other Examples 
 
 ### Invoices
 [Notebook for Invoices](../examples/Invoices.ipynb)
-
-### Scientific Journals
-[Notebook for Scientific Journals](../examples/Scientific_Journals.ipynb)
-
-### SEC 10-K docs
-[Notebook for SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
 
 ### Terms and Condition Documents of Car Rental
 [Notebook for Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb)
