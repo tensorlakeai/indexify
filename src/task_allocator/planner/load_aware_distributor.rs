@@ -176,7 +176,7 @@ impl LoadAwareDistributor {
                     let running_task_count = executor_running_task_count
                         .get(executor_id)
                         .cloned()
-                        .unwrap_or_default();
+                        .unwrap_or_default() as usize;
 
                     // Update or create the heap for the extractor and add the executor's load.
                     for extractor_name in extractor_names {

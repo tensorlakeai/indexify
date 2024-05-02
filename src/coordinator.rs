@@ -1635,7 +1635,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_content_update() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -1728,7 +1728,7 @@ mod tests {
             task.outcome = internal_api::TaskOutcome::Success;
             coordinator
                 .shared_state
-                .update_task(task, Some("test_executor_id".to_string()), vec![])
+                .update_task(task, Some("test_executor_id_2".to_string()), vec![])
                 .await?;
         }
 
@@ -1770,7 +1770,7 @@ mod tests {
             task.outcome = internal_api::TaskOutcome::Success;
             coordinator
                 .shared_state
-                .update_task(task, Some("test_executor_id".to_string()), vec![])
+                .update_task(task, Some("test_executor_id_2".to_string()), vec![])
                 .await?;
         }
 
