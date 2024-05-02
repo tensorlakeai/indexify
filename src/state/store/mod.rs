@@ -444,7 +444,7 @@ impl StateMachineStore {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<String>,
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionGraph>>> {
+    ) -> Result<Vec<indexify_internal_api::ExtractionGraph>> {
         self.data
             .indexify_state
             .get_extraction_graphs(extraction_graph_ids, &self.db)

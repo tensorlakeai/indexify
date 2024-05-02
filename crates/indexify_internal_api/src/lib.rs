@@ -25,7 +25,7 @@ pub struct ExtractionGraph {
     pub id: ExtractionGraphId,
     pub name: ExtractionGraphName,
     pub namespace: String,
-    pub extraction_policies: HashSet<String>,
+    pub extraction_policies: HashSet<ExtractionPolicyId>,
 }
 
 impl ExtractionGraph {
@@ -558,14 +558,14 @@ pub enum ExtractionPolicyContentSource {
     ExtractionPolicyId(ExtractionPolicyId),
 }
 
-impl From<&ExtractionPolicyContentSource> for ContentMetadataSource {
+impl From<&ExtractionPolicyContentSource> for ContentSource {
     fn from(value: &ExtractionPolicyContentSource) -> Self {
         match value {
             ExtractionPolicyContentSource::ExtractionGraphId(id) => {
-                ContentMetadataSource::ExtractionGraphId(id.to_string())
+                ContentSource::ExtractionGraph(id.to_string())
             }
             ExtractionPolicyContentSource::ExtractionPolicyId(id) => {
-                ContentMetadataSource::ExtractionPolicyId(id.to_string())
+                ContentSource::ExtractionPolicyId(id.to_string())
             }
         }
     }
@@ -612,6 +612,7 @@ pub struct ExtractionPolicy {
 impl std::hash::Hash for ExtractionPolicy {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.namespace.hash(state);
+        self.graph_id.hash(state);
         self.name.hash(state);
     }
 }
@@ -789,28 +790,28 @@ impl Default for ContentMetadataId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ContentMetadataSource {
-    ExtractionGraphId(ExtractionGraphId),
+pub enum ContentSource {
+    Ingestion,
     ExtractionPolicyId(ExtractionPolicyId),
 }
 
-impl Default for ContentMetadataSource {
+impl Default for ContentSource {
     fn default() -> Self {
-        ContentMetadataSource::ExtractionPolicyId(ExtractionPolicyId::default())
+        ContentSource::ExtractionPolicyId(ExtractionPolicyId::default())
     }
 }
 
-impl From<ContentMetadataSource> for String {
-    fn from(source: ContentMetadataSource) -> Self {
+impl From<ContentSource> for String {
+    fn from(source: ContentSource) -> Self {
         String::from(&source)
     }
 }
 
-impl From<&ContentMetadataSource> for String {
-    fn from(value: &ContentMetadataSource) -> Self {
+impl From<&ContentSource> for String {
+    fn from(value: &ContentSource) -> Self {
         match value {
-            ContentMetadataSource::ExtractionGraphId(id) => id.clone(),
-            ContentMetadataSource::ExtractionPolicyId(id) => id.clone(),
+            ContentSource::ExtractionGraph(id) => id.clone(),
+            ContentSource::ExtractionPolicyId(id) => id.clone(),
         }
     }
 }
@@ -837,7 +838,7 @@ pub struct ContentMetadata {
     pub labels: HashMap<String, String>,
     pub storage_url: String,
     pub created_at: i64,
-    pub source: Vec<ContentMetadataSource>,
+    pub source: ContentSource,
     pub size_bytes: u64,
     pub tombstoned: bool,
     pub hash: String,
@@ -949,9 +950,7 @@ impl Default for ContentMetadata {
             },
             storage_url: "http://example.com/test_url".to_string(),
             created_at: 1234567890, // example timestamp
-            source: vec![ContentMetadataSource::ExtractionPolicyId(
-                "test_source".to_string(),
-            )],
+            source: ContentSource::ExtractionPolicyId("test_source".to_string()),
             size_bytes: 1234567890,
             extraction_policy_ids: HashMap::new(),
             tombstoned: false,

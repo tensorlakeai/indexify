@@ -407,7 +407,7 @@ pub struct ContentMetadata {
     pub labels: HashMap<String, String>,
     pub storage_url: String,
     pub created_at: i64,
-    pub source: Vec<String>,
+    pub source: String,
     pub size: u64,
     pub hash: String,
 }

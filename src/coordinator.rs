@@ -21,6 +21,7 @@ use internal_api::{
     StateChange,
     StructuredDataSchema,
 };
+use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info};
 
@@ -74,59 +75,51 @@ impl Coordinator {
                     anyhow!("could not find extraction graph for content {}", content.id)
                 })?;
             let extraction_graph_names = extraction_graphs.into_iter().map(|eg| eg.name).collect();
-            let sources: Result<Vec<_>> = content
-                .source
-                .iter()
-                .map(|source| match source {
-                    internal_api::ContentMetadataSource::ExtractionGraphId(extraction_graph_id) => {
-                        let extraction_graph = self
-                            .shared_state
-                            .get_extraction_graphs(&vec![extraction_graph_id.to_string()])?
-                            .and_then(|graphs| graphs.first().cloned())
-                            .ok_or_else(|| {
-                                anyhow!(
-                                    "could not find extraction graph with id: {}",
-                                    extraction_graph_id
-                                )
-                            })?;
-                        Ok(extraction_graph.name.clone())
-                    }
-                    internal_api::ContentMetadataSource::ExtractionPolicyId(
-                        extraction_policy_id,
-                    ) => {
-                        let extraction_policy = self
-                            .shared_state
-                            .get_extraction_policy(extraction_policy_id)?;
-                        Ok(extraction_policy.name.clone())
-                    }
-                })
-                .collect();
-            let sources = sources?;
+            let source_name = match content.source {
+                internal_api::ContentSource::ExtractionGraph(extraction_graph_id) => {
+                    let extraction_graph = self
+                        .shared_state
+                        .get_extraction_graphs(&vec![extraction_graph_id.to_string()])?
+                        .and_then(|graphs| graphs.first().cloned())
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "could not find extraction graph with id: {}",
+                                extraction_graph_id
+                            )
+                        })?;
+                    Ok(extraction_graph.name.clone())
+                }
+                internal_api::ContentSource::ExtractionPolicyId(extraction_policy_id) => {
+                    let extraction_policy = self
+                        .shared_state
+                        .get_extraction_policy(&extraction_policy_id)?;
+                    Ok(extraction_policy.name.clone())
+                }
+            }?;
             let content: indexify_coordinator::ContentMetadata =
                 internal_api::ContentMetadata::to_coordinator_metadata(
                     content,
                     extraction_graph_names,
-                    sources,
+                    source_name,
                 );
             content_meta_list.push(content.clone());
         }
         Ok(content_meta_list)
     }
 
-    fn get_extraction_graph_ids_from_names(
+    fn get_extraction_graphs_from_names(
         &self,
-        content_id: &str,
         namespace: &NamespaceName,
         extraction_graph_names: &Vec<ExtractionGraphName>,
-    ) -> Result<Vec<ExtractionGraphId>> {
+    ) -> Result<Vec<ExtractionGraph>> {
         if extraction_graph_names.is_empty() {
             return Ok(Vec::new());
         }
+        let ids = extraction_graph_names.iter().map(| name | ExtractionGraph::create_id(name, namespace) ).collect_vec();
         let extraction_graphs = self
             .shared_state
-            .get_extraction_graphs_by_name(namespace, extraction_graph_names)?
-            .ok_or_else(|| anyhow!("could not find extraction graph for content {}", content_id))?;
-        Ok(extraction_graphs.into_iter().map(|eg| eg.id).collect())
+            .get_extraction_graphs(&ids)?;
+        Ok(extraction_graphs)
     }
 
     pub fn external_content_metadata_to_internal(
@@ -134,23 +127,22 @@ impl Coordinator {
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         let content_meta_list: Result<Vec<_>> = content_list.into_iter().map(|content| {
-            let extraction_graph_ids = self.get_extraction_graph_ids_from_names(
-                &content.id,
+            let extraction_graphs = self.get_extraction_graphs_from_names(
                 &content.namespace,
                 &content.extraction_graph_names,
             )?;
+            let extraction_policies = self.shared_state.get_extraction_policies_from_names(&content.namespace, &content.source)?;
             let source_ids: Result<Vec<_>> = content.source.iter().map(|source| {
-                let extraction_graphs = self.shared_state.get_extraction_graphs_by_name(&content.namespace, &[source.to_string()])?;
                 if let Some(graphs) = extraction_graphs {
                     let source_id = graphs.first()
-                        .map(|graph| internal_api::ContentMetadataSource::ExtractionGraphId(graph.id.clone()))
+                        .map(|graph| internal_api::ContentSource::ExtractionGraph(graph.id.clone()))
                         .ok_or_else(|| anyhow!("could not find extraction graph for content {} and source {}", content.id, source))?;
                     Ok(source_id)
                 } else {
                     let extraction_policies = self.shared_state.get_extraction_policies_from_names(&content.namespace, &content.source)?;
                     let source_id = extraction_policies
                         .and_then(|policies| policies.first().cloned())
-                        .map(|policy| internal_api::ContentMetadataSource::ExtractionPolicyId(policy.id.clone()))
+                        .map(|policy| internal_api::ContentSource::ExtractionPolicyId(policy.id.clone()))
                         .ok_or_else(|| anyhow!("could not find extraction policy for content {} and source {}", content.id, source))?;
                     Ok(source_id)
                 }

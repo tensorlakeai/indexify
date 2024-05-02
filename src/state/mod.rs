@@ -416,7 +416,7 @@ impl App {
         for extraction_policy in extraction_policies {
             if !content_metadata
                 .source
-                .contains(&internal_api::ContentMetadataSource::from(
+                .contains(&internal_api::ContentSource::from(
                     &extraction_policy.content_source,
                 ))
             {
@@ -464,7 +464,7 @@ impl App {
     pub fn get_extraction_policies_from_names(
         &self,
         namespace: &NamespaceName,
-        policy_names: &[String],
+        policy_name: &str,
     ) -> Result<Option<Vec<ExtractionPolicy>>> {
         self.state_machine
             .get_extraction_policies_from_names(namespace, policy_names)
@@ -637,7 +637,7 @@ impl App {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<String>,
-    ) -> Result<Option<Vec<ExtractionGraph>>> {
+    ) -> Result<Vec<ExtractionGraph>> {
         self.state_machine
             .get_extraction_graphs(extraction_graph_ids)
     }
@@ -1967,7 +1967,7 @@ mod tests {
             labels: content_labels.into_iter().collect(),
             content_type: "*/*".into(),
             source: vec![
-                indexify_internal_api::ContentMetadataSource::ExtractionGraphId(
+                indexify_internal_api::ContentSource::ExtractionGraph(
                     extraction_graph_id.to_string(),
                 ),
             ],
@@ -1984,7 +1984,7 @@ mod tests {
             labels: content_labels.into_iter().collect(),
             content_type: "*/*".into(),
             source: vec![
-                indexify_internal_api::ContentMetadataSource::ExtractionGraphId(
+                indexify_internal_api::ContentSource::ExtractionGraph(
                     extraction_graph_id.to_string(),
                 ),
             ],

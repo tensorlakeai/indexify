@@ -2058,9 +2058,9 @@ impl IndexifyState {
     pub fn get_extraction_policies_by_name(
         &self,
         namespace: &NamespaceName,
-        policy_names: &[String],
+        policy_name: &str,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<Vec<internal_api::ExtractionPolicy>>, StateMachineError> {
+    ) -> Result<Option<internal_api::ExtractionPolicy>, StateMachineError> {
         let policy_ids_in_ns = self.extraction_policies_table.get(&namespace.to_string());
         let cf = StateMachineColumns::ExtractionPolicies.cf(db);
         let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = policy_ids_in_ns
@@ -2103,7 +2103,7 @@ impl IndexifyState {
         &self,
         extraction_graph_ids: &Vec<ExtractionGraphId>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<Vec<internal_api::ExtractionGraph>>, StateMachineError> {
+    ) -> Result<Vec<internal_api::ExtractionGraph>, StateMachineError> {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids
             .iter()
@@ -2129,11 +2129,7 @@ impl IndexifyState {
                 }
             }
         }
-        if graphs.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(graphs))
-        }
+        Ok(graphs)
     }
 
     pub fn get_extraction_graphs_by_name(

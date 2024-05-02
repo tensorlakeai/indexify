@@ -381,7 +381,7 @@ message ContentMetadata {
     string storage_url = 6;
     int64 created_at = 7;
     string namespace = 8;
-    repeated string source = 9;
+    string source = 9;
     uint64 size_bytes = 10;
     string hash = 11;
     map<string, uint64> extraction_policy_ids = 12;
