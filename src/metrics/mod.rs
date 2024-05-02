@@ -412,7 +412,10 @@ impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
 pub mod coordinator {
     use std::sync::{Arc, Mutex};
 
-    use opentelemetry::metrics::{Histogram, ObservableCounter, ObservableGauge};
+    use opentelemetry::{
+        metrics::{Histogram, ObservableCounter, ObservableGauge},
+        KeyValue,
+    };
 
     use crate::state::store::StateMachineStore;
 
@@ -427,6 +430,7 @@ pub mod coordinator {
         pub content_extracted: ObservableCounter<u64>,
         pub content_extracted_bytes: ObservableCounter<u64>,
         pub scheduler_invocations: Histogram<f64>,
+        pub tasks_per_executor: ObservableGauge<u64>,
     }
 
     impl Metrics {
@@ -593,6 +597,23 @@ pub mod coordinator {
                 .with_description("Scheduler invocation latencies in seconds")
                 .init();
 
+            let tasks_per_executor = meter
+                .u64_observable_gauge("indexify.coordinator.tasks_per_executor")
+                .with_callback({
+                    let app = app.clone();
+                    move |observer| {
+                        let counts = app.data.indexify_state.executor_running_task_count.inner();
+                        for (executor_id, count) in counts.iter() {
+                            observer.observe(
+                                *count,
+                                &[KeyValue::new("executor_id", executor_id.to_string())],
+                            );
+                        }
+                    }
+                })
+                .with_description("Number of tasks per executor")
+                .init();
+
             Metrics {
                 tasks_completed,
                 tasks_errored,
@@ -603,6 +624,7 @@ pub mod coordinator {
                 content_extracted,
                 content_extracted_bytes,
                 scheduler_invocations,
+                tasks_per_executor,
             }
         }
     }

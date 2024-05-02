@@ -396,7 +396,7 @@ mod tests {
     }
 
     fn make_test_task(task_id: &str, content_metadata: &ContentMetadata) -> Task {
-        let mut task = Task::new(task_id, &content_metadata);
+        let mut task = Task::new(task_id, content_metadata);
         task.output_index_table_mapping = vec![
             ("name1".to_string(), "test_index1".to_string()),
             ("name2".to_string(), "test_index2".to_string()),
@@ -447,7 +447,7 @@ mod tests {
                 coordinator,
             };
             let content_metadata = ContentMetadata {
-                id: ContentMetadataId::new(&"1"),
+                id: ContentMetadataId::new("1"),
                 name: "test".to_string(),
                 parent_id: ContentMetadataId::new(""),
                 root_content_id: "1".to_string(),
@@ -474,8 +474,7 @@ mod tests {
         }
 
         pub async fn create_content(&self, content: ContentMetadata) -> Result<()> {
-            let _ = self
-                .coordinator
+            self.coordinator
                 .shared_state
                 .create_content_batch(vec![content])
                 .await
@@ -492,8 +491,7 @@ mod tests {
                 .id
                 .clone();
 
-            let _ = self
-                .coordinator
+            self.coordinator
                 .shared_state
                 .create_tasks(vec![task], &state_change_id)
                 .await
