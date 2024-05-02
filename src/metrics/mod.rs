@@ -605,7 +605,7 @@ pub mod coordinator {
                         let counts = app.data.indexify_state.executor_running_task_count.inner();
                         for (executor_id, count) in counts.iter() {
                             observer.observe(
-                                (*count).try_into().unwrap(),
+                                *count,
                                 &[KeyValue::new("executor_id", executor_id.to_string())],
                             );
                         }

@@ -290,7 +290,7 @@ impl From<HashMap<ExtractorName, HashSet<TaskId>>> for UnfinishedTasksByExtracto
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExecutorRunningTaskCount {
-    executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, usize>>>,
+    executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, u64>>>,
 }
 
 impl ExecutorRunningTaskCount {
@@ -300,12 +300,12 @@ impl ExecutorRunningTaskCount {
         }
     }
 
-    pub fn get(&self, executor_id: &ExecutorId) -> Option<usize> {
+    pub fn get(&self, executor_id: &ExecutorId) -> Option<u64> {
         let guard = self.executor_running_task_count.read().unwrap();
         guard.get(executor_id).copied()
     }
 
-    pub fn insert(&self, executor_id: &ExecutorId, count: usize) {
+    pub fn insert(&self, executor_id: &ExecutorId, count: u64) {
         let mut guard = self.executor_running_task_count.write().unwrap();
         guard.insert(executor_id.clone(), count);
     }
@@ -315,7 +315,7 @@ impl ExecutorRunningTaskCount {
         guard.remove(executor_id);
     }
 
-    pub fn inner(&self) -> HashMap<ExecutorId, usize> {
+    pub fn inner(&self) -> HashMap<ExecutorId, u64> {
         let guard = self.executor_running_task_count.read().unwrap();
         guard.clone()
     }
@@ -347,8 +347,8 @@ impl ExecutorRunningTaskCount {
     }
 }
 
-impl From<HashMap<ExecutorId, usize>> for ExecutorRunningTaskCount {
-    fn from(executor_running_task_count: HashMap<ExecutorId, usize>) -> Self {
+impl From<HashMap<ExecutorId, u64>> for ExecutorRunningTaskCount {
+    fn from(executor_running_task_count: HashMap<ExecutorId, u64>) -> Self {
         let executor_running_task_count = Arc::new(RwLock::new(executor_running_task_count));
         Self {
             executor_running_task_count,
@@ -2003,7 +2003,7 @@ impl IndexifyState {
         self.unfinished_tasks_by_extractor.inner()
     }
 
-    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
         self.executor_running_task_count.inner()
     }
 
@@ -2041,7 +2041,7 @@ impl IndexifyState {
     //  START WRITER METHODS FOR REVERSE INDEXES
     pub fn insert_executor_running_task_count(&self, executor_id: &str, tasks: u64) {
         self.executor_running_task_count
-            .insert(&executor_id.to_string(), tasks as usize);
+            .insert(&executor_id.to_string(), tasks);
     }
 
     //  END WRITER METHODS FOR REVERSE INDEXES
@@ -2134,7 +2134,7 @@ pub struct IndexifyStateSnapshot {
     extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
     namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
     unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
-    executor_running_task_count: HashMap<ExecutorId, usize>,
+    executor_running_task_count: HashMap<ExecutorId, u64>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     pending_tasks_for_content:

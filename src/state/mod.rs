@@ -570,7 +570,7 @@ impl App {
             .await
     }
 
-    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
         self.state_machine.get_executor_running_task_count().await
     }
 
