@@ -290,7 +290,7 @@ impl From<HashMap<ExtractorName, HashSet<TaskId>>> for UnfinishedTasksByExtracto
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExecutorRunningTaskCount {
-    executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, usize>>>,
+    executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, u64>>>,
 }
 
 impl ExecutorRunningTaskCount {
@@ -300,12 +300,12 @@ impl ExecutorRunningTaskCount {
         }
     }
 
-    pub fn get(&self, executor_id: &ExecutorId) -> Option<usize> {
+    pub fn get(&self, executor_id: &ExecutorId) -> Option<u64> {
         let guard = self.executor_running_task_count.read().unwrap();
         guard.get(executor_id).copied()
     }
 
-    pub fn insert(&self, executor_id: &ExecutorId, count: usize) {
+    pub fn insert(&self, executor_id: &ExecutorId, count: u64) {
         let mut guard = self.executor_running_task_count.write().unwrap();
         guard.insert(executor_id.clone(), count);
     }
@@ -315,7 +315,7 @@ impl ExecutorRunningTaskCount {
         guard.remove(executor_id);
     }
 
-    pub fn inner(&self) -> HashMap<ExecutorId, usize> {
+    pub fn inner(&self) -> HashMap<ExecutorId, u64> {
         let guard = self.executor_running_task_count.read().unwrap();
         guard.clone()
     }
@@ -347,8 +347,8 @@ impl ExecutorRunningTaskCount {
     }
 }
 
-impl From<HashMap<ExecutorId, usize>> for ExecutorRunningTaskCount {
-    fn from(executor_running_task_count: HashMap<ExecutorId, usize>) -> Self {
+impl From<HashMap<ExecutorId, u64>> for ExecutorRunningTaskCount {
+    fn from(executor_running_task_count: HashMap<ExecutorId, u64>) -> Self {
         let executor_running_task_count = Arc::new(RwLock::new(executor_running_task_count));
         Self {
             executor_running_task_count,
@@ -961,23 +961,22 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
-    ) -> Result<internal_api::ExecutorMetadata, StateMachineError> {
+    ) -> Result<Option<internal_api::ExecutorMetadata>, StateMachineError> {
         //  Get a handle on the executor before deleting it from the DB
         let executors_cf = StateMachineColumns::Executors.cf(db);
-        let serialized_executor = txn
-            .get_cf(executors_cf, executor_id)
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
-            })?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!("Executor {} not found", executor_id))
-            })?;
-        let executor_meta =
-            JsonEncoder::decode::<internal_api::ExecutorMetadata>(&serialized_executor)?;
-        txn.delete_cf(executors_cf, executor_id).map_err(|e| {
-            StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
-        })?;
-        Ok(executor_meta)
+        match txn.get_cf(executors_cf, executor_id).map_err(|e| {
+            StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
+        })? {
+            Some(executor) => {
+                let executor_meta =
+                    JsonEncoder::decode::<internal_api::ExecutorMetadata>(&executor)?;
+                txn.delete_cf(executors_cf, executor_id).map_err(|e| {
+                    StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
+                })?;
+                Ok(Some(executor_meta))
+            }
+            None => Ok(None),
+        }
     }
 
     fn set_extractor(
@@ -1252,8 +1251,10 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
                 //  Remove the the extractor from the executor -> extractor mapping table
-                self.extractor_executors_table
-                    .remove(&executor_meta.extractor.name, &executor_meta.id);
+                if let Some(executor_meta) = executor_meta {
+                    self.extractor_executors_table
+                        .remove(&executor_meta.extractor.name, &executor_meta.id);
+                }
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 for task_id in task_ids {
@@ -1454,9 +1455,9 @@ impl IndexifyState {
                     self.unassigned_tasks.remove(&task.id);
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
-                    if let Some(executor_id) = executor_id {
+                    if let Some(ref executor_id) = executor_id {
                         self.executor_running_task_count
-                            .decrement_running_task_count(&executor_id);
+                            .decrement_running_task_count(executor_id);
                     }
                     let content_id = task.content_metadata.id;
                     self.pending_tasks_for_content.remove(
@@ -1834,7 +1835,7 @@ impl IndexifyState {
                         .map_err(|e| {
                             StateMachineError::SerializationError(format!(
                                 "get_extraction_policies from id: unable to deserialize json, {}",
-                                e.to_string()
+                                e
                             ))
                         })?;
                 policies.push(policy);
@@ -2002,7 +2003,7 @@ impl IndexifyState {
         self.unfinished_tasks_by_extractor.inner()
     }
 
-    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
         self.executor_running_task_count.inner()
     }
 
@@ -2040,7 +2041,7 @@ impl IndexifyState {
     //  START WRITER METHODS FOR REVERSE INDEXES
     pub fn insert_executor_running_task_count(&self, executor_id: &str, tasks: u64) {
         self.executor_running_task_count
-            .insert(&executor_id.to_string(), tasks as usize);
+            .insert(&executor_id.to_string(), tasks);
     }
 
     //  END WRITER METHODS FOR REVERSE INDEXES
@@ -2133,7 +2134,7 @@ pub struct IndexifyStateSnapshot {
     extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
     namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
     unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
-    executor_running_task_count: HashMap<ExecutorId, usize>,
+    executor_running_task_count: HashMap<ExecutorId, u64>,
     schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
     content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
     pending_tasks_for_content:

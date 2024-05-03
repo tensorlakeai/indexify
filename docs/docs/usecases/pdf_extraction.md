@@ -14,8 +14,10 @@ packaged as an extractor. You can try out all the various extractors and see whi
 
 
 ## Extractors
-* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - A combined PDF extractor which can extract text, image and tables. This combines many different models in a single package to make it easier to work with PDFs. We recommend starting here.
-* [**tensorlake/ocrmypdf**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf) - Uses the ocrmypdf library which uses tessarect under the hood to extract text from PDFs.
+* [**tensorlake/pdf-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor) - Extract text, images and tables as strings, bytes and json respectively using this extractor.
+* [**tensorlake/ocrmypdf**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf) - Extract text content from image based pdf files using this ocrmypdf based extractor.
+* [**tensorlake/unstructuredio**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/unstructuredio) - This extractor uses unstructured.io to extract pieces of pdf document into separate plain text content data.
+* [**tensorlake/layoutlm-document-qa-extractor**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/layoutlm_document_qa) - This is a fine-tuned version of the multi-modal [LayoutLM](https://aka.ms/layoutlm) model for the task of question answering on documents. It has been fine-tuned using both the SQuAD2.0 and [DocVQA](https://www.docvqa.org/) datasets.
 * [**tensorlake/easyocr**](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrpdf-gpu) - Uses EasyOCR to extract text from PDFs.
 
 ## How to Test PDF Extraction Locally
@@ -69,37 +71,19 @@ extracted_content = client.get_extracted_content(content_id=content_id)
 print(extracted_content)
 ```
 
-## Data Model of tensorlake/pdf-extractor
-### Text
-Extracts text from PDFs as `Content` with text in the `data` attribute and the mime type is set to `text/plain`. 
+## Explore various PDF Extractors
+| Extractors                                | Input Type | Output Type        | Output Example                                                                                                                                                               | Best For                        | Example Usage                                                                                                                                                                                                                                      |
+|-------------------------------------------|------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| tensorlake/layoutlm-document-qa-extractor | query, pdf | metadata           | [Feature(feature_type='metadata', name='metadata', value={'query': 'What is the invoice total?', 'answer': '$93.00', 'page': 0, 'score': 0.9743825197219849}, comment=None)] | Invoices Question Answering     | [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)                                                                                                                                                                        |
+| tensorlake/pdf-extractor                  | pdf        | text, image, table | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})] | Scientific Papers, Tabular Info | [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb), [Multi-state Terms Documents](../examples/Sixt.ipynb), [Scientific Journals](../examples/Scientific_Journals.ipynb), [SEC 10-K docs](../examples/SEC_10_K_docs.ipynb) |
+| tensorlake/ocrmypdf                       | pdf        | text               | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', value={'page': 1}, comment=None)], labels={})]              | Photocopied/Scanned PDFs        |                                                                                                                                                                                                                                                    |
+| tensorlake/ocrpdf-gpu                     | pdf        | text               | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})] | Photocopied/Scanned PDFs on GPU |                                                                                                                                                                                                                                                    |
+| tensorlake/unstructuredio                 | pdf, image | text               |                                                                                                                                                                              |                                 |                                                                                                                                                                                                                                                    |
 
-### Image 
-Extracts images from PDFs as `Content` with bytes in the `data` attribute and the mime type is set to `image/png`. 
-
-### Tables
-Tables are extracted as JSON 
-
-### Metadata
-Every `Content` will have `page_number` as a metadata. 
-
-
-
-## Examples 
-
-### Schema based HOA Documents
-[Notebook for Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
-
-### Multi-state Terms Documents
-[Notebook for Multi-state Terms Documents](../examples/Sixt.ipynb)
+## Other Examples 
 
 ### Invoices
 [Notebook for Invoices](../examples/Invoices.ipynb)
-
-### Scientific Journals
-[Notebook for Scientific Journals](../examples/Scientific_Journals.ipynb)
-
-### SEC 10-K docs
-[Notebook for SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
 
 ### Terms and Condition Documents of Car Rental
 [Notebook for Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb)

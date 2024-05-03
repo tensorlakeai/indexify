@@ -570,7 +570,7 @@ impl App {
             .await
     }
 
-    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
         self.state_machine.get_executor_running_task_count().await
     }
 
@@ -689,16 +689,17 @@ impl App {
             ));
         }
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
-        if mark_finished && task.outcome == internal_api::TaskOutcome::Success {
-            if task.content_metadata.id.version > 1 {
-                state_changes.push(StateChange::new(
-                    task.id.clone(),
-                    internal_api::ChangeType::TaskCompleted {
-                        content_id: task.content_metadata.id.clone(),
-                    },
-                    timestamp_secs(),
-                ));
-            }
+        if mark_finished &&
+            task.outcome == internal_api::TaskOutcome::Success &&
+            task.content_metadata.id.version > 1
+        {
+            state_changes.push(StateChange::new(
+                task.id.clone(),
+                internal_api::ChangeType::TaskCompleted {
+                    content_id: task.content_metadata.id.clone(),
+                },
+                timestamp_secs(),
+            ));
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
