@@ -466,7 +466,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_unfinished_tasks_by_extractor()
     }
 
-    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, usize> {
+    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
         self.data.indexify_state.get_executor_running_task_count()
     }
 

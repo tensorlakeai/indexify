@@ -277,6 +277,7 @@ pub struct SearchRequest {
     pub k: Option<u64>,
     #[serde(default)]
     pub filters: Vec<String>,
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -486,6 +487,24 @@ pub struct ExtractRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractResponse {
     pub content: Vec<Content>,
+    pub features: Vec<Feature>,
+}
+
+impl From<internal_api::ExtractResponse> for ExtractResponse {
+    fn from(internal_resp: internal_api::ExtractResponse) -> Self {
+        ExtractResponse {
+            content: internal_resp
+                .content
+                .into_iter()
+                .map(Content::from)
+                .collect(),
+            features: internal_resp
+                .features
+                .into_iter()
+                .map(Feature::from)
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
