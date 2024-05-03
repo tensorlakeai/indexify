@@ -193,7 +193,6 @@ impl VectorIndexManager {
             if content.is_none() && include_content {
                 continue;
             }
-            let content = content.unwrap().clone();
             let mime_type = content_metadata_list
                 .get(&result.content_id)
                 .unwrap()
@@ -204,7 +203,8 @@ impl VectorIndexManager {
                 .unwrap()
                 .labels
                 .clone();
-            let text = if mime_type.starts_with("text/") {
+            let text = if mime_type.starts_with("text/") && content.is_some() {
+                let content = content.unwrap().clone();
                 String::from_utf8(content.to_vec()).unwrap()
             } else {
                 String::from("")
