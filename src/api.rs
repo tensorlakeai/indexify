@@ -486,6 +486,16 @@ pub struct ExtractRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractResponse {
     pub content: Vec<Content>,
+    pub features: Vec<Feature>
+}
+
+impl From<internal_api::ExtractResponse> for ExtractResponse {
+    fn from(internal_resp: internal_api::ExtractResponse) -> Self {
+        ExtractResponse {
+            content: internal_resp.content.into_iter().map(Content::from).collect(),
+            features: internal_resp.features.into_iter().map(Feature::from).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
