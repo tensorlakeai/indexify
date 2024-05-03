@@ -215,7 +215,7 @@ impl App {
             addr.to_string(),
             server_config.coordinator_addr.clone(),
         ));
-        let (leader_change_tx, leader_change_rx) = tokio::sync::watch::channel::<bool>(false);
+        let (leader_change_tx, leader_change_rx) = watch::channel::<bool>(false);
 
         let metrics = Metrics::new(state_machine.clone());
 
