@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, ContentMetadata, Index};
+use indexify_proto::indexify_coordinator::{self, Index, ContentMetadata};
 use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
@@ -15,7 +15,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor_router::ExtractorRouter,
     metrics::{vector_storage::Metrics, Timer},
-    vectordbs::{CreateIndexParams, Filter, IndexDistance, VectorChunk, VectorDBTS},
+    vectordbs::{CreateIndexParams, Filter, IndexDistance, SearchResult, VectorChunk, VectorDBTS},
 };
 
 pub struct VectorIndexManager {
@@ -137,42 +137,27 @@ impl VectorIndexManager {
             labels: HashMap::new(),
         };
         info!("Extracting searching from index {:?}", index);
-        // TODO: Add metrics to measure latency of embedding extraction from query
-        let feature = self
-            .extractor_router
-            .extract_content(&index.extractor, content, None)
-            .await
-            .map_err(|e| anyhow!("unable to extract embedding: {}", e.to_string()))?
-            .features
-            .pop()
-            .ok_or(anyhow!("No embeddings were extracted"))?;
         let filters = filters
             .into_iter()
             .map(|f| Filter::from_str(f.as_str()))
             .collect::<Result<Vec<Filter>>>()?;
-        let embedding: internal_api::Embedding =
-            serde_json::from_value(feature.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
+
+        // TODO: Add metrics to measure latency of embedding extraction from query
+        let embedding = self.generate_embedding(&index.extractor, content).await?;
+
         // TODO: Add metrics to measure latency of search
         let search_result = self
-            .vector_db
-            .search(index.table_name, embedding.values, k as u64, filters)
+            .search_vector_db(index.table_name, embedding.values, k as u64, filters)
             .await?;
+
         let content_ids = search_result
             .iter()
             .map(|r| r.content_id.clone())
             .collect_vec();
-        let req = indexify_coordinator::GetContentMetadataRequest {
-            content_list: content_ids.clone(),
-        };
+
         // TODO: Add metrics to measure latency of getting content metadata
-        let content_metadata_list = self
-            .coordinator_client
-            .get()
-            .await?
-            .get_content_metadata(req)
-            .await?
-            .into_inner()
-            .content_list;
+        let content_metadata_list = self.retrieve_content_metadata(&content_ids).await?;
+
         if content_ids.len() != content_metadata_list.len() {
             return Err(anyhow!(
                 "Unable to get metadata for all content ids: {:?}, retreived content ids: {:?}",
@@ -219,6 +204,63 @@ impl VectorIndexManager {
             index_search_results.push(search_result);
         }
         Ok(index_search_results)
+    }
+
+    async fn generate_embedding(
+        &self,
+        extractor: &str,
+        content: api::Content,
+    ) -> Result<internal_api::Embedding> {
+        println!("extracting embedding");
+        let feature = self
+            .extractor_router
+            .extract_content(extractor, content, None)
+            .await
+            .map_err(|e| anyhow!("unable to extract embedding: {}", e.to_string()))?
+            .features
+            .pop()
+            .ok_or(anyhow!("No embeddings were extracted"))?;
+
+        let embedding =
+            serde_json::from_value(feature.data.clone()).map_err(|e| anyhow!(e.to_string()))?;
+
+        Ok(embedding)
+    }
+
+    async fn search_vector_db(
+        &self,
+        index: String,
+        embedding: Vec<f32>,
+        k: u64,
+        filters: Vec<Filter>,
+    ) -> Result<Vec<SearchResult>> {
+        println!("searching vector db");
+        let search_result = self
+            .vector_db
+            .search(index, embedding, k as u64, filters)
+            .await?;
+        Ok(search_result)
+    }
+
+    async fn retrieve_content_metadata(
+        &self,
+        content_ids: &Vec<String>,
+    ) -> Result<HashMap<String, ContentMetadata>> {
+        println!("retrieving content metadata");
+        let req = indexify_coordinator::GetContentMetadataRequest {
+            content_list: content_ids.clone(),
+        };
+
+        let content_metadata_list = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_content_metadata(req)
+            .await?
+            .into_inner()
+            .content_list;
+
+        Ok(content_metadata_list)
     }
 
     async fn retrieve_content_blob(
