@@ -689,6 +689,11 @@ pub mod vector_storage {
         pub vector_upsert: Histogram<f64>,
         pub vector_metadata_update: Histogram<f64>,
         pub vector_delete: Histogram<f64>,
+        pub vector_search: Histogram<f64>,
+        pub vector_search_extract_embeddings: Histogram<f64>,
+        pub vector_search_db: Histogram<f64>,
+        pub vector_search_retrieve_metadata: Histogram<f64>,
+        pub vector_search_retrieve_blob: Histogram<f64>,
     }
 
     impl Default for Metrics {
@@ -716,10 +721,40 @@ pub mod vector_storage {
                 .with_description("Vector delete latencies in seconds")
                 .init();
 
+            let vector_search = meter
+                .f64_histogram("indexify.vector_search")
+                .with_description("Vector search latencies in seconds")
+                .init();
+
+            let vector_search_extract_embeddings = meter
+                .f64_histogram("indexify.vector_search_extract_embeddings")
+                .with_description("Vector search extract embeddings latencies in seconds")
+                .init();
+
+            let vector_search_db = meter
+                .f64_histogram("indexify.vector_search_vector_db_lookup")
+                .with_description("Vector search vector db lookup latencies in seconds")
+                .init();
+
+            let vector_search_retrieve_metadata = meter
+                .f64_histogram("indexify.vector_search_retrieve_content_metadata")
+                .with_description("Vector search retrieve content metadata latencies in seconds")
+                .init();
+
+            let vector_search_retrieve_blob = meter
+                .f64_histogram("indexify.vector_search_retrieve_content_blob")
+                .with_description("Vector search retrieve content blob latencies in seconds")
+                .init();
+
             Metrics {
                 vector_metadata_update,
                 vector_upsert,
                 vector_delete: vector_deleted,
+                vector_search,
+                vector_search_extract_embeddings,
+                vector_search_db,
+                vector_search_retrieve_metadata,
+                vector_search_retrieve_blob,
             }
         }
     }
