@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, Index, ContentMetadata};
+use indexify_proto::indexify_coordinator::{self, ContentMetadata, Index};
 use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
@@ -130,6 +130,8 @@ impl VectorIndexManager {
         filters: Vec<String>,
         include_content: bool,
     ) -> Result<Vec<ScoredText>> {
+        let _timer = Timer::start(&self.metrics.vector_search);
+
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
@@ -142,10 +144,8 @@ impl VectorIndexManager {
             .map(|f| Filter::from_str(f.as_str()))
             .collect::<Result<Vec<Filter>>>()?;
 
-        // TODO: Add metrics to measure latency of embedding extraction from query
         let embedding = self.generate_embedding(&index.extractor, content).await?;
 
-        // TODO: Add metrics to measure latency of search
         let search_result = self
             .search_vector_db(index.table_name, embedding.values, k as u64, filters)
             .await?;
@@ -155,7 +155,6 @@ impl VectorIndexManager {
             .map(|r| r.content_id.clone())
             .collect_vec();
 
-        // TODO: Add metrics to measure latency of getting content metadata
         let content_metadata_list = self.retrieve_content_metadata(&content_ids).await?;
 
         if content_ids.len() != content_metadata_list.len() {
@@ -170,7 +169,7 @@ impl VectorIndexManager {
         if include_content {
             content_byte_map = self.retrieve_content_blob(&content_metadata_list).await?;
         }
-        // TODO: Add metrics to measure latency of reading content bytes from S3
+
         let mut index_search_results = Vec::new();
         for result in search_result {
             let content = content_byte_map.get(result.content_id.as_str());
@@ -211,7 +210,7 @@ impl VectorIndexManager {
         extractor: &str,
         content: api::Content,
     ) -> Result<internal_api::Embedding> {
-        println!("extracting embedding");
+        let _timer = Timer::start(&self.metrics.vector_search_extract_embeddings);
         let feature = self
             .extractor_router
             .extract_content(extractor, content, None)
@@ -234,7 +233,7 @@ impl VectorIndexManager {
         k: u64,
         filters: Vec<Filter>,
     ) -> Result<Vec<SearchResult>> {
-        println!("searching vector db");
+        let _timer = Timer::start(&self.metrics.vector_search_db);
         let search_result = self
             .vector_db
             .search(index, embedding, k as u64, filters)
@@ -246,7 +245,7 @@ impl VectorIndexManager {
         &self,
         content_ids: &Vec<String>,
     ) -> Result<HashMap<String, ContentMetadata>> {
-        println!("retrieving content metadata");
+        let _timer = Timer::start(&self.metrics.vector_search_retrieve_metadata);
         let req = indexify_coordinator::GetContentMetadataRequest {
             content_list: content_ids.clone(),
         };
@@ -267,6 +266,7 @@ impl VectorIndexManager {
         &self,
         content_metadata_list: &HashMap<String, ContentMetadata>,
     ) -> Result<HashMap<String, Bytes>> {
+        let _timer = Timer::start(&self.metrics.vector_search_retrieve_blob);
         let mut content_bytes_list = Vec::new();
         let mut content_ids = Vec::new();
 
