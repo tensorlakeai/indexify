@@ -296,7 +296,7 @@ impl RaftApi for RaftGrpcServer {
                 .await
                 .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
             let forwarding_req = GrpcHelper::encode_raft_request(&StateMachineUpdateRequest {
-                payload: requests::RequestPayload::JoinCluster {
+                payload: RequestPayload::JoinCluster {
                     node_id,
                     address,
                     coordinator_addr,
