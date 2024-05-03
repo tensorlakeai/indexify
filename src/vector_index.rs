@@ -1,9 +1,10 @@
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, Index};
+use indexify_proto::indexify_coordinator::{self, Index, ContentMetadata};
 use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
@@ -127,6 +128,7 @@ impl VectorIndexManager {
         query: &str,
         k: usize,
         filters: Vec<String>,
+        include_content: bool,
     ) -> Result<Vec<ScoredText>> {
         let content = api::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
@@ -176,30 +178,15 @@ impl VectorIndexManager {
             ));
         }
 
-        let mut content_bytes_list = Vec::new();
-        let mut content_ids = Vec::new();
-        for (id, content_meta) in &content_metadata_list {
-            let content = self.content_reader.bytes(&content_meta.storage_url);
-            content_bytes_list.push(content);
-            content_ids.push(id.clone());
-        }
-        let bytes = join_all(content_bytes_list).await;
         let mut content_byte_map = HashMap::new();
-        for (id, content) in content_ids.iter().zip(bytes) {
-            let bytes = content.map_err(|e| {
-                anyhow!(
-                    "unable to read content bytes for id: {}, {}",
-                    id,
-                    e.to_string()
-                )
-            })?;
-            content_byte_map.insert(id.clone(), bytes);
+        if include_content {
+            content_byte_map = self.retrieve_content_blob(&content_metadata_list).await?;
         }
-
         let mut index_search_results = Vec::new();
         for result in search_result {
             let content = content_byte_map.get(result.content_id.as_str());
-            if content.is_none() {
+            // Only skip specified to include content but content is not found.
+            if content.is_none() && include_content {
                 continue;
             }
             let content = content.unwrap().clone();
@@ -228,5 +215,29 @@ impl VectorIndexManager {
             index_search_results.push(search_result);
         }
         Ok(index_search_results)
+    }
+
+    async fn retrieve_content_blob(&self, content_metadata_list: &HashMap<String, ContentMetadata>) -> Result<HashMap<String, Bytes>> {
+        let mut content_bytes_list = Vec::new();
+        let mut content_ids = Vec::new();
+
+        for (id, content_meta) in content_metadata_list {
+            let content = self.content_reader.bytes(&content_meta.storage_url);
+            content_bytes_list.push(content);
+            content_ids.push(id.clone());
+        }
+
+        let bytes = join_all(content_bytes_list).await;
+        let mut content_byte_map = HashMap::new();
+
+        for (id, content) in content_ids.iter().zip(bytes) {
+            let bytes = content.map_err(|e| {
+                let msg = e.to_string();
+                anyhow!("unable to read content bytes for id: {id}, {msg}")
+            })?;
+            content_byte_map.insert(id.clone(), bytes);
+        }
+
+        Ok(content_byte_map)
     }
 }

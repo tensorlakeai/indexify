@@ -764,6 +764,7 @@ impl DataManager {
         query: &str,
         k: u64,
         filters: Vec<String>,
+        include_content: bool,
     ) -> Result<Vec<ScoredText>> {
         let req = indexify_coordinator::GetIndexRequest {
             namespace: namespace.to_string(),
@@ -779,7 +780,7 @@ impl DataManager {
             .index
             .ok_or(anyhow!("Index not found"))?;
         self.vector_index_manager
-            .search(index, query, k as usize, filters)
+            .search(index, query, k as usize, filters, include_content)
             .await
     }
 

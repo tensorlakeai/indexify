@@ -277,6 +277,7 @@ pub struct SearchRequest {
     pub k: Option<u64>,
     #[serde(default)]
     pub filters: Vec<String>,
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
