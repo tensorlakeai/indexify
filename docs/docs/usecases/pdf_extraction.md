@@ -3,6 +3,7 @@
 PDF is a complex document type, and they can contain text, images and tabular data. Depending on the document type the strategy to extract information from PDF could vary. 
 
 With Indexify, you can -
+
 1. Perform Data Extraction on PDFs: Extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices and receipts. Once you create these pipelines, Indexify will continously extract when documents are uploaded.
 2. Index PDFs - Extract text, images and tables(in the form of JSON) and add chunking, embedding extractors, structured data extractors in the pipeline to build indexes on vector stores and structured stores. LLMs can then query these indexes for Document Q and A.
 
