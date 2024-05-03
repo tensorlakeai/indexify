@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, Index, ContentMetadata};
+use indexify_proto::indexify_coordinator::{self, ContentMetadata, Index};
 use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
@@ -221,7 +221,10 @@ impl VectorIndexManager {
         Ok(index_search_results)
     }
 
-    async fn retrieve_content_blob(&self, content_metadata_list: &HashMap<String, ContentMetadata>) -> Result<HashMap<String, Bytes>> {
+    async fn retrieve_content_blob(
+        &self,
+        content_metadata_list: &HashMap<String, ContentMetadata>,
+    ) -> Result<HashMap<String, Bytes>> {
         let mut content_bytes_list = Vec::new();
         let mut content_ids = Vec::new();
 
