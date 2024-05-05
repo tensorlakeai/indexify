@@ -38,6 +38,8 @@ pub struct ScoredText {
     pub mime_type: String,
     pub labels: HashMap<String, String>,
     pub confidence_score: f32,
+    pub root_content_metadata: Option<internal_api::ContentMetadata>,
+    pub content_metadata: internal_api::ContentMetadata,
 }
 
 impl VectorIndexManager {
@@ -201,6 +203,8 @@ impl VectorIndexManager {
                 mime_type,
                 labels,
                 confidence_score: result.confidence_score,
+                root_content_metadata: result.root_content_metadata,
+                content_metadata: result.content_metadata,
             };
             index_search_results.push(search_result);
         }
