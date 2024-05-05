@@ -10,6 +10,7 @@ use arrow_array::{
     types::Float32Type,
     Array,
     FixedSizeListArray,
+    PrimitiveArray,
     RecordBatch,
     RecordBatchIterator,
     StringArray,
@@ -413,14 +414,21 @@ impl VectorDb for LanceDb {
             .unwrap();
         let mut results = vec![];
         for rb in &res {
+            let distances = rb.column_by_name("_distance").unwrap();
+            let distance_values = distances
+                .as_any()
+                .downcast_ref::<PrimitiveArray<Float32Type>>()
+                .unwrap()
+                .values()
+                .iter();
             let vector_chunks = vector_chunk_from_batch(rb.clone(), tbl.schema().await.unwrap())
                 .await
                 .unwrap();
 
-            for chunk in vector_chunks {
+            for (chunk, distance) in izip!(vector_chunks, distance_values) {
                 results.push(SearchResult {
                     content_id: chunk.content_id,
-                    confidence_score: 0.9,
+                    confidence_score: *distance,
                     metadata: chunk.metadata,
                     content_metadata: chunk.content_metadata,
                     root_content_metadata: chunk.root_content_metadata,
