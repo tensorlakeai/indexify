@@ -71,7 +71,6 @@ async fn vector_chunk_from_batch(
         } else if field_name == "vector" {
             // Looks like we are not using the embedding
             // so we are just doing empty Vec to make the structs happy
-            embeddings.push(Vec::new());
         } else if field_name == "content_metadata" {
             for row in as_string_array(batch.column_by_name(field_name).unwrap()) {
                 let row = row.ok_or(anyhow!("content_metadata is null"))?;
@@ -96,6 +95,11 @@ async fn vector_chunk_from_batch(
                 i += 1;
             }
         }
+    }
+    // Looks like we are not using the embedding
+    // so we are just doing empty Vec to make the structs happy
+    if embeddings.is_empty() {
+        embeddings = vec![Vec::new(); ids.len()];
     }
     if metadatas.is_empty() {
         metadatas = vec![HashMap::new(); ids.len()];

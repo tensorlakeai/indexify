@@ -151,8 +151,6 @@ impl VectorIndexManager {
             .search_vector_db(index.table_name, embedding.values, k as u64, filters)
             .await?;
 
-        println!("search_result: {:?}", search_result);
-
         let mut content_byte_map = HashMap::new();
         if include_content {
             content_byte_map = self.retrieve_content_blob(&search_result).await?;
