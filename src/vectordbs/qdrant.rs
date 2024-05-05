@@ -152,7 +152,7 @@ impl VectorDb for QdrantDb {
         let mut points = Vec::<PointStruct>::new();
         for chunk in chunks {
             let chunk_id = chunk.content_id.clone();
-            let mut metadata_map = HashMap::from(chunk.metadata.clone());
+            let mut metadata_map = chunk.metadata.clone();
             let indexify_payload = serde_json::to_value(IndexifyPayload::new(
                 chunk.content_metadata.clone(),
                 chunk.root_content_metadata.clone(),

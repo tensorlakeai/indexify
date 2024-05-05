@@ -131,7 +131,7 @@ impl VectorDb for PgVector {
                         .map_err(|e| anyhow!("Failed to deserialize content_metadata: {}", e));
                     cm
                 });
-                if let Err(err) = content_metadata.unwrap() {
+                if let Some(Err(err)) = &content_metadata {
                     tracing::error!("{}", err.to_string());
                     continue;
                 }
@@ -265,23 +265,19 @@ impl VectorDb for PgVector {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{sync::Arc};
 
-    use lance::arrow::json;
-    use serde_json::json;
+    
+    
 
     use super::CreateIndexParams;
     use crate::{
         data_manager::DataManager,
         server_config::PgVectorConfig,
-        test_util::db_utils::{create_metadata, test_mock_content_metadata},
         vectordbs::{
             pg_vector::PgVector,
             tests::{basic_search, crud_operations, insertion_idempotent, search_filters},
-            Filter,
-            FilterOperator,
             IndexDistance,
-            VectorChunk,
             VectorDBTS,
         },
     };
@@ -315,10 +311,6 @@ mod tests {
             .await
             .unwrap();
         basic_search(vector_db, index_name).await;
-    }
-
-    fn make_id() -> String {
-        DataManager::make_id()
     }
 
     #[tokio::test]

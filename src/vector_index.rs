@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, Content, ContentMetadata, Index};
+use indexify_proto::indexify_coordinator::{self, ContentMetadata, Index};
 use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
@@ -238,7 +238,7 @@ impl VectorIndexManager {
         let _timer = Timer::start(&self.metrics.vector_search_db);
         let search_result = self
             .vector_db
-            .search(index, embedding, k as u64, filters)
+            .search(index, embedding, k, filters)
             .await?;
         Ok(search_result)
     }

@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, ContentMetadata};
+use indexify_proto::indexify_coordinator::{self};
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
@@ -619,7 +619,7 @@ impl DataManager {
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v.clone())),
+                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
                 )
             })
             .collect();
@@ -670,7 +670,7 @@ impl DataManager {
                     self.write_extracted_embedding(
                         &feature.name,
                         &embedding_payload.values,
-                        &(&content_metadata).id.id,
+                        &content_metadata.id.id,
                         output_index_map,
                         metadata.clone(),
                         None,
@@ -680,15 +680,15 @@ impl DataManager {
                 }
                 api::FeatureType::Metadata => {
                     let extracted_attributes = ExtractedMetadata::new(
-                        &(&content_metadata).id.id,
-                        &(&content_metadata).parent_id.id,
-                        &(&content_metadata).source,
+                        &content_metadata.id.id,
+                        &content_metadata.parent_id.id,
+                        &content_metadata.source,
                         feature.data.clone(),
                         extractor,
                     );
                     info!("adding metadata to index {}", feature.data.to_string());
                     self.metadata_index_manager
-                        .add_metadata(&(&content_metadata).namespace, extracted_attributes)
+                        .add_metadata(&content_metadata.namespace, extracted_attributes)
                         .await?;
                 }
                 _ => {
@@ -726,7 +726,7 @@ impl DataManager {
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v.clone())),
+                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
                 )
             })
             .collect();
@@ -861,7 +861,7 @@ mod tests {
 
     #[test]
     fn test_combine_metadata() {
-        let features = vec![
+        let _features = vec![
             api::Feature {
                 name: String::from(""),
                 feature_type: api::FeatureType::Metadata,
@@ -884,10 +884,10 @@ mod tests {
             },
         ];
 
-        let labels = HashMap::from([("label1".to_string(), "value1".to_string())]);
+        let _labels = HashMap::from([("label1".to_string(), "value1".to_string())]);
 
         //let combined = DataManager::combine_metadata(Vec::new(), &features, labels);
-        let expected = json!({
+        let _expected = json!({
             "key1": "value1",
             "key2": "value2",
             "key3": "value3",
