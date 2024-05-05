@@ -265,14 +265,10 @@ impl VectorDb for PgVector {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc};
-
-    
-    
+    use std::sync::Arc;
 
     use super::CreateIndexParams;
     use crate::{
-        data_manager::DataManager,
         server_config::PgVectorConfig,
         vectordbs::{
             pg_vector::PgVector,

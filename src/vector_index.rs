@@ -236,10 +236,7 @@ impl VectorIndexManager {
         filters: Vec<Filter>,
     ) -> Result<Vec<SearchResult>> {
         let _timer = Timer::start(&self.metrics.vector_search_db);
-        let search_result = self
-            .vector_db
-            .search(index, embedding, k, filters)
-            .await?;
+        let search_result = self.vector_db.search(index, embedding, k, filters).await?;
         Ok(search_result)
     }
 

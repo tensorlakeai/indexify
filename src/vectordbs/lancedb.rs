@@ -239,11 +239,38 @@ impl VectorDb for LanceDb {
             .map(|c| c.metadata.clone())
             .unwrap_or_default();
 
+        let mut content_metadatas = Vec::<String>::new();
+        let mut root_content_metadatas = Vec::<Option<String>>::new();
+        for chunk in &chunks {
+            let content_metadata = serde_json::to_string(&chunk.content_metadata)?;
+            content_metadatas.push(content_metadata);
+            let root_content_metadata = match &chunk.root_content_metadata {
+                Some(metadata) => Some(serde_json::to_string(metadata)?),
+                None => None,
+            };
+            root_content_metadatas.push(root_content_metadata);
+        }
+
+        let content_metadata_array = StringArray::from_iter_values(content_metadatas.iter());
+        let root_content_metadata_array = StringArray::from(
+            root_content_metadatas
+                .iter()
+                .map(|x| x.clone())
+                .collect::<Vec<_>>(),
+        );
+
         let schema = update_schema_with_missing_fields(&tbl, metadata).await?;
 
-        let mut arrays: Vec<Arc<dyn Array>> = vec![Arc::new(ids), Arc::new(vectors)];
+        let mut arrays: Vec<Arc<dyn Array>> = vec![
+            Arc::new(ids),
+            Arc::new(vectors),
+            Arc::new(root_content_metadata_array),
+            Arc::new(content_metadata_array),
+        ];
         for field in schema.fields() {
-            if field.name() == "id" || field.name() == "vector" {
+            if ["id", "vector", "root_content_metadata", "content_metadata"]
+                .contains(&field.name().as_str())
+            {
                 continue;
             }
             let values = chunks
@@ -252,6 +279,8 @@ impl VectorDb for LanceDb {
             let array = values.collect::<StringArray>();
             arrays.push(Arc::new(array));
         }
+
+        println!("size of arrays: {}", arrays.len());
 
         let batches = RecordBatchIterator::new(
             vec![RecordBatch::try_new(schema.clone(), arrays).unwrap()]
