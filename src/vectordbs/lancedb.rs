@@ -25,6 +25,7 @@ use lancedb::{
     Connection,
     Table,
 };
+use serde_json::json;
 use tracing;
 
 use super::{CreateIndexParams, Filter, FilterOperator, SearchResult, VectorChunk, VectorDb};
@@ -91,7 +92,10 @@ async fn vector_chunk_from_batch(
             let mut i = 0;
             for row in as_string_array(batch.column_by_name(field_name).unwrap()) {
                 let row = row.ok_or(anyhow!("metadata is null"))?;
-                let value: serde_json::Value = serde_json::from_str(row)?;
+                println!("diptanu row: {}", row);
+                let value: serde_json::Value = serde_json::from_str(row).map_err(|e| {
+                    anyhow!("unable to deserailize metadata value {}, e {}", row, e)
+                })?;
                 metadatas[i].insert(field_name.to_string(), value);
                 i += 1;
             }
@@ -280,8 +284,6 @@ impl VectorDb for LanceDb {
             arrays.push(Arc::new(array));
         }
 
-        println!("size of arrays: {}", arrays.len());
-
         let batches = RecordBatchIterator::new(
             vec![RecordBatch::try_new(schema.clone(), arrays).unwrap()]
                 .into_iter()
@@ -347,6 +349,7 @@ impl VectorDb for LanceDb {
 
         let mut update_op = tbl.update().only_if(format!("id = '{}'", content_id));
         for (key, value) in metadata {
+            println!("key: {}, value: {}", key, value.to_string());
             update_op = update_op.column(key, value.to_string());
         }
         update_op
@@ -496,16 +499,17 @@ mod tests {
             .await
             .unwrap(),
         );
+        let index_name = "metadata-index";
         lance
             .create_index(CreateIndexParams {
-                vectordb_index_name: "metadata-index".into(),
+                vectordb_index_name: index_name.into(),
                 vector_dim: 2,
                 distance: crate::vectordbs::IndexDistance::Cosine,
                 unique_params: None,
             })
             .await
             .unwrap();
-        store_metadata(lance, "medata-index").await;
+        store_metadata(lance, &index_name).await;
     }
 
     #[tokio::test]

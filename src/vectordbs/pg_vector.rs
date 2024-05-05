@@ -47,7 +47,7 @@ impl VectorDb for PgVector {
             crate::vectordbs::IndexDistance::Dot => "vector_ip_ops",
         };
 
-        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY, embedding vector({vector_dim}), metadata JSONB, root_content_metadata JSONB, content_metada JSONB);", index_name = index_name, vector_dim = vector_dim);
+        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY, embedding vector({vector_dim}), metadata JSONB, root_content_metadata JSONB, content_metadata JSONB);", index_name = index_name, vector_dim = vector_dim);
         if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
             tracing::error!("Failed to create table: {}, query: {}", err, query);
             return Err(anyhow!("Failed to create table {}", err));
@@ -68,7 +68,7 @@ impl VectorDb for PgVector {
 
         for chunk in chunks {
             let embedding = Vector::from(chunk.embedding);
-            let query = format!("INSERT INTO \"{index}\"(content_id, embedding, metadata) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (content_id) DO UPDATE SET embedding = $2, metadata = $3, root_content_metadata = $4, content_metadata = $5;",);
+            let query = format!("INSERT INTO \"{index}\"(content_id, embedding, metadata, root_content_metadata, content_metadata) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (content_id) DO UPDATE SET embedding = $2, metadata = $3, root_content_metadata = $4, content_metadata = $5;",);
             let root_content_metadata = serde_json::to_value(chunk.root_content_metadata)?;
             let chunk_metadata = serde_json::to_value(chunk.metadata)?;
             let content_metadata = serde_json::to_value(chunk.content_metadata)?;
@@ -186,7 +186,7 @@ impl VectorDb for PgVector {
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
         let mut query = format!(
-            "SELECT content_id, CAST(1 - ($1 <=> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\""
+            "SELECT content_id, CAST(1 - ($1 <=> embedding) AS FLOAT4) AS confidence_score, metadata, root_content_metadata, content_metadata FROM \"{index}\""
         );
         if !filters.is_empty() {
             query.push_str(" WHERE ");
@@ -219,15 +219,15 @@ impl VectorDb for PgVector {
         for row in rows {
             let content_id: String = row.get(0);
             let confidence_score: f32 = row.get(1);
-            let metadata: Vec<u8> = row.get(2);
-            let root_content_metadata: Vec<u8> = row.get(3);
-            let content_metadata: Vec<u8> = row.get(4);
-            let metadata: HashMap<String, serde_json::Value> = serde_json::from_slice(&metadata)
+            let metadata: serde_json::Value = row.get(2);
+            let root_content_metadata: serde_json::Value = row.get(3);
+            let content_metadata: serde_json::Value = row.get(4);
+            let metadata: HashMap<String, serde_json::Value> = serde_json::from_value(metadata)
                 .map_err(|e| anyhow!("Failed to deserialize metadata: {}", e))?;
             let root_content_metadata: Option<ContentMetadata> =
-                serde_json::from_slice(&root_content_metadata)
+                serde_json::from_value(root_content_metadata)
                     .map_err(|e| anyhow!("Failed to deserialize root_content_metadata: {}", e))?;
-            let content_metadata: ContentMetadata = serde_json::from_slice(&content_metadata)
+            let content_metadata: ContentMetadata = serde_json::from_value(content_metadata)
                 .map_err(|e| anyhow!("Failed to deserialize content_metadata: {}", e))?;
             results.push(SearchResult {
                 content_id,

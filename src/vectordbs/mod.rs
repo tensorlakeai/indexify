@@ -191,10 +191,7 @@ mod tests {
         let chunk = VectorChunk {
             content_id: content_id.into(),
             embedding: vec![0., 2.],
-            metadata: HashMap::from([
-                ("key1".to_string(), json!("value1")),
-                ("key2".to_string(), json!("value2")),
-            ]),
+            metadata: create_metadata(vec![("key1", "value1"), ("key2", "value2")]),
             root_content_metadata: Some(test_mock_content_metadata(content_id, "1")),
             content_metadata: test_mock_content_metadata(content_id, "1"),
         };
@@ -218,10 +215,7 @@ mod tests {
     }
 
     pub async fn basic_search(vector_db: VectorDBTS, index_name: &str) {
-        let metadata1 = HashMap::from([
-            ("key1".to_string(), json!("value1")),
-            ("key2".to_string(), json!("value2")),
-        ]);
+        let metadata1 = create_metadata(vec![("key1", "value1"), ("key2", "value2")]);
         let chunk = VectorChunk {
             content_id: "0".into(),
             embedding: vec![0., 2.],
