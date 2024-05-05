@@ -375,6 +375,7 @@ mod tests {
         metrics,
         server::NamespaceEndpointState,
         server_config::{IndexStoreKind, ServerConfig},
+        test_util::db_utils::create_metadata,
         vector_index::VectorIndexManager,
         vectordbs,
     };
@@ -675,6 +676,7 @@ mod tests {
         });
 
         let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
+        let metadata1_out = create_metadata(vec![("key1", "value1"), ("key2", "value2")]);
 
         payload.features.push(Feature {
             feature_type: FeatureType::Metadata,
@@ -694,7 +696,7 @@ mod tests {
             .unwrap();
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].content_id, id);
-        assert_eq!(points[0].metadata, metadata1);
+        assert_eq!(points[0].metadata, metadata1_out);
 
         let content_metadata = coordinator
             .coordinator
@@ -718,6 +720,7 @@ mod tests {
 
         // update metadata for content_id
         let metadata2 = json!({"key1" : "value3", "key2" : "value4"});
+        let metadata2_out = create_metadata(vec![("key1", "value3"), ("key2", "value4")]);
         let payload = ExtractedFeatures {
             content_id: id.clone(),
             features: vec![Feature {
@@ -741,7 +744,7 @@ mod tests {
         // metadata should be replaced with new values
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].content_id, id);
-        assert_eq!(points[0].metadata, metadata2);
+        assert_eq!(points[0].metadata, metadata2_out);
 
         coordinator.stop().await;
     }
@@ -793,6 +796,7 @@ mod tests {
         };
 
         let metadata1 = json!({"key1" : "value1", "key2" : "value2"});
+        let metadata1_out = create_metadata(vec![("key1", "value1"), ("key2", "value2")]);
 
         // Add metadata only without embedding
         payload.features.push(Feature {
@@ -847,7 +851,7 @@ mod tests {
         // embedding should be created with existing metadata
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].content_id, id);
-        assert_eq!(points[0].metadata, metadata1);
+        assert_eq!(points[0].metadata, metadata1_out);
 
         coordinator.stop().await;
     }
