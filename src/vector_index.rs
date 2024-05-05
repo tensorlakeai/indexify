@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, ContentMetadata, Index};
+use indexify_proto::indexify_coordinator::{self, Content, ContentMetadata, Index};
 use internal_api::ExtractedEmbeddings;
 use itertools::Itertools;
 use tracing::info;
@@ -85,6 +85,8 @@ impl VectorIndexManager {
                 embedding.content_id.clone(),
                 embedding.embedding.clone(),
                 embedding.metadata.clone(),
+                embedding.root_content_metadata.clone(),
+                &embedding.content_metadata,
             );
             vector_chunks.push(vector_chunk);
         });
@@ -114,7 +116,7 @@ impl VectorIndexManager {
         &self,
         index: &str,
         content_id: String,
-        metadata: serde_json::Value,
+        metadata: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let _timer = Timer::start(&self.metrics.vector_metadata_update);
         self.vector_db
