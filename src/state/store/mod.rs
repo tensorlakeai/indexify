@@ -293,7 +293,10 @@ impl StateMachineStore {
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES
-    pub fn get_latest_version_of_content(&self, content_id: &str) -> Result<Option<u64>> {
+    pub fn get_latest_version_of_content(
+        &self,
+        content_id: &str,
+    ) -> Result<Option<ContentMetadata>> {
         let txn = self.db.transaction();
         self.data
             .indexify_state

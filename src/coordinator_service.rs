@@ -37,6 +37,8 @@ use indexify_proto::indexify_coordinator::{
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
+    GetIngestionInfoRequest,
+    GetIngestionInfoResponse,
     GetRaftMetricsSnapshotRequest,
     GetSchemaRequest,
     GetSchemaResponse,
@@ -664,6 +666,26 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(GetTaskResponse {
             task: Some(task.into()),
+        }))
+    }
+
+    async fn get_ingestion_info(
+        &self,
+        req: Request<GetIngestionInfoRequest>,
+    ) -> Result<Response<GetIngestionInfoResponse>, Status> {
+        let req = req.into_inner();
+        let (task, root_content) = self
+            .coordinator
+            .get_task_and_root_content(&req.task_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        let root_content: Option<indexify_coordinator::ContentMetadata> =
+            root_content.map(|c| c.into());
+
+        Ok(Response::new(GetIngestionInfoResponse {
+            task: Some(task.into()),
+            root_content,
         }))
     }
 

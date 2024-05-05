@@ -451,7 +451,7 @@ mod tests {
                 id: ContentMetadataId::new("1"),
                 name: "test".to_string(),
                 parent_id: ContentMetadataId::new(""),
-                root_content_id: "1".to_string(),
+                root_content_id: Some("1".to_string()),
                 namespace: "test".to_string(),
                 content_type: "text/plain".to_string(),
                 storage_url: "test".to_string(),
@@ -707,7 +707,10 @@ mod tests {
             .create_task(make_test_task("test_1", content_metadata.first().unwrap()))
             .await
             .unwrap();
-        assert_eq!(content_metadata.first().unwrap().root_content_id, "1");
+        assert_eq!(
+            content_metadata.first().unwrap().root_content_id,
+            Some("1".to_string())
+        );
 
         let payload = BeginExtractedContentIngest {
             task_id: "test_1".to_string(),

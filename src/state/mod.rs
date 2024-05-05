@@ -376,15 +376,6 @@ impl App {
         content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_content_metadata_with_version(content_id).await?;
-        if content_metadata.is_empty() {
-            return Ok(vec![]);
-        }
-        let content_metadata = content_metadata.first().ok_or_else(|| {
-            anyhow!(
-                "Content metadata with id {} not found",
-                content_id.to_string()
-            )
-        })?;
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -968,7 +959,7 @@ impl App {
             let latest_version_of_parent = latest_version_of_parent.unwrap();
 
             //  if the latest version of the parent is the first version, create the content
-            if latest_version_of_parent == 1 {
+            if latest_version_of_parent.id.version == 1 {
                 new_content.push(incoming_content);
                 continue;
             }
@@ -977,7 +968,7 @@ impl App {
             // content
             let parent_prev_version_id = ContentMetadataId::new_with_version(
                 &incoming_content.parent_id.id,
-                latest_version_of_parent - 1,
+                latest_version_of_parent.id.version - 1,
             );
             let parent_prev_version_tree = self
                 .state_machine
@@ -993,7 +984,7 @@ impl App {
                 let mut content = incoming_content.clone();
                 content.parent_id = ContentMetadataId::new_with_version(
                     &incoming_content.parent_id.id,
-                    latest_version_of_parent,
+                    latest_version_of_parent.id.version,
                 );
                 new_content.push(content);
                 continue;
@@ -1009,7 +1000,7 @@ impl App {
                 let mut content = incoming_content.clone();
                 content.parent_id = ContentMetadataId::new_with_version(
                     &incoming_content.parent_id.id,
-                    latest_version_of_parent,
+                    latest_version_of_parent.id.version,
                 );
                 new_content.push(content);
                 continue;
@@ -1018,7 +1009,7 @@ impl App {
             let mut content = incoming_content.clone();
             content.parent_id = ContentMetadataId::new_with_version(
                 &incoming_content.parent_id.id,
-                latest_version_of_parent,
+                latest_version_of_parent.id.version,
             );
             identical_content.push(content);
         }
@@ -1089,7 +1080,7 @@ impl App {
                 })?
                 .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
 
-            let id = ContentMetadataId::new_with_version(content_id, latest_version);
+            let id = ContentMetadataId::new_with_version(content_id, latest_version.id.version);
             updated_content_ids.push(id.clone());
         }
 
@@ -1168,10 +1159,15 @@ impl App {
     pub async fn get_content_metadata_with_version(
         &self,
         content_id: &ContentMetadataId,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.state_machine
+    ) -> Result<internal_api::ContentMetadata> {
+        let content_list = self
+            .state_machine
             .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
-            .await
+            .await?;
+        content_list
+            .first()
+            .cloned()
+            .ok_or(anyhow!("content with id: {} not found", content_id))
     }
 
     pub fn get_content_tree_metadata(
@@ -1880,7 +1876,7 @@ mod tests {
         let read_content = node
             .get_content_metadata_with_version(&content_metadata_vec[0].id)
             .await?;
-        assert_eq!(read_content.first().unwrap(), &content_metadata_vec[0]);
+        assert_eq!(read_content, content_metadata_vec[0]);
 
         Ok(())
     }
