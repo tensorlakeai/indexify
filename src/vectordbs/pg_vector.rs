@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use indexify_internal_api::ContentMetadata;
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
@@ -44,7 +47,7 @@ impl VectorDb for PgVector {
             crate::vectordbs::IndexDistance::Dot => "vector_ip_ops",
         };
 
-        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY, embedding vector({vector_dim}), metadata JSONB);", index_name = index_name, vector_dim = vector_dim);
+        let query = format!("CREATE TABLE IF NOT EXISTS \"{index_name}\"(content_id VARCHAR(1024) PRIMARY KEY, embedding vector({vector_dim}), metadata JSONB, root_content_metadata JSONB, content_metadata JSONB);", index_name = index_name, vector_dim = vector_dim);
         if let Err(err) = sqlx::query(&query).execute(&self.pool).await {
             tracing::error!("Failed to create table: {}, query: {}", err, query);
             return Err(anyhow!("Failed to create table {}", err));
@@ -65,11 +68,16 @@ impl VectorDb for PgVector {
 
         for chunk in chunks {
             let embedding = Vector::from(chunk.embedding);
-            let query = format!("INSERT INTO \"{index}\"(content_id, embedding, metadata) VALUES ($1, $2, $3) ON CONFLICT (content_id) DO UPDATE SET embedding = $2, metadata = $3;",);
+            let query = format!("INSERT INTO \"{index}\"(content_id, embedding, metadata, root_content_metadata, content_metadata) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (content_id) DO UPDATE SET embedding = $2, metadata = $3, root_content_metadata = $4, content_metadata = $5;",);
+            let root_content_metadata = serde_json::to_value(chunk.root_content_metadata)?;
+            let chunk_metadata = serde_json::to_value(chunk.metadata)?;
+            let content_metadata = serde_json::to_value(chunk.content_metadata)?;
             let _ = sqlx::query(&query)
                 .bind(chunk.content_id)
                 .bind(embedding)
-                .bind(chunk.metadata)
+                .bind(chunk_metadata)
+                .bind(root_content_metadata)
+                .bind(content_metadata)
                 .execute(&self.pool)
                 .await?;
         }
@@ -82,18 +90,57 @@ impl VectorDb for PgVector {
 
         for id in ids {
             let query = format!(
-                "SELECT content_id, embedding, metadata FROM \"{index}\" WHERE content_id = $1;"
+                "SELECT content_id, embedding, metadata, root_content_metadata, content_metadata FROM \"{index}\" WHERE content_id = $1;"
             );
-            let row: Option<(String, Vector, Option<serde_json::Value>)> = sqlx::query_as(&query)
+            let row: Option<(
+                String,
+                Vector,
+                Option<serde_json::Value>,
+                Option<serde_json::Value>,
+                Option<serde_json::Value>,
+            )> = sqlx::query_as(&query)
                 .bind(id)
                 .fetch_optional(&self.pool)
                 .await?;
 
             if let Some(row) = row {
+                let metadata = row
+                    .2
+                    .map(|v| {
+                        let cm: Result<HashMap<String, serde_json::Value>> =
+                            serde_json::from_value(v)
+                                .map_err(|e| anyhow!("Failed to deserialize metadata: {}", e));
+                        if let Err(err) = &cm {
+                            tracing::error!("{}", err.to_string());
+                        }
+                        cm.unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                let root_content_metadata = row.3.map(|v| {
+                    let cm: Result<ContentMetadata> = serde_json::from_value(v)
+                        .map_err(|e| anyhow!("Failed to deserialize root_content_metadata: {}", e));
+                    cm
+                });
+                if let Some(Err(err)) = root_content_metadata {
+                    tracing::error!("{}", err.to_string());
+                    continue;
+                }
+                let root_content_matadata = root_content_metadata.map(|v| v.unwrap());
+                let content_metadata = row.4.map(|v| {
+                    let cm: Result<ContentMetadata> = serde_json::from_value(v)
+                        .map_err(|e| anyhow!("Failed to deserialize content_metadata: {}", e));
+                    cm
+                });
+                if let Some(Err(err)) = &content_metadata {
+                    tracing::error!("{}", err.to_string());
+                    continue;
+                }
                 chunks.push(VectorChunk {
                     content_id: row.0,
                     embedding: row.1.into(),
-                    metadata: row.2.unwrap_or_default(),
+                    metadata,
+                    root_content_metadata: root_content_matadata,
+                    content_metadata: content_metadata.unwrap().unwrap(),
                 });
             }
         }
@@ -105,10 +152,11 @@ impl VectorDb for PgVector {
         &self,
         index: &str,
         content_id: String,
-        metadata: serde_json::Value,
+        metadata: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let index = PostgresIndexName::new(index);
         let query = format!("UPDATE {} SET metadata = $2 WHERE content_id = $1", index);
+        let metadata = serde_json::to_value(metadata)?;
         let _rows_affected = sqlx::query(&query)
             .bind(content_id)
             .bind(metadata)
@@ -138,7 +186,7 @@ impl VectorDb for PgVector {
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
         let mut query = format!(
-            "SELECT content_id, CAST(1 - ($1 <=> embedding) AS FLOAT4) AS confidence_score FROM \"{index}\""
+            "SELECT content_id, CAST(1 - ($1 <=> embedding) AS FLOAT4) AS confidence_score, metadata, root_content_metadata, content_metadata FROM \"{index}\""
         );
         if !filters.is_empty() {
             query.push_str(" WHERE ");
@@ -167,17 +215,28 @@ impl VectorDb for PgVector {
             .bind(embedding)
             .fetch_all(&self.pool)
             .await?;
-        let results = rows
-            .into_iter()
-            .map(|row| {
-                let content_id: String = row.get(0);
-                let confidence_score: f32 = row.get(1);
-                SearchResult {
-                    content_id,
-                    confidence_score,
-                }
-            })
-            .collect();
+        let mut results: Vec<SearchResult> = Vec::new();
+        for row in rows {
+            let content_id: String = row.get(0);
+            let confidence_score: f32 = row.get(1);
+            let metadata: serde_json::Value = row.get(2);
+            let root_content_metadata: serde_json::Value = row.get(3);
+            let content_metadata: serde_json::Value = row.get(4);
+            let metadata: HashMap<String, serde_json::Value> = serde_json::from_value(metadata)
+                .map_err(|e| anyhow!("Failed to deserialize metadata: {}", e))?;
+            let root_content_metadata: Option<ContentMetadata> =
+                serde_json::from_value(root_content_metadata)
+                    .map_err(|e| anyhow!("Failed to deserialize root_content_metadata: {}", e))?;
+            let content_metadata: ContentMetadata = serde_json::from_value(content_metadata)
+                .map_err(|e| anyhow!("Failed to deserialize content_metadata: {}", e))?;
+            results.push(SearchResult {
+                content_id,
+                confidence_score,
+                metadata,
+                root_content_metadata,
+                content_metadata,
+            });
+        }
         Ok(results)
     }
 
@@ -208,18 +267,13 @@ impl VectorDb for PgVector {
 mod tests {
     use std::sync::Arc;
 
-    use serde_json::json;
-
     use super::CreateIndexParams;
     use crate::{
-        data_manager::DataManager,
         server_config::PgVectorConfig,
         vectordbs::{
             pg_vector::PgVector,
-            Filter,
-            FilterOperator,
+            tests::{basic_search, crud_operations, insertion_idempotent, search_filters},
             IndexDistance,
-            VectorChunk,
             VectorDBTS,
         },
     };
@@ -252,26 +306,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let metadata1 = json!({"key1": "value1", "key2": "value2"});
-        let chunk = VectorChunk {
-            content_id: "0".into(),
-            embedding: vec![0., 2.],
-            metadata: metadata1.clone(),
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk])
-            .await
-            .unwrap();
-
-        let results = vector_db
-            .search(index_name.into(), vec![10., 8.], 1, vec![])
-            .await
-            .unwrap();
-        assert_eq!(results.len(), 1);
-    }
-
-    fn make_id() -> String {
-        DataManager::make_id()
+        basic_search(vector_db, index_name).await;
     }
 
     #[tokio::test]
@@ -299,55 +334,6 @@ mod tests {
             })
             .await
             .unwrap();
-
-        let content_ids = vec![make_id(), make_id()];
-        let metadata1 = json!({"key1": "value1", "key2": "value2"});
-        let chunk1 = VectorChunk {
-            content_id: content_ids[0].clone(),
-            embedding: vec![0.1, 0.2],
-            metadata: metadata1.clone(),
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk1])
-            .await
-            .unwrap();
-        let metadata2 = json!({"key1": "value3", "key2": "value4"});
-        let chunk2 = VectorChunk {
-            content_id: content_ids[1].clone(),
-            embedding: vec![0.3, 0.4],
-            metadata: metadata2.clone(),
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk2])
-            .await
-            .unwrap();
-
-        let result = vector_db
-            .get_points(index_name, content_ids.clone())
-            .await
-            .unwrap();
-        assert_eq!(result.len(), 2);
-        for chunk in result {
-            if chunk.content_id == content_ids[0] {
-                assert_eq!(chunk.metadata, metadata1);
-            } else if chunk.content_id == content_ids[1] {
-                assert_eq!(chunk.metadata, metadata2);
-            } else {
-                panic!("unexpected content_id: {}", chunk.content_id);
-            }
-        }
-
-        let new_metadata = json!({"key1": "value5", "key2": "value6"});
-        vector_db
-            .update_metadata(index_name, content_ids[0].clone(), new_metadata.clone())
-            .await
-            .unwrap();
-        let result = vector_db
-            .get_points(index_name, vec![content_ids[0].clone()])
-            .await
-            .unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].metadata, new_metadata);
     }
 
     #[tokio::test]
@@ -378,23 +364,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let metadata1 = json!({"key1": "value1", "key2": "value2"});
-        let chunk = VectorChunk {
-            content_id: "0".into(),
-            embedding: vec![0., 2.],
-            metadata: metadata1.clone(),
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk.clone()])
-            .await
-            .unwrap();
-        vector_db
-            .add_embedding(index_name, vec![chunk])
-            .await
-            .unwrap();
-        let num_elements = vector_db.num_vectors(index_name).await.unwrap();
-
-        assert_eq!(num_elements, 1);
+        insertion_idempotent(vector_db, index_name).await;
     }
 
     #[tokio::test]
@@ -425,29 +395,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let content_id = "0";
-        let chunk = VectorChunk {
-            content_id: content_id.into(),
-            embedding: vec![0., 2.],
-            metadata: json!({"key1": "value1", "key2": "value2"}),
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk.clone()])
-            .await
-            .unwrap();
-        vector_db
-            .add_embedding(index_name, vec![chunk])
-            .await
-            .unwrap();
-        let num_elements = vector_db.num_vectors(index_name).await.unwrap();
-        assert_eq!(num_elements, 1);
-
-        vector_db
-            .remove_embedding(index_name, content_id)
-            .await
-            .unwrap();
-        let num_elements = vector_db.num_vectors(index_name).await.unwrap();
-        assert_eq!(num_elements, 0);
+        crud_operations(vector_db, index_name).await;
     }
 
     #[tokio::test]
@@ -475,109 +423,6 @@ mod tests {
             })
             .await
             .unwrap();
-
-        let content_ids = vec![make_id(), make_id()];
-        let metadata1 = json!({"key1": "value1", "key2": "value2"});
-        let chunk = VectorChunk {
-            content_id: content_ids[0].clone(),
-            embedding: vec![0., 2.],
-            metadata: metadata1,
-        };
-        let metadata2 = json!({"key1": "value3", "key2": "value4"});
-        let chunk1 = VectorChunk {
-            content_id: content_ids[1].clone(),
-            embedding: vec![0., 3.],
-            metadata: metadata2,
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk, chunk1])
-            .await
-            .unwrap();
-
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![Filter {
-                    key: "key1".to_string(),
-                    value: "value1".to_string(),
-                    operator: FilterOperator::Eq,
-                }],
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
-
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![Filter {
-                    key: "key1".to_string(),
-                    value: "value1".to_string(),
-                    operator: FilterOperator::Neq,
-                }],
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
-
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![
-                    Filter {
-                        key: "key1".to_string(),
-                        value: "value1".to_string(),
-                        operator: FilterOperator::Neq,
-                    },
-                    Filter {
-                        key: "key2".to_string(),
-                        value: "value4".to_string(),
-                        operator: FilterOperator::Eq,
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
-
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![
-                    Filter {
-                        key: "key1".to_string(),
-                        value: "value1".to_string(),
-                        operator: FilterOperator::Eq,
-                    },
-                    Filter {
-                        key: "key2".to_string(),
-                        value: "value4".to_string(),
-                        operator: FilterOperator::Eq,
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.len(), 0);
-
-        assert_eq!(
-            vector_db
-                .search(index_name.to_string(), vec![0., 2.], 2, vec![])
-                .await
-                .unwrap()
-                .len(),
-            2
-        );
+        search_filters(vector_db, index_name).await;
     }
 }

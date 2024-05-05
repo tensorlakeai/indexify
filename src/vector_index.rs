@@ -4,9 +4,8 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, ContentMetadata, Index};
+use indexify_proto::indexify_coordinator::Index;
 use internal_api::ExtractedEmbeddings;
-use itertools::Itertools;
 use tracing::info;
 
 use crate::{
@@ -21,7 +20,6 @@ use crate::{
 pub struct VectorIndexManager {
     vector_db: VectorDBTS,
     extractor_router: ExtractorRouter,
-    coordinator_client: Arc<CoordinatorClient>,
     content_reader: Arc<ContentReader>,
     metrics: Metrics,
 }
@@ -38,6 +36,8 @@ pub struct ScoredText {
     pub mime_type: String,
     pub labels: HashMap<String, String>,
     pub confidence_score: f32,
+    pub root_content_metadata: Option<internal_api::ContentMetadata>,
+    pub content_metadata: internal_api::ContentMetadata,
 }
 
 impl VectorIndexManager {
@@ -47,7 +47,6 @@ impl VectorIndexManager {
         Ok(Self {
             vector_db,
             extractor_router,
-            coordinator_client: coordinator_client.clone(),
             content_reader,
             metrics: Metrics::new(),
         })
@@ -85,6 +84,8 @@ impl VectorIndexManager {
                 embedding.content_id.clone(),
                 embedding.embedding.clone(),
                 embedding.metadata.clone(),
+                embedding.root_content_metadata.clone(),
+                &embedding.content_metadata,
             );
             vector_chunks.push(vector_chunk);
         });
@@ -114,7 +115,7 @@ impl VectorIndexManager {
         &self,
         index: &str,
         content_id: String,
-        metadata: serde_json::Value,
+        metadata: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let _timer = Timer::start(&self.metrics.vector_metadata_update);
         self.vector_db
@@ -150,24 +151,9 @@ impl VectorIndexManager {
             .search_vector_db(index.table_name, embedding.values, k as u64, filters)
             .await?;
 
-        let content_ids = search_result
-            .iter()
-            .map(|r| r.content_id.clone())
-            .collect_vec();
-
-        let content_metadata_list = self.retrieve_content_metadata(&content_ids).await?;
-
-        if content_ids.len() != content_metadata_list.len() {
-            return Err(anyhow!(
-                "Unable to get metadata for all content ids: {:?}, retreived content ids: {:?}",
-                &content_ids,
-                content_metadata_list.values(),
-            ));
-        }
-
         let mut content_byte_map = HashMap::new();
         if include_content {
-            content_byte_map = self.retrieve_content_blob(&content_metadata_list).await?;
+            content_byte_map = self.retrieve_content_blob(&search_result).await?;
         }
 
         let mut index_search_results = Vec::new();
@@ -177,28 +163,21 @@ impl VectorIndexManager {
             if content.is_none() && include_content {
                 continue;
             }
-            let mime_type = content_metadata_list
-                .get(&result.content_id)
-                .unwrap()
-                .mime
-                .to_string();
-            let labels = content_metadata_list
-                .get(&result.content_id)
-                .unwrap()
-                .labels
-                .clone();
-            let text = if mime_type.starts_with("text/") && content.is_some() {
-                let content = content.unwrap().clone();
-                String::from_utf8(content.to_vec()).unwrap()
-            } else {
-                String::from("")
-            };
+            let text =
+                if result.content_metadata.content_type.starts_with("text/") && content.is_some() {
+                    let content = content.unwrap().clone();
+                    String::from_utf8(content.to_vec()).unwrap()
+                } else {
+                    String::from("")
+                };
             let search_result = ScoredText {
                 text,
                 content_id: result.content_id.clone(),
-                mime_type,
-                labels,
+                mime_type: result.content_metadata.content_type.clone(),
+                labels: result.content_metadata.labels.clone(),
                 confidence_score: result.confidence_score,
+                root_content_metadata: result.root_content_metadata,
+                content_metadata: result.content_metadata.clone(),
             };
             index_search_results.push(search_result);
         }
@@ -234,46 +213,24 @@ impl VectorIndexManager {
         filters: Vec<Filter>,
     ) -> Result<Vec<SearchResult>> {
         let _timer = Timer::start(&self.metrics.vector_search_db);
-        let search_result = self
-            .vector_db
-            .search(index, embedding, k as u64, filters)
-            .await?;
+        let search_result = self.vector_db.search(index, embedding, k, filters).await?;
         Ok(search_result)
-    }
-
-    async fn retrieve_content_metadata(
-        &self,
-        content_ids: &Vec<String>,
-    ) -> Result<HashMap<String, ContentMetadata>> {
-        let _timer = Timer::start(&self.metrics.vector_search_retrieve_metadata);
-        let req = indexify_coordinator::GetContentMetadataRequest {
-            content_list: content_ids.clone(),
-        };
-
-        let content_metadata_list = self
-            .coordinator_client
-            .get()
-            .await?
-            .get_content_metadata(req)
-            .await?
-            .into_inner()
-            .content_list;
-
-        Ok(content_metadata_list)
     }
 
     async fn retrieve_content_blob(
         &self,
-        content_metadata_list: &HashMap<String, ContentMetadata>,
+        search_results: &Vec<SearchResult>,
     ) -> Result<HashMap<String, Bytes>> {
         let _timer = Timer::start(&self.metrics.vector_search_retrieve_blob);
         let mut content_bytes_list = Vec::new();
         let mut content_ids = Vec::new();
 
-        for (id, content_meta) in content_metadata_list {
-            let content = self.content_reader.bytes(&content_meta.storage_url);
+        for search_result in search_results {
+            let content = self
+                .content_reader
+                .bytes(&search_result.content_metadata.storage_url);
             content_bytes_list.push(content);
-            content_ids.push(id.clone());
+            content_ids.push(search_result.content_metadata.id.id.clone());
         }
 
         let bytes = join_all(content_bytes_list).await;
