@@ -11,3 +11,6 @@ This extractor uses unstructured.io to extract pieces of pdf document into separ
 
 #### [LayoutLM Document QA](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/layoutlm_document_qa)
 This is a fine-tuned version of the multi-modal [LayoutLM](https://aka.ms/layoutlm) model for the task of question answering on documents. It has been fine-tuned using both the SQuAD2.0 and [DocVQA](https://www.docvqa.org/) datasets.
+
+#### [MarkdownExtractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/markdown)
+Markdown extractor converts PDF, EPUB, and MOBI to markdown. It's 10x faster than nougat, more accurate on most documents, and has low hallucination risk.
