@@ -63,7 +63,7 @@ impl Default for MetadataStoreConfig {
 pub enum IndexStoreKind {
     Qdrant,
     PgVector,
-    OpenSearchKnn,
+    //OpenSearchKnn,
     Lancedb,
 }
 

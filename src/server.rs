@@ -1237,6 +1237,8 @@ async fn index_search(
             text: text.text.clone(),
             labels: text.labels.clone(),
             confidence_score: text.confidence_score,
+            root_content_metadata: text.root_content_metadata.clone().map(|r| r.into()),
+            content_metadata: text.content_metadata.clone().into(),
         })
         .collect();
     Ok(Json(IndexSearchResponse {

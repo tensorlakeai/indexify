@@ -333,6 +333,8 @@ pub struct DocumentFragment {
     pub mime_type: String,
     pub confidence_score: f32,
     pub labels: HashMap<String, String>,
+    pub root_content_metadata: Option<ContentMetadata>,
+    pub content_metadata: ContentMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
@@ -401,6 +403,25 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             namespace: value.namespace,
             name: value.file_name,
             mime_type: value.mime,
+            labels: value.labels,
+            storage_url: value.storage_url,
+            created_at: value.created_at,
+            source: value.source,
+            size: value.size_bytes,
+            hash: value.hash,
+        }
+    }
+}
+
+impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
+    fn from(value: indexify_internal_api::ContentMetadata) -> Self {
+        Self {
+            id: value.id.id,
+            parent_id: value.parent_id.id,
+            root_content_id: value.root_content_id,
+            namespace: value.namespace,
+            name: value.name,
+            mime_type: value.content_type,
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,

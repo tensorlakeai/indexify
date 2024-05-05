@@ -3,11 +3,29 @@ pub mod db_utils {
     use std::collections::HashMap;
 
     use indexify_internal_api as internal_api;
+    use internal_api::ContentMetadataId;
     use serde_json::json;
 
     pub const DEFAULT_TEST_NAMESPACE: &str = "test_namespace";
 
     pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
+
+    pub fn create_metadata(val: Vec<(&str, &str)>) -> HashMap<String, serde_json::Value> {
+        val.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()
+    }
+
+    pub fn test_mock_content_metadata(
+        id: &str,
+        root_content_id: &str,
+    ) -> internal_api::ContentMetadata {
+        internal_api::ContentMetadata {
+            id: ContentMetadataId::new(id),
+            root_content_id: root_content_id.to_string(),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            source: "test_source".to_string(),
+            ..Default::default()
+        }
+    }
 
     pub fn mock_extractor() -> internal_api::ExtractorDescription {
         let mut outputs = HashMap::new();
