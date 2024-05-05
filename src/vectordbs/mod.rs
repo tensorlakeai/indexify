@@ -241,10 +241,7 @@ mod tests {
 
     pub async fn store_metadata(vector_db: VectorDBTS, index_name: &str) {
         let content_ids = vec![make_id(), make_id()];
-        let metadata1 = HashMap::from([
-            ("key1".to_string(), json!("value1")),
-            ("key2".to_string(), json!("value2")),
-        ]);
+        let metadata1 = create_metadata(vec![("key1", "value1"), ("key2", "value2")]);
         let chunk1 = VectorChunk {
             content_id: content_ids[0].clone(),
             embedding: vec![0.1, 0.2],
@@ -256,10 +253,7 @@ mod tests {
             .add_embedding(index_name, vec![chunk1])
             .await
             .unwrap();
-        let metadata2 = HashMap::from([
-            ("key1".to_string(), json!("value3")),
-            ("key2".to_string(), json!("value4")),
-        ]);
+        let metadata2 = create_metadata(vec![("key1", "value3"), ("key2", "value4")]);
         let chunk2 = VectorChunk {
             content_id: content_ids[1].clone(),
             embedding: vec![0.3, 0.4],
