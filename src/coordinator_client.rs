@@ -4,7 +4,10 @@ use anyhow::{anyhow, Result};
 use axum::{http::StatusCode, Json};
 use indexify_internal_api::StructuredDataSchema;
 use indexify_proto::indexify_coordinator::{
-    self, coordinator_service_client, ContentMetadata, Task
+    self,
+    coordinator_service_client,
+    ContentMetadata,
+    Task,
 };
 use itertools::Itertools;
 use opentelemetry::propagation::{Injector, TextMapPropagator};

@@ -1129,7 +1129,6 @@ impl App {
             state_changes_processed,
         };
 
-
         self.forwardable_raft
             .client_write(req)
             .await
