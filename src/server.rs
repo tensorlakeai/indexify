@@ -292,7 +292,8 @@ impl Server {
             .layer(metrics)
             .layer(Extension(caches))
             .layer(cors)
-            .layer(DefaultBodyLimit::disable());
+            .layer(DefaultBodyLimit::disable())
+            .layer(tower_http::trace::TraceLayer::new_for_http());
 
         let handle = Handle::new();
 
