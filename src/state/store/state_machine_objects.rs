@@ -9,6 +9,7 @@ use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use internal_api::{ContentMetadataId, ExtractorDescription, StateChange, TaskOutcome};
 use itertools::Itertools;
+use opentelemetry::metrics::AsyncInstrument;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
 use tracing::{error, warn};
@@ -273,9 +274,17 @@ impl UnfinishedTasksByExtractor {
         guard.clone()
     }
 
-    pub fn task_count(&self) -> usize {
+    pub fn observe_task_counts(&self, observer: &dyn AsyncInstrument<u64>) {
         let guard = self.unfinished_tasks_by_extractor.read().unwrap();
-        guard.values().map(|v| v.len()).sum()
+        for (extractor, tasks) in guard.iter() {
+            observer.observe(
+                tasks.len() as u64,
+                &[opentelemetry::KeyValue::new(
+                    "extractor",
+                    extractor.to_string(),
+                )],
+            );
+        }
     }
 }
 
@@ -2026,10 +2035,6 @@ impl IndexifyState {
     pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
         self.pending_tasks_for_content
             .are_content_tasks_completed(content_id)
-    }
-
-    pub fn tasks_count(&self) -> usize {
-        self.unassigned_tasks.count() + self.unfinished_tasks_by_extractor.task_count()
     }
 
     pub fn executor_count(&self) -> usize {
