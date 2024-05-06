@@ -6,7 +6,7 @@ use opentelemetry_sdk::{
     propagation::TraceContextPropagator,
     runtime,
     runtime::Tokio,
-    trace::{BatchConfig, RandomIdGenerator},
+    trace::{BatchConfig, RandomIdGenerator, Sampler},
     Resource,
 };
 use rustls::crypto::CryptoProvider;
@@ -64,10 +64,31 @@ fn setup_stdout_tracing() -> Result<()> {
     global::set_tracer_provider(provider);
     let subscriber = tracing_subscriber::Registry::default()
         .with(tracing_opentelemetry::layer().with_tracer(tracer));
-    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
-        Err(anyhow!("failed to set global default subscriber: {}", e))
-    } else {
-        Ok(())
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| anyhow!("failed to set global default subscriber: {}", e))
+}
+
+const DEFAULT_PERCENT_TRACED: f64 = 0.01;
+
+fn get_percent_traced() -> f64 {
+    match std::env::var("INDEXIFY_TRACE_PERCENT") {
+        Ok(s) => match s.parse::<f64>() {
+            Ok(f) => f,
+            Err(_) => {
+                eprintln!(
+                    "failed to parse INDEXIFY_TRACE_PERCENT, using default {}",
+                    DEFAULT_PERCENT_TRACED
+                );
+                DEFAULT_PERCENT_TRACED
+            }
+        },
+        Err(_) => {
+            eprintln!(
+                "INDEXIFY_TRACE_PERCENT not set, using default {}",
+                DEFAULT_PERCENT_TRACED
+            );
+            DEFAULT_PERCENT_TRACED
+        }
     }
 }
 
@@ -81,6 +102,7 @@ fn setup_otlp_tracing() -> Result<()> {
         .with_trace_config(
             opentelemetry_sdk::trace::Config::default()
                 .with_id_generator(RandomIdGenerator::default())
+                .with_sampler(Sampler::TraceIdRatioBased(get_percent_traced()))
                 .with_resource(Resource::new(vec![KeyValue::new(
                     "service.name",
                     "indexify",
@@ -96,16 +118,35 @@ fn setup_otlp_tracing() -> Result<()> {
         .install_batch(runtime::Tokio)?;
     let subscriber = tracing_subscriber::Registry::default()
         .with(tracing_opentelemetry::layer().with_tracer(tracer));
-    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
-        Err(anyhow!("failed to set global default subscriber: {}", e))
-    } else {
-        Ok(())
-    }
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| anyhow!("failed to set global default subscriber: {}", e))
+}
+
+const DATADOG_DEFAULT_ENDPOINT: &str = "http://localhost:8126";
+
+fn setup_datadog_tracing() -> Result<()> {
+    let endpoint =
+        std::env::var("INDEXIFY_TRACE_ENDPOINT").unwrap_or(DATADOG_DEFAULT_ENDPOINT.to_string());
+    let tracer = opentelemetry_datadog::new_pipeline()
+        .with_service_name("indexify")
+        .with_api_version(opentelemetry_datadog::ApiVersion::Version05)
+        .with_agent_endpoint(endpoint)
+        .with_trace_config(
+            opentelemetry_sdk::trace::config()
+                .with_sampler(Sampler::TraceIdRatioBased(get_percent_traced()))
+                .with_id_generator(RandomIdGenerator::default()),
+        )
+        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_opentelemetry::layer().with_tracer(tracer));
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| anyhow!("failed to set global default subscriber: {}", e))
 }
 
 fn setup_tracing(trace_type: &str) -> Result<()> {
     match trace_type {
         "stdout" => setup_stdout_tracing(),
+        "datadog" => setup_datadog_tracing(),
         "otlp" => setup_otlp_tracing(),
         _ => Err(anyhow!("invalid trace type")),
     }

@@ -126,6 +126,7 @@ opentelemetry-otlp = { version = "0.15.0", features = ["http-proto", "grpc-tonic
 opentelemetry-tonic = "0.1.0"
 http = "1.1.0"
 opentelemetry-stdout = { version = "0.3.0", features = ["logs", "trace"] }
+opentelemetry-datadog = "0.10.0"
 
 [dependencies]
 anyerror = { workspace = true }
@@ -217,6 +218,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry-tonic = { workspace = true }
 http = { workspace = true }
 opentelemetry-stdout = { workspace = true }
+opentelemetry-datadog = { workspace = true }
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
