@@ -11,7 +11,13 @@ use std::{
 use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
-use indexify_internal_api::{ContentMetadata, ExecutorMetadata, StateChange, StructuredDataSchema};
+use indexify_internal_api::{
+    ContentMetadata,
+    ContentMetadataId,
+    ExecutorMetadata,
+    StateChange,
+    StructuredDataSchema,
+};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -377,11 +383,21 @@ impl StateMachineStore {
 
     pub async fn get_content_from_ids_with_version(
         &self,
-        content_ids: HashSet<indexify_internal_api::ContentMetadataId>,
-    ) -> Result<Vec<ContentMetadata>> {
+        content_ids: Vec<ContentMetadataId>,
+    ) -> Result<Vec<Option<ContentMetadata>>> {
         self.data
             .indexify_state
             .get_content_from_ids_with_version(content_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub async fn get_content_by_id_and_version(
+        &self,
+        content_id: &ContentMetadataId,
+    ) -> Result<Option<ContentMetadata>> {
+        self.data
+            .indexify_state
+            .get_content_by_id_and_version(&self.db, content_id)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -394,7 +410,7 @@ impl StateMachineStore {
 
     pub fn get_content_tree_metadata_with_version(
         &self,
-        content_id: &indexify_internal_api::ContentMetadataId,
+        content_id: &ContentMetadataId,
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
@@ -445,7 +461,7 @@ impl StateMachineStore {
 
     pub async fn get_content_namespace_table(
         &self,
-    ) -> HashMap<NamespaceName, HashSet<indexify_internal_api::ContentMetadataId>> {
+    ) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
         self.data.indexify_state.get_content_namespace_table()
     }
 
@@ -477,10 +493,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 
-    pub async fn are_content_tasks_completed(
-        &self,
-        content_id: &indexify_internal_api::ContentMetadataId,
-    ) -> bool {
+    pub async fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
         self.data
             .indexify_state
             .are_content_tasks_completed(content_id)
@@ -488,8 +501,8 @@ impl StateMachineStore {
 
     pub fn get_content_children(
         &self,
-        content_id: &indexify_internal_api::ContentMetadataId,
-    ) -> HashSet<indexify_internal_api::ContentMetadataId> {
+        content_id: &ContentMetadataId,
+    ) -> HashSet<ContentMetadataId> {
         self.data
             .indexify_state
             .content_children_table

@@ -62,7 +62,12 @@ impl Coordinator {
         parent_id: &str,
         labels_eq: &HashMap<String, String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content = self.shared_state.list_content(namespace).await?.into_iter();
+        let content = self
+            .shared_state
+            .list_content(namespace)
+            .await?
+            .into_iter()
+            .filter_map(|c| c);
         list_content_filter(content, source, parent_id, labels_eq)
             .map(Ok)
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
@@ -1390,7 +1395,7 @@ mod tests {
             .await?;
 
         let parent_content_internal: indexify_internal_api::ContentMetadata =
-            parent_content.clone().try_into()?;
+            parent_content.clone().into();
 
         //  before tombstone
         let content_matching_policy = coordinator
@@ -1873,7 +1878,7 @@ mod tests {
                 version: 1,
             })
             .await;
-        assert!(old_root.is_err());
+        assert!(old_root.unwrap().tombstoned);
 
         Ok(())
     }

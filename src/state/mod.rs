@@ -376,6 +376,9 @@ impl App {
         content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_content_metadata_with_version(content_id).await?;
+        if content_metadata.tombstoned {
+            return Ok(vec![]);
+        }
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -474,23 +477,19 @@ impl App {
             for content_id in content_list {
                 let content_metadata = self
                     .state_machine
-                    .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
-                    .await?;
+                    .get_content_by_id_and_version(&content_id)
+                    .await?
+                    .ok_or(anyhow!("Unable to get content with id {}", content_id.id))?;
 
                 // if the content metadata mimetype does not match the extractor, skip it
                 //  if the content metadata is tombstoned, skip it
-                if let Some(content_metadata) = content_metadata.first() {
-                    if !matches_mime_type(
-                        &extractor.input_mime_types,
-                        &content_metadata.content_type,
-                    ) {
-                        continue;
-                    }
-                    if content_metadata.tombstoned {
-                        continue;
-                    }
-                    content_meta_list.push(content_metadata.clone());
+                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
+                    continue;
                 }
+                if content_metadata.tombstoned {
+                    continue;
+                }
+                content_meta_list.push(content_metadata.clone());
             }
             content_meta_list
         };
@@ -583,7 +582,7 @@ impl App {
     pub async fn list_content(
         &self,
         namespace: &str,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
+    ) -> Result<Vec<Option<internal_api::ContentMetadata>>> {
         let content_ids = self
             .state_machine
             .get_content_namespace_table()
@@ -592,7 +591,7 @@ impl App {
             .cloned()
             .unwrap_or_default();
         self.state_machine
-            .get_content_from_ids_with_version(content_ids)
+            .get_content_from_ids_with_version(content_ids.into_iter().collect_vec())
             .await
     }
 
@@ -1110,23 +1109,17 @@ impl App {
 
         let mut updated_content = Vec::new();
         while let Some(current_root) = queue.pop_front() {
-            let mut content_keys_set = HashSet::new();
-            content_keys_set.insert(current_root.clone());
-            let content_metadata = self
+            let mut content_metadata = self
                 .state_machine
-                .get_content_from_ids_with_version(content_keys_set)
-                .await?;
-            let mut content_metadata = content_metadata
-                .first()
-                .ok_or_else(|| anyhow!("Content with id {} not found", current_root))?
-                .clone();
+                .get_content_by_id_and_version(&current_root)
+                .await?
+                .ok_or(anyhow!("Content with id {} not found", current_root))?;
             content_metadata.tombstoned = true;
             updated_content.push(content_metadata);
 
             let children = self.state_machine.get_content_children(&current_root);
             queue.extend(children.iter().cloned());
         }
-
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::TombstoneContentTree {
                 namespace: namespace.to_string(),
@@ -1135,6 +1128,7 @@ impl App {
             new_state_changes: state_changes,
             state_changes_processed,
         };
+
 
         self.forwardable_raft
             .client_write(req)
@@ -1160,13 +1154,9 @@ impl App {
         &self,
         content_id: &ContentMetadataId,
     ) -> Result<internal_api::ContentMetadata> {
-        let content_list = self
-            .state_machine
-            .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
-            .await?;
-        content_list
-            .first()
-            .cloned()
+        self.state_machine
+            .get_content_by_id_and_version(content_id)
+            .await?
             .ok_or(anyhow!("content with id: {} not found", content_id))
     }
 

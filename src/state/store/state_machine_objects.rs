@@ -1663,38 +1663,60 @@ impl IndexifyState {
     /// It will skip over any content that it cannot find
     pub fn get_content_from_ids_with_version(
         &self,
-        content_ids: HashSet<ContentMetadataId>,
+        content_ids: Vec<ContentMetadataId>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+    ) -> Result<Vec<Option<indexify_internal_api::ContentMetadata>>, StateMachineError> {
         let txn = db.transaction();
+        let keys = content_ids
+            .iter()
+            .map(|id| {
+                (
+                    StateMachineColumns::ContentTable.cf(db),
+                    format!("{}::v{}", id.id, id.version),
+                )
+            })
+            .collect_vec();
+        let mut content_metadatas = Vec::new();
 
-        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
-            content_ids
-                .into_iter()
-                .filter_map(|content_id| {
-                    match txn.get_cf(
-                        StateMachineColumns::ContentTable.cf(db),
-                        format!("{}::v{}", content_id.id, content_id.version),
-                    ) {
-                        Ok(Some(content_bytes)) => match JsonEncoder::decode::<
-                            indexify_internal_api::ContentMetadata,
-                        >(&content_bytes)
-                        {
-                            Ok(content) => {
-                                if !content.tombstoned {
-                                    Some(Ok(content))
-                                } else {
-                                    None
-                                }
-                            }
-                            Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
-                        },
-                        Ok(None) => None,
-                        Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>();
-        content
+        let content_metadata_bytes = txn.multi_get_cf(keys);
+        for content_metadata in content_metadata_bytes {
+            let content_metadata =
+                content_metadata.map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+            match content_metadata {
+                Some(content_bytes) => {
+                    let content = JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
+                        &content_bytes,
+                    )
+                    .map_err(StateMachineError::from)?;
+                    content_metadatas.push(Some(content));
+                }
+                None => {
+                    content_metadatas.push(None);
+                }
+            }
+        }
+        Ok(content_metadatas)
+    }
+
+    pub fn get_content_by_id_and_version(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        content_id: &ContentMetadataId,
+    ) -> Result<Option<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let content_metadata_bytes = txn
+            .get_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                format!("{}::v{}", content_id.id, content_id.version),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+        if content_metadata_bytes.is_none() {
+            return Ok(None);
+        }
+        let content_metadata = JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
+            &content_metadata_bytes.unwrap(),
+        )?;
+        Ok(Some(content_metadata))
     }
 
     /// This method will fetch content based on the id's provided. It will look
