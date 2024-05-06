@@ -63,6 +63,7 @@ enum FrameState {
 struct ContentStateWriting {
     ingest_metadata: BeginExtractedContentIngest,
     task: indexify_coordinator::Task,
+    root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
     frame_state: FrameState,
 }
 
@@ -70,13 +71,16 @@ impl ContentStateWriting {
     fn new(
         ingest_metadata: BeginExtractedContentIngest,
         task: indexify_coordinator::Task,
+        root_content: Option<indexify_coordinator::ContentMetadata>,
     ) -> Result<Self> {
         if task.content_metadata.is_none() {
             return Err(anyhow!("task does not have content metadata"));
         }
+        let root_content = root_content.map(|c| c.into());
         Ok(Self {
             ingest_metadata,
             task,
+            root_content_metadata: root_content,
             frame_state: FrameState::New,
         })
     }
@@ -176,6 +180,7 @@ impl ContentStateWriting {
                     .data_manager
                     .create_content_and_write_features(
                         &content_metadata,
+                        self.root_content_metadata.clone(),
                         &self.task.extractor,
                         payload.features,
                         &self.task.output_index_mapping,
@@ -202,6 +207,7 @@ impl ContentStateWriting {
             .write_existing_content_features(
                 &self.task.extractor,
                 self.content_metadata(),
+                self.root_content_metadata.clone(),
                 payload.features,
                 &self.task.output_index_mapping,
                 &self.task.index_tables,
@@ -230,13 +236,15 @@ impl IngestExtractedContentState {
 
     async fn begin(&mut self, payload: BeginExtractedContentIngest) -> Result<()> {
         info!("beginning extraction ingest for task: {}", payload.task_id);
-        let task = self
+        let (task, root_content) = self
             .state
             .coordinator_client
-            .get_task(&payload.task_id)
-            .await?
-            .ok_or(anyhow!("task not found"))?;
-        self.content_state = ContentState::Writing(ContentStateWriting::new(payload, task)?);
+            .get_metadata_for_ingestion(&payload.task_id)
+            .await?;
+        let task = task.ok_or_else(|| anyhow!("task {} not found", payload.task_id))?;
+
+        self.content_state =
+            ContentState::Writing(ContentStateWriting::new(payload, task, root_content)?);
         Ok(())
     }
 

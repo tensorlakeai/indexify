@@ -646,16 +646,14 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     }
 }
 
-impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self, Self::Error> {
+impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    fn from(value: indexify_coordinator::ContentMetadata) -> Self {
         let root_content_id = if value.root_content_id.is_empty() {
             None
         } else {
             Some(value.root_content_id)
         };
-        Ok(Self {
+        Self {
             id: ContentMetadataId {
                 id: value.id,
                 version: 1,
@@ -676,7 +674,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             tombstoned: false,
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
-        })
+        }
     }
 }
 
