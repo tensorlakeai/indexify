@@ -1,17 +1,10 @@
-# PDF Extraction
+# 📄 PDF Extraction: Unleash the Power of Your Documents! 📊
 
-PDF is a complex document type, and they can contain text, images and tabular data. Depending on the document type the strategy to extract information from PDF could vary. 
+Welcome to the world of PDF extraction with Indexify! 🎉 We're here to revolutionize the way you interact with your documents, making it easier than ever to extract valuable insights and perform powerful question answering. Get ready to dive into a realm of endless possibilities! 💡
 
-With Indexify, you can -
-
-1. **Perform Data Extraction on PDFs:** Extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices and receipts.
-2. **Index PDFs:** - Add chunking, embedding extractors, structured data extractors in a pipeline after data extraction to build indexes on vector stores and structured stores. LLMs can then query these indexes for Document Q and A.
-
-Below is an overview of what you can achieve by combining the PDF Extractors, with Embedding, Chunking and other structured data extractors. We have some examples as well below.
 ![PDF Extraction High Level](../images/PDF_Usecase.png)
 
-We have developed a PDF extractor which can extract text, images and tables from PDF documents. Additionaly, you can use many other PDF extraction libraries which we have 
-packaged as an extractor. You can try out all the various extractors and see which one works best for your use-case.
+## 🌟 What Can You Achieve with Indexify?
 
 ## Explore various PDF Extractors
 | Extractors                                | Input Type | Output Type        | Output Example                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Best For                        | Example Usage                                                                                                                                                                                                                                      |
@@ -30,24 +23,24 @@ indexify-extractor download hub://pdf/pdf-extractor
 indexify-extractor join-server
 ```
 
-Load it in a notebook or terminal
-```python
-from indexify_extractor_sdk import load_extractor, Content
-extractor, config_cls = load_extractor("pdf-extractor.pdf_extractor:PDFExtractor")
-content = Content.from_file("/path/to/file.pdf")
-results =  extractor.extract(content)
-print(results)
-```
+Ready to dive in and experience the magic of PDF extraction? Here's how you can test it locally and unlock the secrets hidden within your documents:
 
-## Continuous PDF Extraction for Applications
+1. Download a PDF Extractor:
+   ```bash
+   indexify-extractor download hub://pdf/pdf-extractor
+   indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
+   ```
 
-#### Start Indexify Server and Extraction Policies
+2. Load it in a notebook or terminal:
+   ```python
+   from indexify_extractor_sdk import load_extractor, Content
+   extractor, config_cls = load_extractor("pdf-extractor.pdf_extractor:PDFExtractor")
+   content = Content.from_file("/path/to/file.pdf")
+   results =  extractor.extract(content)
+   print(results)
+   ```
 
-Download and Start the Indexify Server 
-```bash
-curl https://tensorlake.ai | sh
-./indexify server -d
-```
+Watch as the extractor works its magic, revealing the hidden gems within your PDFs. It's like having a superhero sidekick that can read and understand your documents in the blink of an eye! 🦸‍♀️📄
 
 Start a long running PDF Extractor 
 ```bash
@@ -55,32 +48,56 @@ indexify-extractor download hub://pdf/pdf-extractor
 indexify-extractor join-server
 ```
 
-```python
-from indexify import IndexifyClient
-client = IndexifyClient()
-client.create_extraction_policy(extractor="tensorlake/pdf-extractor", name="my-pdf-extractor")
-```
+Want to harness the power of PDF extraction in your own applications? We've made it incredibly easy to integrate Indexify into your workflow. Get ready to supercharge your document processing capabilities! 🔋
 
-##### Upload PDFs from your application 
+1. Start the Indexify Server and Extraction Policies:
+   ```bash
+   curl https://tensorlake.ai | sh
+   ./indexify server -d
+   ```
 
+2. Start a long-running PDF Extractor:
+   ```bash
+   indexify-extractor download hub://pdf/pdf-extractor
+   indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
+   ```
 
-Inspect the extracted content
-```python
-from indexify import IndexifyClient
-client = IndexifyClient()
-content_id = client.upload_file("/path/to/pdf.file")
-### Read back the extracted content 
-extracted_content = client.get_extracted_content(content_id=content_id)
-print(extracted_content)
-```
+3. Create an Extraction Policy:
+   ```python
+   from indexify import IndexifyClient
+   client = IndexifyClient()
+   client.create_extraction_policy(extractor="tensorlake/pdf-extractor", name="my-pdf-extractor")
+   ```
 
-## Other Examples 
+4. Upload PDFs from your application:
+   ```python
+   from indexify import IndexifyClient
+   client = IndexifyClient()
+   content_id = client.upload_file("/path/to/pdf.file")
+   ```
 
-### Invoices
-[Notebook for Invoices](../examples/Invoices.ipynb)
+5. Inspect the extracted content:
+   ```python
+   extracted_content = client.get_extracted_content(content_id=content_id)
+   print(extracted_content)
+   ```
 
-### Terms and Condition Documents of Car Rental
-[Notebook for Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb)
+With just a few lines of code, you can unleash the full potential of PDF extraction in your applications. Imagine the possibilities: automated data entry, intelligent document search, and effortless question answering. The sky's the limit! 🚀🌟
 
-### Terms and Conditions Documents of Health Care Benefits
-[Notebook for Documents of Health Care](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb)
+## 📚 Explore More Examples
+
+But wait, there's more! We've curated a collection of inspiring examples to showcase the versatility and power of PDF extraction. Check out these notebooks and witness the magic in action:
+
+- [Invoices](../examples/Invoices.ipynb): Extract and analyze invoice data like a pro! 💰📊
+- [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease. 🚗📜
+- [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions. 🏥📄
+
+These examples are just the tip of the iceberg. With Indexify, the possibilities are endless. Dive in, explore, and discover how PDF extraction can revolutionize the way you work with documents! 🌈📚
+
+---
+
+Are you ready to embark on this exciting journey of PDF extraction? Let's unlock the full potential of your documents together and make data-driven decisions like never before! 🎉🚀
+
+If you have any questions, feedback, or just want to share your amazing PDF extraction stories, we're here for you. Reach out to our friendly support team, and let's make document magic happen! ✨💬
+
+Happy extracting! 📄🔍🎉
