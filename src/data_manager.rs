@@ -602,6 +602,7 @@ impl DataManager {
         &self,
         extractor: &str,
         content_metadata: &indexify_coordinator::ContentMetadata,
+        root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         features: Vec<api::Feature>,
         output_index_mapping: &HashMap<String, String>,
         index_tables: &[String],
@@ -628,6 +629,7 @@ impl DataManager {
         self.write_extracted_features(
             extractor,
             content_metadata.clone(),
+            root_content_metadata,
             features.clone(),
             new_metadata.clone(),
             output_index_mapping,
@@ -655,6 +657,7 @@ impl DataManager {
         &self,
         extractor: &str,
         content_metadata: indexify_coordinator::ContentMetadata,
+        root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         features: Vec<api::Feature>,
         metadata: HashMap<String, serde_json::Value>,
         output_index_map: &HashMap<String, String>,
@@ -673,7 +676,7 @@ impl DataManager {
                         &content_metadata.id.id,
                         output_index_map,
                         metadata.clone(),
-                        None,
+                        root_content_metadata.clone(),
                         content_metadata.clone(),
                     )
                     .await?;
@@ -702,6 +705,7 @@ impl DataManager {
     pub async fn create_content_and_write_features(
         &self,
         content_metadata: &indexify_coordinator::ContentMetadata,
+        root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         extractor: &str,
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
@@ -734,6 +738,7 @@ impl DataManager {
         self.write_extracted_features(
             extractor,
             content_metadata.clone(),
+            root_content_metadata,
             features,
             metadata,
             output_index_map,

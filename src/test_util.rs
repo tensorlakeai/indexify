@@ -20,7 +20,7 @@ pub mod db_utils {
     ) -> internal_api::ContentMetadata {
         internal_api::ContentMetadata {
             id: ContentMetadataId::new(id),
-            root_content_id: root_content_id.to_string(),
+            root_content_id: Some(root_content_id.to_string()),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             source: "test_source".to_string(),
             ..Default::default()

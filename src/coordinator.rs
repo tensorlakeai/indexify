@@ -62,7 +62,12 @@ impl Coordinator {
         parent_id: &str,
         labels_eq: &HashMap<String, String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content = self.shared_state.list_content(namespace).await?.into_iter();
+        let content = self
+            .shared_state
+            .list_content(namespace)
+            .await?
+            .into_iter()
+            .filter_map(|c| c);
         list_content_filter(content, source, parent_id, labels_eq)
             .map(Ok)
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
@@ -259,6 +264,24 @@ impl Coordinator {
         self.shared_state.task_with_id(task_id).await
     }
 
+    pub async fn get_task_and_root_content(
+        &self,
+        task_id: &str,
+    ) -> Result<(internal_api::Task, Option<internal_api::ContentMetadata>)> {
+        let task = self.shared_state.task_with_id(task_id).await?;
+        let mut root_content = None;
+        if let Some(root_content_id) = &task.content_metadata.root_content_id {
+            let root_cm = self
+                .shared_state
+                .get_content_metadata_batch(vec![root_content_id.clone()])
+                .await?;
+            if let Some(root_cm) = root_cm.first() {
+                root_content.replace(root_cm.clone());
+            }
+        }
+        Ok((task, root_content))
+    }
+
     pub async fn get_content_tree_metadata(
         &self,
         content_id: &str,
@@ -423,12 +446,6 @@ impl Coordinator {
             .shared_state
             .get_content_metadata_with_version(&previous_version)
             .await?;
-        let content_metadata = content_metadata.first().ok_or_else(|| {
-            anyhow!(
-                "unable to find content metadata for content id: {}",
-                &previous_version.id
-            )
-        })?;
         self.shared_state
             .tombstone_content_batch_with_version(
                 &content_metadata.namespace,
@@ -1378,7 +1395,7 @@ mod tests {
             .await?;
 
         let parent_content_internal: indexify_internal_api::ContentMetadata =
-            parent_content.clone().try_into()?;
+            parent_content.clone().into();
 
         //  before tombstone
         let content_matching_policy = coordinator
@@ -1860,8 +1877,8 @@ mod tests {
                 id: "test_parent_id".to_string(),
                 version: 1,
             })
-            .await?;
-        assert_eq!(old_root.len(), 0);
+            .await;
+        assert!(old_root.unwrap().tombstoned);
 
         Ok(())
     }

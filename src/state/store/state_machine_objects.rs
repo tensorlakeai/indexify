@@ -1500,7 +1500,7 @@ impl IndexifyState {
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-    ) -> Result<Option<u64>, StateMachineError> {
+    ) -> Result<Option<internal_api::ContentMetadata>, StateMachineError> {
         let prefix = format!("{}::v", content_id);
 
         let mut read_opts = rocksdb::ReadOptions::default();
@@ -1510,7 +1510,7 @@ impl IndexifyState {
             rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
         );
 
-        let mut highest_version: Option<u64> = None;
+        let mut latest_content_metada: Option<internal_api::ContentMetadata> = None;
 
         for item in iter {
             match item {
@@ -1523,9 +1523,11 @@ impl IndexifyState {
                     if let Ok(key_str) = std::str::from_utf8(&key) {
                         if let Some(version_str) = key_str.strip_prefix(&prefix) {
                             if let Ok(version) = version_str.parse::<u64>() {
-                                highest_version = Some(match highest_version {
-                                    Some(current_high) if version > current_high => version,
-                                    None => version,
+                                latest_content_metada = Some(match latest_content_metada {
+                                    Some(current_high) if version > current_high.id.version => {
+                                        content_metadata
+                                    }
+                                    None => content_metadata,
                                     Some(current_high) => current_high,
                                 });
                             }
@@ -1536,7 +1538,7 @@ impl IndexifyState {
             }
         }
 
-        Ok(highest_version)
+        Ok(latest_content_metada)
     }
 
     /// This method fetches a key from a specific column family
@@ -1661,38 +1663,60 @@ impl IndexifyState {
     /// It will skip over any content that it cannot find
     pub fn get_content_from_ids_with_version(
         &self,
-        content_ids: HashSet<ContentMetadataId>,
+        content_ids: Vec<ContentMetadataId>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+    ) -> Result<Vec<Option<indexify_internal_api::ContentMetadata>>, StateMachineError> {
         let txn = db.transaction();
+        let keys = content_ids
+            .iter()
+            .map(|id| {
+                (
+                    StateMachineColumns::ContentTable.cf(db),
+                    format!("{}::v{}", id.id, id.version),
+                )
+            })
+            .collect_vec();
+        let mut content_metadatas = Vec::new();
 
-        let content: Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> =
-            content_ids
-                .into_iter()
-                .filter_map(|content_id| {
-                    match txn.get_cf(
-                        StateMachineColumns::ContentTable.cf(db),
-                        format!("{}::v{}", content_id.id, content_id.version),
-                    ) {
-                        Ok(Some(content_bytes)) => match JsonEncoder::decode::<
-                            indexify_internal_api::ContentMetadata,
-                        >(&content_bytes)
-                        {
-                            Ok(content) => {
-                                if !content.tombstoned {
-                                    Some(Ok(content))
-                                } else {
-                                    None
-                                }
-                            }
-                            Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
-                        },
-                        Ok(None) => None,
-                        Err(e) => Some(Err(StateMachineError::TransactionError(e.to_string()))),
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>();
-        content
+        let content_metadata_bytes = txn.multi_get_cf(keys);
+        for content_metadata in content_metadata_bytes {
+            let content_metadata =
+                content_metadata.map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+            match content_metadata {
+                Some(content_bytes) => {
+                    let content = JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
+                        &content_bytes,
+                    )
+                    .map_err(StateMachineError::from)?;
+                    content_metadatas.push(Some(content));
+                }
+                None => {
+                    content_metadatas.push(None);
+                }
+            }
+        }
+        Ok(content_metadatas)
+    }
+
+    pub fn get_content_by_id_and_version(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        content_id: &ContentMetadataId,
+    ) -> Result<Option<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let content_metadata_bytes = txn
+            .get_cf(
+                StateMachineColumns::ContentTable.cf(db),
+                format!("{}::v{}", content_id.id, content_id.version),
+            )
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+        if content_metadata_bytes.is_none() {
+            return Ok(None);
+        }
+        let content_metadata = JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
+            &content_metadata_bytes.unwrap(),
+        )?;
+        Ok(Some(content_metadata))
     }
 
     /// This method will fetch content based on the id's provided. It will look
@@ -1715,32 +1739,8 @@ impl IndexifyState {
             if highest_version.is_none() {
                 continue;
             }
-            // If a key with the highest version is found, decode its content and add to the
-            // results
-            let highest_version = highest_version.unwrap();
-            match txn.get_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                &format!("{}::v{}", content_id, highest_version),
-            ) {
-                Ok(Some(content_bytes)) => {
-                    match JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
-                        &content_bytes,
-                    ) {
-                        Ok(content) => {
-                            if !content.tombstoned {
-                                contents.push(content);
-                            }
-                        }
-                        Err(e) => {
-                            return Err(StateMachineError::TransactionError(e.to_string()));
-                        }
-                    }
-                }
-                Ok(None) => {} // This should technically never happen since we have the key
-                Err(e) => return Err(StateMachineError::TransactionError(e.to_string())),
-            }
+            contents.push(highest_version.unwrap());
         }
-
         Ok(contents)
     }
 
@@ -1766,7 +1766,7 @@ impl IndexifyState {
             let content_bytes = txn
                 .get_cf(
                     StateMachineColumns::ContentTable.cf(db),
-                    &format!("{}::v{}", current_root, highest_version),
+                    &format!("{}::v{}", current_root, highest_version.id.version),
                 )
                 .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
                 .ok_or_else(|| {

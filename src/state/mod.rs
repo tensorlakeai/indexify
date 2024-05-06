@@ -376,15 +376,9 @@ impl App {
         content_id: &ContentMetadataId,
     ) -> Result<Vec<ExtractionPolicy>> {
         let content_metadata = self.get_content_metadata_with_version(content_id).await?;
-        if content_metadata.is_empty() {
+        if content_metadata.tombstoned {
             return Ok(vec![]);
         }
-        let content_metadata = content_metadata.first().ok_or_else(|| {
-            anyhow!(
-                "Content metadata with id {} not found",
-                content_id.to_string()
-            )
-        })?;
         let extraction_policy_ids = {
             self.state_machine
                 .get_extraction_policies_table()
@@ -483,23 +477,19 @@ impl App {
             for content_id in content_list {
                 let content_metadata = self
                     .state_machine
-                    .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
-                    .await?;
+                    .get_content_by_id_and_version(&content_id)
+                    .await?
+                    .ok_or(anyhow!("Unable to get content with id {}", content_id.id))?;
 
                 // if the content metadata mimetype does not match the extractor, skip it
                 //  if the content metadata is tombstoned, skip it
-                if let Some(content_metadata) = content_metadata.first() {
-                    if !matches_mime_type(
-                        &extractor.input_mime_types,
-                        &content_metadata.content_type,
-                    ) {
-                        continue;
-                    }
-                    if content_metadata.tombstoned {
-                        continue;
-                    }
-                    content_meta_list.push(content_metadata.clone());
+                if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
+                    continue;
                 }
+                if content_metadata.tombstoned {
+                    continue;
+                }
+                content_meta_list.push(content_metadata.clone());
             }
             content_meta_list
         };
@@ -592,7 +582,7 @@ impl App {
     pub async fn list_content(
         &self,
         namespace: &str,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
+    ) -> Result<Vec<Option<internal_api::ContentMetadata>>> {
         let content_ids = self
             .state_machine
             .get_content_namespace_table()
@@ -601,7 +591,7 @@ impl App {
             .cloned()
             .unwrap_or_default();
         self.state_machine
-            .get_content_from_ids_with_version(content_ids)
+            .get_content_from_ids_with_version(content_ids.into_iter().collect_vec())
             .await
     }
 
@@ -968,7 +958,7 @@ impl App {
             let latest_version_of_parent = latest_version_of_parent.unwrap();
 
             //  if the latest version of the parent is the first version, create the content
-            if latest_version_of_parent == 1 {
+            if latest_version_of_parent.id.version == 1 {
                 new_content.push(incoming_content);
                 continue;
             }
@@ -977,7 +967,7 @@ impl App {
             // content
             let parent_prev_version_id = ContentMetadataId::new_with_version(
                 &incoming_content.parent_id.id,
-                latest_version_of_parent - 1,
+                latest_version_of_parent.id.version - 1,
             );
             let parent_prev_version_tree = self
                 .state_machine
@@ -993,7 +983,7 @@ impl App {
                 let mut content = incoming_content.clone();
                 content.parent_id = ContentMetadataId::new_with_version(
                     &incoming_content.parent_id.id,
-                    latest_version_of_parent,
+                    latest_version_of_parent.id.version,
                 );
                 new_content.push(content);
                 continue;
@@ -1009,7 +999,7 @@ impl App {
                 let mut content = incoming_content.clone();
                 content.parent_id = ContentMetadataId::new_with_version(
                     &incoming_content.parent_id.id,
-                    latest_version_of_parent,
+                    latest_version_of_parent.id.version,
                 );
                 new_content.push(content);
                 continue;
@@ -1018,7 +1008,7 @@ impl App {
             let mut content = incoming_content.clone();
             content.parent_id = ContentMetadataId::new_with_version(
                 &incoming_content.parent_id.id,
-                latest_version_of_parent,
+                latest_version_of_parent.id.version,
             );
             identical_content.push(content);
         }
@@ -1089,7 +1079,7 @@ impl App {
                 })?
                 .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
 
-            let id = ContentMetadataId::new_with_version(content_id, latest_version);
+            let id = ContentMetadataId::new_with_version(content_id, latest_version.id.version);
             updated_content_ids.push(id.clone());
         }
 
@@ -1119,23 +1109,17 @@ impl App {
 
         let mut updated_content = Vec::new();
         while let Some(current_root) = queue.pop_front() {
-            let mut content_keys_set = HashSet::new();
-            content_keys_set.insert(current_root.clone());
-            let content_metadata = self
+            let mut content_metadata = self
                 .state_machine
-                .get_content_from_ids_with_version(content_keys_set)
-                .await?;
-            let mut content_metadata = content_metadata
-                .first()
-                .ok_or_else(|| anyhow!("Content with id {} not found", current_root))?
-                .clone();
+                .get_content_by_id_and_version(&current_root)
+                .await?
+                .ok_or(anyhow!("Content with id {} not found", current_root))?;
             content_metadata.tombstoned = true;
             updated_content.push(content_metadata);
 
             let children = self.state_machine.get_content_children(&current_root);
             queue.extend(children.iter().cloned());
         }
-
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::TombstoneContentTree {
                 namespace: namespace.to_string(),
@@ -1144,6 +1128,7 @@ impl App {
             new_state_changes: state_changes,
             state_changes_processed,
         };
+
 
         self.forwardable_raft
             .client_write(req)
@@ -1168,10 +1153,11 @@ impl App {
     pub async fn get_content_metadata_with_version(
         &self,
         content_id: &ContentMetadataId,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
+    ) -> Result<internal_api::ContentMetadata> {
         self.state_machine
-            .get_content_from_ids_with_version(HashSet::from([content_id.clone()]))
-            .await
+            .get_content_by_id_and_version(content_id)
+            .await?
+            .ok_or(anyhow!("content with id: {} not found", content_id))
     }
 
     pub fn get_content_tree_metadata(
@@ -1880,7 +1866,7 @@ mod tests {
         let read_content = node
             .get_content_metadata_with_version(&content_metadata_vec[0].id)
             .await?;
-        assert_eq!(read_content.first().unwrap(), &content_metadata_vec[0]);
+        assert_eq!(read_content, content_metadata_vec[0]);
 
         Ok(())
     }
