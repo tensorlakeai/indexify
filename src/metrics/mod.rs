@@ -486,8 +486,10 @@ pub mod coordinator {
                 .with_callback({
                     let app = app.clone();
                     move |observer| {
-                        let value = app.data.indexify_state.tasks_count();
-                        observer.observe(value as u64, &[]);
+                        app.data
+                            .indexify_state
+                            .unfinished_tasks_by_extractor
+                            .observe_task_counts(observer);
                     }
                 })
                 .with_description("Number of tasks in progress")
