@@ -37,6 +37,8 @@ use indexify_proto::indexify_coordinator::{
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
+    GetIngestionInfoRequest,
+    GetIngestionInfoResponse,
     GetRaftMetricsSnapshotRequest,
     GetSchemaRequest,
     GetSchemaResponse,
@@ -70,7 +72,12 @@ use indexify_proto::indexify_coordinator::{
     UpdateTaskResponse,
 };
 use internal_api::StateChange;
-use opentelemetry::{global, propagation::Extractor};
+use opentelemetry::{
+    global,
+    metrics::{Histogram, UpDownCounter},
+    propagation::Extractor,
+    KeyValue,
+};
 use prometheus::Encoder;
 use tokio::{
     select,
@@ -673,6 +680,26 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    async fn get_ingestion_info(
+        &self,
+        req: Request<GetIngestionInfoRequest>,
+    ) -> Result<Response<GetIngestionInfoResponse>, Status> {
+        let req = req.into_inner();
+        let (task, root_content) = self
+            .coordinator
+            .get_task_and_root_content(&req.task_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        let root_content: Option<indexify_coordinator::ContentMetadata> =
+            root_content.map(|c| c.into());
+
+        Ok(Response::new(GetIngestionInfoResponse {
+            task: Some(task.into()),
+            root_content,
+        }))
+    }
+
     async fn get_content_tree_metadata(
         &self,
         req: Request<GetContentTreeMetadataRequest>,
@@ -872,20 +899,61 @@ async fn metrics_handler(
     )))
 }
 
+use std::borrow::Cow;
+
 #[derive(Debug, Clone, Default)]
-struct TraceLayer;
+struct TraceLayer {
+    name: &'static str,
+}
 
 impl<S> Layer<S> for TraceLayer {
     type Service = TraceWrapper<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        TraceWrapper { inner: service }
+        TraceWrapper::new(self.name, service)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+struct Metrics {
+    pub req_active: UpDownCounter<i64>,
+
+    pub req_duration: Histogram<f64>,
+}
+
+impl Metrics {
+    pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
+        let meter = opentelemetry::global::meter(name);
+
+        let req_active = meter
+            .i64_up_down_counter("grpc.server.req_active")
+            .with_description("Number of active requests")
+            .init();
+        let req_duration = meter
+            .f64_histogram("grpc.server.req_duration")
+            .with_description("Request duration in seconds")
+            .init();
+        Self {
+            req_active,
+            req_duration,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct TraceWrapper<S> {
     inner: S,
+
+    metrics: Metrics,
+}
+
+impl<S> TraceWrapper<S> {
+    pub fn new(name: impl Into<Cow<'static, str>>, inner: S) -> Self {
+        Self {
+            inner,
+            metrics: Metrics::new(name),
+        }
+    }
 }
 
 type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -913,18 +981,40 @@ where
 
     fn call(&mut self, req: tonic::codegen::http::request::Request<ReqBody>) -> Self::Future {
         let mut inner = self.inner.clone();
+        let metrics = self.metrics.clone();
 
         let remote_ctx =
             global::get_text_map_propagator(|prop| prop.extract(&MetadataMap(req.headers())));
 
-        let uri = req.uri();
-        let span = tracing::span!(tracing::Level::TRACE, "grpc", uri=%uri);
+        let uri_path = req.uri().path().to_string();
+        let span = tracing::span!(tracing::Level::TRACE, "grpc", uri=%uri_path);
         span.set_parent(remote_ctx);
 
         let future = async move {
-            let response = inner.call(req).await?;
+            let start = std::time::Instant::now();
 
-            Ok(response)
+            let mut labels = [
+                KeyValue::new("grpc.method", uri_path),
+                KeyValue::new("grpc.status", 0i64),
+            ];
+
+            metrics.req_active.add(1, &[]);
+
+            let out = inner.call(req).await;
+
+            metrics.req_active.add(-1, &[]);
+
+            labels[1].value = if let Ok(response) = &out {
+                (response.status().as_u16() as i64).into()
+            } else {
+                1i64.into()
+            };
+
+            metrics
+                .req_duration
+                .record(start.elapsed().as_secs_f64(), &labels);
+
+            out
         }
         .instrument(span);
 
@@ -1014,7 +1104,9 @@ impl CoordinatorServer {
         });
 
         let layer = ServiceBuilder::new()
-            .layer(TraceLayer::default())
+            .layer(TraceLayer {
+                name: "indexify-coordinator-grpc",
+            })
             .into_inner();
 
         if let Some(tls_config) = self.config.coordinator_tls.as_ref() {

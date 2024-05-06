@@ -3,7 +3,12 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 use axum::{http::StatusCode, Json};
 use indexify_internal_api::StructuredDataSchema;
-use indexify_proto::indexify_coordinator::{self, coordinator_service_client};
+use indexify_proto::indexify_coordinator::{
+    self,
+    coordinator_service_client,
+    ContentMetadata,
+    Task,
+};
 use itertools::Itertools;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use tokio::sync::Mutex;
@@ -211,5 +216,19 @@ impl CoordinatorClient {
         });
         let response = self.get().await?.get_task(request).await?;
         Ok(response.into_inner().task)
+    }
+
+    pub async fn get_metadata_for_ingestion(
+        &self,
+        task_id: &str,
+    ) -> Result<(Option<Task>, Option<ContentMetadata>)> {
+        let req = tonic::Request::new(
+            indexify_proto::indexify_coordinator::GetIngestionInfoRequest {
+                task_id: task_id.to_string(),
+            },
+        );
+        let response = self.get().await?.get_ingestion_info(req).await?;
+        let resp = response.into_inner();
+        Ok((resp.task, resp.root_content))
     }
 }

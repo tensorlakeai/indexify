@@ -114,17 +114,11 @@ impl Scheduler {
                     .shared_state
                     .get_content_metadata_with_version(&state_change.object_id.clone().try_into()?)
                     .await?;
-                let content = content.first().unwrap_or_else(|| {
-                    panic!(
-                        "content not found for content_id: {}",
-                        &state_change.object_id
-                    )
-                });
                 let mut tasks: Vec<internal_api::Task> = Vec::new();
                 let tables = self.tables_for_policies(&extraction_policies).await?;
                 for extraction_policy in extraction_policies {
                     let task = self
-                        .create_task(&extraction_policy.id, content, &tables)
+                        .create_task(&extraction_policy.id, &content, &tables)
                         .await?;
                     tasks.push(task);
                 }

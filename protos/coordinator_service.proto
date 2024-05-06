@@ -61,6 +61,8 @@ service CoordinatorService {
     rpc GetAllTaskAssignments(GetAllTaskAssignmentRequest) returns (TaskAssignments) {}
 
     rpc GetTask(GetTaskRequest) returns (GetTaskResponse) {}
+
+    rpc GetIngestionInfo(GetIngestionInfoRequest) returns (GetIngestionInfoResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -449,4 +451,13 @@ message GetTaskRequest {
 
 message GetTaskResponse {
     Task task = 1;
+}
+
+message GetIngestionInfoRequest {
+    string task_id = 1;
+}
+
+message GetIngestionInfoResponse {
+    Task task = 1;
+    ContentMetadata root_content = 2;
 }
