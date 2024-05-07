@@ -185,10 +185,11 @@ pub struct ExecutorInfo {
     pub id: String,
     pub last_seen: u64,
     pub addr: String,
-    pub extractor: ExtractorDescription,
+    pub extractors: Vec<ExtractorDescription>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
+    pub extractor_name: String,
     pub content: Content,
     pub input_params: Option<serde_json::Value>,
 }
@@ -713,7 +714,7 @@ pub struct ExecutorMetadata {
     pub id: String,
     pub last_seen: u64,
     pub addr: String,
-    pub extractor: ExtractorDescription,
+    pub extractors: Vec<ExtractorDescription>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

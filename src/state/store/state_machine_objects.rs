@@ -947,14 +947,14 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         addr: String,
         executor_id: &str,
-        extractor: &ExtractorDescription,
+        extractors: &Vec<ExtractorDescription>,
         ts_secs: &u64,
     ) -> Result<(), StateMachineError> {
         let serialized_executor = JsonEncoder::encode(&internal_api::ExecutorMetadata {
             id: executor_id.into(),
             last_seen: *ts_secs,
             addr: addr.clone(),
-            extractor: extractor.clone(),
+            extractors: extractors.clone(),
         })?;
         txn.put_cf(
             StateMachineColumns::Executors.cf(db),
@@ -988,19 +988,23 @@ impl IndexifyState {
         }
     }
 
-    fn set_extractor(
+    fn set_extractors(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        extractor: &ExtractorDescription,
+        extractors: &Vec<ExtractorDescription>,
     ) -> Result<(), StateMachineError> {
-        let serialized_extractor = JsonEncoder::encode(extractor)?;
-        txn.put_cf(
-            StateMachineColumns::Extractors.cf(db),
-            &extractor.name,
-            serialized_extractor,
-        )
-        .map_err(|e| StateMachineError::DatabaseError(format!("Error writing extractor: {}", e)))?;
+        for extractor in extractors {
+            let serialized_extractor = JsonEncoder::encode(extractor)?;
+            txn.put_cf(
+                StateMachineColumns::Extractors.cf(db),
+                &extractor.name,
+                serialized_extractor,
+            )
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("Error writing extractor: {}", e))
+            })?;
+        }
         Ok(())
     }
 
@@ -1238,14 +1242,14 @@ impl IndexifyState {
             RequestPayload::RegisterExecutor {
                 addr,
                 executor_id,
-                extractor,
+                extractors,
                 ts_secs,
             } => {
                 //  Insert the executor
-                self.set_executor(db, &txn, addr.into(), executor_id, extractor, ts_secs)?;
+                self.set_executor(db, &txn, addr.into(), executor_id, extractors, ts_secs)?;
 
-                //  Insert the associated extractor
-                self.set_extractor(db, &txn, extractor)?;
+                //  Insert the associated extractors
+                self.set_extractors(db, &txn, extractors)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 //  NOTE: Special case where forward and reverse indexes are updated together
@@ -1259,10 +1263,12 @@ impl IndexifyState {
                 txn.commit()
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
-                //  Remove the the extractor from the executor -> extractor mapping table
+                //  Remove the extractors from the executor -> extractor mapping table
                 if let Some(executor_meta) = executor_meta {
-                    self.extractor_executors_table
-                        .remove(&executor_meta.extractor.name, &executor_meta.id);
+                    for extractor in &executor_meta.extractors {
+                        self.extractor_executors_table
+                            .remove(&extractor.name, &executor_meta.id);
+                    }
                 }
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
@@ -1344,16 +1350,21 @@ impl IndexifyState {
             RequestPayload::RegisterExecutor {
                 addr,
                 executor_id,
-                extractor,
+                extractors,
                 ts_secs,
             } => {
-                self.extractor_executors_table
-                    .insert(&extractor.name, &executor_id);
+                // Inserts the executor list of extractors to the executor -> extractor mapping
+                // table
+                for extractor in &extractors {
+                    self.extractor_executors_table
+                        .insert(&extractor.name, &executor_id);
+                }
+
                 let _executor_info = internal_api::ExecutorMetadata {
                     id: executor_id.clone(),
                     last_seen: ts_secs,
                     addr: addr.clone(),
-                    extractor: extractor.clone(),
+                    extractors: extractors.clone(),
                 };
                 // initialize executor load at 0
                 self.executor_running_task_count.insert(&executor_id, 0);

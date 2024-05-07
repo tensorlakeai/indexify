@@ -49,7 +49,7 @@ pip install indexify indexify-extractors
 #### Start an embedding extractor 
 ```bash
 indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+indexify-extractor join-server
 ```
 
 #### Upload some texts 

@@ -21,7 +21,7 @@ On another terminal start the embedding extractor which we will use to index tex
 
     ```shell
     indexify-extractor download hub://embedding/minilm-l6
-    indexify-extractor join-server minilm-l6.minilm_l6:MiniLML6Extractor
+    indexify-extractor join-server
     ```
 === "Docker"
 

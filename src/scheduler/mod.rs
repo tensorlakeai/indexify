@@ -150,11 +150,33 @@ impl Scheduler {
                 .get_executor_by_id(&state_change.object_id)
                 .await
                 .map_err(|e| anyhow!("redistribute_tasks: {}", e))?;
-            return self
-                .task_allocator
-                .reallocate_all_tasks_matching_extractor(&executor.extractor.name)
-                .await
-                .map_err(|e| anyhow!("redistribute_tasks: {}", e));
+
+            // Get all extractor names own by the executor
+            let extractor_names = executor
+                .extractors
+                .iter()
+                .map(|extractor| extractor.name.clone())
+                .collect::<Vec<String>>();
+
+            // This HashMap is used to aggregate the task re-allocation
+            // plan for each extractor in the executor.
+            let mut task_allocation_plan = HashMap::new();
+
+            for extractor_name in extractor_names {
+                let plan = self
+                    .task_allocator
+                    .reallocate_all_tasks_matching_extractor(&extractor_name)
+                    .await
+                    .map_err(|e| anyhow!("redistribute_tasks: {}", e))?;
+
+                // Transfer the task id and executor id from the plan to the
+                // aggregated task allocation plan.
+                for (task_id, executor_id) in plan.0 {
+                    task_allocation_plan.insert(task_id, executor_id);
+                }
+            }
+
+            return Ok(TaskAllocationPlan(task_allocation_plan));
         }
         Ok(TaskAllocationPlan(HashMap::new()))
     }

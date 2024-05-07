@@ -820,12 +820,14 @@ impl App {
         self.state_machine.get_namespace(namespace).await
     }
 
+    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
         executor_id: &str,
-        extractor: internal_api::ExtractorDescription,
+        extractors: Vec<internal_api::ExtractorDescription>,
     ) -> Result<String> {
+        println!("fuck2");
         let state_change = StateChange::new(
             executor_id.to_string(),
             internal_api::ChangeType::ExecutorAdded,
@@ -835,7 +837,7 @@ impl App {
             payload: RequestPayload::RegisterExecutor {
                 addr: addr.to_string(),
                 executor_id: executor_id.to_string(),
-                extractor,
+                extractors,
                 ts_secs: timestamp_secs(),
             },
             new_state_changes: vec![state_change.clone()],
@@ -1674,7 +1676,7 @@ mod tests {
             ..Default::default()
         };
         let addr = "addr";
-        node.register_executor(addr, executor_id, extractor.clone())
+        node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
         //  Set an extraction policy for the content that will force task creation
@@ -1796,7 +1798,7 @@ mod tests {
             ..Default::default()
         };
         let addr = "addr";
-        node.register_executor(addr, executor_id, extractor.clone())
+        node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
         //  Read the executors from multiple functions
@@ -1904,7 +1906,7 @@ mod tests {
             ..Default::default()
         };
         let addr = "addr";
-        node.register_executor(addr, executor_id, extractor.clone())
+        node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
         //  Create the extraction policy under the namespace of the content
@@ -2024,7 +2026,7 @@ mod tests {
             ..Default::default()
         };
         let addr = "addr";
-        node.register_executor(addr, executor_id, extractor.clone())
+        node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
         //  Create the extraction policy under the namespace of the content

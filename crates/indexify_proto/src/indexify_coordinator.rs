@@ -180,8 +180,8 @@ pub struct RegisterExecutorRequest {
     pub executor_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub addr: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "3")]
-    pub extractor: ::core::option::Option<Extractor>,
+    #[prost(message, repeated, tag = "3")]
+    pub extractors: ::prost::alloc::vec::Vec<Extractor>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

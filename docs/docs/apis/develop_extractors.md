@@ -79,7 +79,7 @@ indexify-extractor local -e custom_extractor:MyExtractor --text "hello world"
 #### Join with Control Plane
 You can join the extractor with the Indexfy server for it to recieve streams of content to extract from
 ```shell
-indexify-extractor join-server my_extractor:MyClass --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
+indexify-extractor join-server --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
 ```
 
 #### Package the extractor

@@ -36,7 +36,7 @@ indexify-extractor run-local pdf-extractor.pdf_extractor:PDFExtractor --file /pa
 #### Join the Extractor to the Server 
 You can join the extractor to the server to start extracting data ingested by the server
 ```bash
-indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
+indexify-extractor join-server
 ```
 ###### Options
 - `--coordinator-addr` - Address of the coordinator. Default: `localhost:8950`
