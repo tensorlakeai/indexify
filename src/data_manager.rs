@@ -512,7 +512,7 @@ impl DataManager {
             file_name,
             storage_url: res.url,
             parent_id: "".to_string(),
-            root_content_id: id,
+            root_content_id: "".to_string(),
             created_at: current_ts_secs as i64,
             mime: content_type,
             namespace: namespace.to_string(),
@@ -684,7 +684,11 @@ impl DataManager {
                 api::FeatureType::Metadata => {
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_metadata.id.id,
-                        &content_metadata.parent_id.id,
+                        &content_metadata
+                            .parent_id
+                            .clone()
+                            .map(|id| id.id)
+                            .unwrap_or_default(),
                         &content_metadata.source,
                         feature.data.clone(),
                         extractor,

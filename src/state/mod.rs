@@ -933,26 +933,28 @@ impl App {
             //  this is not some root node being updated
 
             //  if the parent doesn't exist, create the content
-            if incoming_content.parent_id.id.is_empty() {
+            if incoming_content.parent_id.is_none() {
                 new_content.push(incoming_content);
                 continue;
             }
 
+            let incoming_content_parent_id = incoming_content.parent_id.clone().unwrap();
+
             //  find the latest version of the parent
             let latest_version_of_parent = self
                 .state_machine
-                .get_latest_version_of_content(&incoming_content.parent_id.id)
+                .get_latest_version_of_content(&incoming_content_parent_id.id)
                 .map_err(|e| {
                     anyhow!(
                         "Unable to get latest version of content {}: {}",
-                        incoming_content.parent_id,
+                        incoming_content_parent_id,
                         e
                     )
                 })?;
             if latest_version_of_parent.is_none() {
                 return Err(anyhow!(
                     "Parent content with id {} not found",
-                    incoming_content.parent_id.id
+                    incoming_content_parent_id
                 ));
             }
             let latest_version_of_parent = latest_version_of_parent.unwrap();
@@ -966,7 +968,7 @@ impl App {
             //  if the parent predecessor cannot be found or has no children, create the
             // content
             let parent_prev_version_id = ContentMetadataId::new_with_version(
-                &incoming_content.parent_id.id,
+                &incoming_content_parent_id.id,
                 latest_version_of_parent.id.version - 1,
             );
             let parent_prev_version_tree = self
@@ -981,10 +983,10 @@ impl App {
                 })?;
             if parent_prev_version_tree.len() <= 1 {
                 let mut content = incoming_content.clone();
-                content.parent_id = ContentMetadataId::new_with_version(
-                    &incoming_content.parent_id.id,
+                content.parent_id = Some(ContentMetadataId::new_with_version(
+                    &incoming_content_parent_id.id,
                     latest_version_of_parent.id.version,
-                );
+                ));
                 new_content.push(content);
                 continue;
             }
@@ -997,19 +999,19 @@ impl App {
                 .find(|content| content.hash == incoming_content.hash);
             if content_with_matching_hash.is_none() {
                 let mut content = incoming_content.clone();
-                content.parent_id = ContentMetadataId::new_with_version(
-                    &incoming_content.parent_id.id,
+                content.parent_id = Some(ContentMetadataId::new_with_version(
+                    &incoming_content_parent_id.id,
                     latest_version_of_parent.id.version,
-                );
+                ));
                 new_content.push(content);
                 continue;
             }
 
             let mut content = incoming_content.clone();
-            content.parent_id = ContentMetadataId::new_with_version(
-                &incoming_content.parent_id.id,
+            content.parent_id = Some(ContentMetadataId::new_with_version(
+                &incoming_content_parent_id.id,
                 latest_version_of_parent.id.version,
-            );
+            ));
             identical_content.push(content);
         }
 

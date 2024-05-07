@@ -1395,34 +1395,28 @@ impl IndexifyState {
                 for content in content_metadata {
                     self.content_namespace_table
                         .insert(&content.namespace, &content.id);
-                    if !content.parent_id.id.is_empty() {
-                        self.content_children_table
-                            .insert(&content.parent_id, &content.id);
-                    }
                     let mut guard = self.metrics.lock().unwrap();
-                    if content.parent_id.id.is_empty() {
-                        guard.content_uploads += 1;
-                        guard.content_bytes += content.size_bytes;
-                    } else {
+                    if let Some(parent_id) = content.parent_id {
+                        self.content_children_table.insert(&parent_id, &content.id);
                         guard.content_extracted += 1;
                         guard.content_extracted_bytes += content.size_bytes;
+                    } else {
+                        guard.content_uploads += 1;
+                        guard.content_bytes += content.size_bytes;
                     }
                 }
                 Ok(())
             }
             RequestPayload::UpdateContent { content_metadata } => {
                 for content in content_metadata {
-                    //  remove the child from the old parent and add the child to the new parent
-                    if content.parent_id.id.is_empty() {
-                        continue;
+                    if let Some(parent_id) = content.parent_id {
+                        let old_parent = ContentMetadataId::new_with_version(
+                            &parent_id.id,
+                            parent_id.version - 1,
+                        );
+                        self.content_children_table.remove(&old_parent, &content.id);
+                        self.content_children_table.insert(&parent_id, &content.id);
                     }
-                    let old_parent = ContentMetadataId::new_with_version(
-                        &content.parent_id.id,
-                        content.parent_id.version - 1,
-                    );
-                    self.content_children_table.remove(&old_parent, &content.id);
-                    self.content_children_table
-                        .insert(&content.parent_id, &content.id);
                 }
                 Ok(())
             }
