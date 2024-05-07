@@ -12,29 +12,13 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
-    ContentMetadata,
-    ContentMetadataId,
-    ExecutorMetadata,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadata, ContentMetadataId, ExecutorMetadata, StateChange, StructuredDataSchema,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -443,9 +427,11 @@ impl StateMachineStore {
     where
         V: DeserializeOwned,
     {
+        let txn = self.db.transaction();
         self.data
             .indexify_state
-            .get_all_rows_from_cf(column, &self.db)
+            .get_all_rows_from_cf(column, &self.db, &txn)
+            .map_err(|e| anyhow::anyhow!("Failed to get all rows from column family: {}", e))
     }
 
     //  END FORWARD INDEX READER METHOD INTERFACES
@@ -532,7 +518,11 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
         };
 
         let indexify_state_json = {
-            let indexify_state_snapshot = self.data.indexify_state.build_snapshot();
+            let indexify_state_snapshot = self
+                .data
+                .indexify_state
+                .build_snapshot(&self.db)
+                .map_err(|e| StorageIOError::read_state_machine(&e))?;
             JsonEncoder::encode(&indexify_state_snapshot)
                 .map_err(|e| StorageIOError::read_state_machine(&e))?
         };

@@ -908,12 +908,14 @@ impl From<SchemaColumnType> for SchemaColumn {
     }
 }
 
+pub type StructuredDataSchemaId = String;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct StructuredDataSchema {
     pub columns: BTreeMap<String, SchemaColumn>,
     pub content_source: String,
     pub namespace: String,
-    pub id: String,
+    pub id: StructuredDataSchemaId,
 }
 
 impl StructuredDataSchema {
