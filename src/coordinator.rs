@@ -203,7 +203,6 @@ impl Coordinator {
         executor_id: &str,
         extractors: Vec<internal_api::ExtractorDescription>,
     ) -> Result<()> {
-        println!("fuck");
         let _ = self
             .shared_state
             .register_executor(addr, executor_id, extractors)

@@ -827,7 +827,6 @@ impl App {
         executor_id: &str,
         extractors: Vec<internal_api::ExtractorDescription>,
     ) -> Result<String> {
-        println!("fuck2");
         let state_change = StateChange::new(
             executor_id.to_string(),
             internal_api::ChangeType::ExecutorAdded,
