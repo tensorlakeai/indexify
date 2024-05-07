@@ -102,12 +102,3 @@ But wait, there's more! We've curated a collection of inspiring examples to show
 - [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease. 🚗📜
 - [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions. 🏥📄
 
-These examples are just the tip of the iceberg. With Indexify, the possibilities are endless. Dive in, explore, and discover how PDF extraction can revolutionize the way you work with documents! 🌈📚
-
----
-
-Are you ready to embark on this exciting journey of PDF extraction? Let's unlock the full potential of your documents together and make data-driven decisions like never before! 🎉🚀
-
-If you have any questions, feedback, or just want to share your amazing PDF extraction stories, we're here for you. Reach out to our friendly support team, and let's make document magic happen! ✨💬
-
-Happy extracting! 📄🔍🎉
