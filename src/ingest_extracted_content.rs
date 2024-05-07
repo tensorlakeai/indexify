@@ -149,7 +149,6 @@ impl ContentStateWriting {
         payload: FinishContent,
     ) -> Result<String> {
         let mut labels = self.content_metadata().labels.clone();
-        let root_content_id = self.content_metadata().root_content_id.clone();
         let parent_id = self.content_metadata().id.clone();
         match &mut self.frame_state {
             FrameState::New => Err(anyhow!(
@@ -161,11 +160,15 @@ impl ContentStateWriting {
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
                 let id = DataManager::make_id();
+                let root_content_metadata = self
+                    .root_content_metadata
+                    .clone()
+                    .unwrap_or(self.task.content_metadata.clone().unwrap().into());
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
                     parent_id,
-                    root_content_id,
+                    root_content_id: root_content_metadata.id.id.clone(),
                     namespace: self.task.namespace.clone(),
                     mime: payload.content_type,
                     size_bytes: frame_state.file_size,
@@ -180,7 +183,7 @@ impl ContentStateWriting {
                     .data_manager
                     .create_content_and_write_features(
                         &content_metadata,
-                        self.root_content_metadata.clone(),
+                        Some(root_content_metadata.clone()),
                         &self.task.extractor,
                         payload.features,
                         &self.task.output_index_mapping,
@@ -202,6 +205,10 @@ impl ContentStateWriting {
         state: &NamespaceEndpointState,
         payload: ExtractedFeatures,
     ) -> Result<()> {
+      //  let root_content_metadata = self
+      //      .root_content_metadata
+      //      .clone()
+      //      .unwrap_or(self.task.content_metadata.clone().unwrap().into());
         state
             .data_manager
             .write_existing_content_features(
@@ -458,7 +465,7 @@ mod tests {
             let content_metadata = ContentMetadata {
                 id: ContentMetadataId::new("1"),
                 name: "test".to_string(),
-                parent_id: ContentMetadataId::new(""),
+                parent_id: None,
                 root_content_id: Some("1".to_string()),
                 namespace: "test".to_string(),
                 content_type: "text/plain".to_string(),

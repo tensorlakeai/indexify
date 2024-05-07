@@ -13,7 +13,9 @@ pub fn list_content_filter<'a>(
     content_vec
         .into_iter()
         .filter(move |c| source.is_empty() || c.source == source)
-        .filter(move |c| parent_id.is_empty() || c.parent_id.to_string() == parent_id)
+        .filter(move |c| {
+            parent_id.is_empty() || c.parent_id.clone().unwrap_or_default().to_string() == parent_id
+        })
         // c.labels HashMap<String, String> must exactly match labels_eq { ("key", "value") }
         // and not have any other labels
         .filter(move |c| {
@@ -47,10 +49,10 @@ mod test {
                     ..Default::default()
                 },
                 source: "source1".to_string(),
-                parent_id: ContentMetadataId {
+                parent_id: Some(ContentMetadataId {
                     id: "parent1".to_string(),
                     ..Default::default()
-                },
+                }),
                 labels: {
                     let mut labels = HashMap::new();
                     labels.insert("key1".to_string(), "value1".to_string());
@@ -64,10 +66,10 @@ mod test {
                     ..Default::default()
                 },
                 source: "source2".to_string(),
-                parent_id: ContentMetadataId {
+                parent_id: Some(ContentMetadataId {
                     id: "parent2".to_string(),
                     ..Default::default()
-                },
+                }),
                 labels: HashMap::new(),
                 ..Default::default()
             },
@@ -77,10 +79,10 @@ mod test {
                     ..Default::default()
                 },
                 source: "source1".to_string(),
-                parent_id: ContentMetadataId {
+                parent_id: Some(ContentMetadataId {
                     id: "parent2".to_string(),
                     ..Default::default()
-                },
+                }),
                 labels: {
                     let mut labels = HashMap::new();
                     labels.insert("key1".to_string(), "value1".to_string());
@@ -95,10 +97,10 @@ mod test {
                     ..Default::default()
                 },
                 source: "source4".to_string(),
-                parent_id: ContentMetadataId {
+                parent_id: Some(ContentMetadataId {
                     id: "parent4".to_string(),
                     ..Default::default()
-                },
+                }),
                 labels: HashMap::new(),
                 ..Default::default()
             },

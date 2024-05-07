@@ -394,7 +394,7 @@ pub struct GarbageCollectionTask {
     pub namespace: String,
     pub id: GarbageCollectionTaskId,
     pub content_id: ContentMetadataId,
-    pub parent_content_id: ContentMetadataId,
+    pub parent_content_id: Option<ContentMetadataId>,
     pub output_tables: HashSet<String>,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
@@ -411,10 +411,10 @@ impl Default for GarbageCollectionTask {
                 id: "test_content_id".to_string(),
                 version: 1,
             },
-            parent_content_id: ContentMetadataId {
+            parent_content_id: Some(ContentMetadataId {
                 id: "test_parent_content_id".to_string(),
                 version: 1,
-            },
+            }),
             output_tables: HashSet::new(),
             outcome: TaskOutcome::Unknown,
             blob_store_path: "test_blob_store_path".to_string(),
@@ -610,7 +610,7 @@ impl Default for ContentMetadataId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
     pub id: ContentMetadataId,
-    pub parent_id: ContentMetadataId,
+    pub parent_id: Option<ContentMetadataId>,
     pub root_content_id: Option<String>,
     // Namespace name == Namespace ID
     pub namespace: String,
@@ -629,8 +629,10 @@ pub struct ContentMetadata {
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
         Self {
-            id: value.id.id,               //  don't expose the version on the task
-            parent_id: value.parent_id.id, //  don't expose the version on the task
+            id: value.id.id, //  don't expose the version on the task
+            parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(), /*  don't expose the
+                              * version on the
+                              * task */
             root_content_id: value.root_content_id.unwrap_or_default(),
             file_name: value.name,
             mime: value.content_type,
@@ -653,15 +655,17 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
         } else {
             Some(value.root_content_id)
         };
+        let parent_id = if value.parent_id.is_empty() {
+            None
+        } else {
+            Some(ContentMetadataId::new(&value.parent_id))
+        };
         Self {
             id: ContentMetadataId {
                 id: value.id,
                 version: 1,
             },
-            parent_id: ContentMetadataId {
-                id: value.parent_id,
-                version: 1,
-            },
+            parent_id,
             root_content_id,
             name: value.file_name,
             content_type: value.mime,
@@ -682,10 +686,7 @@ impl Default for ContentMetadata {
     fn default() -> Self {
         Self {
             id: ContentMetadataId::default(),
-            parent_id: ContentMetadataId {
-                id: "".to_string(),
-                ..Default::default()
-            },
+            parent_id: None,
             root_content_id: Some(ContentMetadataId::default().id),
             namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
