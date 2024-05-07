@@ -205,10 +205,10 @@ impl ContentStateWriting {
         state: &NamespaceEndpointState,
         payload: ExtractedFeatures,
     ) -> Result<()> {
-      //  let root_content_metadata = self
-      //      .root_content_metadata
-      //      .clone()
-      //      .unwrap_or(self.task.content_metadata.clone().unwrap().into());
+        //  let root_content_metadata = self
+        //      .root_content_metadata
+        //      .clone()
+        //      .unwrap_or(self.task.content_metadata.clone().unwrap().into());
         state
             .data_manager
             .write_existing_content_features(
