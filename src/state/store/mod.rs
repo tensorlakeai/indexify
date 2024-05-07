@@ -188,7 +188,10 @@ impl StateMachineStore {
 
         self.data
             .indexify_state
-            .install_snapshot(indexify_state_snapshot);
+            .install_snapshot(&self.db, indexify_state_snapshot)
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write(&e),
+            })?;
 
         Ok(())
     }

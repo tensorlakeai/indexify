@@ -2164,64 +2164,80 @@ impl IndexifyState {
         Ok(snapshot)
     }
 
-    pub fn install_snapshot(&self, snapshot: IndexifyStateSnapshot) {
-        // let mut unassigned_tasks_guard = self.unassigned_tasks.unassigned_tasks.write().unwrap();
-        // let mut unprocessed_state_changes_guard = self
-        //     .unprocessed_state_changes
-        //     .unprocessed_state_changes
-        //     .write()
-        //     .unwrap();
-        // let mut content_namespace_table_guard = self
-        //     .content_namespace_table
-        //     .content_namespace_table
-        //     .write()
-        //     .unwrap();
-        // let mut extraction_policies_table_guard = self
-        //     .extraction_policies_table
-        //     .extraction_policies_table
-        //     .write()
-        //     .unwrap();
-        // let mut extractor_executors_table_guard = self
-        //     .extractor_executors_table
-        //     .extractor_executors_table
-        //     .write()
-        //     .unwrap();
-        // let mut namespace_index_table_guard = self
-        //     .namespace_index_table
-        //     .namespace_index_table
-        //     .write()
-        //     .unwrap();
-        // let mut unfinished_tasks_by_extractor_guard = self
-        //     .unfinished_tasks_by_extractor
-        //     .unfinished_tasks_by_extractor
-        //     .write()
-        //     .unwrap();
-        // let mut executor_running_task_count_guard = self
-        //     .executor_running_task_count
-        //     .executor_running_task_count
-        //     .write()
-        //     .unwrap();
-        // let mut schemas_by_namespace_guard = self
-        //     .schemas_by_namespace
-        //     .schemas_by_namespace
-        //     .write()
-        //     .unwrap();
-        // let mut content_children_table_guard = self
-        //     .content_children_table
-        //     .content_children_table
-        //     .write()
-        //     .unwrap();
+    pub fn install_snapshot(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        snapshot: IndexifyStateSnapshot,
+    ) -> Result<(), StateMachineError> {
+        fn put_cf<T: serde::Serialize + std::fmt::Debug>(
+            txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+            cf: &rocksdb::ColumnFamily,
+            key: &str,
+            value: &T,
+        ) -> Result<(), StateMachineError> {
+            let serialized = JsonEncoder::encode(value)?;
+            txn.put_cf(cf, key, serialized)
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))
+        }
 
-        // *unassigned_tasks_guard = snapshot.unassigned_tasks;
-        // *unprocessed_state_changes_guard = snapshot.unprocessed_state_changes;
-        // *content_namespace_table_guard = snapshot.content_namespace_table;
-        // *extraction_policies_table_guard = snapshot.extraction_policies_table;
-        // *extractor_executors_table_guard = snapshot.extractor_executors_table;
-        // *namespace_index_table_guard = snapshot.namespace_index_table;
-        // *unfinished_tasks_by_extractor_guard = snapshot.unfinished_tasks_by_extractor;
-        // *executor_running_task_count_guard = snapshot.executor_running_task_count;
-        // *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
-        // *content_children_table_guard = snapshot.content_children_table;
+        let txn = db.transaction();
+
+        //  Build the rocksdb forward indexes
+        for (executor_id, executor_metadata) in snapshot.executors {
+            let cf = StateMachineColumns::Executors.cf(db);
+            put_cf(&txn, cf, &executor_id, &executor_metadata)?;
+        }
+        for (task_id, task) in snapshot.tasks {
+            let cf = StateMachineColumns::Tasks.cf(db);
+            put_cf(&txn, cf, &task_id, &task)?;
+        }
+        for (gc_task_id, gc_task) in snapshot.gc_tasks {
+            let cf = StateMachineColumns::GarbageCollectionTasks.cf(db);
+            put_cf(&txn, cf, &gc_task_id, &gc_task)?;
+        }
+        for (executor_id, task_ids) in snapshot.task_assignments {
+            let cf = StateMachineColumns::TaskAssignments.cf(db);
+            put_cf(&txn, cf, &executor_id, &task_ids)?;
+        }
+        for (state_change_id, state_change) in snapshot.state_changes {
+            let cf = StateMachineColumns::StateChanges.cf(db);
+            put_cf(&txn, cf, &state_change_id, &state_change)?;
+        }
+        for (content_id, content) in snapshot.content_table {
+            let cf = StateMachineColumns::ContentTable.cf(db);
+            put_cf(&txn, cf, &content_id.to_string(), &content)?;
+        }
+        for (extraction_policy_id, extraction_policy_ids) in snapshot.extraction_policies {
+            let cf = StateMachineColumns::ExtractionPolicies.cf(db);
+            put_cf(&txn, cf, &extraction_policy_id, &extraction_policy_ids)?;
+        }
+        for (extractor_name, extractor_description) in snapshot.extractors {
+            let cf = StateMachineColumns::Extractors.cf(db);
+            put_cf(&txn, cf, &extractor_name, &extractor_description)?;
+        }
+        for namespace in snapshot.namespaces {
+            let cf = StateMachineColumns::Namespaces.cf(db);
+            put_cf(&txn, cf, &namespace, &namespace)?;
+        }
+        for (index_name, index) in snapshot.index_table {
+            let cf = StateMachineColumns::IndexTable.cf(db);
+            put_cf(&txn, cf, &index_name, &index)?;
+        }
+        for (schema_id, schema) in snapshot.structured_data_schemas {
+            let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
+            put_cf(&txn, cf, &schema_id, &schema)?;
+        }
+        for (content_id, extraction_policy_ids) in snapshot.extraction_policies_applied_on_content {
+            let cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
+            put_cf(&txn, cf, &content_id.to_string(), &extraction_policy_ids)?;
+        }
+        for (node_id, addr) in snapshot.coordinator_address {
+            let cf = StateMachineColumns::CoordinatorAddress.cf(db);
+            put_cf(&txn, cf, &node_id.to_string(), &addr)?;
+        }
+
+        //  Build the in-memory reverse indexes
+        Ok(())
     }
     //  END SNAPSHOT METHODS
 }
