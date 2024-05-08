@@ -379,13 +379,9 @@ impl DataManager {
             .get()
             .await?
             .get_content_metadata(req)
-            .await?;
-        let content_metadata_list = response.into_inner().content_list;
-        let mut content_list = Vec::new();
-        for c in content_metadata_list.values().cloned() {
-            content_list.push(c.into())
-        }
-        Ok(content_list)
+            .await?
+            .into_inner();
+        Ok(response.content_list.into_iter().map(Into::into).collect())
     }
 
     pub async fn get_content_tree_metadata(

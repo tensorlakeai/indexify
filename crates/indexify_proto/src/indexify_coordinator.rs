@@ -8,11 +8,8 @@ pub struct GetContentMetadataRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetContentMetadataResponse {
-    #[prost(map = "string, message", tag = "1")]
-    pub content_list: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ContentMetadata,
-    >,
+    #[prost(message, repeated, tag = "1")]
+    pub content_list: ::prost::alloc::vec::Vec<ContentMetadata>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

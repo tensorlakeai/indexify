@@ -70,7 +70,7 @@ message GetContentMetadataRequest {
 }
 
 message GetContentMetadataResponse {
-    map<string, ContentMetadata> content_list = 1;
+    repeated ContentMetadata content_list = 1;
 }
 
 message GetContentTreeMetadataRequest {
