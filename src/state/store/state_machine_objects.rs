@@ -1962,7 +1962,7 @@ impl IndexifyState {
             .cf_handle(column.as_ref())
             .ok_or(StateMachineError::DatabaseError(format!(
                 "Failed to get column family {}",
-                column.to_string()
+                column
             )))?;
         let iter = txn.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
 
@@ -2084,9 +2084,8 @@ impl IndexifyState {
             )?
             .into_iter()
             .map(|(key, value)| {
-                let key_id: ContentMetadataId = key
-                    .try_into()
-                    .map_err(|e| StateMachineError::ExternalError(e))?;
+                let key_id: ContentMetadataId =
+                    key.try_into().map_err(StateMachineError::ExternalError)?;
                 Ok((key_id, value))
             })
             .collect::<Result<_, StateMachineError>>()?;
@@ -2127,9 +2126,8 @@ impl IndexifyState {
             )?
             .into_iter()
             .map(|(key, value)| {
-                let key_id: ContentMetadataId = key
-                    .try_into()
-                    .map_err(|e| StateMachineError::ExternalError(e))?;
+                let key_id: ContentMetadataId =
+                    key.try_into().map_err(StateMachineError::ExternalError)?;
                 Ok((key_id, value))
             })
             .collect::<Result<_, StateMachineError>>()?;
@@ -2183,60 +2181,207 @@ impl IndexifyState {
         let txn = db.transaction();
 
         //  Build the rocksdb forward indexes
-        for (executor_id, executor_metadata) in snapshot.executors {
+        for (executor_id, executor_metadata) in &snapshot.executors {
             let cf = StateMachineColumns::Executors.cf(db);
-            put_cf(&txn, cf, &executor_id, &executor_metadata)?;
+            put_cf(&txn, cf, executor_id, &executor_metadata)?;
         }
-        for (task_id, task) in snapshot.tasks {
+        for (task_id, task) in &snapshot.tasks {
             let cf = StateMachineColumns::Tasks.cf(db);
-            put_cf(&txn, cf, &task_id, &task)?;
+            put_cf(&txn, cf, task_id, &task)?;
         }
-        for (gc_task_id, gc_task) in snapshot.gc_tasks {
+        for (gc_task_id, gc_task) in &snapshot.gc_tasks {
             let cf = StateMachineColumns::GarbageCollectionTasks.cf(db);
-            put_cf(&txn, cf, &gc_task_id, &gc_task)?;
+            put_cf(&txn, cf, gc_task_id, &gc_task)?;
         }
-        for (executor_id, task_ids) in snapshot.task_assignments {
+        for (executor_id, task_ids) in &snapshot.task_assignments {
             let cf = StateMachineColumns::TaskAssignments.cf(db);
-            put_cf(&txn, cf, &executor_id, &task_ids)?;
+            put_cf(&txn, cf, executor_id, &task_ids)?;
         }
-        for (state_change_id, state_change) in snapshot.state_changes {
+        for (state_change_id, state_change) in &snapshot.state_changes {
             let cf = StateMachineColumns::StateChanges.cf(db);
-            put_cf(&txn, cf, &state_change_id, &state_change)?;
+            put_cf(&txn, cf, state_change_id, &state_change)?;
         }
-        for (content_id, content) in snapshot.content_table {
+        for (content_id, content) in &snapshot.content_table {
             let cf = StateMachineColumns::ContentTable.cf(db);
             put_cf(&txn, cf, &content_id.to_string(), &content)?;
         }
-        for (extraction_policy_id, extraction_policy_ids) in snapshot.extraction_policies {
+        for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
             let cf = StateMachineColumns::ExtractionPolicies.cf(db);
-            put_cf(&txn, cf, &extraction_policy_id, &extraction_policy_ids)?;
+            put_cf(&txn, cf, extraction_policy_id, &extraction_policy_ids)?;
         }
-        for (extractor_name, extractor_description) in snapshot.extractors {
+        for (extractor_name, extractor_description) in &snapshot.extractors {
             let cf = StateMachineColumns::Extractors.cf(db);
-            put_cf(&txn, cf, &extractor_name, &extractor_description)?;
+            put_cf(&txn, cf, extractor_name, &extractor_description)?;
         }
         for namespace in snapshot.namespaces {
             let cf = StateMachineColumns::Namespaces.cf(db);
             put_cf(&txn, cf, &namespace, &namespace)?;
         }
-        for (index_name, index) in snapshot.index_table {
+        for (index_name, index) in &snapshot.index_table {
             let cf = StateMachineColumns::IndexTable.cf(db);
-            put_cf(&txn, cf, &index_name, &index)?;
+            put_cf(&txn, cf, index_name, &index)?;
         }
-        for (schema_id, schema) in snapshot.structured_data_schemas {
+        for (schema_id, schema) in &snapshot.structured_data_schemas {
             let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
-            put_cf(&txn, cf, &schema_id, &schema)?;
+            put_cf(&txn, cf, schema_id, &schema)?;
         }
-        for (content_id, extraction_policy_ids) in snapshot.extraction_policies_applied_on_content {
+        for (content_id, extraction_policy_ids) in &snapshot.extraction_policies_applied_on_content
+        {
             let cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
             put_cf(&txn, cf, &content_id.to_string(), &extraction_policy_ids)?;
         }
-        for (node_id, addr) in snapshot.coordinator_address {
+        for (node_id, addr) in &snapshot.coordinator_address {
             let cf = StateMachineColumns::CoordinatorAddress.cf(db);
             put_cf(&txn, cf, &node_id.to_string(), &addr)?;
         }
 
         //  Build the in-memory reverse indexes
+        let mut unassigned_tasks = self.unassigned_tasks.unassigned_tasks.write().unwrap();
+        let mut unprocessed_state_changes_guard = self
+            .unprocessed_state_changes
+            .unprocessed_state_changes
+            .write()
+            .unwrap();
+        let mut content_namespace_table_guard = self
+            .content_namespace_table
+            .content_namespace_table
+            .write()
+            .unwrap();
+        let mut extraction_policies_table = self
+            .extraction_policies_table
+            .extraction_policies_table
+            .write()
+            .unwrap();
+        let mut extractor_executors_table = self
+            .extractor_executors_table
+            .extractor_executors_table
+            .write()
+            .unwrap();
+        let mut namespace_index_table = self
+            .namespace_index_table
+            .namespace_index_table
+            .write()
+            .unwrap();
+        let mut unfinished_tasks_by_extractor = self
+            .unfinished_tasks_by_extractor
+            .unfinished_tasks_by_extractor
+            .write()
+            .unwrap();
+        let mut executor_running_task_count = self
+            .executor_running_task_count
+            .executor_running_task_count
+            .write()
+            .unwrap();
+        let mut schemas_by_namespace = self
+            .schemas_by_namespace
+            .schemas_by_namespace
+            .write()
+            .unwrap();
+        let mut content_children_table = self
+            .content_children_table
+            .content_children_table
+            .write()
+            .unwrap();
+        let mut pending_tasks_for_content = self
+            .pending_tasks_for_content
+            .pending_tasks_for_content
+            .write()
+            .unwrap();
+
+        for (task_id, task) in &snapshot.tasks {
+            if !task.terminal_state() {
+                unassigned_tasks.insert(task_id.clone());
+            }
+        }
+        for task_ids in snapshot.task_assignments.values() {
+            for task_id in task_ids {
+                unassigned_tasks.remove(task_id);
+            }
+        }
+
+        for state_change_id in snapshot.state_changes.keys() {
+            unprocessed_state_changes_guard.insert(state_change_id.clone());
+        }
+
+        for (content_id, content) in &snapshot.content_table {
+            content_namespace_table_guard
+                .entry(content.namespace.clone())
+                .or_default()
+                .insert(content_id.clone());
+        }
+
+        for (extraction_policy_id, extraction_policy) in &snapshot.extraction_policies {
+            extraction_policies_table
+                .entry(extraction_policy.namespace.clone())
+                .or_default()
+                .insert(extraction_policy_id.clone());
+        }
+
+        for (executor_id, executor_metadata) in &snapshot.executors {
+            for extractor in &executor_metadata.extractors {
+                extractor_executors_table
+                    .entry(extractor.name.clone())
+                    .or_default()
+                    .insert(executor_id.clone());
+            }
+        }
+
+        for (index_id, index) in &snapshot.index_table {
+            namespace_index_table
+                .entry(index.namespace.clone())
+                .or_default()
+                .insert(index_id.clone());
+        }
+
+        for (task_id, task) in &snapshot.tasks {
+            if !task.terminal_state() {
+                unfinished_tasks_by_extractor
+                    .entry(task.extractor.clone())
+                    .or_default()
+                    .insert(task_id.clone());
+            }
+        }
+
+        for (executor_id, task_ids) in &snapshot.task_assignments {
+            *executor_running_task_count
+                .entry(executor_id.clone())
+                .or_insert(0) += task_ids.len() as u64;
+        }
+
+        for (schema_id, schema) in &snapshot.structured_data_schemas {
+            schemas_by_namespace
+                .entry(schema.namespace.clone())
+                .or_default()
+                .insert(schema_id.clone());
+        }
+
+        for (content_id, content) in &snapshot.content_table {
+            if let Some(parent_id) = &content.parent_id {
+                content_children_table
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .insert(content_id.clone());
+            }
+        }
+
+        for (task_id, task) in &snapshot.tasks {
+            if !task.terminal_state() {
+                let content_id = &task.content_metadata.id;
+                let extraction_policy_id = &task.extraction_policy_id;
+
+                let policies_map = pending_tasks_for_content
+                    .entry(content_id.clone())
+                    .or_default();
+                let tasks_set = policies_map
+                    .entry(extraction_policy_id.clone())
+                    .or_default();
+                tasks_set.insert(task_id.clone());
+            }
+        }
+
+        txn.commit()
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
         Ok(())
     }
     //  END SNAPSHOT METHODS

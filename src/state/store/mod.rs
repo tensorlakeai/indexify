@@ -12,13 +12,29 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
-    ContentMetadata, ContentMetadataId, ExecutorMetadata, StateChange, StructuredDataSchema,
+    ContentMetadata,
+    ContentMetadataId,
+    ExecutorMetadata,
+    StateChange,
+    StructuredDataSchema,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -274,6 +290,11 @@ impl StateMachineStore {
         debug!("Compressed size: {} bytes", compressed_size);
         debug!("Compression ratio: {:.2}", compression_ratio);
         debug!("Compressed by: {:.2}%", compression_percentage);
+
+        debug!(
+            "Done writing the snapshot to {:#?}",
+            self.snapshot_file_path
+        );
 
         Ok(())
     }
@@ -553,7 +574,6 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
         };
 
         self.set_current_snapshot_(snapshot)?;
-
         Ok(Snapshot {
             meta,
             snapshot: Box::new(Cursor::new(indexify_state_json)),
@@ -567,8 +587,6 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     async fn applied_state(
         &mut self,
     ) -> Result<(Option<LogId<NodeId>>, StoredMembership<NodeId, Node>), StorageError<NodeId>> {
-        // let sm = self.data.read().await;
-        // Ok((sm.last_applied_log_id, sm.last_membership.clone()))
         let (last_applied_log_id, last_membership) = {
             let guard = self.data.last_applied_log_id.read().await;
             let last_applied_log_id = *guard;
@@ -662,6 +680,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
+        debug!("Called install_snapshot");
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
@@ -962,18 +981,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
-    use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
-
-    use crate::{
-        state::{
-            self,
-            store::{
-                serializer::{JsonEncode, JsonEncoder},
-                state_machine_objects::IndexifyStateSnapshot,
-            },
-        },
-        test_utils::RaftTestCluster,
-    };
+    use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
 
     /// This is a dummy test which forces building a snapshot on the cluster by
     /// passing in some overrides Manually check that the snapshot file was
@@ -982,28 +990,29 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
-        let cluster = RaftTestCluster::new(3, None).await?;
+        let overrides = RaftConfigOverrides {
+            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1)),
+            max_in_snapshot_log_to_keep: Some(0),
+        };
+        let mut cluster = RaftTestCluster::new(1, Some(overrides.clone())).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let indexify_state = IndexifyStateSnapshot::default();
-        let serialized_state =
-            JsonEncoder::encode(&indexify_state).expect("Failed to serialize the data");
-        let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
-            InstallSnapshotRequest {
-                vote: Vote::new_committed(2, 1),
-                meta: SnapshotMeta {
-                    snapshot_id: "ss1".into(),
-                    last_log_id: Some(log_id(1, 0, 6)),
-                    last_membership: Default::default(),
-                },
-                offset: 0,
-                data: serialized_state,
-                done: true,
-            };
-        let node = cluster.get_raft_node(2)?;
-        node.forwardable_raft
-            .raft
-            .install_snapshot(install_snapshot_req)
-            .await?;
+        let node = cluster.get_raft_node(0)?;
+        let namespace = "test_namespace".to_string();
+        let id = "index_id".to_string();
+        let index = indexify_internal_api::Index {
+            namespace: namespace.clone(),
+            ..Default::default()
+        };
+        node.create_index(&namespace, index, id.clone()).await?;
+        cluster.add_node_to_cluster(Some(overrides)).await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let new_node = cluster.get_raft_node(1)?;
+        let table = new_node.state_machine.get_namespace_index_table().await;
+        assert_eq!(table.len(), 1);
+        let (key, value) = table.iter().next().unwrap();
+        assert_eq!(*key, namespace);
+        assert_eq!(value.len(), 1);
+        assert!(value.contains(&id));
         Ok(())
     }
 }

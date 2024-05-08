@@ -339,7 +339,7 @@ impl CoordinatorService for CoordinatorServiceServer {
 
         let _resp = self
             .coordinator
-            .register_executor(&request.addr, &request.executor_id, extractors.into())
+            .register_executor(&request.addr, &request.executor_id, extractors)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 

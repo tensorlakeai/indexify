@@ -9,11 +9,7 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId,
-    GarbageCollectionTask,
-    OutputSchema,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -67,7 +63,7 @@ impl Coordinator {
             .list_content(namespace)
             .await?
             .into_iter()
-            .filter_map(|c| c);
+            .flatten();
         list_content_filter(content, source, parent_id, labels_eq)
             .map(Ok)
             .collect::<Result<Vec<internal_api::ContentMetadata>>>()
@@ -572,10 +568,7 @@ mod tests {
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{
-            mock_extractor,
-            mock_extractors,
-            DEFAULT_TEST_EXTRACTOR,
-            DEFAULT_TEST_NAMESPACE,
+            mock_extractor, mock_extractors, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
     };
@@ -1637,7 +1630,7 @@ mod tests {
 
         let tasks = coordinator.garbage_collector.gc_tasks.read().await;
         assert_eq!(tasks.len(), 4);
-        for (_, task) in &*tasks {
+        for task in (*tasks).values() {
             match task.content_id.id.to_string().as_str() {
                 "test_parent_id" => {
                     assert!(!task.output_tables.is_empty())

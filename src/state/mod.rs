@@ -134,6 +134,7 @@ pub struct App {
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
     snapshot_policy: Option<openraft::SnapshotPolicy>,
+    max_in_snapshot_log_to_keep: Option<u64>,
 }
 
 impl App {
@@ -156,6 +157,9 @@ impl App {
         if let Some(overrides) = overrides {
             if let Some(snapshot_policy) = overrides.snapshot_policy {
                 raft_config.snapshot_policy = snapshot_policy;
+            }
+            if let Some(max_in_snapshot_log_to_keep) = overrides.max_in_snapshot_log_to_keep {
+                raft_config.max_in_snapshot_log_to_keep = max_in_snapshot_log_to_keep;
             }
         }
 
