@@ -990,6 +990,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
+        //  set up raft cluster
         let overrides = RaftConfigOverrides {
             snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1)),
             max_in_snapshot_log_to_keep: Some(0),
@@ -1003,16 +1004,28 @@ mod tests {
             namespace: namespace.clone(),
             ..Default::default()
         };
+
+        //  add data
         node.create_index(&namespace, index, id.clone()).await?;
+
+        //  add a new node
         cluster.add_node_to_cluster(Some(overrides)).await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
+
+        //  ensure that snapshot invariants are maintained on new node
         let new_node = cluster.get_raft_node(1)?;
+
         let table = new_node.state_machine.get_namespace_index_table().await;
         assert_eq!(table.len(), 1);
         let (key, value) = table.iter().next().unwrap();
         assert_eq!(*key, namespace);
         assert_eq!(value.len(), 1);
         assert!(value.contains(&id));
+
+        let indexes = new_node.list_indexes(&namespace).await?;
+        assert_eq!(indexes.len(), 1);
+        let index = indexes.first().unwrap();
+        assert_eq!(index.namespace, namespace);
         Ok(())
     }
 }
