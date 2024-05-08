@@ -325,7 +325,7 @@ impl DataManager {
                     text.labels,
                     text.content_type,
                     None,
-                    &extraction_graph_names,
+                    "",
                     Some(&content_with_id.id),
                     &extraction_graph_names,
                 )
@@ -403,10 +403,12 @@ impl DataManager {
             mime: mime.to_string(),
             namespace: namespace.to_string(),
             labels,
-            source: extraction_graph_names.to_vec(),
+            source: "".to_string(),
             size_bytes: 0,
             hash: "".to_string(),
-            ..Default::default()
+            extraction_policy_ids: HashMap::new(),
+            root_content_id: "".to_string(),
+            extraction_graph_names: extraction_graph_names.clone(),
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -483,7 +485,7 @@ impl DataManager {
                 labels,
                 mime_type.to_string(),
                 Some(name),
-                &extraction_graph_names,
+                "",
                 original_content_id,
                 &extraction_graph_names,
             )
@@ -536,7 +538,7 @@ impl DataManager {
         labels: HashMap<String, String>,
         content_type: String,
         file_name: Option<&str>,
-        source: &[String],
+        source: &str,
         original_content_id: Option<&str>,
         extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
@@ -576,7 +578,7 @@ impl DataManager {
             mime: content_type,
             namespace: namespace.to_string(),
             labels,
-            source: source.to_vec(),
+            source: source.to_string(),
             size_bytes: res.size_bytes,
             hash: content_hash,
             extraction_policy_ids: HashMap::new(),
@@ -743,7 +745,6 @@ impl DataManager {
                 }
                 api::FeatureType::Metadata => {
                     assert_eq!(content_metadata.source.len(), 1); // content meta source should be singular at this point
-                    let source = content_metadata.source.first().unwrap(); //EGTODO: Check this again. Make sure source is correct
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_metadata.id.id,
                         &content_metadata

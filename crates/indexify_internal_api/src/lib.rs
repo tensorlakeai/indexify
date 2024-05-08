@@ -554,18 +554,27 @@ pub type ExtractionPolicyId = String;
 pub type ExtractionPolicyName = String;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ExtractionPolicyContentSource {
-    ExtractionGraphId(ExtractionGraphId),
-    ExtractionPolicyId(ExtractionPolicyId),
+    Ingestion,
+    ExtractionPolicyName(ExtractionPolicyName),
+}
+
+impl Display for ExtractionPolicyContentSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExtractionPolicyContentSource::Ingestion => write!(f, "ingestion"),
+            ExtractionPolicyContentSource::ExtractionPolicyName(name) => {
+                write!(f, "{}", name)
+            }
+        }
+    }
 }
 
 impl From<&ExtractionPolicyContentSource> for ContentSource {
     fn from(value: &ExtractionPolicyContentSource) -> Self {
         match value {
-            ExtractionPolicyContentSource::ExtractionGraphId(id) => {
-                ContentSource::ExtractionGraph(id.to_string())
-            }
-            ExtractionPolicyContentSource::ExtractionPolicyId(id) => {
-                ContentSource::ExtractionPolicyId(id.to_string())
+            ExtractionPolicyContentSource::Ingestion => ContentSource::Ingestion,
+            ExtractionPolicyContentSource::ExtractionPolicyName(name) => {
+                ContentSource::ExtractionPolicyName(name.to_string())
             }
         }
     }
@@ -573,7 +582,7 @@ impl From<&ExtractionPolicyContentSource> for ContentSource {
 
 impl Default for ExtractionPolicyContentSource {
     fn default() -> Self {
-        ExtractionPolicyContentSource::ExtractionPolicyId(ExtractionPolicyId::default())
+        ExtractionPolicyContentSource::ExtractionPolicyName(ExtractionPolicyId::default())
     }
 }
 
@@ -586,8 +595,8 @@ impl From<ExtractionPolicyContentSource> for String {
 impl From<&ExtractionPolicyContentSource> for String {
     fn from(value: &ExtractionPolicyContentSource) -> Self {
         match value {
-            ExtractionPolicyContentSource::ExtractionGraphId(id) => id.clone(),
-            ExtractionPolicyContentSource::ExtractionPolicyId(id) => id.clone(),
+            ExtractionPolicyContentSource::Ingestion => "".to_string(),
+            ExtractionPolicyContentSource::ExtractionPolicyName(name) => name.clone(),
         }
     }
 }
@@ -596,7 +605,7 @@ impl From<&ExtractionPolicyContentSource> for String {
 #[builder(build_fn(skip))]
 pub struct ExtractionPolicy {
     pub id: ExtractionPolicyId,
-    pub graph_id: String,
+    pub graph_name: ExtractionGraphName,
     pub name: ExtractionPolicyName,
     pub namespace: String,
     pub extractor: String,
@@ -612,7 +621,7 @@ pub struct ExtractionPolicy {
 impl std::hash::Hash for ExtractionPolicy {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.namespace.hash(state);
-        self.graph_id.hash(state);
+        self.graph_name.hash(state);
         self.name.hash(state);
     }
 }
@@ -620,8 +629,6 @@ impl std::hash::Hash for ExtractionPolicy {
 impl ExtractionPolicy {
     pub fn to_coordinator_policy(
         value: ExtractionPolicy,
-        content_source: String,
-        graph_name: ExtractionGraphName,
     ) -> indexify_coordinator::ExtractionPolicy {
         let mut filters = HashMap::new();
         for filter in value.filters {
@@ -633,8 +640,8 @@ impl ExtractionPolicy {
             name: value.name,
             filters,
             input_params: value.input_params.to_string(),
-            content_source,
-            graph_name,
+            content_source: value.content_source.into(),
+            graph_name: value.graph_name,
         }
     }
 }
@@ -675,7 +682,7 @@ impl ExtractionPolicyBuilder {
         }
         Ok(ExtractionPolicy {
             id,
-            graph_id: graph_id.to_string(),
+            graph_name: graph_id.to_string(),
             name,
             namespace: ns,
             extractor,
@@ -792,12 +799,12 @@ impl Default for ContentMetadataId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ContentSource {
     Ingestion,
-    ExtractionPolicyId(ExtractionPolicyId),
+    ExtractionPolicyName(ExtractionPolicyName),
 }
 
 impl Default for ContentSource {
     fn default() -> Self {
-        ContentSource::ExtractionPolicyId(ExtractionPolicyId::default())
+        ContentSource::ExtractionPolicyName(ExtractionPolicyName::default())
     }
 }
 
@@ -810,8 +817,26 @@ impl From<ContentSource> for String {
 impl From<&ContentSource> for String {
     fn from(value: &ContentSource) -> Self {
         match value {
-            ContentSource::ExtractionGraph(id) => id.clone(),
-            ContentSource::ExtractionPolicyId(id) => id.clone(),
+            ContentSource::Ingestion => "".to_string(),
+            ContentSource::ExtractionPolicyName(id) => id.clone(),
+        }
+    }
+}
+
+impl From<String> for ContentSource {
+    fn from(value: String) -> Self {
+        if value.is_empty() {
+            return ContentSource::Ingestion;
+        }
+        ContentSource::ExtractionPolicyName(value)
+    }
+}
+
+impl Display for ContentSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContentSource::Ingestion => write!(f, "ingestion"),
+            ContentSource::ExtractionPolicyName(name) => write!(f, "{}", name),
         }
     }
 }
@@ -844,7 +869,7 @@ pub struct ContentMetadata {
     pub hash: String,
     pub extraction_policy_ids: HashMap<ExtractionPolicyId, u64>, /*  map of completion time for
                                                                   * each extraction policy id */
-    pub extraction_graph_ids: Vec<ExtractionGraphId>,
+    pub extraction_graph_names: Vec<ExtractionGraphName>,
 }
 
 <<<<<<< HEAD
@@ -896,12 +921,12 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             storage_url: value.storage_url,
             created_at: value.created_at,
             namespace: value.namespace,
-            source,
+            source: value.source.into(),
             size_bytes: value.size_bytes,
             tombstoned: false,
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
-            extraction_graph_ids,
+            extraction_graph_names: value.extraction_graph_names,
         }
     }
 
@@ -950,12 +975,12 @@ impl Default for ContentMetadata {
             },
             storage_url: "http://example.com/test_url".to_string(),
             created_at: 1234567890, // example timestamp
-            source: ContentSource::ExtractionPolicyId("test_source".to_string()),
+            source: ContentSource::ExtractionPolicyName("test_source".to_string()),
             size_bytes: 1234567890,
             extraction_policy_ids: HashMap::new(),
             tombstoned: false,
             hash: "test_hash".to_string(),
-            extraction_graph_ids: vec![],
+            extraction_graph_names: vec![],
         }
     }
 }

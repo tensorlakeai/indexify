@@ -11,17 +11,13 @@ use indexify_proto::indexify_coordinator;
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
-    ExtractionGraphId,
-    ExtractionGraphName,
     ExtractionPolicy,
     ExtractionPolicyId,
     GarbageCollectionTask,
-    NamespaceName,
     OutputSchema,
     StateChange,
     StructuredDataSchema,
 };
-use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info};
 
@@ -68,89 +64,21 @@ impl Coordinator {
     ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
         let mut content_meta_list = Vec::new();
         for content in content_list {
-            let extraction_graphs = self
-                .shared_state
-                .get_extraction_graphs(&content.extraction_graph_ids)?
-                .ok_or_else(|| {
-                    anyhow!("could not find extraction graph for content {}", content.id)
-                })?;
-            let extraction_graph_names = extraction_graphs.into_iter().map(|eg| eg.name).collect();
-            let source_name = match content.source {
-                internal_api::ContentSource::ExtractionGraph(extraction_graph_id) => {
-                    let extraction_graph = self
-                        .shared_state
-                        .get_extraction_graphs(&vec![extraction_graph_id.to_string()])?
-                        .and_then(|graphs| graphs.first().cloned())
-                        .ok_or_else(|| {
-                            anyhow!(
-                                "could not find extraction graph with id: {}",
-                                extraction_graph_id
-                            )
-                        })?;
-                    Ok(extraction_graph.name.clone())
-                }
-                internal_api::ContentSource::ExtractionPolicyId(extraction_policy_id) => {
-                    let extraction_policy = self
-                        .shared_state
-                        .get_extraction_policy(&extraction_policy_id)?;
-                    Ok(extraction_policy.name.clone())
-                }
-            }?;
             let content: indexify_coordinator::ContentMetadata =
-                internal_api::ContentMetadata::to_coordinator_metadata(
-                    content,
-                    extraction_graph_names,
-                    source_name,
-                );
+                internal_api::ContentMetadata::to_coordinator_metadata(content);
             content_meta_list.push(content.clone());
         }
         Ok(content_meta_list)
     }
 
-    fn get_extraction_graphs_from_names(
-        &self,
-        namespace: &NamespaceName,
-        extraction_graph_names: &Vec<ExtractionGraphName>,
-    ) -> Result<Vec<ExtractionGraph>> {
-        if extraction_graph_names.is_empty() {
-            return Ok(Vec::new());
-        }
-        let ids = extraction_graph_names.iter().map(| name | ExtractionGraph::create_id(name, namespace) ).collect_vec();
-        let extraction_graphs = self
-            .shared_state
-            .get_extraction_graphs(&ids)?;
-        Ok(extraction_graphs)
-    }
-
     pub fn external_content_metadata_to_internal(
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content_meta_list: Result<Vec<_>> = content_list.into_iter().map(|content| {
-            let extraction_graphs = self.get_extraction_graphs_from_names(
-                &content.namespace,
-                &content.extraction_graph_names,
-            )?;
-            let extraction_policies = self.shared_state.get_extraction_policies_from_names(&content.namespace, &content.source)?;
-            let source_ids: Result<Vec<_>> = content.source.iter().map(|source| {
-                if let Some(graphs) = extraction_graphs {
-                    let source_id = graphs.first()
-                        .map(|graph| internal_api::ContentSource::ExtractionGraph(graph.id.clone()))
-                        .ok_or_else(|| anyhow!("could not find extraction graph for content {} and source {}", content.id, source))?;
-                    Ok(source_id)
-                } else {
-                    let extraction_policies = self.shared_state.get_extraction_policies_from_names(&content.namespace, &content.source)?;
-                    let source_id = extraction_policies
-                        .and_then(|policies| policies.first().cloned())
-                        .map(|policy| internal_api::ContentSource::ExtractionPolicyId(policy.id.clone()))
-                        .ok_or_else(|| anyhow!("could not find extraction policy for content {} and source {}", content.id, source))?;
-                    Ok(source_id)
-                }
-            }).collect();
-            let source_ids = source_ids?;
-            Ok(internal_api::ContentMetadata::from_coordinator_metadata(content, extraction_graph_ids, source_ids))
-        }).collect();
-        content_meta_list
+    ) -> Vec<internal_api::ContentMetadata> {
+        content_list
+            .into_iter()
+            .map(|v| internal_api::ContentMetadata::from_coordinator_metadata(v))
+            .collect()
     }
 
     pub fn internal_extraction_policy_to_external(
@@ -160,50 +88,9 @@ impl Coordinator {
         let policies_to_return: Result<Vec<_>> = policy_list
             .into_iter()
             .map(|policy| {
-                let graph_name = self
-                    .shared_state
-                    .get_extraction_graphs(&vec![policy.graph_id.clone()])?
-                    .and_then(|graphs| graphs.first().cloned())
-                    .map(|graph| graph.name)
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "could not find extraction graph with id: {}",
-                            policy.graph_id
-                        )
-                    })?;
-                match policy.content_source {
-                    internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                        ref extraction_policy_id,
-                    ) => {
-                        let parent_policy = self
-                            .shared_state
-                            .get_extraction_policy(extraction_policy_id)?;
-                        Ok(internal_api::ExtractionPolicy::to_coordinator_policy(
-                            policy,
-                            parent_policy.name,
-                            graph_name,
-                        ))
-                    }
-                    internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                        ref extraction_graph_id,
-                    ) => {
-                        let extraction_graph = self
-                            .shared_state
-                            .get_extraction_graphs(&vec![extraction_graph_id.to_string()])?
-                            .and_then(|graphs| graphs.first().cloned())
-                            .ok_or_else(|| {
-                                anyhow!(
-                                    "could not find extraction graph with id: {}",
-                                    extraction_graph_id
-                                )
-                            })?;
-                        Ok(internal_api::ExtractionPolicy::to_coordinator_policy(
-                            policy,
-                            extraction_graph.name,
-                            graph_name,
-                        ))
-                    }
-                }
+                Ok(internal_api::ExtractionPolicy::to_coordinator_policy(
+                    policy,
+                ))
             })
             .collect();
         policies_to_return
@@ -271,7 +158,7 @@ impl Coordinator {
             task_id, executor_id, outcome
         );
         let mut task = self.shared_state.task_with_id(task_id).await?;
-        let content_meta_list = self.external_content_metadata_to_internal(content_list)?;
+        let content_meta_list = self.external_content_metadata_to_internal(content_list);
         task.outcome = outcome;
         self.shared_state
             .update_task(task, Some(executor_id.to_string()), content_meta_list)
@@ -753,7 +640,7 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
-        let content_meta_list = self.external_content_metadata_to_internal(content_list)?;
+        let content_meta_list = self.external_content_metadata_to_internal(content_list);
         self.shared_state
             .create_content_batch(content_meta_list)
             .await?;
@@ -801,6 +688,7 @@ mod tests {
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator::{self};
+    use internal_api::ExtractionPolicyContentSource;
 
     use super::Coordinator;
     use crate::{
@@ -860,12 +748,10 @@ mod tests {
         let extraction_graph_id = "extraction_graph_id";
         let extraction_policy = internal_api::ExtractionPolicy {
             id: extraction_policy_id.into(),
-            graph_id: extraction_graph_id.into(),
+            graph_name: extraction_graph_id.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph = internal_api::ExtractionGraph {
@@ -881,8 +767,8 @@ mod tests {
 
         //  Read the extraction graph back
         let ret_graph = shared_state.get_extraction_graphs(&vec![extraction_graph.id])?;
-        assert!(ret_graph.is_some());
-        assert_eq!(ret_graph.unwrap().len(), 1);
+        assert!(ret_graph.first().unwrap().is_some());
+        assert_eq!(ret_graph.len(), 1);
         Ok(())
     }
 
@@ -906,12 +792,10 @@ mod tests {
         let extraction_graph_id = "extraction_graph_id";
         let extraction_policy = internal_api::ExtractionPolicy {
             id: extraction_policy_id.into(),
-            graph_id: extraction_graph_id.into(),
+            graph_name: extraction_graph_id.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph = internal_api::ExtractionGraph {
@@ -944,12 +828,15 @@ mod tests {
         let retr_content = shared_state
             .get_content_metadata_batch(vec![content_metadata.id.clone()])
             .await?;
-        assert_eq!(retr_content.first().unwrap().extraction_graph_ids.len(), 1);
+        assert_eq!(
+            retr_content.first().unwrap().extraction_graph_names.len(),
+            1
+        );
         assert_eq!(
             retr_content
                 .first()
                 .unwrap()
-                .extraction_graph_ids
+                .extraction_graph_names
                 .first()
                 .unwrap(),
             &extraction_graph.id
@@ -979,16 +866,15 @@ mod tests {
         let extraction_graph_name = "extraction_graph_name";
         let extraction_policy = internal_api::ExtractionPolicy {
             id: extraction_policy_id.into(),
-            graph_id: extraction_graph_id.into(),
+            graph_name: extraction_graph_id.into(),
+            name: "test_extraction_policy".into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph = internal_api::ExtractionGraph {
@@ -1010,7 +896,7 @@ mod tests {
             root_content_id: "test".to_string(),
             mime: "text/plain".to_string(),
             extraction_graph_names: vec![extraction_graph.name],
-            source: vec![extraction_graph_name.to_string()],
+            source: extraction_graph_name.to_string(),
             ..Default::default()
         };
         coordinator
@@ -1039,7 +925,7 @@ mod tests {
             root_content_id: "test".to_string(),
             mime: "text/plain".to_string(),
             extraction_graph_names: vec![],
-            source: vec![],
+            source: "".to_string(),
             ..Default::default()
         };
         coordinator
@@ -1150,16 +1036,14 @@ mod tests {
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_1.into(),
             name: "extraction_policy_name_1".into(),
-            graph_id: extraction_graph_id_1.into(),
+            graph_name: extraction_graph_id_1.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_1.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph_1 = internal_api::ExtractionGraph {
@@ -1194,16 +1078,14 @@ mod tests {
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_2.into(),
             name: "extraction_policy_name_2".into(),
-            graph_id: extraction_graph_id_2.into(),
+            graph_name: extraction_graph_id_2.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: extractor_name.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_2.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph_2 = internal_api::ExtractionGraph {
@@ -1228,10 +1110,7 @@ mod tests {
                 extraction_graph_1.name.clone(),
                 extraction_graph_2.name.clone(),
             ],
-            source: vec![
-                extraction_graph_1.name.clone(),
-                extraction_graph_2.name.clone(),
-            ],
+            source: "".to_string(),
             ..Default::default()
         };
         coordinator
@@ -1450,30 +1329,28 @@ mod tests {
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_1.into(),
             name: extraction_policy_name_1.into(),
-            graph_id: extraction_graph_id.into(),
+            graph_name: extraction_graph_id.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: extractor_1.name.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_2.into(),
             name: extraction_policy_name_2.into(),
-            graph_id: extraction_graph_id.into(),
+            graph_name: extraction_graph_id.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: extractor_2.name.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                extraction_policy_id_1.into(),
+            content_source: ExtractionPolicyContentSource::ExtractionPolicyName(
+                extraction_policy_name_1.to_string(),
             ),
             ..Default::default()
         };
@@ -1503,7 +1380,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name.to_string()],
+            source: "".to_string(),
             extraction_graph_names: vec![extraction_graph_name.to_string()],
             size_bytes: 100,
             hash: "123".into(),
@@ -1529,7 +1406,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name.to_string()],
             size_bytes: 100,
             hash: "456".into(),
@@ -1544,7 +1421,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name.to_string()],
             size_bytes: 100,
             hash: "789".into(),
@@ -1570,7 +1447,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_2.name],
+            source: extraction_policy_2.name,
             extraction_graph_names: vec![extraction_graph_name.to_string()],
             size_bytes: 100,
             hash: "987".into(),
@@ -1648,16 +1525,14 @@ mod tests {
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_1.into(),
             name: "extraction_policy_name_1".into(),
-            graph_id: extraction_graph_id_1.into(),
+            graph_name: extraction_graph_id_1.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_1.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph_1 = internal_api::ExtractionGraph {
@@ -1681,16 +1556,14 @@ mod tests {
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_2.into(),
             name: "extraction_policy_name_2".into(),
-            graph_id: extraction_graph_id_2.into(),
+            graph_name: extraction_graph_id_2.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_2.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph_2 = internal_api::ExtractionGraph {
@@ -1717,7 +1590,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name_1.to_string()],
+            source: extraction_graph_name_1.to_string(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1736,7 +1609,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1751,7 +1624,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_2.name.clone()],
+            source: extraction_policy_2.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1770,7 +1643,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1791,7 +1664,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name_2.to_string()],
+            source: extraction_graph_name_2.to_string(),
             extraction_graph_names: vec![extraction_graph_name_2.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1810,7 +1683,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_2.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1874,16 +1747,14 @@ mod tests {
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_1.into(),
             name: "extraction_policy_name_1".into(),
-            graph_id: extraction_graph_id_1.into(),
+            graph_name: extraction_graph_id_1.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_1.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph_1 = internal_api::ExtractionGraph {
@@ -1910,7 +1781,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name_1.to_string()],
+            source: extraction_graph_name_1.to_string(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1929,7 +1800,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -1944,7 +1815,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -2018,9 +1889,7 @@ mod tests {
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_1.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_graph_1 = internal_api::ExtractionGraph {
@@ -2047,7 +1916,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name_1.to_string()],
+            source: extraction_graph_name_1.to_string(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -2067,7 +1936,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -2082,7 +1951,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "".into(),
@@ -2170,31 +2039,29 @@ mod tests {
         let extraction_policy_1 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_1.into(),
             name: "extraction_policy_name_1".into(),
-            graph_id: extraction_graph_id_1.into(),
+            graph_name: extraction_graph_id_1.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id_1.into(),
-            ),
+            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             ..Default::default()
         };
         let extraction_policy_id_2 = "extraction_policy_id_2";
         let extraction_policy_2 = internal_api::ExtractionPolicy {
             id: extraction_policy_id_2.into(),
             name: "extraction_policy_name_2".into(),
-            graph_id: extraction_graph_id_1.into(),
+            graph_name: extraction_graph_id_1.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: extractor_2.name,
             output_table_mapping: HashMap::from([(
                 "test_output".to_string(),
                 "test_namespace.test.test_output".to_string(),
             )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                extraction_policy_id_1.into(),
+            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyName(
+                "extraction_policy_name_1".to_string(),
             ),
             ..Default::default()
         };
@@ -2225,7 +2092,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name_1.to_string()],
+            source: extraction_graph_name_1.to_string(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_parent_id".into(),
@@ -2254,7 +2121,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_child_id_1".into(),
@@ -2269,7 +2136,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_child_id_2".into(),
@@ -2299,7 +2166,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_graph_name_1.to_string()],
+            source: extraction_graph_name_1.to_string(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_parent_id_new_hash".into(),
@@ -2324,7 +2191,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_child_id_1".into(),
@@ -2339,7 +2206,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_child_id_2_new".into(),
@@ -2354,7 +2221,7 @@ mod tests {
             created_at: 0,
             storage_url: "test_storage_url".to_string(),
             labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
+            source: extraction_policy_1.name.clone(),
             extraction_graph_names: vec![extraction_graph_name_1.to_string()],
             size_bytes: 100,
             hash: "test_child_id_3".into(),

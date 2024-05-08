@@ -18,8 +18,6 @@ use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
     ExtractionPolicy,
-    ExtractionPolicyId,
-    NamespaceName,
     StateChange,
     StructuredDataSchema,
 };
@@ -392,17 +390,19 @@ impl App {
                 content_id.to_string()
             )
         })?;
-        if content_metadata.extraction_graph_ids.is_empty() {
+        if content_metadata.extraction_graph_names.is_empty() {
             return Ok(Vec::new());
         }
-        let extraction_graphs = self
-            .get_extraction_graphs(&content_metadata.extraction_graph_ids)?
-            .ok_or_else(|| anyhow!("failed to get extraction graphs for content {}", content_id))?;
-        let extraction_policy_ids: HashSet<ExtractionPolicyId> = extraction_graphs
-            .iter()
-            .flat_map(|eg| eg.extraction_policies.iter())
-            .cloned()
-            .collect();
+        let extraction_graphs =
+            self.get_extraction_graphs(&content_metadata.extraction_graph_names)?;
+        let mut extraction_policy_ids = HashSet::new();
+        for extraction_graph in extraction_graphs {
+            if let Some(eg) = extraction_graph {
+                for extraction_policy in eg.extraction_policies {
+                    extraction_policy_ids.insert(extraction_policy);
+                }
+            }
+        }
         let extraction_policies = self
             .state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids)?
@@ -414,12 +414,7 @@ impl App {
             })?;
         let mut matched_policies = Vec::new();
         for extraction_policy in extraction_policies {
-            if !content_metadata
-                .source
-                .contains(&internal_api::ContentSource::from(
-                    &extraction_policy.content_source,
-                ))
-            {
+            if content_metadata.source.to_string() != extraction_policy.content_source.to_string() {
                 continue;
             }
             if !extraction_policy.filters.iter().all(|(name, value)| {
@@ -459,15 +454,6 @@ impl App {
     ) -> Result<Option<Vec<ExtractionPolicy>>> {
         self.state_machine
             .get_extraction_policies_from_ids(extraction_policy_ids)
-    }
-
-    pub fn get_extraction_policies_from_names(
-        &self,
-        namespace: &NamespaceName,
-        policy_name: &str,
-    ) -> Result<Option<Vec<ExtractionPolicy>>> {
-        self.state_machine
-            .get_extraction_policies_from_names(namespace, policy_names)
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
@@ -637,7 +623,7 @@ impl App {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<String>,
-    ) -> Result<Vec<ExtractionGraph>> {
+    ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.state_machine
             .get_extraction_graphs(extraction_graph_ids)
     }
@@ -1940,9 +1926,7 @@ mod tests {
         let extraction_policy = indexify_internal_api::ExtractionPolicy {
             id: extraction_policy_id.into(),
             namespace: namespace.into(),
-            content_source: indexify_internal_api::ExtractionPolicyContentSource::ExtractionGraphId(
-                extraction_graph_id.to_string(),
-            ),
+            content_source: indexify_internal_api::ExtractionPolicyContentSource::Ingestion,
             extractor: extractor.name,
             filters: vec![("label1".to_string(), "value1".to_string())]
                 .into_iter()
@@ -1966,12 +1950,8 @@ mod tests {
             name: "name_1".into(),
             labels: content_labels.into_iter().collect(),
             content_type: "*/*".into(),
-            source: vec![
-                indexify_internal_api::ContentSource::ExtractionGraph(
-                    extraction_graph_id.to_string(),
-                ),
-            ],
-            extraction_graph_ids: vec![extraction_graph_id.to_string()],
+            source: indexify_internal_api::ContentSource::Ingestion,
+            extraction_graph_names: vec![extraction_graph_id.to_string()],
             ..Default::default()
         };
 
@@ -1983,12 +1963,8 @@ mod tests {
             name: "name_2".into(),
             labels: content_labels.into_iter().collect(),
             content_type: "*/*".into(),
-            source: vec![
-                indexify_internal_api::ContentSource::ExtractionGraph(
-                    extraction_graph_id.to_string(),
-                ),
-            ],
-            extraction_graph_ids: vec![extraction_graph_id.to_string()],
+            source: indexify_internal_api::ContentSource::Ingestion,
+            extraction_graph_names: vec![extraction_graph_id.to_string()],
             ..Default::default()
         };
         content_metadata_vec.push(content_metadata);

@@ -362,17 +362,6 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub fn get_extraction_policies_from_names(
-        &self,
-        namespace: &str,
-        policy_names: &[String],
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
-        self.data
-            .indexify_state
-            .get_extraction_policies_by_name(&namespace.to_string(), policy_names, &self.db)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
@@ -444,7 +433,7 @@ impl StateMachineStore {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<String>,
-    ) -> Result<Vec<indexify_internal_api::ExtractionGraph>> {
+    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
         self.data
             .indexify_state
             .get_extraction_graphs(extraction_graph_ids, &self.db)

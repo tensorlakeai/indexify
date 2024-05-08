@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::HashMap,
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -143,68 +143,38 @@ impl CoordinatorServiceServer {
         extraction_graph: &CreateExtractionGraphRequest,
     ) -> Result<ExtractionPolicyCreationResult> {
         let mut name_to_policy_mapping = HashMap::new();
-        let mut parent_child_policy_mapping = HashMap::new();
         let graph_id =
             ExtractionGraph::create_id(&extraction_graph.name, &extraction_graph.namespace);
-        let mut root_policy_name = None;
         for extraction_policy in &extraction_graph.policies {
             name_to_policy_mapping
                 .insert(extraction_policy.name.clone(), extraction_policy.clone());
-            if extraction_policy.content_source == extraction_graph.name {
-                //  this is the root policy
-                if root_policy_name.is_some() {
-                    return Err(anyhow!("More than one root policy found"));
-                }
-                root_policy_name = Some(extraction_policy.name.clone());
-                parent_child_policy_mapping
-                    .entry(extraction_policy.name.clone())
-                    .or_insert_with(HashSet::new);
-            } else {
-                parent_child_policy_mapping
-                    .entry(extraction_policy.content_source.clone())
-                    .or_insert_with(HashSet::new)
-                    .insert(extraction_policy.name.clone());
-            }
         }
-
-        let root_policy_name = match root_policy_name {
-            Some(name) => name,
-            None => return Err(anyhow!("No root policy found")),
-        };
 
         let mut extraction_policies = Vec::new();
         let mut extractors = Vec::new();
-        let mut queue = VecDeque::new();
-        queue.push_back((root_policy_name.clone(), graph_id.clone()));
 
-        while let Some((policy_name, parent_id)) = queue.pop_front() {
-            let policy_request = name_to_policy_mapping.get(&policy_name).unwrap().clone();
+        for (_, policy_request) in name_to_policy_mapping.iter() {
             let input_params = serde_json::from_str(&policy_request.input_params)
                 .map_err(|e| anyhow!(format!("unable to parse input_params: {}", e)))?;
             let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
-            let content_source = {
-                if policy_name == root_policy_name {
-                    internal_api::ExtractionPolicyContentSource::ExtractionGraphId(parent_id)
-                } else {
-                    internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(parent_id)
-                }
+            let content_source = if policy_request.content_source.eq("") {
+                internal_api::ExtractionPolicyContentSource::Ingestion
+            } else {
+                internal_api::ExtractionPolicyContentSource::ExtractionPolicyName(
+                    policy_request.content_source.clone(),
+                )
             };
             let policy = ExtractionPolicyBuilder::default()
-                .namespace(policy_request.namespace)
-                .name(policy_request.name)
-                .extractor(policy_request.extractor)
-                .filters(policy_request.filters)
+                .namespace(policy_request.namespace.clone())
+                .name(policy_request.name.clone())
+                .extractor(policy_request.extractor.clone())
+                .filters(policy_request.filters.clone())
                 .input_params(input_params)
                 .content_source(content_source)
                 .build(&graph_id, &extraction_graph.name, extractor.clone())
                 .map_err(|e| anyhow!(e))?;
             extraction_policies.push(policy.clone());
             extractors.push(extractor.clone());
-            if let Some(children) = parent_child_policy_mapping.get(&policy_name) {
-                for child_name in children {
-                    queue.push_back((child_name.clone(), policy.id.clone()));
-                }
-            }
         }
         Ok(ExtractionPolicyCreationResult {
             extraction_policies,

@@ -178,7 +178,7 @@ impl ContentStateWriting {
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
                     labels,
-                    source: vec![extraction_policy.name],
+                    source: extraction_policy.name,
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
@@ -487,7 +487,7 @@ mod tests {
                 parent_id: None,
                 root_content_id: Some("1".to_string()),
                 namespace: "test".to_string(),
-                source: vec![extraction_graph_name.to_string()],
+                source: extraction_graph_name.to_string(),
                 extraction_graph_names: vec![extraction_graph_name.to_string()],
                 ..Default::default()
             };
@@ -780,11 +780,9 @@ mod tests {
             namespace: "test".to_string(),
             name: "extraction_policy_name".to_string(),
             extractor: "extractor_name".to_string(),
-            graph_id: "extraction_graph_id".to_string(),
+            graph_name: "extraction_graph_id".to_string(),
             filters: HashMap::new(),
-            content_source: ExtractionPolicyContentSource::ExtractionGraphId(
-                "extraction_graph_id".to_string(),
-            ),
+            content_source: ExtractionPolicyContentSource::Ingestion,
             output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
                 .into_iter()
                 .collect(),
@@ -912,11 +910,9 @@ mod tests {
             namespace: "test".to_string(),
             name: "extraction_policy_name".to_string(),
             extractor: "extractor_name".to_string(),
-            graph_id: "extraction_graph_id".to_string(),
+            graph_name: "extraction_graph_id".to_string(),
             filters: HashMap::new(),
-            content_source: ExtractionPolicyContentSource::ExtractionGraphId(
-                "extraction_graph_id".to_string(),
-            ),
+            content_source: ExtractionPolicyContentSource::Ingestion,
             output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
                 .into_iter()
                 .collect(),
