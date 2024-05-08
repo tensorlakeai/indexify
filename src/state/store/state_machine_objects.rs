@@ -2149,6 +2149,7 @@ impl IndexifyState {
                 Ok((k, value))
             })
             .collect::<Result<_, StateMachineError>>()?;
+        let metrics = self.metrics.lock().unwrap().clone();
 
         let snapshot = IndexifyStateSnapshot {
             executors: executors.into_iter().collect(),
@@ -2166,6 +2167,7 @@ impl IndexifyState {
                 .into_iter()
                 .collect(),
             coordinator_address: coordinator_address.into_iter().collect(),
+            metrics,
         };
         Ok(snapshot)
     }
@@ -2387,6 +2389,9 @@ impl IndexifyState {
             }
         }
 
+        //  set the metrics
+        *self.metrics.lock().unwrap() = snapshot.metrics;
+
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
@@ -2411,6 +2416,7 @@ pub struct IndexifyStateSnapshot {
         HashMap<internal_api::StructuredDataSchemaId, internal_api::StructuredDataSchema>,
     extraction_policies_applied_on_content: HashMap<ContentMetadataId, Vec<ExtractionPolicyId>>,
     coordinator_address: HashMap<NodeId, String>,
+    metrics: Metrics,
 }
 
 #[cfg(test)]
