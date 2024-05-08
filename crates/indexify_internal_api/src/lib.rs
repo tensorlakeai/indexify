@@ -612,7 +612,7 @@ impl Default for ContentMetadataId {
 pub struct ContentMetadata {
     pub id: ContentMetadataId,
     pub parent_id: Option<ContentMetadataId>,
-    pub root_content_id: Option<String>,
+    pub root_content_id: String,
     // Namespace name == Namespace ID
     pub namespace: String,
     pub name: String,
@@ -634,7 +634,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(), /*  don't expose the
                               * version on the
                               * task */
-            root_content_id: value.root_content_id.unwrap_or_default(),
+            root_content_id: value.root_content_id,
             file_name: value.name,
             mime: value.content_type,
             labels: value.labels,
@@ -651,11 +651,6 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
     fn from(value: indexify_coordinator::ContentMetadata) -> Self {
-        let root_content_id = if value.root_content_id.is_empty() {
-            None
-        } else {
-            Some(value.root_content_id)
-        };
         let parent_id = if value.parent_id.is_empty() {
             None
         } else {
@@ -667,7 +662,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
                 version: 1,
             },
             parent_id,
-            root_content_id,
+            root_content_id: value.root_content_id,
             name: value.file_name,
             content_type: value.mime,
             labels: value.labels,
@@ -688,7 +683,7 @@ impl Default for ContentMetadata {
         Self {
             id: ContentMetadataId::default(),
             parent_id: None,
-            root_content_id: Some(ContentMetadataId::default().id),
+            root_content_id: ContentMetadataId::default().id,
             namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
             content_type: "test_content_type".to_string(),

@@ -339,6 +339,7 @@ impl DataManager {
             file_name: file.to_string(),
             storage_url: file.to_string(),
             parent_id: "".to_string(),
+            root_content_id: id.clone(),
             created_at: current_ts_secs as i64,
             mime: mime.to_string(),
             namespace: namespace.to_string(),
@@ -346,7 +347,7 @@ impl DataManager {
             source: "ingestion".to_string(),
             size_bytes: 0,
             hash: "".to_string(),
-            ..Default::default()
+            extraction_policy_ids: HashMap::new(),
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -508,7 +509,7 @@ impl DataManager {
             file_name,
             storage_url: res.url,
             parent_id: "".to_string(),
-            root_content_id: "".to_string(),
+            root_content_id: id,
             created_at: current_ts_secs as i64,
             mime: content_type,
             namespace: namespace.to_string(),

@@ -418,7 +418,7 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
         Self {
             id: value.id.id,
             parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(),
-            root_content_id: value.root_content_id.unwrap_or_default(),
+            root_content_id: value.root_content_id,
             namespace: value.namespace,
             name: value.name,
             mime_type: value.content_type,

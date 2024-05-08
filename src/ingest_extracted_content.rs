@@ -466,7 +466,7 @@ mod tests {
                 id: ContentMetadataId::new("1"),
                 name: "test".to_string(),
                 parent_id: None,
-                root_content_id: Some("1".to_string()),
+                root_content_id: "1".to_string(),
                 namespace: "test".to_string(),
                 content_type: "text/plain".to_string(),
                 storage_url: "test".to_string(),
@@ -724,7 +724,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             content_metadata.first().unwrap().root_content_id,
-            Some("1".to_string())
+            "1".to_string()
         );
 
         let payload = BeginExtractedContentIngest {

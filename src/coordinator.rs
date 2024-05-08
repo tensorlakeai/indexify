@@ -270,16 +270,12 @@ impl Coordinator {
         task_id: &str,
     ) -> Result<(internal_api::Task, Option<internal_api::ContentMetadata>)> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        let mut root_content = None;
-        if let Some(root_content_id) = &task.content_metadata.root_content_id {
-            let root_cm = self
-                .shared_state
-                .get_content_metadata_batch(vec![root_content_id.clone()])
-                .await?;
-            if let Some(root_cm) = root_cm.first() {
-                root_content.replace(root_cm.clone());
-            }
-        }
+        let root_content = self
+            .shared_state
+            .get_content_metadata_batch(vec![task.content_metadata.root_content_id.clone()])
+            .await?
+            .first()
+            .cloned();
         Ok((task, root_content))
     }
 
