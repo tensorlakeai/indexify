@@ -449,7 +449,6 @@ impl Coordinator {
             .await?;
         self.shared_state
             .tombstone_content_batch_with_version(
-                &content_metadata.namespace,
                 &[content_metadata.id.clone()],
                 vec![StateChangeProcessed {
                     state_change_id: change.id.clone(),
@@ -508,13 +507,9 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn tombstone_content_metadatas(
-        &self,
-        namespace: &str,
-        content_ids: &[String],
-    ) -> Result<()> {
+    pub async fn tombstone_content_metadatas(&self, content_ids: &[String]) -> Result<()> {
         self.shared_state
-            .tombstone_content_batch(namespace, content_ids)
+            .tombstone_content_batch(content_ids)
             .await?;
         Ok(())
     }
@@ -1318,10 +1313,7 @@ mod tests {
             .await?;
 
         coordinator
-            .tombstone_content_metadatas(
-                DEFAULT_TEST_NAMESPACE,
-                &[parent_content.id.clone(), parent_content_2.id.clone()],
-            )
+            .tombstone_content_metadatas(&[parent_content.id.clone(), parent_content_2.id.clone()])
             .await?;
 
         //  Check that content has been correctly tombstoned
@@ -1453,7 +1445,7 @@ mod tests {
 
         coordinator
             .shared_state
-            .tombstone_content_batch(DEFAULT_TEST_NAMESPACE, &[parent_content.id])
+            .tombstone_content_batch(&[parent_content.id])
             .await?;
 
         //  after tombstone
@@ -1630,7 +1622,7 @@ mod tests {
 
         //  create a state change for tombstoning the content tree
         coordinator
-            .tombstone_content_metadatas(&parent_content.namespace, &[parent_content.id])
+            .tombstone_content_metadatas(&[parent_content.id])
             .await?;
 
         coordinator.run_scheduler().await?;

@@ -1287,10 +1287,7 @@ impl IndexifyState {
             RequestPayload::UpdateContent { content_metadata } => {
                 self.set_content(db, &txn, content_metadata)?;
             }
-            RequestPayload::TombstoneContentTree {
-                namespace: _,
-                content_metadata,
-            } => {
+            RequestPayload::TombstoneContentTree { content_metadata } => {
                 self.tombstone_content_tree(db, &txn, content_metadata)?;
             }
             RequestPayload::CreateExtractionPolicy {
