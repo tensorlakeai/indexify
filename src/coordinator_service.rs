@@ -649,18 +649,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<GetContentMetadataRequest>,
     ) -> Result<Response<indexify_coordinator::GetContentMetadataResponse>, Status> {
         let req = req.into_inner();
-        let content_metadata_list = self
+        let content_list = self
             .coordinator
             .get_content_metadata(req.content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let content_metadata = content_metadata_list
-            .iter()
-            .map(|c| (c.id.id.clone(), c.clone().into()))
-            .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
-                content_list: content_metadata,
+                content_list: content_list.into_iter().map(Into::into).collect(),
             },
         ))
     }
