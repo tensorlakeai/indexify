@@ -153,10 +153,9 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<TombstoneContentRequest>,
     ) -> Result<tonic::Response<TombstoneContentResponse>, tonic::Status> {
         let req = request.into_inner();
-        let namespace = req.namespace;
         let content_ids = req.content_ids;
         self.coordinator
-            .tombstone_content_metadatas(&namespace, &content_ids)
+            .tombstone_content_metadatas(&content_ids)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(TombstoneContentResponse {}))

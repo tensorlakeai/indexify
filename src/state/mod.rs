@@ -1064,7 +1064,6 @@ impl App {
     /// get the latest version of each content id and tombstone that one
     pub async fn tombstone_content_batch(
         &self,
-        namespace: &str,
         content_ids: &[String],
     ) -> Result<(), anyhow::Error> {
         let mut updated_content_ids = Vec::new();
@@ -1086,7 +1085,7 @@ impl App {
             updated_content_ids.push(id.clone());
         }
 
-        self.tombstone_content_batch_with_version(namespace, &updated_content_ids, vec![])
+        self.tombstone_content_batch_with_version(&updated_content_ids, vec![])
             .await?;
 
         Ok(())
@@ -1094,7 +1093,6 @@ impl App {
 
     pub async fn tombstone_content_batch_with_version(
         &self,
-        namespace: &str,
         content_ids: &[ContentMetadataId],
         state_changes_processed: Vec<StateChangeProcessed>,
     ) -> Result<(), anyhow::Error> {
@@ -1125,7 +1123,6 @@ impl App {
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::TombstoneContentTree {
-                namespace: namespace.to_string(),
                 content_metadata: updated_content,
             },
             new_state_changes: state_changes,
