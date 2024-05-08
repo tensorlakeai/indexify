@@ -9,7 +9,11 @@ use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, GarbageCollectionTask, OutputSchema, StateChange, StructuredDataSchema,
+    ContentMetadataId,
+    GarbageCollectionTask,
+    OutputSchema,
+    StateChange,
+    StructuredDataSchema,
 };
 use jsonschema::JSONSchema;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -568,7 +572,10 @@ mod tests {
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{
-            mock_extractor, mock_extractors, DEFAULT_TEST_EXTRACTOR, DEFAULT_TEST_NAMESPACE,
+            mock_extractor,
+            mock_extractors,
+            DEFAULT_TEST_EXTRACTOR,
+            DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
     };
