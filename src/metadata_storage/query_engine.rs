@@ -98,7 +98,7 @@ impl Store for QueryEngine {
 
     async fn fetch_schema(&self, table_name: &str) -> Result<Option<Schema>> {
         for schema in &self.schemas {
-            if schema.content_source == table_name {
+            if schema.extraction_graph_name == table_name {
                 let schema_str = schema.to_ddl();
                 return Ok(Some(Schema::from_ddl(&schema_str)?));
             }
@@ -140,7 +140,7 @@ impl Store for QueryEngine {
         let _ = self
             .schemas
             .iter()
-            .find(|schema| schema.content_source == table_name)
+            .find(|schema| schema.extraction_graph_name == table_name)
             .ok_or_else(|| {
                 gluesql::core::error::Error::StorageMsg(format!("table {} not found", table_name))
             })?;
@@ -191,16 +191,16 @@ mod tests {
     fn create_schema(
         ns: &str,
         columns: Vec<(&str, SchemaColumnType)>,
-        cs: &str,
+        extraction_graph_name: &str,
     ) -> StructuredDataSchema {
         StructuredDataSchema {
+            id: nanoid!(16),
+            extraction_graph_name: extraction_graph_name.into(),
             namespace: ns.to_string(),
             columns: columns
                 .into_iter()
                 .map(|(name, dtype)| (name.to_string(), dtype.into()))
                 .collect(),
-            content_source: cs.to_string(),
-            id: nanoid!(16),
         }
     }
 

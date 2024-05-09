@@ -78,7 +78,6 @@ pub struct NamespaceEndpointState {
             list_indexes,
             index_search,
             list_extractors,
-            create_extraction_policy,
             list_executors,
             list_content,
             get_content_metadata,
@@ -177,8 +176,8 @@ impl Server {
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
-                "/namespaces/:namespace/extraction_policies",
-                post(create_extraction_policy).with_state(namespace_endpoint_state.clone()),
+                "/namespaces/:namespace/extraction_graph",
+                post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/indexes",
@@ -309,7 +308,7 @@ impl Server {
         while let Err(err) = data_manager
             .create_namespace(&DataNamespace {
                 name: "default".to_string(),
-                extraction_policies: vec![],
+                extraction_graphs: vec![],
             })
             .await
         {
@@ -472,7 +471,7 @@ async fn create_namespace(
 ) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
     let data_namespace = api::DataNamespace {
         name: payload.name.clone(),
-        extraction_policies: payload.extraction_policies.clone(),
+        extraction_graphs: payload.extraction_graphs.clone(),
     };
     state
         .data_manager
@@ -540,30 +539,30 @@ async fn get_namespace(
 
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/extraction_policies",
-    request_body = ExtractionPolicyRequest,
+    path = "/namespace/{namespace}/extraction_graph",
+    request_body = ExtractionGraphRequest,
     tag = "indexify",
     responses(
-        (status = 200, description = "Extractor policy added successfully", body = ExtractionPolicyResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction policy to namespace")
+        (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction graph to namespace")
     ),
 )]
 #[axum::debug_handler]
-async fn create_extraction_policy(
+async fn create_extraction_graph(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
-    Path(namespace): Path<String>,
+    Path(_namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<ExtractionPolicyRequest>,
-) -> Result<Json<ExtractionPolicyResponse>, IndexifyAPIError> {
-    let index_names = state
+    Json(payload): Json<ExtractionGraphRequest>,
+) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
+    let indexes = state
         .data_manager
-        .create_extraction_policy(&namespace, &payload)
+        .create_extraction_graph(payload)
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
         .collect();
-    Ok(Json(ExtractionPolicyResponse { index_names }))
+    Ok(Json(ExtractionGraphResponse { indexes }))
 }
 
 #[tracing::instrument(skip(state, payload))]
@@ -616,11 +615,12 @@ async fn add_texts(
                 labels: d.labels.clone(),
                 features: vec![],
             },
+            extraction_graph_names: payload.extraction_graph_names.clone(),
         })
         .collect();
     state
         .data_manager
-        .add_texts(&namespace, content)
+        .add_texts(&namespace, content, payload.extraction_graph_names)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
@@ -645,6 +645,7 @@ async fn ingest_remote_file(
             &payload.url,
             &payload.mime_type,
             payload.labels,
+            &payload.extraction_graph_names,
         )
         .await
         .map_err(|e| {
@@ -815,6 +816,12 @@ async fn download_content(
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct UploadFileQueryParams {
+    id: Option<String>,
+    extraction_graph_names: Option<String>,
+}
+
 #[tracing::instrument]
 #[utoipa::path(
     post,
@@ -830,15 +837,25 @@ async fn download_content(
 async fn upload_file(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<UploadFileQueryParams>,
     mut files: Multipart,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels = HashMap::new();
 
-    let id = params
-        .get("id")
-        .cloned()
-        .unwrap_or_else(DataManager::make_id);
+    let extraction_graph_names = params
+        .extraction_graph_names
+        .clone()
+        .ok_or_else(|| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                "extraction_graph_names parameter is required",
+            )
+        })?
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+
+    let id = params.id.clone().unwrap_or_else(DataManager::make_id);
     if !DataManager::is_hex_string(&id) {
         return Err(IndexifyAPIError::new(
             StatusCode::BAD_REQUEST,
@@ -879,7 +896,15 @@ async fn upload_file(
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
             let content_metadata = state
                 .data_manager
-                .upload_file(&namespace, stream, &name, content_mime, labels, Some(&id))
+                .upload_file(
+                    &namespace,
+                    stream,
+                    &name,
+                    content_mime,
+                    labels,
+                    Some(&id),
+                    extraction_graph_names,
+                )
                 .await
                 .map_err(|e| {
                     IndexifyAPIError::new(
@@ -981,6 +1006,7 @@ async fn update_content(
                 content_mime,
                 content_metadata.labels.clone(),
                 Some(&content_metadata.id),
+                vec![],
             )
             .await
             .map_err(|e| {
@@ -1310,13 +1336,16 @@ async fn list_schemas(
         })?;
 
         let schema = internal_api::StructuredDataSchema {
-            columns,
-            content_source: schema.content_source.to_string(),
+            id: internal_api::StructuredDataSchema::schema_id(
+                &namespace,
+                &schema.extraction_graph_name,
+            ),
+            extraction_graph_name: schema.extraction_graph_name,
             namespace: namespace.clone(),
-            id: internal_api::StructuredDataSchema::schema_id(&namespace, &schema.content_source),
+            columns,
         };
 
-        ddls.insert(schema.content_source.to_string(), schema.to_ddl());
+        ddls.insert(schema.extraction_graph_name.to_string(), schema.to_ddl());
         schemas.push(schema);
     }
 

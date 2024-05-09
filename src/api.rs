@@ -16,6 +16,44 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{api_utils, metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ExtractionGraph {
+    pub id: String,
+    pub name: String,
+    pub namespace: String,
+    pub extraction_policies: Vec<ExtractionPolicy>,
+}
+
+impl From<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
+    fn from(value: ExtractionGraph) -> Self {
+        Self {
+            id: value.id,
+            namespace: value.namespace.clone(),
+            name: value.name,
+            extraction_policies: value
+                .extraction_policies
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+impl From<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
+    fn from(value: indexify_coordinator::ExtractionGraph) -> Self {
+        Self {
+            id: value.namespace.clone(),
+            namespace: value.namespace,
+            name: value.name,
+            extraction_policies: value
+                .extraction_policies
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionPolicy {
     pub id: String,
     pub extractor: String,
@@ -24,6 +62,7 @@ pub struct ExtractionPolicy {
     pub filters_eq: Option<HashMap<String, String>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
+    pub graph_name: String,
 }
 
 impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
@@ -38,6 +77,21 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
                 .map(|v| v.to_string())
                 .unwrap_or("{}".to_string()),
             content_source: value.content_source.unwrap_or("ingestion".to_string()),
+            graph_name: value.graph_name,
+        }
+    }
+}
+
+impl From<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
+    fn from(value: indexify_coordinator::ExtractionPolicy) -> Self {
+        Self {
+            id: value.id,
+            extractor: value.extractor,
+            name: value.name,
+            filters_eq: Some(value.filters),
+            input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
+            content_source: Some(value.content_source),
+            graph_name: value.graph_name,
         }
     }
 }
@@ -45,35 +99,26 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataNamespace {
     pub name: String,
-    pub extraction_policies: Vec<ExtractionPolicy>,
+    pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
-impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
-        let mut extraction_policies = Vec::new();
-        for policy in value.policies {
-            extraction_policies.push(ExtractionPolicy {
-                id: policy.id,
-                extractor: policy.extractor,
-                name: policy.name,
-                filters_eq: Some(policy.filters),
-                input_params: Some(serde_json::from_str(&policy.input_params)?),
-                content_source: Some(policy.content_source),
-            });
-        }
-        Ok(Self {
+impl From<indexify_coordinator::Namespace> for DataNamespace {
+    fn from(value: indexify_coordinator::Namespace) -> Self {
+        Self {
             name: value.name,
-            extraction_policies,
-        })
+            extraction_graphs: value
+                .extraction_graphs
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct CreateNamespace {
     pub name: String,
-    pub extraction_policies: Vec<ExtractionPolicy>,
+    pub extraction_graphs: Vec<ExtractionGraph>,
     pub labels: HashMap<String, String>,
 }
 
@@ -156,6 +201,7 @@ pub struct Text {
 pub struct TextAddRequest {
     pub documents: Vec<Text>,
     pub sync: Option<bool>,
+    pub extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -425,9 +471,40 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
-            source: value.source,
+            source: value.source.to_string(),
             size: value.size_bytes,
             hash: value.hash,
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, ToSchema)]
+pub struct Task {
+    pub id: String,
+    pub extractor: String,
+    pub extraction_policy_id: String,
+    pub output_index_table_mapping: HashMap<String, String>,
+    pub namespace: String,
+    pub content_metadata: ContentMetadata,
+    pub input_params: serde_json::Value,
+    pub outcome: i32,
+    pub index_tables: Vec<String>,
+}
+
+impl From<indexify_coordinator::Task> for Task {
+    fn from(value: indexify_coordinator::Task) -> Self {
+        Self {
+            id: value.id,
+            extractor: value.extractor,
+            extraction_policy_id: value.extraction_policy_id,
+            output_index_table_mapping: value.output_index_mapping,
+            namespace: value.namespace,
+            content_metadata: value
+                .content_metadata
+                .map_or_else(Default::default, Into::into), //  EGTODO: Is this correct?
+            input_params: serde_json::Value::String(value.input_params),
+            outcome: value.outcome, //  EGTODO: Is it correct to just return i32 for value outcome?
+            index_tables: value.index_tables,
         }
     }
 }
@@ -474,6 +551,7 @@ impl From<internal_api::Feature> for Feature {
 pub struct ContentWithId {
     pub id: String,
     pub content: Content,
+    pub extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
 }
 
 #[serde_as]
@@ -601,7 +679,7 @@ pub struct ListTasks {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasksResponse {
-    pub tasks: Vec<internal_api::Task>,
+    pub tasks: Vec<Task>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -660,6 +738,7 @@ pub struct IngestRemoteFile {
     pub url: String,
     pub mime_type: String,
     pub labels: HashMap<String, String>,
+    pub extraction_graph_names: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -675,4 +754,16 @@ pub struct TaskAssignments {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UploadFileResponse {
     pub content_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExtractionGraphRequest {
+    pub name: String,
+    pub namespace: String,
+    pub policies: Vec<ExtractionPolicyRequest>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExtractionGraphResponse {
+    pub indexes: Vec<String>,
 }

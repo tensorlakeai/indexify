@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
 use crate::{
-    api::{self, BeginExtractedContentIngest},
+    api::{self, BeginExtractedContentIngest, ExtractionGraphRequest},
     blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
     coordinator_client::CoordinatorClient,
     grpc_helper::GrpcHelper,
@@ -85,7 +85,7 @@ impl DataManager {
             .into_iter()
             .map(|r| api::DataNamespace {
                 name: r.name,
-                extraction_policies: Vec::new(),
+                extraction_graphs: r.extraction_graphs.into_iter().map(Into::into).collect(),
             })
             .collect();
         Ok(data_namespaces)
@@ -94,18 +94,17 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn create_namespace(&self, namespace: &api::DataNamespace) -> Result<()> {
         info!("creating data namespace: {}", namespace.name);
-        let policies = namespace
-            .extraction_policies
-            .clone()
-            .into_iter()
-            .map(|b| b.into())
-            .collect();
         self.metadata_index_manager
             .create_metadata_table(&namespace.name)
             .await?;
         let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
-            policies,
+            extraction_graphs: namespace
+                .extraction_graphs
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         };
         let _resp = self
             .coordinator_client
@@ -129,97 +128,88 @@ impl DataManager {
             .await?
             .into_inner();
         let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
-        namespace.try_into()
+        Ok(namespace.into())
     }
 
-    pub async fn create_extraction_policy(
-        &self,
-        namespace: &str,
-        ep_req: &api::ExtractionPolicyRequest,
-    ) -> Result<Vec<String>> {
-        info!(
-            "adding extractor bindings namespace: {}, extractor: {}, binding: {}",
-            namespace, ep_req.extractor, ep_req.name,
-        );
-        let input_params_serialized = serde_json::to_string(&ep_req.input_params)
-            .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
-        let req = indexify_coordinator::ExtractionPolicyRequest {
-            namespace: namespace.to_string(),
-            extractor: ep_req.extractor.clone(),
-            name: ep_req.name.clone(),
-            filters: ep_req.filters_eq.clone().unwrap_or_default(),
-            input_params: input_params_serialized,
-            content_source: ep_req
-                .content_source
-                .clone()
-                .unwrap_or("ingestion".to_string()),
-            created_at: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)?
-                .as_secs() as i64,
+    pub async fn get_extraction_policy(&self, id: &str) -> Result<api::ExtractionPolicy> {
+        let req = indexify_coordinator::GetExtractionPolicyRequest {
+            extraction_policy_id: id.to_string(),
         };
+        let resp = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_extraction_policy(req)
+            .await?
+            .into_inner();
+        let policy = resp
+            .policy
+            .ok_or_else(|| anyhow!("extraction policy not found"))?;
+        Ok(policy.into())
+    }
+
+    pub async fn create_extraction_graph(
+        &self,
+        req: ExtractionGraphRequest,
+    ) -> Result<Vec<internal_api::IndexName>> {
+        let mut extraction_policies = Vec::new();
+        for ep in req.policies {
+            let input_params_serialized = serde_json::to_string(&ep.input_params)
+                .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
+            let req = indexify_coordinator::ExtractionPolicyRequest {
+                namespace: req.namespace.to_string(),
+                extractor: ep.extractor.clone(),
+                name: ep.name.clone(),
+                filters: ep.filters_eq.clone().unwrap_or_default(),
+                input_params: input_params_serialized,
+                content_source: ep.content_source.clone().unwrap_or(req.name.to_string()),
+                created_at: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)?
+                    .as_secs() as i64,
+            };
+            extraction_policies.push(req);
+        }
+        let req = indexify_coordinator::CreateExtractionGraphRequest {
+            namespace: req.namespace,
+            name: req.name,
+            policies: extraction_policies,
+        };
+        print!("The request being sent {:#?}", req);
         let response = self
             .coordinator_client
             .get()
             .await?
-            .create_extraction_policy(req)
+            .create_extraction_graph(req)
             .await?
             .into_inner();
-        let mut index_names = Vec::new();
-        let extractor = response
-            .extractor
-            .ok_or(anyhow!("extractor {:?} not found", ep_req.extractor))?;
-        for (name, output_schema) in &extractor.embedding_schemas {
-            let embedding_schema: internal_api::EmbeddingSchema =
-                serde_json::from_str(output_schema)?;
-            let index_name = response.output_index_name_mapping.get(name).unwrap();
-            let table_name = response.index_name_table_mapping.get(index_name).unwrap();
-            index_names.push(index_name.clone());
-            let schema_json = serde_json::to_value(&embedding_schema)?;
-            let _ = self
-                .vector_index_manager
-                .create_index(table_name, embedding_schema.clone())
-                .await?;
-            self.create_index_metadata(
-                namespace,
-                index_name,
-                table_name,
-                schema_json,
-                &ep_req.name,
-                &extractor.name,
-            )
-            .await?;
+        let extractors = response.extractors;
+        for (_, extractor) in extractors.iter() {
+            for (name, output_schema) in &extractor.embedding_schemas {
+                let embedding_schema: internal_api::EmbeddingSchema =
+                    serde_json::from_str(output_schema)?;
+                let table_name = response.extractor_output_table_mapping.get(name).unwrap();
+                let _ = self
+                    .vector_index_manager
+                    .create_index(table_name, embedding_schema.clone())
+                    .await?;
+            }
         }
 
-        Ok(index_names)
-    }
-
-    async fn create_index_metadata(
-        &self,
-        namespace: &str,
-        index_name: &str,
-        table_name: &str,
-        schema: serde_json::Value,
-        extraction_policy: &str,
-        extractor: &str,
-    ) -> Result<()> {
-        let index = indexify_coordinator::CreateIndexRequest {
-            index: Some(indexify_coordinator::Index {
-                name: index_name.to_string(),
-                table_name: table_name.to_string(),
-                namespace: namespace.to_string(),
-                schema: serde_json::to_value(schema).unwrap().to_string(),
-                extraction_policy: extraction_policy.to_string(),
-                extractor: extractor.to_string(),
-            }),
+        let req = indexify_coordinator::UpdateIndexesStateRequest {
+            indexes: response.indexes.clone(),
         };
-        let req = GrpcHelper::into_req(index);
-        let _resp = self
-            .coordinator_client
+        self.coordinator_client
             .get()
             .await?
-            .create_index(req)
+            .update_indexes_state(req)
             .await?;
-        Ok(())
+
+        let index_names = response
+            .indexes
+            .iter()
+            .map(|index| index.name.clone())
+            .collect();
+        Ok(index_names)
     }
 
     pub async fn list_content(
@@ -255,6 +245,7 @@ impl DataManager {
         &self,
         namespace: &str,
         content_list: Vec<api::ContentWithId>,
+        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<()> {
         for content_with_id in content_list {
             let text = content_with_id.content;
@@ -266,12 +257,12 @@ impl DataManager {
                     text.labels,
                     text.content_type,
                     None,
-                    "ingestion",
+                    "",
                     Some(&content_with_id.id),
+                    &extraction_graph_names,
                 )
                 .await?;
 
-            //  Content id either does not exist or hash is different
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
@@ -322,6 +313,7 @@ impl DataManager {
         file: &str,
         mime: &str,
         labels: HashMap<String, String>,
+        extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<String> {
         if !(["https://", "http://", "s3://", "file://"]
             .iter()
@@ -343,10 +335,12 @@ impl DataManager {
             mime: mime.to_string(),
             namespace: namespace.to_string(),
             labels,
-            source: "ingestion".to_string(),
+            source: "".to_string(),
             size_bytes: 0,
             hash: "".to_string(),
-            ..Default::default()
+            extraction_policy_ids: HashMap::new(),
+            root_content_id: "".to_string(),
+            extraction_graph_names: extraction_graph_names.clone(),
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -414,6 +408,7 @@ impl DataManager {
         mime_type: Mime,
         labels: HashMap<String, String>,
         original_content_id: Option<&str>,
+        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let content_metadata = self
             .write_content_bytes(
@@ -422,8 +417,9 @@ impl DataManager {
                 labels,
                 mime_type.to_string(),
                 Some(name),
-                "ingestion",
+                "",
                 original_content_id,
+                &extraction_graph_names,
             )
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
@@ -476,6 +472,7 @@ impl DataManager {
         file_name: Option<&str>,
         source: &str,
         original_content_id: Option<&str>,
+        extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
@@ -517,6 +514,7 @@ impl DataManager {
             size_bytes: res.size_bytes,
             hash: content_hash,
             extraction_policy_ids: HashMap::new(),
+            extraction_graph_names: extraction_graph_names.to_vec(),
         })
     }
 
@@ -685,7 +683,7 @@ impl DataManager {
                             .clone()
                             .map(|id| id.id)
                             .unwrap_or_default(),
-                        &content_metadata.source,
+                        &content_metadata.source.to_string(),
                         feature.data.clone(),
                         extractor,
                     );

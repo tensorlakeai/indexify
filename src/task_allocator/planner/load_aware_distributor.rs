@@ -157,7 +157,6 @@ impl LoadAwareDistributor {
                 .shared_state
                 .state_machine
                 .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::Executors, executor_id)
-                .await
                 .map(|opt| {
                     if opt.is_none() {
                         error!("Executor with id {} not found", executor_id);

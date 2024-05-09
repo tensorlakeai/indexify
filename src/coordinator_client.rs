@@ -100,8 +100,8 @@ impl CoordinatorClient {
                 let ca_cert_contents = std::fs::read(ca_cert)?;
 
                 let tls_config = ClientTlsConfig::new()
-                    .ca_certificate(tonic::transport::Certificate::from_pem(&ca_cert_contents))
-                    .identity(tonic::transport::Identity::from_pem(&cert, &key))
+                    .ca_certificate(tonic::transport::Certificate::from_pem(ca_cert_contents))
+                    .identity(tonic::transport::Identity::from_pem(cert, key))
                     .domain_name("localhost");
                 Channel::from_shared(format!("https://{}", &self.addr))?.tls_config(tls_config)?
             } else {
@@ -188,10 +188,10 @@ impl CoordinatorClient {
             .schemas
             .into_iter()
             .map(|schema| StructuredDataSchema {
+                id: "".to_string(),
+                extraction_graph_name: schema.extraction_graph_name,
                 namespace: namespace.to_string(),
                 columns: serde_json::from_str(&schema.columns).unwrap(),
-                content_source: schema.content_source,
-                id: "".to_string(),
             })
             .collect_vec();
         Ok(schemas)

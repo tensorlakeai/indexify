@@ -1,6 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
+    collections::HashMap,
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -21,12 +20,10 @@ use indexify_proto::indexify_coordinator::{
     CoordinatorCommand,
     CreateContentRequest,
     CreateContentResponse,
+    CreateExtractionGraphRequest,
+    CreateExtractionGraphResponse,
     CreateGcTasksRequest,
     CreateGcTasksResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
     GcTask,
     GcTaskAcknowledgement,
     GetAllSchemaRequest,
@@ -34,6 +31,8 @@ use indexify_proto::indexify_coordinator::{
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
     GetContentTreeMetadataRequest,
+    GetExtractionPolicyRequest,
+    GetExtractionPolicyResponse,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
@@ -68,10 +67,13 @@ use indexify_proto::indexify_coordinator::{
     TombstoneContentRequest,
     TombstoneContentResponse,
     Uint64List,
+    UpdateIndexesStateRequest,
+    UpdateIndexesStateResponse,
     UpdateTaskRequest,
     UpdateTaskResponse,
 };
-use internal_api::StateChange;
+use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
+use itertools::Itertools;
 use opentelemetry::{
     global,
     metrics::{Histogram, UpDownCounter},
@@ -101,12 +103,16 @@ use crate::{
     server_config::ServerConfig,
     state,
     tonic_streamer::DropReceiver,
-    utils::timestamp_secs,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
 type GCTasksResponseStream =
     Pin<Box<dyn tokio_stream::Stream<Item = Result<CoordinatorCommand, Status>> + Send + Sync>>;
+
+pub struct ExtractionPolicyCreationResult {
+    extraction_policies: Vec<internal_api::ExtractionPolicy>,
+    extractors: Vec<internal_api::ExtractorDescription>,
+}
 
 pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
@@ -125,6 +131,52 @@ impl<'a> Extractor for MetadataMap<'a> {
     }
 }
 
+impl CoordinatorServiceServer {
+    fn create_extraction_policies_for_graph(
+        &self,
+        extraction_graph: &CreateExtractionGraphRequest,
+    ) -> Result<ExtractionPolicyCreationResult> {
+        let mut name_to_policy_mapping = HashMap::new();
+        let graph_id =
+            ExtractionGraph::create_id(&extraction_graph.name, &extraction_graph.namespace);
+        for extraction_policy in &extraction_graph.policies {
+            name_to_policy_mapping
+                .insert(extraction_policy.name.clone(), extraction_policy.clone());
+        }
+
+        let mut extraction_policies = Vec::new();
+        let mut extractors = Vec::new();
+
+        for (_, policy_request) in name_to_policy_mapping.iter() {
+            let input_params = serde_json::from_str(&policy_request.input_params)
+                .map_err(|e| anyhow!(format!("unable to parse input_params: {}", e)))?;
+            let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
+            let content_source = if policy_request.content_source.eq("") {
+                internal_api::ExtractionPolicyContentSource::Ingestion
+            } else {
+                internal_api::ExtractionPolicyContentSource::ExtractionPolicyName(
+                    policy_request.content_source.clone(),
+                )
+            };
+            let policy = ExtractionPolicyBuilder::default()
+                .namespace(policy_request.namespace.clone())
+                .name(policy_request.name.clone())
+                .extractor(policy_request.extractor.clone())
+                .filters(policy_request.filters.clone())
+                .input_params(input_params)
+                .content_source(content_source)
+                .build(&graph_id, &extraction_graph.name, extractor.clone())
+                .map_err(|e| anyhow!(e))?;
+            extraction_policies.push(policy.clone());
+            extractors.push(extractor.clone());
+        }
+        Ok(ExtractionPolicyCreationResult {
+            extraction_policies,
+            extractors,
+        })
+    }
+}
+
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
@@ -138,6 +190,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .into_inner()
             .content
             .ok_or(tonic::Status::aborted("content is missing"))?;
+        let content_meta: indexify_internal_api::ContentMetadata = content_meta.into();
         let id = content_meta.id.clone();
         let content_list = vec![content_meta];
         let _ = self
@@ -145,7 +198,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .create_content_metadata(content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateContentResponse { id }))
+        Ok(tonic::Response::new(CreateContentResponse { id: id.id }))
     }
 
     async fn tombstone_content(
@@ -170,67 +223,76 @@ impl CoordinatorService for CoordinatorServiceServer {
             .coordinator
             .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
             .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .into_iter()
+            .map(|c| c.into())
+            .collect_vec();
+        Ok(tonic::Response::new(ListContentResponse { content_list }))
+    }
+
+    async fn create_extraction_graph(
+        &self,
+        request: tonic::Request<CreateExtractionGraphRequest>,
+    ) -> Result<tonic::Response<CreateExtractionGraphResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let graph_id = ExtractionGraph::create_id(&request.name, &request.namespace);
+        let creation_result = self
+            .create_extraction_policies_for_graph(&request)
+            .map_err(|e| {
+                tonic::Status::aborted(format!("unable to create extraction policies: {}", e))
+            })?;
+        let graph = ExtractionGraphBuilder::default()
+            .id(graph_id)
+            .namespace(request.namespace.clone())
+            .name(request.name.clone())
+            .extraction_policies(creation_result.extraction_policies.clone())
+            .build()
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(ListContentResponse {
-            content_list: content_list
-                .into_iter()
-                .map(|c| c.into())
-                .collect::<Vec<indexify_coordinator::ContentMetadata>>(),
+        let indexes = self
+            .coordinator
+            .create_extraction_graph(graph.clone())
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let policies = creation_result
+            .extraction_policies
+            .clone()
+            .into_iter()
+            .map(|p| (p.name.clone(), p.clone().into()))
+            .collect();
+        let extractors: HashMap<_, _> = creation_result
+            .extractors
+            .iter()
+            .map(|extractor| (extractor.name.clone(), extractor.clone().into()))
+            .collect();
+        let extractor_output_table_mapping: HashMap<_, _> = creation_result
+            .extraction_policies
+            .iter()
+            .flat_map(|policy| policy.output_table_mapping.clone())
+            .collect();
+        let indexes = indexes
+            .into_iter()
+            .map(|index| index.into())
+            .collect::<Vec<indexify_coordinator::Index>>();
+        Ok(tonic::Response::new(CreateExtractionGraphResponse {
+            graph_id: graph.id,
+            extractors,
+            policies,
+            indexes,
+            extractor_output_table_mapping,
         }))
     }
 
-    async fn create_extraction_policy(
+    async fn get_extraction_policy(
         &self,
-        request: tonic::Request<ExtractionPolicyRequest>,
-    ) -> Result<tonic::Response<ExtractionPolicyResponse>, tonic::Status> {
+        request: tonic::Request<GetExtractionPolicyRequest>,
+    ) -> Result<tonic::Response<GetExtractionPolicyResponse>, tonic::Status> {
         let request = request.into_inner();
-        let mut s = DefaultHasher::new();
-        request.namespace.hash(&mut s);
-        request.name.hash(&mut s);
-        let id = s.finish().to_string();
-        let input_params = serde_json::from_str(&request.input_params)
-            .map_err(|e| tonic::Status::aborted(format!("unable to parse input_params: {}", e)))?;
-
-        let extractor = self
+        let extraction_policy = self
             .coordinator
-            .get_extractor(&request.extractor)
-            .await
+            .get_extraction_policy(request.extraction_policy_id)
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut index_name_table_mapping = HashMap::new();
-        let mut output_index_name_mapping = HashMap::new();
-
-        //  TODO: Just create an output to table mapping here directly instead of 2
-        // separate mappings
-        for output_name in extractor.outputs.keys() {
-            let index_name = format!("{}.{}", request.name, output_name);
-            let index_table_name =
-                format!("{}.{}.{}", request.namespace, request.name, output_name);
-            index_name_table_mapping.insert(index_name.clone(), index_table_name.clone());
-            output_index_name_mapping.insert(output_name.clone(), index_name.clone());
-        }
-
-        let extraction_policy = internal_api::ExtractionPolicy {
-            id,
-            extractor: request.extractor,
-            name: request.name,
-            namespace: request.namespace,
-            filters: request.filters,
-            input_params,
-            output_index_name_mapping: output_index_name_mapping.clone(),
-            index_name_table_mapping: index_name_table_mapping.clone(),
-            content_source: request.content_source,
-        };
-        let _ = self
-            .coordinator
-            .create_policy(extraction_policy.clone(), extractor.clone())
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(ExtractionPolicyResponse {
-            created_at: timestamp_secs() as i64,
-            extractor: Some(extractor.into()),
-            extraction_policy: Some(extraction_policy.into()),
-            index_name_table_mapping,
-            output_index_name_mapping,
+        Ok(tonic::Response::new(GetExtractionPolicyResponse {
+            policy: Some(extraction_policy.into()),
         }))
     }
 
@@ -244,11 +306,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_policies(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies = extraction_policies
-            .into_iter()
-            .map(|b| b.into())
-            .collect::<Vec<indexify_coordinator::ExtractionPolicy>>();
-
+        let policies = extraction_policies.into_iter().map(|p| p.into()).collect();
         Ok(tonic::Response::new(ListExtractionPoliciesResponse {
             policies,
         }))
@@ -280,10 +338,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let namespaces = namespaces
-            .into_iter()
-            .map(|r| r.into())
-            .collect::<Vec<indexify_coordinator::Namespace>>();
+        let namespaces = namespaces.into_iter().map(|n| n.into()).collect();
         Ok(tonic::Response::new(
             indexify_coordinator::ListNamespaceResponse { namespaces },
         ))
@@ -298,11 +353,12 @@ impl CoordinatorService for CoordinatorServiceServer {
             .coordinator
             .get_namespace(&namespace)
             .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
 
         Ok(tonic::Response::new(
             indexify_coordinator::GetNamespaceResponse {
-                namespace: namespace.map(|n| n.into()),
+                namespace: Some(namespace.into()),
             },
         ))
     }
@@ -338,7 +394,7 @@ impl CoordinatorService for CoordinatorServiceServer {
 
         let _resp = self
             .coordinator
-            .register_executor(&request.addr, &request.executor_id, extractors.into())
+            .register_executor(&request.addr, &request.executor_id, extractors)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
@@ -468,7 +524,6 @@ impl CoordinatorService for CoordinatorServiceServer {
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                                 tracing::error!("Skipped {} messages due to lagging", n);
-                                //  TODO: How should skipped gc tasks be handled?
                             }
                             Err(e) => {
                                 tracing::error!("Error receiving gc task allocation event: {}", e);
@@ -535,7 +590,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                                     }
                                 }
                                 Ok(tasks) => {
-                                    let tasks = tasks.into_iter().map(|t| t.into()).collect::<Vec<indexify_coordinator::Task>>();
+                                    // let tasks = tasks.into_iter().map(|t| t.into()).collect::<Vec<indexify_coordinator::Task>>();
                                     let resp = HeartbeatResponse {
                                         executor_id: executor_id.clone(),
                                         tasks,
@@ -612,18 +667,25 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn create_index(
+    async fn update_indexes_state(
         &self,
-        request: Request<CreateIndexRequest>,
-    ) -> Result<Response<CreateIndexResponse>, Status> {
-        let request = request.into_inner();
-        let index: internal_api::Index = request.index.unwrap().into();
-        let namespace = index.namespace.clone();
+        request: Request<UpdateIndexesStateRequest>,
+    ) -> Result<Response<UpdateIndexesStateResponse>, Status> {
+        let indexes: Vec<internal_api::Index> = request
+            .into_inner()
+            .indexes
+            .into_iter()
+            .map(|proto_index| {
+                let mut index: internal_api::Index = proto_index.into();
+                index.visibility = true;
+                index
+            })
+            .collect();
         self.coordinator
-            .create_index(&namespace, index)
+            .update_indexes_state(indexes)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateIndexResponse {}))
+        Ok(Response::new(UpdateIndexesStateResponse {}))
     }
 
     async fn get_extractor_coordinates(
@@ -648,14 +710,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<GetContentMetadataRequest>,
     ) -> Result<Response<indexify_coordinator::GetContentMetadataResponse>, Status> {
         let req = req.into_inner();
-        let content_list = self
+        let content_metadata = self
             .coordinator
             .get_content_metadata(req.content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
-                content_list: content_list.into_iter().map(Into::into).collect(),
+                content_list: content_metadata,
             },
         ))
     }
@@ -670,9 +732,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .get_task(&req.task_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(GetTaskResponse {
-            task: Some(task.into()),
-        }))
+        Ok(Response::new(GetTaskResponse { task: Some(task) }))
     }
 
     async fn get_ingestion_info(
@@ -705,13 +765,9 @@ impl CoordinatorService for CoordinatorServiceServer {
             .get_content_tree_metadata(&req.content_id)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let parsed_content_tree: Vec<indexify_coordinator::ContentMetadata> = content_tree_metadata
-            .iter()
-            .map(|c| c.clone().into())
-            .collect();
         Ok(Response::new(
             indexify_coordinator::GetContentTreeMetadataResponse {
-                content_list: parsed_content_tree,
+                content_list: content_tree_metadata,
             },
         ))
     }
@@ -750,7 +806,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_tasks(&req.namespace, extraction_policy)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let tasks = tasks.into_iter().map(|t| t.into()).collect();
         Ok(Response::new(indexify_coordinator::ListTasksResponse {
             tasks,
         }))
@@ -763,13 +818,15 @@ impl CoordinatorService for CoordinatorServiceServer {
         let req = req.into_inner();
         let schema = self
             .coordinator
-            .get_schema(&req.namespace, &req.content_source)
+            .get_schema(&req.namespace, &req.extraction_graph_name)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(GetSchemaResponse {
             schema: Some(indexify_coordinator::StructuredDataSchema {
+                id: schema.id,
+                extraction_graph_name: schema.extraction_graph_name,
+                namespace: schema.namespace,
                 columns: serde_json::to_string(&schema.columns).unwrap(),
-                content_source: schema.content_source,
             }),
         }))
     }
@@ -789,8 +846,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             schemas: schemas
                 .into_iter()
                 .map(|s| indexify_coordinator::StructuredDataSchema {
+                    id: s.id,
+                    extraction_graph_name: s.extraction_graph_name,
+                    namespace: s.namespace,
                     columns: serde_json::to_string(&s.columns).unwrap(),
-                    content_source: s.content_source,
                 })
                 .collect(),
         }))

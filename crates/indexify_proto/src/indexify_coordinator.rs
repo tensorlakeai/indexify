@@ -115,13 +115,13 @@ pub struct GetIndexResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateIndexRequest {
-    #[prost(message, optional, tag = "2")]
-    pub index: ::core::option::Option<Index>,
+pub struct UpdateIndexesStateRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub indexes: ::prost::alloc::vec::Vec<Index>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateIndexResponse {}
+pub struct UpdateIndexesStateResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Index {
@@ -137,6 +137,8 @@ pub struct Index {
     pub extraction_policy: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub extractor: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub graph_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -352,6 +354,18 @@ pub struct ListContentResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetExtractionPolicyRequest {
+    #[prost(string, tag = "1")]
+    pub extraction_policy_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetExtractionPolicyResponse {
+    #[prost(message, optional, tag = "1")]
+    pub policy: ::core::option::Option<ExtractionPolicy>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListExtractionPoliciesRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
@@ -368,7 +382,7 @@ pub struct CreateNamespaceRequest {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
+    pub extraction_graphs: ::prost::alloc::vec::Vec<ExtractionGraph>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -389,6 +403,18 @@ pub struct ListNamespaceResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExtractionGraph {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub extraction_policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractionPolicy {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
@@ -405,6 +431,8 @@ pub struct ExtractionPolicy {
     >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub graph_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -426,6 +454,39 @@ pub struct ExtractionPolicyRequest {
     pub content_source: ::prost::alloc::string::String,
     #[prost(int64, tag = "7")]
     pub created_at: i64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateExtractionGraphRequest {
+    #[prost(string, tag = "1")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "3")]
+    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicyRequest>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateExtractionGraphResponse {
+    #[prost(string, tag = "1")]
+    pub graph_id: ::prost::alloc::string::String,
+    #[prost(map = "string, message", tag = "2")]
+    pub extractors: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        Extractor,
+    >,
+    #[prost(map = "string, message", tag = "3")]
+    pub policies: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ExtractionPolicy,
+    >,
+    #[prost(map = "string, string", tag = "4")]
+    pub extractor_output_table_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(message, repeated, tag = "5")]
+    pub indexes: ::prost::alloc::vec::Vec<Index>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -483,6 +544,8 @@ pub struct ContentMetadata {
     >,
     #[prost(string, tag = "13")]
     pub root_content_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "14")]
+    pub extraction_graph_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -514,7 +577,7 @@ pub struct Namespace {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
+    pub extraction_graphs: ::prost::alloc::vec::Vec<ExtractionGraph>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -522,7 +585,7 @@ pub struct GetSchemaRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub content_source: ::prost::alloc::string::String,
+    pub extraction_graph_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -534,9 +597,13 @@ pub struct GetSchemaResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StructuredDataSchema {
     #[prost(string, tag = "1")]
-    pub columns: ::prost::alloc::string::String,
+    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub content_source: ::prost::alloc::string::String,
+    pub extraction_graph_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub columns: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -935,11 +1002,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn create_extraction_policy(
+        pub async fn create_extraction_graph(
             &mut self,
-            request: impl tonic::IntoRequest<super::ExtractionPolicyRequest>,
+            request: impl tonic::IntoRequest<super::CreateExtractionGraphRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ExtractionPolicyResponse>,
+            tonic::Response<super::CreateExtractionGraphResponse>,
             tonic::Status,
         > {
             self.inner
@@ -953,14 +1020,44 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateExtractionPolicy",
+                "/indexify_coordinator.CoordinatorService/CreateExtractionGraph",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "CreateExtractionPolicy",
+                        "CreateExtractionGraph",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_extraction_policy(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetExtractionPolicyRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetExtractionPolicyResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_coordinator.CoordinatorService/GetExtractionPolicy",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "indexify_coordinator.CoordinatorService",
+                        "GetExtractionPolicy",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1351,11 +1448,11 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn create_index(
+        pub async fn update_indexes_state(
             &mut self,
-            request: impl tonic::IntoRequest<super::CreateIndexRequest>,
+            request: impl tonic::IntoRequest<super::UpdateIndexesStateRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreateIndexResponse>,
+            tonic::Response<super::UpdateIndexesStateResponse>,
             tonic::Status,
         > {
             self.inner
@@ -1369,14 +1466,14 @@ pub mod coordinator_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateIndex",
+                "/indexify_coordinator.CoordinatorService/UpdateIndexesState",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
-                        "CreateIndex",
+                        "UpdateIndexesState",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1722,11 +1819,18 @@ pub mod coordinator_service_server {
             tonic::Response<super::ListContentResponse>,
             tonic::Status,
         >;
-        async fn create_extraction_policy(
+        async fn create_extraction_graph(
             &self,
-            request: tonic::Request<super::ExtractionPolicyRequest>,
+            request: tonic::Request<super::CreateExtractionGraphRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ExtractionPolicyResponse>,
+            tonic::Response<super::CreateExtractionGraphResponse>,
+            tonic::Status,
+        >;
+        async fn get_extraction_policy(
+            &self,
+            request: tonic::Request<super::GetExtractionPolicyRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetExtractionPolicyResponse>,
             tonic::Status,
         >;
         async fn list_extraction_policies(
@@ -1829,11 +1933,11 @@ pub mod coordinator_service_server {
             tonic::Response<super::GetIndexResponse>,
             tonic::Status,
         >;
-        async fn create_index(
+        async fn update_indexes_state(
             &self,
-            request: tonic::Request<super::CreateIndexRequest>,
+            request: tonic::Request<super::UpdateIndexesStateRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreateIndexResponse>,
+            tonic::Response<super::UpdateIndexesStateResponse>,
             tonic::Status,
         >;
         async fn get_extractor_coordinates(
@@ -2224,25 +2328,25 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/CreateExtractionPolicy" => {
+                "/indexify_coordinator.CoordinatorService/CreateExtractionGraph" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateExtractionPolicySvc<T: CoordinatorService>(pub Arc<T>);
+                    struct CreateExtractionGraphSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::ExtractionPolicyRequest>
-                    for CreateExtractionPolicySvc<T> {
-                        type Response = super::ExtractionPolicyResponse;
+                    > tonic::server::UnaryService<super::CreateExtractionGraphRequest>
+                    for CreateExtractionGraphSvc<T> {
+                        type Response = super::CreateExtractionGraphResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ExtractionPolicyRequest>,
+                            request: tonic::Request<super::CreateExtractionGraphRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_extraction_policy(
+                                <T as CoordinatorService>::create_extraction_graph(
                                         &inner,
                                         request,
                                     )
@@ -2258,7 +2362,57 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CreateExtractionPolicySvc(inner);
+                        let method = CreateExtractionGraphSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_coordinator.CoordinatorService/GetExtractionPolicy" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetExtractionPolicySvc<T: CoordinatorService>(pub Arc<T>);
+                    impl<
+                        T: CoordinatorService,
+                    > tonic::server::UnaryService<super::GetExtractionPolicyRequest>
+                    for GetExtractionPolicySvc<T> {
+                        type Response = super::GetExtractionPolicyResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetExtractionPolicyRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as CoordinatorService>::get_extraction_policy(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetExtractionPolicySvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -2900,25 +3054,28 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/CreateIndex" => {
+                "/indexify_coordinator.CoordinatorService/UpdateIndexesState" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateIndexSvc<T: CoordinatorService>(pub Arc<T>);
+                    struct UpdateIndexesStateSvc<T: CoordinatorService>(pub Arc<T>);
                     impl<
                         T: CoordinatorService,
-                    > tonic::server::UnaryService<super::CreateIndexRequest>
-                    for CreateIndexSvc<T> {
-                        type Response = super::CreateIndexResponse;
+                    > tonic::server::UnaryService<super::UpdateIndexesStateRequest>
+                    for UpdateIndexesStateSvc<T> {
+                        type Response = super::UpdateIndexesStateResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CreateIndexRequest>,
+                            request: tonic::Request<super::UpdateIndexesStateRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as CoordinatorService>::create_index(&inner, request)
+                                <T as CoordinatorService>::update_indexes_state(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -2931,7 +3088,7 @@ pub mod coordinator_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CreateIndexSvc(inner);
+                        let method = UpdateIndexesStateSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

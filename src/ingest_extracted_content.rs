@@ -164,6 +164,10 @@ impl ContentStateWriting {
                     .root_content_metadata
                     .clone()
                     .unwrap_or(self.task.content_metadata.clone().unwrap().into());
+                let extraction_policy = state
+                    .data_manager
+                    .get_extraction_policy(&self.task.extraction_policy_id)
+                    .await?;
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
@@ -174,10 +178,11 @@ impl ContentStateWriting {
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
                     labels,
-                    source: self.task.extraction_policy_id.clone(),
+                    source: extraction_policy.name,
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
+                    extraction_graph_names: vec![extraction_policy.graph_name],
                 };
                 state
                     .data_manager
@@ -205,10 +210,6 @@ impl ContentStateWriting {
         state: &NamespaceEndpointState,
         payload: ExtractedFeatures,
     ) -> Result<()> {
-        //  let root_content_metadata = self
-        //      .root_content_metadata
-        //      .clone()
-        //      .unwrap_or(self.task.content_metadata.clone().unwrap().into());
         state
             .data_manager
             .write_existing_content_features(
@@ -376,7 +377,17 @@ mod tests {
 
     use std::sync::Arc;
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, Task, TaskOutcome};
+    use indexify_internal_api::{
+        ContentMetadata,
+        ContentMetadataId,
+        ExtractionGraph,
+        ExtractionPolicy,
+        ExtractionPolicyContentSource,
+        ExtractorDescription,
+        StructuredDataSchema,
+        Task,
+        TaskOutcome,
+    };
     use serde_json::json;
     use tokio::task::JoinHandle;
 
@@ -390,7 +401,7 @@ mod tests {
         metrics,
         server::NamespaceEndpointState,
         server_config::{IndexStoreKind, ServerConfig},
-        test_util::db_utils::create_metadata,
+        test_util::db_utils::{create_metadata, mock_extractor},
         vector_index::VectorIndexManager,
         vectordbs,
     };
@@ -411,8 +422,12 @@ mod tests {
         config
     }
 
-    fn make_test_task(task_id: &str, content_metadata: &ContentMetadata) -> Task {
-        let mut task = Task::new(task_id, content_metadata);
+    fn make_test_task(
+        task_id: &str,
+        content_metadata: &ContentMetadata,
+        extraction_policy: ExtractionPolicy,
+    ) -> Task {
+        let mut task = Task::new(task_id, content_metadata, extraction_policy);
         task.output_index_table_mapping = vec![
             ("name1".to_string(), "test_index1".to_string()),
             ("name2".to_string(), "test_index2".to_string()),
@@ -462,6 +477,37 @@ mod tests {
                 handle,
                 coordinator,
             };
+            let extractor = mock_extractor();
+            test_coordinator
+                .create_extractor(extractor.clone())
+                .await
+                .unwrap();
+            let extraction_policy_id = "extraction_policy_id";
+            let extraction_graph_id = "extraction_graph_id";
+            let extraction_graph_name = "extraction_graph_name";
+            let extraction_policy = ExtractionPolicy {
+                id: extraction_policy_id.to_string(),
+                namespace: "test".to_string(),
+                name: "extraction_policy_name".to_string(),
+                extractor: extractor.name.to_string(),
+                graph_name: extraction_graph_name.to_string(),
+                filters: HashMap::new(),
+                content_source: ExtractionPolicyContentSource::Ingestion,
+                output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            };
+            let extraction_graph = ExtractionGraph {
+                id: extraction_graph_id.to_string(),
+                name: extraction_graph_name.to_string(),
+                namespace: "test".to_string(),
+                extraction_policies: vec![extraction_policy.clone()],
+            };
+            test_coordinator
+                .create_extraction_graph(extraction_graph)
+                .await
+                .unwrap();
             let content_metadata = ContentMetadata {
                 id: ContentMetadataId::new("1"),
                 name: "test".to_string(),
@@ -472,30 +518,80 @@ mod tests {
                 storage_url: "test".to_string(),
                 labels: HashMap::new(),
                 size_bytes: 0,
-                source: "test".to_string(),
+                source: indexify_internal_api::ContentSource::ExtractionPolicyName(
+                    "test".to_string(),
+                ),
                 created_at: 0,
                 hash: "test".to_string(),
                 extraction_policy_ids: HashMap::new(),
                 tombstoned: false,
+                extraction_graph_names: vec![extraction_graph_name.to_string()],
             };
             test_coordinator
-                .create_content(content_metadata.clone())
+                .create_content(content_metadata.clone().into())
                 .await
                 .unwrap();
+            let internal_content_metadata = test_coordinator
+                .get_internal_content(content_metadata.id.id)
+                .await;
             test_coordinator
-                .create_task(make_test_task("test", &content_metadata))
+                .create_task(make_test_task(
+                    "test",
+                    &internal_content_metadata,
+                    extraction_policy,
+                ))
                 .await
                 .unwrap();
             test_coordinator
         }
 
-        pub async fn create_content(&self, content: ContentMetadata) -> Result<()> {
+        pub async fn create_extractor(&self, extractor: ExtractorDescription) -> Result<()> {
             self.coordinator
                 .shared_state
-                .create_content_batch(vec![content])
+                .register_executor("localhost:8950", "executor_id", vec![extractor])
+                .await?;
+            Ok(())
+        }
+
+        pub async fn create_extraction_graph(
+            &self,
+            extraction_graph: ExtractionGraph,
+        ) -> Result<()> {
+            self.coordinator
+                .shared_state
+                .create_extraction_graph(
+                    extraction_graph,
+                    StructuredDataSchema::default(),
+                    Vec::new(),
+                )
+                .await?;
+            Ok(())
+        }
+
+        pub async fn create_content(
+            &self,
+            content: indexify_coordinator::ContentMetadata,
+        ) -> Result<()> {
+            self.coordinator
+                .create_content_metadata(vec![content.into()])
                 .await
                 .unwrap();
+
             Ok(())
+        }
+
+        pub async fn get_internal_content(
+            &self,
+            id: String,
+        ) -> indexify_internal_api::ContentMetadata {
+            self.coordinator
+                .shared_state
+                .get_content_metadata_batch(vec![id])
+                .await
+                .unwrap()
+                .first()
+                .unwrap()
+                .clone()
         }
 
         pub async fn create_task(&self, task: Task) -> Result<()> {
@@ -713,13 +809,31 @@ mod tests {
         assert_eq!(points[0].content_id, id);
         assert_eq!(points[0].metadata, metadata1_out);
 
+        let extraction_policy = ExtractionPolicy {
+            id: "extraction_policy_id".to_string(),
+            namespace: "test".to_string(),
+            name: "extraction_policy_name".to_string(),
+            extractor: "extractor_name".to_string(),
+            graph_name: "extraction_graph_id".to_string(),
+            filters: HashMap::new(),
+            content_source: ExtractionPolicyContentSource::Ingestion,
+            output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
         let content_metadata = coordinator
             .coordinator
-            .get_content_metadata(vec![id.clone()])
+            .shared_state
+            .get_content_metadata_batch(vec![id.clone()])
             .await
             .unwrap();
         coordinator
-            .create_task(make_test_task("test_1", content_metadata.first().unwrap()))
+            .create_task(make_test_task(
+                "test_1",
+                content_metadata.first().unwrap(),
+                extraction_policy,
+            ))
             .await
             .unwrap();
         assert_eq!(
@@ -825,13 +939,31 @@ mod tests {
 
         let id = ingest_state.finish_content(payload).await.unwrap();
 
+        let extraction_policy = ExtractionPolicy {
+            id: "extraction_policy_id".to_string(),
+            namespace: "test".to_string(),
+            name: "extraction_policy_name".to_string(),
+            extractor: "extractor_name".to_string(),
+            graph_name: "extraction_graph_id".to_string(),
+            filters: HashMap::new(),
+            content_source: ExtractionPolicyContentSource::Ingestion,
+            output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
         let content_metadata = coordinator
             .coordinator
-            .get_content_metadata(vec![id.clone()])
+            .shared_state
+            .get_content_metadata_batch(vec![id.clone()])
             .await
             .unwrap();
         coordinator
-            .create_task(make_test_task("test_1", content_metadata.first().unwrap()))
+            .create_task(make_test_task(
+                "test_1",
+                content_metadata.first().unwrap(),
+                extraction_policy,
+            ))
             .await
             .unwrap();
 

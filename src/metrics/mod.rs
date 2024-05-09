@@ -309,7 +309,6 @@ pub mod raft_metrics {
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 pub fn init_provider() -> prometheus::Registry {
-    println!("Initializing metrics provider");
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
