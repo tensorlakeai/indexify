@@ -210,10 +210,6 @@ impl ContentStateWriting {
         state: &NamespaceEndpointState,
         payload: ExtractedFeatures,
     ) -> Result<()> {
-        //  let root_content_metadata = self
-        //      .root_content_metadata
-        //      .clone()
-        //      .unwrap_or(self.task.content_metadata.clone().unwrap().into());
         state
             .data_manager
             .write_existing_content_features(
@@ -518,9 +514,18 @@ mod tests {
                 parent_id: None,
                 root_content_id: Some("1".to_string()),
                 namespace: "test".to_string(),
-                source: indexify_internal_api::ContentSource::Ingestion,
+                content_type: "text/plain".to_string(),
+                storage_url: "test".to_string(),
+                labels: HashMap::new(),
+                size_bytes: 0,
+                source: indexify_internal_api::ContentSource::ExtractionPolicyName(
+                    "test".to_string(),
+                ),
+                created_at: 0,
+                hash: "test".to_string(),
+                extraction_policy_ids: HashMap::new(),
+                tombstoned: false,
                 extraction_graph_names: vec![extraction_graph_name.to_string()],
-                ..Default::default()
             };
             test_coordinator
                 .create_content(content_metadata.clone().into())

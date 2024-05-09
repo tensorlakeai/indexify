@@ -541,7 +541,7 @@ impl Coordinator {
 
         let state_changes = self.shared_state.unprocessed_state_change_events().await?;
         for change in state_changes {
-            info!(
+            debug!(
                 "processing change event: {}, type: {}, id: {}",
                 change.id, change.change_type, change.object_id
             );
