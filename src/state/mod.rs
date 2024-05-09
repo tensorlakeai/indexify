@@ -1781,8 +1781,7 @@ mod tests {
             },
         ];
         let structured_schema = StructuredDataSchema::new(&eg.name, &eg.namespace);
-        node
-            .create_extraction_graph(eg, extraction_policies, structured_schema, vec![])
+        node.create_extraction_graph(eg, extraction_policies, structured_schema, vec![])
             .await?;
 
         //  Read the namespace back and expect to get the extraction policies as well

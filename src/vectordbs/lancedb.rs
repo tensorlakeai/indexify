@@ -258,9 +258,7 @@ impl VectorDb for LanceDb {
         }
 
         let content_metadata_array = StringArray::from_iter_values(content_metadatas.iter());
-        let root_content_metadata_array = StringArray::from(
-            root_content_metadatas.to_vec(),
-        );
+        let root_content_metadata_array = StringArray::from(root_content_metadatas.to_vec());
 
         let schema = update_schema_with_missing_fields(&tbl, metadata).await?;
 

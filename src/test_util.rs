@@ -53,7 +53,10 @@ pub mod db_utils {
                 extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
                 input_params: json!({}),
                 filters: HashMap::new(),
-                output_table_mapping: HashMap::new(),
+                output_table_mapping: HashMap::from([(
+                    "test_output".to_string(),
+                    "test_table".to_string(),
+                )]),
                 content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
             };
             extraction_policies.push(ep);
