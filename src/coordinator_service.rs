@@ -741,13 +741,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .coordinator
             .get_content_metadata(req.content_list)
             .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?
-            .iter()
-            .map(|c| (c.id.clone(), c.clone()))
-            .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
-                content_list: content_list.into_iter().map(Into::into).collect(),
+                content_list: content_metadata,
             },
         ))
     }
