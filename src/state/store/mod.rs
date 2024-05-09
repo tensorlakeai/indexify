@@ -15,6 +15,7 @@ use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
     ExecutorMetadata,
+    NamespaceName,
     StateChange,
     StructuredDataSchema,
 };
@@ -37,6 +38,7 @@ use openraft::{
     Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
+use rustls::crypto::hash::Hash;
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
@@ -362,6 +364,18 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
+    pub fn get_extraction_policy_by_names(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+        policy_names: &HashSet<String>,
+    ) -> Result<Vec<Option<indexify_internal_api::ExtractionPolicy>>> {
+        self.data
+            .indexify_state
+            .get_extraction_policy_by_names(namespace, graph_name, policy_names, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
@@ -444,7 +458,7 @@ impl StateMachineStore {
         &self,
         namespace: &str,
         graph_names: &[String],
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionGraph>>> {
+    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
         self.data
             .indexify_state
             .get_extraction_graphs_by_name(namespace, graph_names, &self.db)

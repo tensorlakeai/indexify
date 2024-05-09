@@ -744,7 +744,6 @@ impl DataManager {
                     .await?;
                 }
                 api::FeatureType::Metadata => {
-                    assert_eq!(content_metadata.source.len(), 1); // content meta source should be singular at this point
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_metadata.id.id,
                         &content_metadata
@@ -752,7 +751,7 @@ impl DataManager {
                             .clone()
                             .map(|id| id.id)
                             .unwrap_or_default(),
-                        &content_metadata.source,
+                        &content_metadata.source.to_string(),
                         feature.data.clone(),
                         extractor,
                     );

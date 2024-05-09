@@ -192,8 +192,8 @@ mod tests {
             content_id: content_id.into(),
             embedding: vec![0., 2.],
             metadata: create_metadata(vec![("key1", "value1"), ("key2", "value2")]),
-            root_content_metadata: Some(test_mock_content_metadata(content_id, "1")),
-            content_metadata: test_mock_content_metadata(content_id, "1"),
+            root_content_metadata: Some(test_mock_content_metadata(content_id, "1", "graph1")),
+            content_metadata: test_mock_content_metadata(content_id, "1", "graph1"),
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])
@@ -220,8 +220,8 @@ mod tests {
             content_id: "0".into(),
             embedding: vec![0., 2.],
             metadata: metadata1.clone(),
-            root_content_metadata: Some(test_mock_content_metadata("0", "1")),
-            content_metadata: test_mock_content_metadata("0", "1"),
+            root_content_metadata: Some(test_mock_content_metadata("0", "1", "graph1")),
+            content_metadata: test_mock_content_metadata("0", "1", "graph1"),
         };
         vector_db
             .add_embedding(index_name, vec![chunk])
@@ -246,8 +246,8 @@ mod tests {
             content_id: content_ids[0].clone(),
             embedding: vec![0.1, 0.2],
             metadata: metadata1.clone(),
-            root_content_metadata: Some(test_mock_content_metadata("0", "1")),
-            content_metadata: test_mock_content_metadata("0", "1"),
+            root_content_metadata: Some(test_mock_content_metadata("0", "1", "graph1")),
+            content_metadata: test_mock_content_metadata("0", "1", "graph1"),
         };
         vector_db
             .add_embedding(index_name, vec![chunk1])
@@ -258,8 +258,8 @@ mod tests {
             content_id: content_ids[1].clone(),
             embedding: vec![0.3, 0.4],
             metadata: metadata2.clone(),
-            root_content_metadata: Some(test_mock_content_metadata("0", "1")),
-            content_metadata: test_mock_content_metadata("0", "1"),
+            root_content_metadata: Some(test_mock_content_metadata("0", "1", "graph1")),
+            content_metadata: test_mock_content_metadata("0", "1", "graph1"),
         };
         vector_db
             .add_embedding(index_name, vec![chunk2])
@@ -303,8 +303,8 @@ mod tests {
             content_id: "0".into(),
             embedding: vec![0., 2.],
             metadata: metadata1.clone(),
-            root_content_metadata: Some(test_mock_content_metadata("0", "1")),
-            content_metadata: test_mock_content_metadata("0", "1"),
+            root_content_metadata: Some(test_mock_content_metadata("0", "1", "graph1")),
+            content_metadata: test_mock_content_metadata("0", "1", "graph1"),
         };
         vector_db
             .add_embedding(index_name, vec![chunk.clone()])
@@ -326,16 +326,16 @@ mod tests {
             content_id: content_ids[0].clone(),
             embedding: vec![0., 2.],
             metadata: metadata1,
-            root_content_metadata: Some(test_mock_content_metadata(&content_ids[0], "1")),
-            content_metadata: test_mock_content_metadata(&content_ids[0], "1"),
+            root_content_metadata: Some(test_mock_content_metadata(&content_ids[0], "1", "graph1")),
+            content_metadata: test_mock_content_metadata(&content_ids[0], "1", "graph1"),
         };
         let metadata2 = create_metadata(vec![("key1", "value3"), ("key2", "value4")]);
         let chunk1 = VectorChunk {
             content_id: content_ids[1].clone(),
             embedding: vec![0., 3.],
             metadata: metadata2,
-            root_content_metadata: Some(test_mock_content_metadata(&content_ids[1], "1")),
-            content_metadata: test_mock_content_metadata(&content_ids[1], "1"),
+            root_content_metadata: Some(test_mock_content_metadata(&content_ids[1], "1", "graph1")),
+            content_metadata: test_mock_content_metadata(&content_ids[1], "1", "graph1"),
         };
         vector_db
             .add_embedding(index_name, vec![chunk, chunk1])

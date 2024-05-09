@@ -383,6 +383,7 @@ mod tests {
 
     use indexify_internal_api::{
         ContentMetadata,
+        ContentMetadataId,
         ExtractionGraph,
         ExtractionPolicy,
         ExtractionPolicyContentSource,
@@ -404,8 +405,7 @@ mod tests {
         metrics,
         server::NamespaceEndpointState,
         server_config::{IndexStoreKind, ServerConfig},
-        test_util::db_utils::create_metadata,
-        test_util::db_utils::mock_extractor,
+        test_util::db_utils::{create_metadata, mock_extractor},
         vector_index::VectorIndexManager,
         vectordbs,
     };
@@ -481,22 +481,53 @@ mod tests {
                 handle,
                 coordinator,
             };
+            let extractor = mock_extractor();
+            test_coordinator
+                .create_extractor(extractor.clone())
+                .await
+                .unwrap();
+            let extraction_policy_id = "extraction_policy_id";
+            let extraction_graph_id = "extraction_graph_id";
+            let extraction_graph_name = "extraction_graph_name";
+            let extraction_policy = ExtractionPolicy {
+                id: extraction_policy_id.to_string(),
+                namespace: "test".to_string(),
+                name: "extraction_policy_name".to_string(),
+                extractor: extractor.name.to_string(),
+                graph_name: extraction_graph_name.to_string(),
+                filters: HashMap::new(),
+                content_source: ExtractionPolicyContentSource::Ingestion,
+                output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            };
+            let extraction_graph = ExtractionGraph {
+                id: extraction_graph_id.to_string(),
+                name: extraction_graph_name.to_string(),
+                namespace: "test".to_string(),
+                extraction_policies: vec![extraction_policy_id.to_string()].into_iter().collect(),
+            };
+            test_coordinator
+                .create_extraction_graph(extraction_graph, vec![extraction_policy.clone()])
+                .await
+                .unwrap();
             let content_metadata = ContentMetadata {
                 id: ContentMetadataId::new("1"),
                 name: "test".to_string(),
                 parent_id: None,
                 root_content_id: Some("1".to_string()),
                 namespace: "test".to_string(),
-                source: extraction_graph_name.to_string(),
+                source: indexify_internal_api::ContentSource::Ingestion,
                 extraction_graph_names: vec![extraction_graph_name.to_string()],
                 ..Default::default()
             };
             test_coordinator
-                .create_content(content_metadata.clone())
+                .create_content(content_metadata.clone().into())
                 .await
                 .unwrap();
             let internal_content_metadata = test_coordinator
-                .get_internal_content(content_metadata.id.clone())
+                .get_internal_content(content_metadata.id.id)
                 .await;
             test_coordinator
                 .create_task(make_test_task(
@@ -512,7 +543,7 @@ mod tests {
         pub async fn create_extractor(&self, extractor: ExtractorDescription) -> Result<()> {
             self.coordinator
                 .shared_state
-                .register_executor("localhost:8950", "executor_id", extractor)
+                .register_executor("localhost:8950", "executor_id", vec![extractor])
                 .await?;
             Ok(())
         }
@@ -539,7 +570,7 @@ mod tests {
             content: indexify_coordinator::ContentMetadata,
         ) -> Result<()> {
             self.coordinator
-                .create_content_metadata(vec![content])
+                .create_content_metadata(vec![content.into()])
                 .await
                 .unwrap();
 

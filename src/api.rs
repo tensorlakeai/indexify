@@ -443,7 +443,7 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
             labels: value.labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
-            source: value.source,
+            source: value.source.to_string(),
             size: value.size_bytes,
             hash: value.hash,
         }
@@ -727,6 +727,8 @@ pub struct TaskAssignments {
 pub struct UploadFileResponse {
     pub content_id: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractionGraphRequest {
     pub name: String,
     pub namespace: String,

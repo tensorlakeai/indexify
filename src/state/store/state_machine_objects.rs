@@ -7,7 +7,15 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use internal_api::{ContentMetadataId, ExtractorDescription, StateChange, TaskOutcome};
+use internal_api::{
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicy,
+    ExtractionPolicyName,
+    ExtractorDescription,
+    StateChange,
+    TaskOutcome,
+};
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
 use rocksdb::OptimisticTransactionDB;
@@ -675,8 +683,8 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        extraction_graph: &internal_api::ExtractionGraph,
-        extraction_policies: &Vec<internal_api::ExtractionPolicy>,
+        extraction_graph: &ExtractionGraph,
+        extraction_policies: &Vec<ExtractionPolicy>,
         structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
@@ -1063,7 +1071,7 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        extraction_policy: &internal_api::ExtractionPolicy,
+        extraction_policy: &ExtractionPolicy,
     ) -> Result<(), StateMachineError> {
         let serialized_extraction_policy = JsonEncoder::encode(extraction_policy)?;
         txn.put_cf(
@@ -1201,8 +1209,8 @@ impl IndexifyState {
 
     fn update_extraction_graph_reverse_idx(
         &self,
-        extraction_graph: &internal_api::ExtractionGraph,
-        extraction_policies: &Vec<internal_api::ExtractionPolicy>,
+        extraction_graph: &ExtractionGraph,
+        extraction_policies: &Vec<ExtractionPolicy>,
         schema: internal_api::StructuredDataSchema,
     ) {
         for ep in extraction_policies {
@@ -1902,7 +1910,7 @@ impl IndexifyState {
         &self,
         extraction_policy_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
+    ) -> Result<Option<Vec<ExtractionPolicy>>, StateMachineError> {
         let txn = db.transaction();
 
         let mut policies = Vec::new();
@@ -1915,14 +1923,12 @@ impl IndexifyState {
                 .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
             if let Some(bytes) = bytes_opt {
-                let policy =
-                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
-                        .map_err(|e| {
-                            StateMachineError::SerializationError(format!(
-                                "get_extraction_policies from id: unable to deserialize json, {}",
-                                e
-                            ))
-                        })?;
+                let policy = serde_json::from_slice::<ExtractionPolicy>(&bytes).map_err(|e| {
+                    StateMachineError::SerializationError(format!(
+                        "get_extraction_policies from id: unable to deserialize json, {}",
+                        e
+                    ))
+                })?;
                 policies.push(policy);
             }
             // If None, the policy is not found; we simply skip it.
@@ -1933,6 +1939,34 @@ impl IndexifyState {
         } else {
             Ok(Some(policies))
         }
+    }
+
+    pub fn get_extraction_policy_by_names(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+        policy_names: &HashSet<ExtractionPolicyName>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<Option<ExtractionPolicy>>, StateMachineError> {
+        let mut policies = Vec::new();
+        for policy_name in policy_names {
+            let extraction_policy_id =
+                ExtractionPolicy::create_id(graph_name, policy_name, namespace);
+            let extraction_policy_bytes = db
+                .get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    extraction_policy_id.as_bytes(),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+            match extraction_policy_bytes {
+                Some(bytes) => {
+                    let extraction_policy = JsonEncoder::decode::<ExtractionPolicy>(&bytes)?;
+                    policies.push(Some(extraction_policy))
+                }
+                None => policies.push(None),
+            }
+        }
+        Ok(policies)
     }
 
     /// This method gets all task assignments stored in the relevant CF
@@ -2015,64 +2049,24 @@ impl IndexifyState {
         Ok(schemas)
     }
 
-    /// This method tries to retrieve all policies based on id's. If it cannot
-    /// find any, it skips them. If it encounters an error at any point
-    /// during the transaction, it returns out immediately
-    pub fn get_extraction_policies_from_ids(
-        &self,
-        extraction_policy_ids: HashSet<String>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
-        let txn = db.transaction();
-
-        let mut policies = Vec::new();
-        for id in extraction_policy_ids.iter() {
-            let bytes_opt = txn
-                .get_cf(
-                    StateMachineColumns::ExtractionPolicies.cf(db),
-                    id.as_bytes(),
-                )
-                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-
-            if let Some(bytes) = bytes_opt {
-                let policy =
-                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
-                        .map_err(|e| {
-                            StateMachineError::SerializationError(format!(
-                                "get_extraction_policies from id: unable to deserialize json, {}",
-                                e
-                            ))
-                        })?;
-                policies.push(policy);
-            }
-            // If None, the policy is not found; we simply skip it.
-        }
-
-        if policies.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(policies))
-        }
-    }
-
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<ExtractionGraphId>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<Option<internal_api::ExtractionGraph>>, StateMachineError> {
+    ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids
             .iter()
             .map(|egid| (cf, egid.as_bytes()))
             .collect();
         let serialized_graphs = db.multi_get_cf(keys);
-        let mut graphs: Vec<Option<internal_api::ExtractionGraph>> = Vec::new();
+        let mut graphs: Vec<Option<ExtractionGraph>> = Vec::new();
         for serialized_graph in serialized_graphs {
             match serialized_graph {
                 Ok(graph) => {
                     if graph.is_some() {
                         let deserialized_graph =
-                            JsonEncoder::decode::<internal_api::ExtractionGraph>(&graph.unwrap())?;
+                            JsonEncoder::decode::<ExtractionGraph>(&graph.unwrap())?;
                         graphs.push(Some(deserialized_graph));
                     } else {
                         graphs.push(None);
@@ -2091,26 +2085,25 @@ impl IndexifyState {
         namespace: &str,
         graph_names: &[String],
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<Vec<internal_api::ExtractionGraph>>, StateMachineError> {
-        let extraction_graph_ids_in_ns = self.extraction_graphs_by_ns.get(&namespace.to_string());
-        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
-        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids_in_ns
-            .iter()
-            .map(|egid| (cf, egid.as_bytes()))
+    ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
+        let eg_ids: Vec<String> = graph_names
+            .into_iter()
+            .map(|name| ExtractionGraph::create_id(name, namespace))
             .collect();
+        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> =
+            eg_ids.iter().map(|egid| (cf, egid.as_bytes())).collect();
         let serialized_graphs = db.multi_get_cf(keys);
-        let mut graphs: Vec<internal_api::ExtractionGraph> = Vec::new();
+        let mut graphs: Vec<Option<ExtractionGraph>> = Vec::new();
         for serialized_graph in serialized_graphs {
             match serialized_graph {
                 Ok(graph) => {
                     if graph.is_some() {
                         let deserialized_graph =
-                            JsonEncoder::decode::<internal_api::ExtractionGraph>(&graph.unwrap())?;
-                        graphs.push(deserialized_graph);
+                            JsonEncoder::decode::<ExtractionGraph>(&graph.unwrap())?;
+                        graphs.push(Some(deserialized_graph));
                     } else {
-                        return Err(StateMachineError::DatabaseError(
-                            "Extraction graph not found".into(),
-                        ));
+                        graphs.push(None);
                     }
                 }
                 Err(e) => {
@@ -2118,15 +2111,7 @@ impl IndexifyState {
                 }
             }
         }
-        let matching_graphs: Vec<internal_api::ExtractionGraph> = graphs
-            .into_iter()
-            .filter(|graph| graph_names.contains(&graph.name))
-            .collect();
-        if matching_graphs.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(matching_graphs))
-        }
+        Ok(graphs)
     }
 
     pub fn get_coordinator_addr(

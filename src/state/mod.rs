@@ -17,6 +17,8 @@ use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
+    ExtractionGraphId,
+    ExtractionGraphName,
     ExtractionPolicy,
     StateChange,
     StructuredDataSchema,
@@ -384,36 +386,34 @@ impl App {
         if content_metadata.tombstoned {
             return Ok(vec![]);
         }
-        let content_metadata = content_metadata.first().ok_or_else(|| {
-            anyhow!(
-                "content metadata with id {} not found",
-                content_id.to_string()
-            )
-        })?;
+        println!("content_metadata: {:?}", content_metadata);
         if content_metadata.extraction_graph_names.is_empty() {
             return Ok(Vec::new());
         }
-        let extraction_graphs =
-            self.get_extraction_graphs(&content_metadata.extraction_graph_names)?;
-        let mut extraction_policy_ids = HashSet::new();
+        let extraction_graphs = self.get_extraction_graphs_by_name(
+            &content_metadata.namespace,
+            &content_metadata.extraction_graph_names,
+        )?;
+        println!("extraction_graphs: {:?}", extraction_graphs);
+        let mut all_extraction_policies: Vec<ExtractionPolicy> = Vec::new();
         for extraction_graph in extraction_graphs {
             if let Some(eg) = extraction_graph {
-                for extraction_policy in eg.extraction_policies {
-                    extraction_policy_ids.insert(extraction_policy);
-                }
+                let extraction_policies: Vec<ExtractionPolicy> = self
+                    .state_machine
+                    .get_extraction_policy_by_names(
+                        &content_metadata.namespace,
+                        &eg.name,
+                        &eg.extraction_policies,
+                    )?
+                    .into_iter()
+                    .filter_map(|ep| ep)
+                    .collect();
+                all_extraction_policies.extend(extraction_policies);
             }
         }
-        let extraction_policies = self
-            .state_machine
-            .get_extraction_policies_from_ids(extraction_policy_ids)?
-            .ok_or_else(|| {
-                anyhow!(
-                    "failed to get extraction policies for content {}",
-                    content_id
-                )
-            })?;
+        println!("all_extraction_policies: {:?}", all_extraction_policies);
         let mut matched_policies = Vec::new();
-        for extraction_policy in extraction_policies {
+        for extraction_policy in all_extraction_policies {
             if content_metadata.source.to_string() != extraction_policy.content_source.to_string() {
                 continue;
             }
@@ -521,7 +521,9 @@ impl App {
             .get_content_namespace_table()
             .get(namespace)
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .collect_vec();
         self.state_machine
             .get_content_from_ids_with_version(content_ids)
     }
@@ -542,47 +544,6 @@ impl App {
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
-        Ok(())
-    }
-
-    pub async fn create_extraction_policy(
-        &self,
-        extraction_policy: ExtractionPolicy,
-        updated_structured_data_schema: Option<StructuredDataSchema>,
-    ) -> Result<()> {
-        let existing_policies =
-            self.state_machine
-                .get_extraction_policies_from_ids(HashSet::from_iter(
-                    vec![extraction_policy.id.clone()].into_iter(),
-                ))?;
-
-        if let Some(policies) = existing_policies {
-            if !policies.is_empty() {
-                info!(
-                    "The extraction policy with id {} already exists, ignoring this request",
-                    extraction_policy.id
-                );
-                return Ok(());
-            }
-        }
-
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateExtractionPolicy {
-                extraction_policy: extraction_policy.clone(),
-                updated_structured_data_schema,
-                new_structured_data_schema: StructuredDataSchema::new(
-                    &extraction_policy.name,
-                    &extraction_policy.namespace,
-                ),
-            },
-            new_state_changes: vec![StateChange::new(
-                extraction_policy.id.clone(),
-                internal_api::ChangeType::NewExtractionPolicy,
-                timestamp_secs(),
-            )],
-            state_changes_processed: vec![],
-        };
-        let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
 
@@ -632,7 +593,7 @@ impl App {
         &self,
         namespace: &str,
         graph_names: &[String],
-    ) -> Result<Option<Vec<ExtractionGraph>>> {
+    ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.state_machine
             .get_extraction_graphs_by_name(namespace, graph_names)
     }
@@ -1421,7 +1382,13 @@ async fn watch_for_leader_change(
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, TaskOutcome};
+    use indexify_internal_api::{
+        ContentMetadata,
+        ContentMetadataId,
+        ExtractionGraph,
+        StructuredDataSchema,
+        TaskOutcome,
+    };
 
     use crate::{
         state::{
@@ -1431,6 +1398,11 @@ mod tests {
                 TaskId,
             },
             App,
+        },
+        test_util::db_utils::{
+            create_test_extraction_graph,
+            mock_extractor,
+            test_mock_content_metadata,
         },
         test_utils::RaftTestCluster,
     };
@@ -1526,54 +1498,6 @@ mod tests {
             }
         };
         cluster.read_own_write(request, read_back, true).await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_automatic_task_creation() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  Create a piece of content
-        let content_metadata = ContentMetadata {
-            id: ContentMetadataId::new("content_id"),
-            content_type: "text/plain".into(),
-            ..Default::default()
-        };
-        node.create_content_batch(vec![content_metadata]).await?;
-
-        //  Create a default namespace
-        let namespace = "namespace";
-        node.create_namespace(namespace).await?;
-
-        //  Register an executor
-        let executor_id = "executor_id";
-        let extractor_name = "extractor";
-        let extractor = indexify_internal_api::ExtractorDescription {
-            name: extractor_name.into(),
-            input_mime_types: vec!["text/plain".into()],
-            ..Default::default()
-        };
-        let addr = "addr";
-        node.register_executor(addr, executor_id, vec![extractor.clone()])
-            .await?;
-
-        //  Set an extraction policy for the content that will force task creation
-        let extraction_policy = indexify_internal_api::ExtractionPolicy {
-            name: "extraction_policy".into(),
-            namespace: namespace.into(),
-            extractor: extractor_name.into(),
-            ..Default::default()
-        };
-        node.create_extraction_policy(extraction_policy.clone(), None)
-            .await?;
-
-        let _tasks = node
-            .list_tasks(namespace, Some(extraction_policy.id))
-            .await?;
 
         Ok(())
     }
@@ -1731,7 +1655,10 @@ mod tests {
             .await?;
 
         //  Read the content back
-        let read_content = node.list_content(&content_metadata_vec.first().unwrap().namespace)?;
+        let read_content = node
+            .list_content(&content_metadata_vec.first().unwrap().namespace)
+            .await
+            .unwrap();
         assert_eq!(read_content.len(), content_size);
 
         //  Read back all the pieces of content
@@ -1761,71 +1688,49 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id";
+        let mut extractor = mock_extractor();
+        extractor.input_mime_types = vec!["*/*".into()];
+        let addr = "addr";
+        node.register_executor(addr, executor_id, vec![extractor.clone()])
+            .await?;
+
+        let (eg, mut eps) = create_test_extraction_graph("graph1", vec!["policy1"]);
+
+        eps[0].filters = HashMap::from([
+            ("label1".to_string(), "value1".to_string()),
+            ("label2".to_string(), "value2".to_string()),
+            ("label3".to_string(), "value3".to_string()),
+        ]);
+
+        node.create_extraction_graph(
+            eg.clone(),
+            eps.clone(),
+            StructuredDataSchema::default(),
+            vec![],
+        )
+        .await?;
+
+        //  Read the policy back using namespace
+        let read_policy = node.list_extraction_policy(&eg.namespace).await?;
+        assert_eq!(read_policy.len(), 1);
+
+        //  Read the policy back using the id
+        let read_policy = node.get_extraction_policy(&eps[0].id)?;
+        assert_eq!(read_policy, eps[0]);
+
         //  Create some content
         let content_labels = vec![
             ("label1".to_string(), "value1".to_string()),
             ("label2".to_string(), "value2".to_string()),
             ("label3".to_string(), "value3".to_string()),
         ];
-        let content_metadata = ContentMetadata {
-            namespace: "namespace".into(),
-            name: "name".into(),
-            labels: content_labels.into_iter().collect(),
-            content_type: "*/*".into(),
-            source: "source".into(),
-            ..Default::default()
-        };
+        let mut content_metadata = test_mock_content_metadata("test_content_id1", "", &eg.name);
+        content_metadata.labels = content_labels.into_iter().collect();
+        content_metadata.extraction_graph_names = vec![eg.name];
         node.create_content_batch(vec![content_metadata.clone()])
             .await?;
-
-        //  Create an executor and associated extractor
-        let executor_id = "executor_id";
-        let extractor = indexify_internal_api::ExtractorDescription {
-            name: "extractor".into(),
-            input_mime_types: vec!["*/*".into()],
-            ..Default::default()
-        };
-        let addr = "addr";
-        node.register_executor(addr, executor_id, vec![extractor.clone()])
-            .await?;
-
-        //  Create the extraction policy under the namespace of the content
-        let extraction_policy = indexify_internal_api::ExtractionPolicy {
-            namespace: content_metadata.namespace.clone(),
-            content_source:
-                indexify_internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                    "source".to_string(),
-                ),
-            extractor: extractor.name,
-            filters: vec![
-                ("label1".to_string(), "value1".to_string()),
-                ("label2".to_string(), "value2".to_string()),
-                ("label3".to_string(), "value3".to_string()),
-            ]
-            .into_iter()
-            .collect(),
-            ..Default::default()
-        };
-        node.create_extraction_policy(extraction_policy.clone(), None)
-            .await?;
-
-        //  Read the policy back using namespace
-        let read_policy = node
-            .list_extraction_policy(&extraction_policy.namespace)
-            .await?;
-        assert_eq!(read_policy.len(), 1);
-
-        //  Read the policy back using the id
-        let read_policy = node.get_extraction_policy(&extraction_policy.id)?;
-        assert_eq!(read_policy, extraction_policy);
-
-        //  Fetch the content based on the policy id and check that the retrieved
-        // content is correct
-        let matched_content = node
-            .match_contents_for_extraction_policy(&extraction_policy.id)
-            .await?;
-        assert_eq!(matched_content.len(), 1);
-        assert_eq!(matched_content.first().unwrap(), &content_metadata);
 
         //  Fetch the policy based on the content id and check that the retrieved policy
         // is correct
@@ -1833,7 +1738,7 @@ mod tests {
             .match_extraction_policies_for_content(&content_metadata.id)
             .await?;
         assert_eq!(matched_policies.len(), 1);
-        assert_eq!(matched_policies.first().unwrap(), &extraction_policy);
+        assert_eq!(matched_policies.first().unwrap(), &eps[0]);
 
         Ok(())
     }
@@ -1848,6 +1753,15 @@ mod tests {
         //  Create a namespace
         let namespace = "namespace";
         node.create_namespace(namespace).await?;
+
+        let eg = ExtractionGraph {
+            id: "id".into(),
+            namespace: namespace.into(),
+            name: "name".into(),
+            extraction_policies: vec!["id1".into(), "id2".into(), "id3".into()]
+                .into_iter()
+                .collect(),
+        };
 
         //  Create 3 extraction policies using the same namespace but all other
         // attributes as default
@@ -1868,9 +1782,10 @@ mod tests {
                 ..Default::default()
             },
         ];
-        for policy in &extraction_policies {
-            node.create_extraction_policy(policy.clone(), None).await?;
-        }
+        let structured_schema = StructuredDataSchema::new(&eg.name, &eg.namespace);
+        let eg = node
+            .create_extraction_graph(eg, extraction_policies, structured_schema, vec![])
+            .await?;
 
         //  Read the namespace back and expect to get the extraction policies as well
         // which will be asserted
@@ -1905,71 +1820,33 @@ mod tests {
 
         //  Create an executor and associated extractor
         let executor_id = "executor_id";
-        let extractor = indexify_internal_api::ExtractorDescription {
-            name: "extractor".into(),
-            input_mime_types: vec!["*/*".into()],
-            ..Default::default()
-        };
+        let extractor = mock_extractor();
         let addr = "addr";
         node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
         //  Create the extraction graph
-        let extraction_graph_id = "extraction_graph_id";
-        let extraction_policy_id = "extraction_policy_id";
-        let extraction_graph = indexify_internal_api::ExtractionGraph {
-            id: extraction_graph_id.into(),
-            namespace: namespace.into(),
-            extraction_policies: vec!["extraction_policy_id".into()].into_iter().collect(),
-            name: "extraction_graph_name".into(),
-        };
-        let extraction_policy = indexify_internal_api::ExtractionPolicy {
-            id: extraction_policy_id.into(),
-            namespace: namespace.into(),
-            content_source: indexify_internal_api::ExtractionPolicyContentSource::Ingestion,
-            extractor: extractor.name,
-            filters: vec![("label1".to_string(), "value1".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
+        let (eg, mut eps) =
+            create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
+        eps[0].filters = HashMap::from([("label1".to_string(), "value1".to_string())]);
         let structured_data_schema = indexify_internal_api::StructuredDataSchema::default();
         node.create_extraction_graph(
-            extraction_graph,
-            vec![extraction_policy],
-            structured_data_schema,
+            eg.clone(),
+            eps,
+            StructuredDataSchema::new(&eg.name, &eg.namespace),
             vec![], //  no indexes
         )
         .await?;
 
         //  Create some content
-        let content_labels = vec![("label1".to_string(), "value1".to_string())];
-        let content_metadata = ContentMetadata {
-            id: ContentMetadataId::new("content_id_1"),
-            namespace: "namespace".into(),
-            name: "name_1".into(),
-            labels: content_labels.into_iter().collect(),
-            content_type: "*/*".into(),
-            source: indexify_internal_api::ContentSource::Ingestion,
-            extraction_graph_names: vec![extraction_graph_id.to_string()],
-            ..Default::default()
-        };
+        let mut content_metadata1 = test_mock_content_metadata("content_id_1", "", &eg.name);
+        content_metadata1.labels = HashMap::from([("label1".to_string(), "value1".to_string())]);
 
-        let mut content_metadata_vec = vec![content_metadata];
-        let content_labels = vec![("label1".to_string(), "value-mismatch".to_string())];
-        let content_metadata = ContentMetadata {
-            id: ContentMetadataId::new("content_id_2"),
-            namespace: "namespace".into(),
-            name: "name_2".into(),
-            labels: content_labels.into_iter().collect(),
-            content_type: "*/*".into(),
-            source: indexify_internal_api::ContentSource::Ingestion,
-            extraction_graph_names: vec![extraction_graph_id.to_string()],
-            ..Default::default()
-        };
-        content_metadata_vec.push(content_metadata);
-
-        node.create_content_batch(content_metadata_vec).await?;
+        let mut content_metadata2 = test_mock_content_metadata("content_id_2", "", &eg.name);
+        content_metadata2.labels =
+            HashMap::from([("label1".to_string(), "value-mismatch".to_string())]);
+        node.create_content_batch(vec![content_metadata1, content_metadata2])
+            .await?;
 
         let policies = node
             .match_extraction_policies_for_content(&ContentMetadataId::new("content_id_1"))

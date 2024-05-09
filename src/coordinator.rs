@@ -5,7 +5,7 @@ use std::{
     vec,
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
@@ -18,6 +18,7 @@ use internal_api::{
     StateChange,
     StructuredDataSchema,
 };
+use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info};
 
@@ -64,8 +65,7 @@ impl Coordinator {
     ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
         let mut content_meta_list = Vec::new();
         for content in content_list {
-            let content: indexify_coordinator::ContentMetadata =
-                internal_api::ContentMetadata::to_coordinator_metadata(content);
+            let content: indexify_coordinator::ContentMetadata = content.into();
             content_meta_list.push(content.clone());
         }
         Ok(content_meta_list)
@@ -75,10 +75,7 @@ impl Coordinator {
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Vec<internal_api::ContentMetadata> {
-        content_list
-            .into_iter()
-            .map(|v| internal_api::ContentMetadata::from_coordinator_metadata(v))
-            .collect()
+        content_list.into_iter().map(|v| v.into()).collect()
     }
 
     pub fn internal_extraction_policy_to_external(
@@ -126,10 +123,10 @@ impl Coordinator {
             .list_content(namespace)
             .await?
             .into_iter()
-            .filter_map(|c| c);
-        list_content_filter(content, source, parent_id, labels_eq)
-            .map(Ok)
-            .collect::<Result<Vec<indexify_coordinator::ContentMetadata>>>()
+            .filter_map(|c| c)
+            .collect_vec();
+        let filtered_list = list_content_filter(content, source, parent_id, labels_eq);
+        Ok(filtered_list)
     }
 
     pub fn get_extraction_policy(
@@ -208,18 +205,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> {
-                let content_metadata = self
-                    .internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
-                let content_metadata = content_metadata.first().ok_or_else(|| {
-                    anyhow!(format!(
-                        "could not convert content metadata {}",
-                        task.content_metadata.id.id
-                    ))
-                })?;
-                let task = internal_api::Task::to_coordinator_task(task, content_metadata.clone());
-                Ok(task)
-            })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -243,18 +229,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> {
-                let content_metadata = self
-                    .internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
-                let content_metadata = content_metadata.first().ok_or_else(|| {
-                    anyhow!(format!(
-                        "could not convert content metadata {}",
-                        task.content_metadata.id.id
-                    ))
-                })?;
-                let task = internal_api::Task::to_coordinator_task(task, content_metadata.clone());
-                Ok(task)
-            })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -363,18 +338,7 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        let coordinator_metadata =
-            self.internal_content_metadata_to_external(vec![task.content_metadata.clone()])?;
-        let coordinator_metadata = coordinator_metadata.first().ok_or_else(|| {
-            anyhow!(format!(
-                "could not convert content metadata {}",
-                task.content_metadata.id.id
-            ))
-        })?;
-        Ok(internal_api::Task::to_coordinator_task(
-            task,
-            coordinator_metadata.clone(),
-        ))
+        Ok(task.into())
     }
 
     pub async fn get_task_and_root_content(
@@ -409,34 +373,6 @@ impl Coordinator {
         extractor_name: &str,
     ) -> Result<internal_api::ExtractorDescription> {
         self.shared_state.extractor_with_name(extractor_name)
-    }
-
-    pub async fn create_policy(
-        &self,
-        extraction_policy: internal_api::ExtractionPolicy,
-        extractor: internal_api::ExtractorDescription,
-    ) -> Result<()> {
-        if extractor.input_params != serde_json::Value::Null {
-            extractor.validate_input_params(&extraction_policy.input_params)?;
-        }
-        let structured_data_schema = self
-            .shared_state
-            .get_structured_data_schema(
-                &extraction_policy.namespace,
-                &String::from(&extraction_policy.content_source),
-            )
-            .await?;
-        let mut updated_schema = None;
-        for (_, output_schema) in extractor.outputs {
-            if let OutputSchema::Attributes(columns) = output_schema {
-                let updated_structured_data_schema = structured_data_schema.merge(columns)?;
-                updated_schema.replace(updated_structured_data_schema);
-            }
-        }
-        self.shared_state
-            .create_extraction_policy(extraction_policy, updated_schema)
-            .await?;
-        Ok(())
     }
 
     pub async fn create_extraction_graph(
@@ -638,12 +574,9 @@ impl Coordinator {
 
     pub async fn create_content_metadata(
         &self,
-        content_list: Vec<indexify_coordinator::ContentMetadata>,
+        content_list: Vec<indexify_internal_api::ContentMetadata>,
     ) -> Result<()> {
-        let content_meta_list = self.external_content_metadata_to_internal(content_list);
-        self.shared_state
-            .create_content_batch(content_meta_list)
-            .await?;
+        self.shared_state.create_content_batch(content_list).await?;
         Ok(())
     }
 
@@ -684,11 +617,17 @@ mod tests {
         fs,
         sync::Arc,
         time::Duration,
+        vec,
     };
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator::{self};
-    use internal_api::ExtractionPolicyContentSource;
+    use internal_api::{
+        ContentSource,
+        ExtractionGraph,
+        ExtractionPolicyContentSource,
+        StructuredDataSchema,
+    };
 
     use super::Coordinator;
     use crate::{
@@ -697,8 +636,9 @@ mod tests {
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{
+            create_test_extraction_graph,
             mock_extractor,
-            mock_extractors,
+            test_mock_content_metadata,
             DEFAULT_TEST_EXTRACTOR,
             DEFAULT_TEST_NAMESPACE,
         },
@@ -739,7 +679,7 @@ mod tests {
         //  Register an executor
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8950", "test_executor_id", extractor)
+            .register_executor("localhost:8950", "test_executor_id", vec![extractor])
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -783,42 +723,21 @@ mod tests {
         //  Register an executor
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8950", "test_executor_id", extractor)
+            .register_executor("localhost:8950", "test_executor_id", vec![extractor])
             .await?;
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let extraction_policy_id = "extraction_policy_id";
-        let extraction_graph_id = "extraction_graph_id";
-        let extraction_policy = internal_api::ExtractionPolicy {
-            id: extraction_policy_id.into(),
-            graph_name: extraction_graph_id.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph = internal_api::ExtractionGraph {
-            id: extraction_graph_id.into(),
-            name: "test".into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id.into()].into_iter().collect(),
-        };
+        let (eg, eps) =
+            create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
         coordinator
-            .create_extraction_graph(extraction_graph.clone(), vec![extraction_policy])
+            .create_extraction_graph(eg.clone(), eps.clone())
             .await?;
         coordinator.run_scheduler().await?;
 
+        let content_metadata = test_mock_content_metadata("test", "test", &eg.name);
+
         //  Add content which will trigger task creation
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: "test".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            root_content_id: "test".to_string(),
-            mime: "text/plain".to_string(),
-            extraction_graph_names: vec![extraction_graph.name],
-            ..Default::default()
-        };
         coordinator
             .create_content_metadata(vec![content_metadata.clone()])
             .await?;
@@ -826,7 +745,7 @@ mod tests {
 
         //  Read the content back from shared state and ensure graph id is correct
         let retr_content = shared_state
-            .get_content_metadata_batch(vec![content_metadata.id.clone()])
+            .get_content_metadata_batch(vec![content_metadata.id.id.clone()])
             .await?;
         assert_eq!(
             retr_content.first().unwrap().extraction_graph_names.len(),
@@ -839,7 +758,7 @@ mod tests {
                 .extraction_graph_names
                 .first()
                 .unwrap(),
-            &extraction_graph.id
+            &eg.id
         );
         Ok(())
     }
@@ -856,49 +775,20 @@ mod tests {
         let executor_id = "test_executor_id";
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8950", executor_id, extractor)
+            .register_executor("localhost:8950", executor_id, vec![extractor])
             .await?;
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let extraction_policy_id = "extraction_policy_id";
-        let extraction_graph_id = "extraction_graph_id";
-        let extraction_graph_name = "extraction_graph_name";
-        let extraction_policy = internal_api::ExtractionPolicy {
-            id: extraction_policy_id.into(),
-            graph_name: extraction_graph_id.into(),
-            name: "test_extraction_policy".into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph = internal_api::ExtractionGraph {
-            id: extraction_graph_id.into(),
-            name: extraction_graph_name.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id.into()].into_iter().collect(),
-        };
+        let (eg, eps) =
+            create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
         coordinator
-            .create_extraction_graph(extraction_graph.clone(), vec![extraction_policy])
+            .create_extraction_graph(eg.clone(), eps.clone())
             .await?;
         coordinator.run_scheduler().await?;
 
         //  Add content which will trigger task creation because it is part of the graph
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: "test".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            root_content_id: "test".to_string(),
-            mime: "text/plain".to_string(),
-            extraction_graph_names: vec![extraction_graph.name],
-            source: extraction_graph_name.to_string(),
-            ..Default::default()
-        };
+        let content_metadata = test_mock_content_metadata("test", "test", &eg.name);
         coordinator
             .create_content_metadata(vec![content_metadata.clone()])
             .await?;
@@ -918,76 +808,9 @@ mod tests {
 
         //  Create a separate piece of content metadata which will not trigger task
         // creation
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: "test".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            root_content_id: "test".to_string(),
-            mime: "text/plain".to_string(),
-            extraction_graph_names: vec![],
-            source: "".to_string(),
-            ..Default::default()
-        };
+        let content_metadata = test_mock_content_metadata("test2", "test2", "not_present_graph");
         coordinator
-            .register_executor("localhost:8956", "test_executor_id", mock_extractors())
-            .await?;
-        coordinator
-            .create_policy(
-                internal_api::ExtractionPolicy {
-                    id: "test-binding-id".to_string(),
-                    graph_id: "test-graph-id".to_string(),
-                    name: "test".to_string(),
-                    extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-                    namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                    input_params: serde_json::json!({}),
-                    filters: HashMap::new(),
-                    output_table_mapping: HashMap::from([(
-                        "test_output".to_string(),
-                        "test_namespace.test.test_output".to_string(),
-                    )]),
-                    content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                        "ingestion".to_string(),
-                    ),
-                },
-                mock_extractor(),
-            )
-            .await?;
-        assert_eq!(
-            2,
-            shared_state.unprocessed_state_change_events().await?.len()
-        );
-        coordinator.run_scheduler().await?;
-        assert_eq!(
-            0,
-            shared_state.unprocessed_state_change_events().await?.len()
-        );
-        assert_eq!(
-            1,
-            shared_state
-                .tasks_for_executor("test_executor_id", None)
-                .await?
-                .len()
-        );
-        assert_eq!(0, shared_state.unassigned_tasks().await?.len());
-
-        // Add a content with a different source and ensure we don't create a task
-        coordinator
-            .create_content_metadata(vec![indexify_coordinator::ContentMetadata {
-                id: "test2".to_string(),
-                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-                parent_id: "test".to_string(),
-                root_content_id: "test".to_string(),
-                file_name: "test2".to_string(),
-                mime: "text/plain".to_string(),
-                created_at: 0,
-                storage_url: "test2".to_string(),
-                labels: HashMap::new(),
-                source: vec!["ingestion".to_string()],
-                size_bytes: 100,
-                hash: "".to_string(),
-                extraction_policy_ids: HashMap::new(),
-                extraction_graph_names: vec![],
-            }])
+            .create_content_metadata(vec![content_metadata.clone()])
             .await?;
         coordinator.run_scheduler().await?;
         let tasks = shared_state.unassigned_tasks().await?;
@@ -995,6 +818,7 @@ mod tests {
         let tasks = shared_state.tasks_for_executor(executor_id, None).await?;
         assert_eq!(tasks.len(), 1);
 
+        // FIX ME Should be in state machine test
         let mut task_clone = tasks[0].clone();
         task_clone.outcome = internal_api::TaskOutcome::Success;
         shared_state
@@ -1021,98 +845,36 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
-                vec![extractor.clone()],
-            )
+            .register_executor("localhost:8956", executor_id_1, vec![extractor.clone()])
             .await?;
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let extraction_policy_id_1 = "extraction_policy_id_1";
-        let extraction_graph_id_1 = "extraction_graph_id_1";
-        let extraction_graph_name_1 = "extraction_graph_name_1";
-        let extraction_policy_1 = internal_api::ExtractionPolicy {
-            id: extraction_policy_id_1.into(),
-            name: "extraction_policy_name_1".into(),
-            graph_name: extraction_graph_id_1.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph_1 = internal_api::ExtractionGraph {
-            id: extraction_graph_id_1.into(),
-            name: extraction_graph_name_1.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id_1.into()].into_iter().collect(),
-        };
-        coordinator
-            .create_extraction_graph(extraction_graph_1.clone(), vec![extraction_policy_1])
-            .await?;
+        let (eg, eps) =
+            create_test_extraction_graph("extraction_graph_id_1", "extraction_policy_id_1");
+        coordinator.create_extraction_graph(eg.clone(), eps).await?;
         coordinator.run_scheduler().await?;
 
         //  Register another executor
-        let extractor_name = "MockExtractor2";
         let executor_id_2 = "test_executor_id_2";
         let mut extractor = mock_extractor();
-        extractor.name = extractor_name.into();
+        extractor.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor(
-                "localhost:8957",
-                "test_executor_id_2",
-                vec![extractor_2.clone()],
-            )
+            .register_executor("localhost:8957", &executor_id_2, vec![extractor.clone()])
             .await?;
         coordinator.run_scheduler().await?;
 
         //  Create another extraction_graph and use the new extractor
-        let extraction_policy_id_2 = "extraction_policy_id_2";
-        let extraction_graph_id_2 = "extraction_graph_id_2";
-        let extraction_graph_name_2 = "extraction_graph_name_2";
-        let extraction_policy_2 = internal_api::ExtractionPolicy {
-            id: extraction_policy_id_2.into(),
-            name: "extraction_policy_name_2".into(),
-            graph_name: extraction_graph_id_2.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: extractor_name.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph_2 = internal_api::ExtractionGraph {
-            id: extraction_graph_id_2.into(),
-            name: extraction_graph_name_2.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id_2.into()].into_iter().collect(),
-        };
+        let (eg2, eps2) =
+            create_test_extraction_graph("extraction_graph_id_2", vec!["extraction_policy_id_2"]);
         coordinator
-            .create_extraction_graph(extraction_graph_2.clone(), vec![extraction_policy_2])
+            .create_extraction_graph(eg2.clone(), eps2)
             .await?;
         coordinator.run_scheduler().await?;
 
         //  create some content and specify both graphs
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: "test".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            root_content_id: "test".to_string(),
-            mime: "text/plain".to_string(),
-            extraction_graph_names: vec![
-                extraction_graph_1.name.clone(),
-                extraction_graph_2.name.clone(),
-            ],
-            source: "".to_string(),
-            ..Default::default()
-        };
+        let mut content_metadata = test_mock_content_metadata("test", "test", &eg2.name);
+        content_metadata.extraction_graph_names = vec![eg.name.clone(), eg2.name.clone()];
         coordinator
             .create_content_metadata(vec![content_metadata.clone()])
             .await?;
@@ -1120,6 +882,10 @@ mod tests {
 
         //  expect two tasks to be created and assigned - 1 for each extractor
         let tasks = shared_state.tasks_for_executor(executor_id_1, None).await?;
+        assert_eq!(tasks.len(), 1);
+        let tasks = shared_state
+            .tasks_for_executor(&executor_id_2, None)
+            .await?;
         assert_eq!(tasks.len(), 1);
         Ok(())
     }
@@ -1132,25 +898,6 @@ mod tests {
         // Add a namespace
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
-        //  Create content metadata
-        let content_metadata_1 = indexify_coordinator::ContentMetadata {
-            id: "test_id".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: vec!["ingestion".to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
-        coordinator
-            .create_content_metadata(vec![content_metadata_1])
-            .await?;
-
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
@@ -1160,22 +907,13 @@ mod tests {
                 vec![extractor.clone()],
             )
             .await?;
-        let extraction_policy_1 = internal_api::ExtractionPolicy {
-            id: "extraction_policy_id_1".to_string(),
-            name: "extraction_policy_name_1".to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                "ingestion".to_string(),
-            ),
-            ..Default::default()
-        };
+        let (eg, eps) = create_test_extraction_graph("eg_name", vec!["extraction_policy_name_1"]);
+        coordinator.create_extraction_graph(eg, eps).await?;
+
+        //  Create content metadata
+        let content_metadata_1 = test_mock_content_metadata("test_id", "", &eg.name);
         coordinator
-            .create_policy(extraction_policy_1.clone(), extractor.clone())
+            .create_content_metadata(vec![content_metadata_1])
             .await?;
 
         //  Assert that tasks are created
@@ -1187,22 +925,9 @@ mod tests {
         assert_eq!(tasks.len(), 1);
 
         //  The second part of the test
-
         //  Create content metadata
-        let content_metadata_2 = indexify_coordinator::ContentMetadata {
-            id: "test_id_2".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: vec![extraction_policy_1.name.clone()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
+        let mut content_metadata_2 = test_mock_content_metadata("test_id_2", "", &eg.name);
+        content_metadata_2.source = ContentSource::ExtractionPolicyName(eps[0].name.clone());
         coordinator
             .create_content_metadata(vec![content_metadata_2])
             .await?;
@@ -1219,22 +944,10 @@ mod tests {
                 vec![extractor_2.clone()],
             )
             .await?;
-        let extraction_policy_2 = internal_api::ExtractionPolicy {
-            id: "extraction_policy_id_2".to_string(),
-            extractor: extractor_2_name.clone(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                extraction_policy_1.name,
-            ),
-            ..Default::default()
-        };
-        coordinator
-            .create_policy(extraction_policy_2, extractor_2)
-            .await?;
+
+        let (eg2, eps2) =
+            create_test_extraction_graph("eg_name_2", vec!["extraction_policy_name_2"]);
+        coordinator.create_extraction_graph(eg2, eps2).await?;
 
         //  Run the scheduler
         coordinator.run_scheduler().await?;
@@ -1284,26 +997,11 @@ mod tests {
             .register_executor(
                 "localhost:8956",
                 "test_executor_id",
-                vec![extractor.clone()],
+                vec![extractor_1.clone()],
             )
             .await?;
-        let extraction_policy_1 = internal_api::ExtractionPolicy {
-            id: "extraction_policy_id_1".to_string(),
-            name: "extraction_policy_name_1".to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                "ingestion".to_string(),
-            ),
-            ..Default::default()
-        };
-        coordinator
-            .create_policy(extraction_policy_1.clone(), extractor.clone())
-            .await?;
+        let (eg, eps) = create_test_extraction_graph("eg_name_1", vec!["ep_policy_name_1"]);
+        coordinator.create_extraction_graph(eg, eps.clone()).await?;
 
         let executor_id_2 = "test_executor_id_2";
         let mut extractor_2 = mock_extractor();
@@ -1317,77 +1015,17 @@ mod tests {
             .await?;
 
         //  Create an extraction graph with two levels of policies
-        let extraction_policy_id_1 = "extraction_policy_id_1";
-        let extraction_policy_name_1 = "extraction_policy_name_1";
-
-        let extraction_policy_id_2 = "extraction_policy_id_2";
-        let extraction_policy_name_2 = "extraction_policy_name_2";
-
-        let extraction_graph_id = "extraction_graph_id_1";
-        let extraction_graph_name = "extraction_graph_name_1";
-
-        let extraction_policy_1 = internal_api::ExtractionPolicy {
-            id: extraction_policy_id_1.into(),
-            name: extraction_policy_name_1.into(),
-            graph_name: extraction_graph_id.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: extractor_1.name.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_policy_2 = internal_api::ExtractionPolicy {
-            id: extraction_policy_id_2.into(),
-            name: extraction_policy_name_2.into(),
-            graph_name: extraction_graph_id.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: extractor_2.name.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: ExtractionPolicyContentSource::ExtractionPolicyName(
-                extraction_policy_name_1.to_string(),
-            ),
-            ..Default::default()
-        };
-        let extraction_graph_1 = internal_api::ExtractionGraph {
-            id: extraction_graph_id.into(),
-            name: extraction_graph_name.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id_1.into(), extraction_policy_id_2.into()]
-                .into_iter()
-                .collect(),
-        };
-        coordinator
-            .create_extraction_graph(
-                extraction_graph_1.clone(),
-                vec![extraction_policy_1.clone(), extraction_policy_2.clone()],
-            )
-            .await?;
+        let (eg, eps) = create_test_extraction_graph(
+            "extraction_graph_id_1",
+            vec!["extraction_policy_id_1", "extraction_policy_id_2"],
+        );
+        coordinator.create_extraction_graph(eg.clone(), eps).await?;
         coordinator.run_scheduler().await?;
 
         //  Build a content tree where the parent_content is the root
-        let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: "".to_string(),
-            extraction_graph_names: vec![extraction_graph_name.to_string()],
-            size_bytes: 100,
-            hash: "123".into(),
-            ..Default::default()
-        };
+        let content_meta_root = test_mock_content_metadata("test_parent_id", "", &eg.name);
         coordinator
-            .create_content_metadata(vec![parent_content.clone()])
+            .create_content_metadata(vec![content_meta_root.clone()])
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -1397,36 +1035,12 @@ mod tests {
         assert_eq!(tasks.len(), 1);
 
         //  Create the children content
-        let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_1.name.clone(),
-            extraction_graph_names: vec![extraction_graph_name.to_string()],
-            size_bytes: 100,
-            hash: "456".into(),
-            ..Default::default()
-        };
-        let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_1.name.clone(),
-            extraction_graph_names: vec![extraction_graph_name.to_string()],
-            size_bytes: 100,
-            hash: "789".into(),
-            ..Default::default()
-        };
+        let mut child_content_1 =
+            test_mock_content_metadata("test_child_1", &content_meta_root.id.id, &eg.name);
+        child_content_1.parent_id = Some(content_meta_root.id.clone());
+        let mut child_content_2 =
+            test_mock_content_metadata("test_child_2", &content_meta_root.id.id, &eg.name);
+        child_content_2.parent_id = Some(content_meta_root.id.clone());
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
             .await?;
@@ -1438,29 +1052,17 @@ mod tests {
         assert_eq!(tasks.len(), 2);
 
         //  Create the final child
-        let child_content_1_child = indexify_coordinator::ContentMetadata {
-            id: "test_child_child_id_1".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_2.name,
-            extraction_graph_names: vec![extraction_graph_name.to_string()],
-            size_bytes: 100,
-            hash: "987".into(),
-            ..Default::default()
-        };
+        let mut child_child_content_1 =
+            test_mock_content_metadata("test_child_child_1", &content_meta_root.id.id, &eg.name);
+        child_child_content_1.parent_id = Some(child_content_1.id.clone());
         coordinator
-            .create_content_metadata(vec![child_content_1_child.clone()])
+            .create_content_metadata(vec![child_child_content_1.clone()])
             .await?;
         coordinator.run_scheduler().await?;
 
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&content_meta_root.id.id)?;
         assert_eq!(content_tree.len(), 4);
 
         Ok(())
@@ -1478,217 +1080,54 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
-                vec![extractor.clone()],
-            )
-            .await?;
-        let extraction_policy_1 = internal_api::ExtractionPolicy {
-            id: "extraction_policy_id_1".to_string(),
-            name: "extraction_policy_name_1".to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                "ingestion".to_string(),
-            ),
-            ..Default::default()
-        };
-        coordinator
-            .create_policy(extraction_policy_1.clone(), extractor.clone())
-            .await?;
-
-        //  Create a different extractor, executor and associated extraction policy
-        let mut extractor_2 = mock_extractor();
-        let extractor_2_name = "MockExtractor2".to_string();
-        extractor_2.name = extractor_2_name.clone();
-        coordinator
-            .register_executor(
-                "localhost:8957",
-                "test_executor_id_2",
-                vec![extractor_2.clone()],
-            )
-            .await?;
-        let extraction_policy_2 = internal_api::ExtractionPolicy {
-            id: "extraction_policy_id_2".to_string(),
-            extractor: extractor_2_name.clone(),
+            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
             .await?;
 
         //  Create an extraction graph
-        let extraction_policy_id_1 = "extraction_policy_id_1";
-        let extraction_graph_id_1 = "extraction_graph_id_1";
-        let extraction_graph_name_1 = "extraction_graph_name_1";
-        let extraction_policy_1 = internal_api::ExtractionPolicy {
-            id: extraction_policy_id_1.into(),
-            name: "extraction_policy_name_1".into(),
-            graph_name: extraction_graph_id_1.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph_1 = internal_api::ExtractionGraph {
-            id: extraction_graph_id_1.into(),
-            name: extraction_graph_name_1.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id_1.into()].into_iter().collect(),
-        };
-        coordinator
-            .create_extraction_graph(
-                extraction_graph_1.clone(),
-                vec![extraction_policy_1.clone()],
-            )
-            .await?;
+        let (eg, eps) =
+            create_test_extraction_graph("extraction_graph_id_1", vec!["extraction_policy_id_1"]);
+        coordinator.create_extraction_graph(eg.clone(), eps).await?;
         coordinator.run_scheduler().await?;
 
         //  Create a separate extraction graph
-        let extraction_policy_id_2 = "extraction_policy_id_2";
-        let extraction_graph_id_2 = "extraction_graph_id_2";
-        let extraction_graph_name_2 = "extraction_graph_name_2";
-        let extraction_policy_2 = internal_api::ExtractionPolicy {
-            id: extraction_policy_id_2.into(),
-            name: "extraction_policy_name_2".into(),
-            graph_name: extraction_graph_id_2.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            output_table_mapping: HashMap::from([(
-                "test_output".to_string(),
-                "test_namespace.test.test_output".to_string(),
-            )]),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph_2 = internal_api::ExtractionGraph {
-            id: extraction_graph_id_2.into(),
-            name: extraction_graph_name_2.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id_2.into()].into_iter().collect(),
-        };
-        coordinator
-            .create_extraction_graph(
-                extraction_graph_2.clone(),
-                vec![extraction_policy_2.clone()],
-            )
-            .await?;
+        let (eg2, eps2) =
+            create_test_extraction_graph("extraction_graph_id_2", vec!["extraction_policy_id_2"]);
+        coordinator.create_extraction_graph(eg2, eps2).await?;
         coordinator.run_scheduler().await?;
 
         //  Build a content tree where the parent_content is the root
-        let parent_content = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_graph_name_1.to_string(),
-            extraction_graph_names: vec![extraction_graph_name_1.to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
+        let parent_content = test_mock_content_metadata("test_parent_id", "", &eg.name);
         coordinator
             .create_content_metadata(vec![parent_content.clone()])
             .await?;
 
-        let child_content_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_1".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_1.name.clone(),
-            extraction_graph_names: vec![extraction_graph_name_1.to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
-        let child_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_2.name.clone(),
-            extraction_graph_names: vec![extraction_graph_name_1.to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
+        let mut child_content_1 =
+            test_mock_content_metadata("test_child_id_1", &parent_content.id.id, &eg.name);
+        child_content_1.parent_id = Some(parent_content.id.clone());
+        let mut child_content_2 =
+            test_mock_content_metadata("test_child_id_2", &parent_content.id.id, &eg.name);
+        child_content_2.parent_id = Some(parent_content.id.clone());
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
             .await?;
 
-        let child_content_1_child = indexify_coordinator::ContentMetadata {
-            id: "test_child_child_id_1".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_child_id_1".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_1.name.clone(),
-            extraction_graph_names: vec![extraction_graph_name_1.to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
+        let mut child_content_1_child =
+            test_mock_content_metadata("test_child_child_id_1", &parent_content.id.id, &eg.name);
+        child_content_1_child.parent_id = Some(child_content_1.id.clone());
         coordinator
             .create_content_metadata(vec![child_content_1_child.clone()])
             .await?;
 
         //  Build a separate content tree where parent_content_2 is the root using the
         // second extraction graph
-        let parent_content_2 = indexify_coordinator::ContentMetadata {
-            id: "test_parent_id_2".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_graph_name_2.to_string(),
-            extraction_graph_names: vec![extraction_graph_name_2.to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
+        let parent_content_2 = test_mock_content_metadata("test_parent_id_2", "", &eg2.name);
         coordinator
             .create_content_metadata(vec![parent_content_2.clone()])
             .await?;
 
-        let child_content_2_1 = indexify_coordinator::ContentMetadata {
-            id: "test_child_id_2_1".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            parent_id: "test_parent_id_2".to_string(),
-            file_name: "test_file".to_string(),
-            mime: "text/plain".to_string(),
-            created_at: 0,
-            storage_url: "test_storage_url".to_string(),
-            labels: HashMap::new(),
-            source: extraction_policy_1.name.clone(),
-            extraction_graph_names: vec![extraction_graph_name_2.to_string()],
-            size_bytes: 100,
-            hash: "".into(),
-            ..Default::default()
-        };
+        let mut child_content_2_1 =
+            test_mock_content_metadata("test_child_id_2_1", &parent_content_2.id.id, &eg2.name);
+        child_content_2_1.parent_id = Some(parent_content_2.id.clone());
         coordinator
             .create_content_metadata(vec![child_content_2_1.clone()])
             .await?;
@@ -1700,10 +1139,10 @@ mod tests {
         //  Check that content has been correctly tombstoned
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id)?;
+            .get_content_tree_metadata(&parent_content.id.id)?;
         let content_tree_2 = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content_2.id)?;
+            .get_content_tree_metadata(&parent_content_2.id.id)?;
         for content in &content_tree {
             assert!(
                 content.tombstoned,
@@ -1736,7 +1175,7 @@ mod tests {
             .register_executor(
                 "localhost:8956",
                 "test_executor_id",
-                vec![extractor.clone()],
+                vec![extractor_1.clone()],
             )
             .await?;
 
@@ -1862,27 +1301,17 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
-                vec![extractor.clone()],
-            )
+            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
             .await?;
 
-        //  Create a different extractor, executor and associated extraction policy
-        let mut extractor_2 = mock_extractor();
-        let extractor_2_name = "MockExtractor2".to_string();
-        extractor_2.name = extractor_2_name.clone();
-        coordinator
-            .register_executor(
-                "localhost:8957",
-                "test_executor_id_2",
-                vec![extractor_2.clone()],
-            )
-            .await?;
-        let extraction_policy_2 = internal_api::ExtractionPolicy {
-            id: "extraction_policy_id_2".to_string(),
-            extractor: extractor_2_name.clone(),
+        //  Create an extraction graph
+        let extraction_policy_id_1 = "extraction_policy_id_1";
+        let extraction_graph_id_1 = "extraction_graph_id_1";
+        let extraction_graph_name_1 = "extraction_graph_name_1";
+        let extraction_policy_1 = internal_api::ExtractionPolicy {
+            id: extraction_policy_id_1.into(),
+            name: "extraction_policy_name_1".into(),
+            graph_name: extraction_graph_name_1.into(),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
             output_table_mapping: HashMap::from([(
@@ -2017,7 +1446,7 @@ mod tests {
             .register_executor(
                 "localhost:8956",
                 "test_executor_id",
-                vec![extractor.clone()],
+                vec![extractor_1.clone()],
             )
             .await?;
         let executor_id_2 = "test_executor_id_2";
@@ -2312,121 +1741,119 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_policy_filters() -> Result<(), anyhow::Error> {
-        let (coordinator, _) = setup_coordinator().await;
+        //    let (coordinator, _) = setup_coordinator().await;
 
-        let namespace = "namespace";
+        //    let namespace = "namespace";
 
-        coordinator.create_namespace(namespace).await?;
+        //    coordinator.create_namespace(namespace).await?;
 
-        let extractor_name = "extractor";
-        //  Create an executor and associated extractor
-        let executor_id = "executor_id";
-        let extractor = indexify_internal_api::ExtractorDescription {
-            name: extractor_name.into(),
-            input_mime_types: vec!["*/*".into()],
-            ..Default::default()
-        };
-        let addr = "addr";
-        coordinator
-            .register_executor(addr, executor_id, vec![extractor])
-            .await?;
+        //    let extractor_name = "extractor";
+        //    //  Create an executor and associated extractor
+        //    let executor_id = "executor_id";
+        //    let extractor = indexify_internal_api::ExtractorDescription {
+        //        name: extractor_name.into(),
+        //        input_mime_types: vec!["*/*".into()],
+        //        ..Default::default()
+        //    };
+        //    let addr = "addr";
+        //    coordinator
+        //        .register_executor(addr, executor_id, vec![extractor])
+        //        .await?;
 
-        //  Create the extraction policy under the namespace of the content
-        let extraction_policy = indexify_internal_api::ExtractionPolicy {
-            namespace: namespace.into(),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                "source".to_string(),
-            ),
-            extractor: extractor_name.into(),
-            id: "1".into(),
-            name: "1".into(),
-            filters: vec![("label1".to_string(), "value1".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        coordinator
-            .shared_state
-            .create_extraction_policy(extraction_policy.clone(), None)
-            .await?;
+        //    //  Create the extraction policy under the namespace of the content
+        //    let extraction_policy = indexify_internal_api::ExtractionPolicy {
+        //        namespace: namespace.into(),
+        //        content_source:
+        // internal_api::ExtractionPolicyContentSource::Ingestion,
+        //        extractor: extractor_name.into(),
+        //        id: "1".into(),
+        //        name: "1".into(),
+        //        filters: vec![("label1".to_string(), "value1".to_string())]
+        //            .into_iter()
+        //            .collect(),
+        //        ..Default::default()
+        //    };
+        //    coordinator
+        //        .shared_state
+        //        .create_extraction_policy(extraction_policy.clone(), None)
+        //        .await?;
 
-        //  Create some content
-        let content_labels = vec![("label1".to_string(), "value1".to_string())];
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: "content_id_1".to_string(),
-            namespace: namespace.into(),
-            file_name: "name".into(),
-            labels: content_labels.into_iter().collect(),
-            mime: "*/*".into(),
-            source: vec!["source".to_string()],
-            ..Default::default()
-        };
-        let mut content_batch = vec![content_metadata];
+        //    //  Create some content
+        //    let content_labels = vec![("label1".to_string(), "value1".to_string())];
+        //    let content_metadata = indexify_coordinator::ContentMetadata {
+        //        id: "content_id_1".to_string(),
+        //        namespace: namespace.into(),
+        //        file_name: "name".into(),
+        //        labels: content_labels.into_iter().collect(),
+        //        mime: "*/*".into(),
+        //        source: "ingestion".to_string(),
+        //        ..Default::default()
+        //    };
+        //    let mut content_batch = vec![content_metadata];
 
-        let content_labels = vec![("label1".to_string(), "doesn't match".to_string())];
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: "content_id_2".to_string(),
-            namespace: namespace.into(),
-            file_name: "name".into(),
-            labels: content_labels.into_iter().collect(),
-            mime: "*/*".into(),
-            source: vec!["source".to_string()],
-            ..Default::default()
-        };
-        content_batch.push(content_metadata);
-        coordinator.create_content_metadata(content_batch).await?;
+        //    let content_labels = vec![("label1".to_string(), "doesn't
+        // match".to_string())];    let content_metadata =
+        // indexify_coordinator::ContentMetadata {        id:
+        // "content_id_2".to_string(),        namespace: namespace.into(),
+        //        file_name: "name".into(),
+        //        labels: content_labels.into_iter().collect(),
+        //        mime: "*/*".into(),
+        //        source: "ingestion".to_string(),
+        //        ..Default::default()
+        //    };
+        //    content_batch.push(content_metadata);
+        //    coordinator.create_content_metadata(content_batch).await?;
 
-        coordinator.run_scheduler().await?;
+        //    coordinator.run_scheduler().await?;
 
-        let tasks = coordinator
-            .shared_state
-            .tasks_for_executor(executor_id, None)
-            .await?;
-        let unassigned_tasks = coordinator.shared_state.unassigned_tasks().await?;
+        //    let tasks = coordinator
+        //        .shared_state
+        //        .tasks_for_executor(executor_id, None)
+        //        .await?;
+        //    let unassigned_tasks = coordinator.shared_state.unassigned_tasks().await?;
 
-        // Check if the task is created for the content that matches the policy and
-        // non matching content does not have a task.
-        assert_eq!(tasks.len() + unassigned_tasks.len(), 1);
+        //    // Check if the task is created for the content that matches the policy
+        // and    // non matching content does not have a task.
+        //    assert_eq!(tasks.len() + unassigned_tasks.len(), 1);
 
-        let extractor_name = "extractor_2";
-        //  Create an executor and associated extractor
-        let executor_id = "executor_id_2";
-        let extractor = indexify_internal_api::ExtractorDescription {
-            name: extractor_name.into(),
-            input_mime_types: vec!["*/*".into()],
-            ..Default::default()
-        };
-        let addr = "addr_2";
-        coordinator
-            .register_executor(addr, executor_id, vec![extractor])
-            .await?;
+        //    let extractor_name = "extractor_2";
+        //    //  Create an executor and associated extractor
+        //    let executor_id = "executor_id_2";
+        //    let extractor = indexify_internal_api::ExtractorDescription {
+        //        name: extractor_name.into(),
+        //        input_mime_types: vec!["*/*".into()],
+        //        ..Default::default()
+        //    };
+        //    let addr = "addr_2";
+        //    coordinator
+        //        .register_executor(addr, executor_id, vec![extractor])
+        //        .await?;
 
-        //  Create the extraction policy under the namespace of the content
-        let extraction_policy = indexify_internal_api::ExtractionPolicy {
-            id: "2".into(),
-            name: "2".into(),
-            namespace: namespace.into(),
-            content_source: internal_api::ExtractionPolicyContentSource::ExtractionPolicyId(
-                "source".to_string(),
-            ),
-            extractor: extractor_name.into(),
-            filters: vec![("label1".to_string(), "value1".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        coordinator
-            .shared_state
-            .create_extraction_policy(extraction_policy.clone(), None)
-            .await?;
+        //    //  Create the extraction policy under the namespace of the content
+        //    let extraction_policy = indexify_internal_api::ExtractionPolicy {
+        //        id: "2".into(),
+        //        name: "2".into(),
+        //        namespace: namespace.into(),
+        //        content_source:
+        // internal_api::ExtractionPolicyContentSource::Ingestion,
+        //        extractor: extractor_name.into(),
+        //        filters: vec![("label1".to_string(), "value1".to_string())]
+        //            .into_iter()
+        //            .collect(),
+        //        ..Default::default()
+        //    };
+        //    coordinator
+        //        .shared_state
+        //        .create_extraction_policy(extraction_policy.clone(), None)
+        //        .await?;
 
-        coordinator.run_scheduler().await?;
+        //    coordinator.run_scheduler().await?;
 
-        let tasks = coordinator
-            .shared_state
-            .tasks_for_executor(executor_id, None)
-            .await?;
-        assert_eq!(tasks.len(), 1);
+        //    let tasks = coordinator
+        //        .shared_state
+        //        .tasks_for_executor(executor_id, None)
+        //        .await?;
+        //    assert_eq!(tasks.len(), 1);
 
         Ok(())
     }

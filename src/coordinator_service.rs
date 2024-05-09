@@ -24,10 +24,6 @@ use indexify_proto::indexify_coordinator::{
     CreateExtractionGraphResponse,
     CreateGcTasksRequest,
     CreateGcTasksResponse,
-    CreateIndexRequest,
-    CreateIndexResponse,
-    ExtractionPolicyRequest,
-    ExtractionPolicyResponse,
     GcTask,
     GcTaskAcknowledgement,
     GetAllSchemaRequest,
@@ -35,6 +31,8 @@ use indexify_proto::indexify_coordinator::{
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
     GetContentTreeMetadataRequest,
+    GetExtractionPolicyRequest,
+    GetExtractionPolicyResponse,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
@@ -65,28 +63,24 @@ use indexify_proto::indexify_coordinator::{
     RegisterIngestionServerResponse,
     RemoveIngestionServerRequest,
     RemoveIngestionServerResponse,
-    SetIndexesVisibleRequest,
-    SetIndexesVisibleResponse,
     TaskAssignments,
     TombstoneContentRequest,
     TombstoneContentResponse,
     Uint64List,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
-};
-use internal_api::StateChange;
-use opentelemetry::{
-    global,
-    metrics::{Histogram, UpDownCounter},
-    propagation::Extractor,
-    KeyValue,
     UpdateIndexesStateRequest,
     UpdateIndexesStateResponse,
     UpdateTaskRequest,
     UpdateTaskResponse,
 };
+use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
+use itertools::Itertools;
+use opentelemetry::{
+    global,
+    metrics::{Histogram, UpDownCounter},
+    propagation::Extractor,
+    KeyValue,
+};
 use prometheus::Encoder;
-use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder};
 use tokio::{
     select,
     signal,
@@ -196,6 +190,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .into_inner()
             .content
             .ok_or(tonic::Status::aborted("content is missing"))?;
+        let content_meta: indexify_internal_api::ContentMetadata = content_meta.into();
         let id = content_meta.id.clone();
         let content_list = vec![content_meta];
         let _ = self
@@ -203,7 +198,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .create_content_metadata(content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateContentResponse { id }))
+        Ok(tonic::Response::new(CreateContentResponse { id: id.id }))
     }
 
     async fn tombstone_content(
@@ -228,7 +223,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .coordinator
             .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
             .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .into_iter()
+            .map(|c| c.into())
+            .collect_vec();
         Ok(tonic::Response::new(ListContentResponse { content_list }))
     }
 
