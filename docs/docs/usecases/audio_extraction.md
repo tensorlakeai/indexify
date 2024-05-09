@@ -1,6 +1,6 @@
-# 🎧 Audio Extraction: Unlock the Power of Spoken Words!
+# 🎧 Audio Extraction: Real Time Speech Recognition Pipelines 
 
-Welcome to the world of audio extraction with Indexify! 🎉 We're here to revolutionize the way you interact with your audio files, making it easier than ever to extract valuable insights and perform powerful question answering. Get ready to dive into a realm of endless possibilities! 💡
+You can build real time pipelines with Indexify that incorporates speech, build applications that retreive information from the audio. We describe the possible tasks and provide some examples -
 
 ## 🌟 What Can You Achieve with Indexify?
 
