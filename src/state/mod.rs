@@ -384,7 +384,6 @@ impl App {
         if content_metadata.tombstoned {
             return Ok(vec![]);
         }
-        println!("content_metadata: {:?}", content_metadata);
         if content_metadata.extraction_graph_names.is_empty() {
             return Ok(Vec::new());
         }
@@ -392,14 +391,12 @@ impl App {
             &content_metadata.namespace,
             &content_metadata.extraction_graph_names,
         )?;
-        println!("extraction_graphs: {:?}", extraction_graphs);
         let mut all_extraction_policies: Vec<ExtractionPolicy> = Vec::new();
         for extraction_graph in extraction_graphs {
             if let Some(eg) = extraction_graph {
                 all_extraction_policies.extend(eg.extraction_policies);
             }
         }
-        println!("all_extraction_policies: {:?}", all_extraction_policies);
         let mut matched_policies = Vec::new();
         for extraction_policy in all_extraction_policies {
             if content_metadata.source.to_string() != extraction_policy.content_source.to_string() {

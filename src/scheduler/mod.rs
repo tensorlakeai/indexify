@@ -31,8 +31,6 @@ impl Scheduler {
         // Create new tasks
         let tasks = self.create_new_tasks(state_change.clone()).await?;
 
-        println!("diptanu tasks: {:?}", tasks);
-
         // Commit them
         if !tasks.is_empty() {
             self.shared_state
@@ -43,7 +41,6 @@ impl Scheduler {
 
         // Allocate tasks and commit task assignments
         let allocation_plan = self.allocate_tasks(tasks).await?;
-        println!("diptanu allocation_plan: {:?}", allocation_plan.0);
         if !allocation_plan.0.is_empty() {
             self.shared_state
                 .commit_task_assignments(allocation_plan.0, &state_change.id)
@@ -53,10 +50,6 @@ impl Scheduler {
 
         // Redistribute tasks and commit task assignments
         let allocation_plan = self.redistribute_tasks(&state_change).await?;
-        println!(
-            "diptanu allocation_plan redistribute: {:?}",
-            allocation_plan.0
-        );
         if !allocation_plan.0.is_empty() {
             self.shared_state
                 .commit_task_assignments(allocation_plan.0, &state_change.id)

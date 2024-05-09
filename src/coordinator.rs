@@ -986,9 +986,6 @@ mod tests {
         let tasks = shared_state
             .tasks_for_executor(&executor_id_2, None)
             .await?;
-        for task in &tasks {
-            println!("task content id {:?}", task.content_metadata.id);
-        }
         assert_eq!(tasks.len(), 4);
 
         ////  Create the final child
