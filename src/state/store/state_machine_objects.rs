@@ -2087,7 +2087,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
         let eg_ids: Vec<String> = graph_names
-            .into_iter()
+            .iter()
             .map(|name| ExtractionGraph::create_id(name, namespace))
             .collect();
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);

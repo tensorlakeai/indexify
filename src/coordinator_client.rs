@@ -100,8 +100,8 @@ impl CoordinatorClient {
                 let ca_cert_contents = std::fs::read(ca_cert)?;
 
                 let tls_config = ClientTlsConfig::new()
-                    .ca_certificate(tonic::transport::Certificate::from_pem(&ca_cert_contents))
-                    .identity(tonic::transport::Identity::from_pem(&cert, &key))
+                    .ca_certificate(tonic::transport::Certificate::from_pem(ca_cert_contents))
+                    .identity(tonic::transport::Identity::from_pem(cert, key))
                     .domain_name("localhost");
                 Channel::from_shared(format!("https://{}", &self.addr))?.tls_config(tls_config)?
             } else {

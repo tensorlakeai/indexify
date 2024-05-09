@@ -123,7 +123,7 @@ impl Coordinator {
             .list_content(namespace)
             .await?
             .into_iter()
-            .filter_map(|c| c)
+            .flatten()
             .collect_vec();
         let filtered_list = list_content_filter(content, source, parent_id, labels_eq);
         Ok(filtered_list)
@@ -613,7 +613,7 @@ impl Coordinator {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{HashSet},
         fs,
         sync::Arc,
         time::Duration,
@@ -621,12 +621,9 @@ mod tests {
     };
 
     use indexify_internal_api as internal_api;
-    use indexify_proto::indexify_coordinator::{self};
+    
     use internal_api::{
         ContentSource,
-        ExtractionGraph,
-        ExtractionPolicyContentSource,
-        StructuredDataSchema,
     };
 
     use super::Coordinator;
@@ -860,7 +857,7 @@ mod tests {
         let mut extractor = mock_extractor();
         extractor.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor("localhost:8957", &executor_id_2, vec![extractor.clone()])
+            .register_executor("localhost:8957", executor_id_2, vec![extractor.clone()])
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -884,7 +881,7 @@ mod tests {
         let tasks = shared_state.tasks_for_executor(executor_id_1, None).await?;
         assert_eq!(tasks.len(), 1);
         let tasks = shared_state
-            .tasks_for_executor(&executor_id_2, None)
+            .tasks_for_executor(executor_id_2, None)
             .await?;
         assert_eq!(tasks.len(), 1);
         Ok(())
@@ -1169,7 +1166,7 @@ mod tests {
         coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
 
         //  Create an extractor
-        let executor_id_1 = "test_executor_id_1";
+        let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
             .register_executor(
@@ -1449,7 +1446,7 @@ mod tests {
                 vec![extractor_1.clone()],
             )
             .await?;
-        let executor_id_2 = "test_executor_id_2";
+        let _executor_id_2 = "test_executor_id_2";
         let mut extractor_2 = mock_extractor();
         extractor_2.name = "MockExtractor2".to_string();
         coordinator

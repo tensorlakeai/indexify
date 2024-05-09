@@ -259,10 +259,7 @@ impl VectorDb for LanceDb {
 
         let content_metadata_array = StringArray::from_iter_values(content_metadatas.iter());
         let root_content_metadata_array = StringArray::from(
-            root_content_metadatas
-                .iter()
-                .map(|x| x.clone())
-                .collect::<Vec<_>>(),
+            root_content_metadatas.to_vec(),
         );
 
         let schema = update_schema_with_missing_fields(&tbl, metadata).await?;
@@ -522,7 +519,7 @@ mod tests {
             })
             .await
             .unwrap();
-        store_metadata(lance, &index_name).await;
+        store_metadata(lance, index_name).await;
     }
 
     #[tokio::test]

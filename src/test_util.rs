@@ -44,7 +44,7 @@ pub mod db_utils {
         };
         let mut extraction_policies = Vec::new();
         for policy_name in extraction_policy_names {
-            let id = ExtractionPolicy::create_id(&eg.name, &policy_name, DEFAULT_TEST_NAMESPACE);
+            let id = ExtractionPolicy::create_id(&eg.name, policy_name, DEFAULT_TEST_NAMESPACE);
             let ep = ExtractionPolicy {
                 id,
                 graph_name: eg.name.clone(),

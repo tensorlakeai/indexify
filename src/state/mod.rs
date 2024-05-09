@@ -17,8 +17,6 @@ use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
-    ExtractionGraphId,
-    ExtractionGraphName,
     ExtractionPolicy,
     StateChange,
     StructuredDataSchema,
@@ -406,7 +404,7 @@ impl App {
                         &eg.extraction_policies,
                     )?
                     .into_iter()
-                    .filter_map(|ep| ep)
+                    .flatten()
                     .collect();
                 all_extraction_policies.extend(extraction_policies);
             }
@@ -1783,7 +1781,7 @@ mod tests {
             },
         ];
         let structured_schema = StructuredDataSchema::new(&eg.name, &eg.namespace);
-        let eg = node
+        node
             .create_extraction_graph(eg, extraction_policies, structured_schema, vec![])
             .await?;
 
@@ -1816,7 +1814,7 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
-        let namespace = "namespace";
+        let _namespace = "namespace";
 
         //  Create an executor and associated extractor
         let executor_id = "executor_id";
@@ -1829,7 +1827,7 @@ mod tests {
         let (eg, mut eps) =
             create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
         eps[0].filters = HashMap::from([("label1".to_string(), "value1".to_string())]);
-        let structured_data_schema = indexify_internal_api::StructuredDataSchema::default();
+        let _structured_data_schema = indexify_internal_api::StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),
             eps,
