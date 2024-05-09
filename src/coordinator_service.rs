@@ -258,12 +258,11 @@ impl CoordinatorService for CoordinatorServiceServer {
             .create_extraction_graph(graph.clone(), creation_result.extraction_policies.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies: HashMap<_, _> = self
-            .coordinator
-            .internal_extraction_policy_to_external(creation_result.extraction_policies.clone())
-            .map_err(|e| tonic::Status::aborted(format!("unable to convert policies: {}", e)))?
+        let policies = creation_result
+            .extraction_policies
+            .clone()
             .into_iter()
-            .map(|policy| (policy.id.clone(), policy.clone()))
+            .map(|p| (p.name.clone(), p.clone().into()))
             .collect();
         let extractors: HashMap<_, _> = creation_result
             .extractors
@@ -297,15 +296,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .coordinator
             .get_extraction_policy(request.extraction_policy_id)
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policy = self
-            .coordinator
-            .internal_extraction_policy_to_external(vec![extraction_policy])
-            .map_err(|e| tonic::Status::aborted(format!("unable to convert policies: {}", e)))?;
-        let policy = policy.first().ok_or_else(|| {
-            tonic::Status::not_found("extraction policy not converted from internal to external")
-        })?;
         Ok(tonic::Response::new(GetExtractionPolicyResponse {
-            policy: Some(policy.clone()),
+            policy: Some(extraction_policy.into()),
         }))
     }
 
@@ -319,11 +311,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_policies(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies = self
-            .coordinator
-            .internal_extraction_policy_to_external(extraction_policies)
-            .map_err(|e| tonic::Status::aborted(format!("unable to convert policies: {}", e)))?;
-
+        let policies = extraction_policies.into_iter().map(|p| p.into()).collect();
         Ok(tonic::Response::new(ListExtractionPoliciesResponse {
             policies,
         }))
@@ -355,10 +343,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let namespaces = self
-            .coordinator
-            .internal_namespace_to_external(namespaces)
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let namespaces = namespaces.into_iter().map(|n| n.into()).collect();
         Ok(tonic::Response::new(
             indexify_coordinator::ListNamespaceResponse { namespaces },
         ))
@@ -375,17 +360,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?
             .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
-        let namespace = self
-            .coordinator
-            .internal_namespace_to_external(vec![namespace])
-            .map_err(|e| tonic::Status::aborted(format!("unable to convert namespace: {}", e)))?;
-        let namespace = namespace
-            .first()
-            .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
 
         Ok(tonic::Response::new(
             indexify_coordinator::GetNamespaceResponse {
-                namespace: Some(namespace.clone()),
+                namespace: Some(namespace.into()),
             },
         ))
     }

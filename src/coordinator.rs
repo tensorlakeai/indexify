@@ -78,39 +78,6 @@ impl Coordinator {
         content_list.into_iter().map(|v| v.into()).collect()
     }
 
-    pub fn internal_extraction_policy_to_external(
-        &self,
-        policy_list: Vec<internal_api::ExtractionPolicy>,
-    ) -> Result<Vec<indexify_coordinator::ExtractionPolicy>> {
-        let policies_to_return: Result<Vec<_>> = policy_list
-            .into_iter()
-            .map(|policy| {
-                Ok(internal_api::ExtractionPolicy::to_coordinator_policy(
-                    policy,
-                ))
-            })
-            .collect();
-        policies_to_return
-    }
-
-    pub fn internal_namespace_to_external(
-        &self,
-        namespaces: Vec<internal_api::Namespace>,
-    ) -> Result<Vec<indexify_coordinator::Namespace>> {
-        let mut namespaces_to_return: Vec<indexify_coordinator::Namespace> = Vec::new();
-        for namespace in namespaces {
-            let extraction_policies =
-                self.internal_extraction_policy_to_external(namespace.extraction_policies.clone())?;
-            namespaces_to_return.push(indexify_internal_api::Namespace::to_coordinator_namespace(
-                namespace,
-                extraction_policies,
-            ));
-        }
-        Ok(namespaces_to_return)
-    }
-
-    //  END CONVERSION METHODS
-
     pub async fn list_content(
         &self,
         namespace: &str,
@@ -612,13 +579,7 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        fs,
-        sync::Arc,
-        time::Duration,
-        vec,
-    };
+    use std::{collections::HashMap, fs, sync::Arc, time::Duration, vec};
 
     use indexify_internal_api as internal_api;
     use internal_api::ContentSource;
@@ -1134,7 +1095,10 @@ mod tests {
             .await?;
 
         coordinator
-            .tombstone_content_metadatas(&[parent_content.id.id.clone(), parent_content_2.id.id.clone()])
+            .tombstone_content_metadatas(&[
+                parent_content.id.id.clone(),
+                parent_content_2.id.id.clone(),
+            ])
             .await?;
 
         //  Check that content has been correctly tombstoned

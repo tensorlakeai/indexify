@@ -38,7 +38,7 @@ impl ExtractionGraph {
 }
 
 impl ExtractionGraphBuilder {
-    pub fn build(&self) -> Result<ExtractionGraph> {
+    pub fn build(&mut self) -> Result<ExtractionGraph> {
         let name = self.name.clone().ok_or(anyhow!("name can't be empty"))?;
         let namespace = self
             .namespace
@@ -627,15 +627,13 @@ pub struct ExtractionPolicy {
     pub content_source: ExtractionPolicyContentSource,
 }
 
-impl ExtractionPolicy {
-    pub fn to_coordinator_policy(
-        value: ExtractionPolicy,
-    ) -> indexify_coordinator::ExtractionPolicy {
+impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
+    fn from(value: ExtractionPolicy) -> Self {
         let mut filters = HashMap::new();
-        for filter in value.filters {
-            filters.insert(filter.0, filter.1.to_string());
+        for (k, v) in value.filters {
+            filters.insert(k, v);
         }
-        indexify_coordinator::ExtractionPolicy {
+        Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
@@ -645,7 +643,9 @@ impl ExtractionPolicy {
             graph_name: value.graph_name,
         }
     }
+}
 
+impl ExtractionPolicy {
     pub fn create_id(graph_name: &str, name: &str, namespace: &str) -> String {
         let mut s = DefaultHasher::new();
         name.hash(&mut s);
@@ -1012,6 +1012,19 @@ pub type NamespaceName = String;
 pub struct Namespace {
     pub name: NamespaceName,
     pub extraction_policies: Vec<ExtractionPolicy>,
+}
+
+impl From<Namespace> for indexify_coordinator::Namespace {
+    fn from(value: Namespace) -> Self {
+        indexify_coordinator::Namespace {
+            name: value.name,
+            policies: value
+                .extraction_policies
+                .into_iter()
+                .map(|p| p.into())
+                .collect(),
+        }
+    }
 }
 
 impl Namespace {

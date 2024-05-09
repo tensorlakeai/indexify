@@ -78,7 +78,6 @@ pub struct NamespaceEndpointState {
             list_indexes,
             index_search,
             list_extractors,
-            create_extraction_policy,
             list_executors,
             list_content,
             get_content_metadata,
@@ -176,10 +175,6 @@ impl Server {
             .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
-            .route(
-                "/namespaces/:namespace/extraction_policies",
-                post(create_extraction_policy).with_state(namespace_endpoint_state.clone()),
-            )
             .route(
                 "/namespaces/:namespace/extraction_graph",
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
@@ -540,34 +535,6 @@ async fn get_namespace(
     Ok(Json(GetNamespaceResponse {
         namespace: data_namespace,
     }))
-}
-
-#[utoipa::path(
-    post,
-    path = "/namespace/{namespace}/extraction_policies",
-    request_body = ExtractionPolicyRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Extractor policy added successfully", body = ExtractionPolicyResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction policy to namespace")
-    ),
-)]
-#[axum::debug_handler]
-async fn create_extraction_policy(
-    // FIXME: this throws a 500 when the binding already exists
-    // FIXME: also throws a 500 when the index name already exists
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<ExtractionPolicyRequest>,
-) -> Result<Json<ExtractionPolicyResponse>, IndexifyAPIError> {
-    let index_names = state
-        .data_manager
-        .create_extraction_policy(&namespace, &payload)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .into_iter()
-        .collect();
-    Ok(Json(ExtractionPolicyResponse { index_names }))
 }
 
 #[utoipa::path(
