@@ -19,6 +19,7 @@ use crate::{api_utils, metadata_storage, vectordbs};
 pub struct ExtractionGraph {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub namespace: String,
     pub extraction_policies: Vec<ExtractionPolicy>,
 }
