@@ -133,8 +133,8 @@ pub struct App {
 
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
-    snapshot_policy: Option<openraft::SnapshotPolicy>,
-    max_in_snapshot_log_to_keep: Option<u64>,
+    pub snapshot_policy: Option<openraft::SnapshotPolicy>,
+    pub max_in_snapshot_log_to_keep: Option<u64>,
 }
 
 impl App {
@@ -150,6 +150,7 @@ impl App {
             election_timeout_min: 1500,
             election_timeout_max: 3000,
             enable_heartbeat: true,
+            install_snapshot_timeout: 2000,
             ..Default::default()
         };
 
@@ -212,13 +213,16 @@ impl App {
             .map_err(|e| anyhow!("unable to create raft address : {}", e.to_string()))?;
 
         info!("starting raft server at {}", addr.to_string());
+        let limit = 10 * 1024 * 1024;
         let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(
             server_config.node_id,
             Arc::new(raft.clone()),
             Arc::clone(&raft_client),
             addr.to_string(),
             server_config.coordinator_addr.clone(),
-        ));
+        ))
+        .max_encoding_message_size(limit)
+        .max_decoding_message_size(limit);
         let (leader_change_tx, leader_change_rx) = watch::channel::<bool>(false);
 
         let metrics = Metrics::new(state_machine.clone());

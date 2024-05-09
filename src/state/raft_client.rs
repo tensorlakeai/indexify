@@ -33,12 +33,15 @@ impl RaftClient {
 
         info!("connecting to raft at {}", addr);
 
+        let limit = 10 * 1024 * 1024;
         let client = RaftApiClient::connect(format!("http://{}", addr))
             .await
             .map_err(|e| {
                 raft_metrics::network::incr_fail_connect_to_peer(addr);
                 anyhow!("unable to connect to raft: {} at addr {}", e, addr)
-            })?;
+            })?
+            .max_encoding_message_size(limit)
+            .max_decoding_message_size(limit);
         clients.insert(addr.to_string(), client.clone());
         Ok(client)
     }
