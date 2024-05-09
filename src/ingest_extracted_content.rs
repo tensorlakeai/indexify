@@ -502,10 +502,10 @@ mod tests {
                 id: extraction_graph_id.to_string(),
                 name: extraction_graph_name.to_string(),
                 namespace: "test".to_string(),
-                extraction_policies: vec![extraction_policy_id.to_string()].into_iter().collect(),
+                extraction_policies: vec![extraction_policy.clone()],
             };
             test_coordinator
-                .create_extraction_graph(extraction_graph, vec![extraction_policy.clone()])
+                .create_extraction_graph(extraction_graph)
                 .await
                 .unwrap();
             let content_metadata = ContentMetadata {
@@ -556,13 +556,11 @@ mod tests {
         pub async fn create_extraction_graph(
             &self,
             extraction_graph: ExtractionGraph,
-            extraction_policies: Vec<ExtractionPolicy>,
         ) -> Result<()> {
             self.coordinator
                 .shared_state
                 .create_extraction_graph(
                     extraction_graph,
-                    extraction_policies,
                     StructuredDataSchema::default(),
                     Vec::new(),
                 )

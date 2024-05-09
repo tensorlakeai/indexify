@@ -314,7 +314,7 @@ message ListExtractionPoliciesResponse {
 
 message CreateNamespaceRequest {
     string name = 1;
-    repeated ExtractionPolicy policies = 2;
+    repeated ExtractionGraph extraction_graphs = 2;
 }
 
 message CreateNamespaceResponse {
@@ -328,6 +328,13 @@ message ListNamespaceRequest {
 
 message ListNamespaceResponse {
     repeated Namespace namespaces = 1;
+}
+
+message ExtractionGraph {
+    string id = 1;
+    string namespace = 2;
+    string name = 3;
+    repeated ExtractionPolicy extraction_policies = 4;
 }
 
 message ExtractionPolicy {
@@ -406,7 +413,7 @@ message TombstoneContentResponse {}
 
 message Namespace {
     string name = 1;
-    repeated ExtractionPolicy policies = 2;
+    repeated ExtractionGraph extraction_graphs = 2;
 }
 
 message GetSchemaRequest {

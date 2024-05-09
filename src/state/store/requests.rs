@@ -57,7 +57,6 @@ pub enum RequestPayload {
     },
     CreateExtractionGraph {
         extraction_graph: internal_api::ExtractionGraph,
-        extraction_policies: Vec<internal_api::ExtractionPolicy>,
         structured_data_schema: internal_api::StructuredDataSchema,
         indexes: Vec<internal_api::Index>,
     },

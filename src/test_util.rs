@@ -31,23 +31,15 @@ pub mod db_utils {
     pub fn create_test_extraction_graph(
         graph_name: &str,
         extraction_policy_names: Vec<&str>,
-    ) -> (ExtractionGraph, Vec<ExtractionPolicy>) {
+    ) -> ExtractionGraph {
         let id = ExtractionGraph::create_id(graph_name, DEFAULT_TEST_NAMESPACE);
-        let eg = ExtractionGraph {
-            id,
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            name: graph_name.to_string(),
-            extraction_policies: extraction_policy_names
-                .iter()
-                .map(|x| x.to_string())
-                .collect(),
-        };
+
         let mut extraction_policies = Vec::new();
         for policy_name in extraction_policy_names {
-            let id = ExtractionPolicy::create_id(&eg.name, policy_name, DEFAULT_TEST_NAMESPACE);
+            let id = ExtractionPolicy::create_id(graph_name, policy_name, DEFAULT_TEST_NAMESPACE);
             let ep = ExtractionPolicy {
                 id,
-                graph_name: eg.name.clone(),
+                graph_name: graph_name.to_string(),
                 namespace: DEFAULT_TEST_NAMESPACE.to_string(),
                 name: policy_name.to_string(),
                 extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
@@ -61,7 +53,12 @@ pub mod db_utils {
             };
             extraction_policies.push(ep);
         }
-        (eg, extraction_policies)
+        ExtractionGraph {
+            id,
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            name: graph_name.to_string(),
+            extraction_policies,
+        }
     }
 
     pub fn mock_extractor() -> internal_api::ExtractorDescription {

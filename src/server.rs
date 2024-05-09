@@ -308,7 +308,7 @@ impl Server {
         while let Err(err) = data_manager
             .create_namespace(&DataNamespace {
                 name: "default".to_string(),
-                extraction_policies: vec![],
+                extraction_graphs: vec![],
             })
             .await
         {
@@ -471,7 +471,7 @@ async fn create_namespace(
 ) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
     let data_namespace = api::DataNamespace {
         name: payload.name.clone(),
-        extraction_policies: payload.extraction_policies.clone(),
+        extraction_graphs: payload.extraction_graphs.clone(),
     };
     state
         .data_manager

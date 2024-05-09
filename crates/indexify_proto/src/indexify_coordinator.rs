@@ -382,7 +382,7 @@ pub struct CreateNamespaceRequest {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
+    pub extraction_graphs: ::prost::alloc::vec::Vec<ExtractionGraph>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -400,6 +400,18 @@ pub struct ListNamespaceRequest {}
 pub struct ListNamespaceResponse {
     #[prost(message, repeated, tag = "1")]
     pub namespaces: ::prost::alloc::vec::Vec<Namespace>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExtractionGraph {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub extraction_policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -565,7 +577,7 @@ pub struct Namespace {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
+    pub extraction_graphs: ::prost::alloc::vec::Vec<ExtractionGraph>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

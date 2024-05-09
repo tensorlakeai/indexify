@@ -85,7 +85,7 @@ impl DataManager {
             .into_iter()
             .map(|r| api::DataNamespace {
                 name: r.name,
-                extraction_policies: Vec::new(),
+                extraction_graphs: r.extraction_graphs.into_iter().map(Into::into).collect(),
             })
             .collect();
         Ok(data_namespaces)
@@ -94,18 +94,17 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn create_namespace(&self, namespace: &api::DataNamespace) -> Result<()> {
         info!("creating data namespace: {}", namespace.name);
-        let policies = namespace
-            .extraction_policies
-            .clone()
-            .into_iter()
-            .map(|b| b.into())
-            .collect();
         self.metadata_index_manager
             .create_metadata_table(&namespace.name)
             .await?;
         let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
-            policies,
+            extraction_graphs: namespace
+                .extraction_graphs
+                .clone()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         };
         let _resp = self
             .coordinator_client
@@ -129,7 +128,7 @@ impl DataManager {
             .await?
             .into_inner();
         let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
-        namespace.try_into()
+        Ok(namespace.into())
     }
 
     pub async fn get_extraction_policy(&self, id: &str) -> Result<api::ExtractionPolicy> {

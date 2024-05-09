@@ -16,6 +16,44 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{api_utils, metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ExtractionGraph {
+    pub id: String,
+    pub name: String,
+    pub namespace: String,
+    pub extraction_policies: Vec<ExtractionPolicy>,
+}
+
+impl From<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
+    fn from(value: ExtractionGraph) -> Self {
+        Self {
+            id: value.id,
+            namespace: value.namespace.clone(),
+            name: value.name,
+            extraction_policies: value
+                .extraction_policies
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+impl From<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
+    fn from(value: indexify_coordinator::ExtractionGraph) -> Self {
+        Self {
+            id: value.namespace.clone(),
+            namespace: value.namespace,
+            name: value.name,
+            extraction_policies: value
+                .extraction_policies
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionPolicy {
     pub id: String,
     pub extractor: String,
@@ -61,36 +99,26 @@ impl From<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataNamespace {
     pub name: String,
-    pub extraction_policies: Vec<ExtractionPolicy>,
+    pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
-impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
-        let mut extraction_policies = Vec::new();
-        for policy in value.policies {
-            extraction_policies.push(ExtractionPolicy {
-                id: policy.id,
-                extractor: policy.extractor,
-                name: policy.name,
-                filters_eq: Some(policy.filters),
-                input_params: Some(serde_json::from_str(&policy.input_params)?),
-                content_source: Some(policy.content_source),
-                graph_name: policy.graph_name,
-            });
-        }
-        Ok(Self {
+impl From<indexify_coordinator::Namespace> for DataNamespace {
+    fn from(value: indexify_coordinator::Namespace) -> Self {
+        Self {
             name: value.name,
-            extraction_policies,
-        })
+            extraction_graphs: value
+                .extraction_graphs
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
 pub struct CreateNamespace {
     pub name: String,
-    pub extraction_policies: Vec<ExtractionPolicy>,
+    pub extraction_graphs: Vec<ExtractionGraph>,
     pub labels: HashMap<String, String>,
 }
 

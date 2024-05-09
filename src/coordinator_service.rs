@@ -241,21 +241,16 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| {
                 tonic::Status::aborted(format!("unable to create extraction policies: {}", e))
             })?;
-        let policy_ids = creation_result
-            .extraction_policies
-            .iter()
-            .map(|ep| ep.id.clone())
-            .collect();
         let graph = ExtractionGraphBuilder::default()
             .id(graph_id)
             .namespace(request.namespace.clone())
             .name(request.name.clone())
-            .extraction_policies(policy_ids)
+            .extraction_policies(creation_result.extraction_policies.clone())
             .build()
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let indexes = self
             .coordinator
-            .create_extraction_graph(graph.clone(), creation_result.extraction_policies.clone())
+            .create_extraction_graph(graph.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         let policies = creation_result

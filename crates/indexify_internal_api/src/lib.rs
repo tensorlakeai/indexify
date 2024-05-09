@@ -25,7 +25,22 @@ pub struct ExtractionGraph {
     pub id: ExtractionGraphId,
     pub name: ExtractionGraphName,
     pub namespace: String,
-    pub extraction_policies: HashSet<ExtractionPolicyId>,
+    pub extraction_policies: Vec<ExtractionPolicy>,
+}
+
+impl From<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
+    fn from(value: ExtractionGraph) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            namespace: value.namespace,
+            extraction_policies: value
+                .extraction_policies
+                .into_iter()
+                .map(|p| p.into())
+                .collect(),
+        }
+    }
 }
 
 impl ExtractionGraph {
@@ -1011,30 +1026,18 @@ pub type NamespaceName = String;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Namespace {
     pub name: NamespaceName,
-    pub extraction_policies: Vec<ExtractionPolicy>,
+    pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
 impl From<Namespace> for indexify_coordinator::Namespace {
     fn from(value: Namespace) -> Self {
         indexify_coordinator::Namespace {
             name: value.name,
-            policies: value
-                .extraction_policies
+            extraction_graphs: value
+                .extraction_graphs
                 .into_iter()
-                .map(|p| p.into())
+                .map(|g| g.into())
                 .collect(),
-        }
-    }
-}
-
-impl Namespace {
-    pub fn to_coordinator_namespace(
-        value: Namespace,
-        extraction_policies: Vec<indexify_coordinator::ExtractionPolicy>,
-    ) -> indexify_coordinator::Namespace {
-        indexify_coordinator::Namespace {
-            name: value.name,
-            policies: extraction_policies,
         }
     }
 }

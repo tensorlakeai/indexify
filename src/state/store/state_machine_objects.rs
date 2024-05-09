@@ -684,7 +684,6 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extraction_graph: &ExtractionGraph,
-        extraction_policies: &Vec<ExtractionPolicy>,
         structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
@@ -695,7 +694,7 @@ impl IndexifyState {
                 serialized_eg,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()));
-        for ep in extraction_policies.to_owned() {
+        for ep in extraction_graph.extraction_policies.to_owned() {
             self.set_extraction_policy(db, txn, &ep)?;
         }
         self.set_schema(db, txn, structured_data_schema)?;
@@ -1210,10 +1209,9 @@ impl IndexifyState {
     fn update_extraction_graph_reverse_idx(
         &self,
         extraction_graph: &ExtractionGraph,
-        extraction_policies: &Vec<ExtractionPolicy>,
         schema: internal_api::StructuredDataSchema,
     ) {
-        for ep in extraction_policies {
+        for ep in &extraction_graph.extraction_policies {
             self.extraction_policies_table.insert(&ep.namespace, &ep.id);
         }
         self.update_schema_reverse_idx(schema);
@@ -1378,17 +1376,10 @@ impl IndexifyState {
             }
             RequestPayload::CreateExtractionGraph {
                 extraction_graph,
-                extraction_policies,
                 structured_data_schema,
                 indexes,
             } => {
-                self.set_extraction_graph(
-                    db,
-                    &txn,
-                    extraction_graph,
-                    extraction_policies,
-                    structured_data_schema,
-                )?;
+                self.set_extraction_graph(db, &txn, extraction_graph, structured_data_schema)?;
                 for index in indexes {
                     self.set_index(db, &txn, index, &index.id)?;
                 }
@@ -1517,15 +1508,10 @@ impl IndexifyState {
             }
             RequestPayload::CreateExtractionGraph {
                 extraction_graph,
-                extraction_policies,
                 structured_data_schema,
                 indexes,
             } => {
-                self.update_extraction_graph_reverse_idx(
-                    &extraction_graph,
-                    &extraction_policies,
-                    structured_data_schema,
-                );
+                self.update_extraction_graph_reverse_idx(&extraction_graph, structured_data_schema);
                 for index in indexes {
                     self.namespace_index_table.insert(&index.name, &index.id);
                 }
@@ -2015,15 +2001,20 @@ impl IndexifyState {
             Some(name) => name,
             None => return Ok(None),
         };
-
-        let extraction_policy_ids = self.extraction_policies_table.get(&namespace.to_string());
-        let extraction_policies = self
-            .get_extraction_policies_from_ids(extraction_policy_ids, db)?
-            .unwrap_or_else(Vec::new);
+        let extraction_graphs_ids = self
+            .extraction_graphs_by_ns
+            .get(&namespace.to_string())
+            .into_iter()
+            .collect_vec();
+        let extraction_graphs = self
+            .get_extraction_graphs(&extraction_graphs_ids, db)?
+            .into_iter()
+            .filter_map(|eg| eg)
+            .collect();
 
         Ok(Some(indexify_internal_api::Namespace {
             name: ns_name,
-            extraction_policies,
+            extraction_graphs,
         }))
     }
 

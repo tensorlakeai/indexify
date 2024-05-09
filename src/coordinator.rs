@@ -11,7 +11,6 @@ use indexify_proto::indexify_coordinator;
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
-    ExtractionPolicy,
     ExtractionPolicyId,
     GarbageCollectionTask,
     OutputSchema,
@@ -345,11 +344,10 @@ impl Coordinator {
     pub async fn create_extraction_graph(
         &self,
         extraction_graph: ExtractionGraph,
-        extraction_policies: Vec<ExtractionPolicy>,
     ) -> Result<Vec<internal_api::Index>> {
         let structured_data_schema = StructuredDataSchema::default();
         let mut indexes_to_create = Vec::new();
-        for extraction_policy in &extraction_policies {
+        for extraction_policy in &extraction_graph.extraction_policies {
             let extractor = self.get_extractor(&extraction_policy.extractor)?;
             extractor.validate_input_params(&extraction_policy.input_params)?;
             for (output_name, output_schema) in extractor.outputs {
@@ -380,7 +378,6 @@ impl Coordinator {
         self.shared_state
             .create_extraction_graph(
                 extraction_graph,
-                extraction_policies,
                 structured_data_schema,
                 indexes_to_create.clone(),
             )
@@ -653,10 +650,10 @@ mod tests {
             id: extraction_graph_id.into(),
             name: "test".into(),
             namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy_id.into()].into_iter().collect(),
+            extraction_policies: vec![extraction_policy],
         };
         coordinator
-            .create_extraction_graph(extraction_graph.clone(), vec![extraction_policy])
+            .create_extraction_graph(extraction_graph.clone())
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -683,11 +680,8 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let (eg, eps) =
-            create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        let eg = create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         let content_metadata = test_mock_content_metadata("test", "test", &eg.name);
@@ -735,11 +729,8 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let (eg, eps) =
-            create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        let eg = create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Add content which will trigger task creation because it is part of the graph
@@ -805,9 +796,9 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let (eg, eps) =
+        let eg =
             create_test_extraction_graph("extraction_graph_id_1", vec!["extraction_policy_id_1"]);
-        coordinator.create_extraction_graph(eg.clone(), eps).await?;
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Register another executor
@@ -820,13 +811,11 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         //  Create another extraction_graph and use the new extractor
-        let (eg2, mut eps2) =
+        let mut eg2 =
             create_test_extraction_graph("extraction_graph_id_2", vec!["extraction_policy_id_2"]);
-        eps2[0].extractor = extractor2.name.clone();
+        eg2.extraction_policies[0].extractor = extractor2.name.clone();
 
-        coordinator
-            .create_extraction_graph(eg2.clone(), eps2)
-            .await?;
+        coordinator.create_extraction_graph(eg2.clone()).await?;
 
         //  create some content and specify both graphs
         let mut content_metadata = test_mock_content_metadata("test", "test", &eg2.name);
@@ -861,10 +850,8 @@ mod tests {
                 vec![extractor.clone()],
             )
             .await?;
-        let (eg, eps) = create_test_extraction_graph("eg_name", vec!["extraction_policy_name_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        let eg = create_test_extraction_graph("eg_name", vec!["extraction_policy_name_1"]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
 
         //  Create content metadata
         let content_metadata_1 = test_mock_content_metadata("test_id", "", &eg.name);
@@ -892,12 +879,9 @@ mod tests {
             )
             .await?;
 
-        let (eg2, mut eps2) =
-            create_test_extraction_graph("eg_name_2", vec!["extraction_policy_name_2"]);
-        eps2[0].extractor = extractor_2.name.clone();
-        coordinator
-            .create_extraction_graph(eg2.clone(), eps2.clone())
-            .await?;
+        let mut eg2 = create_test_extraction_graph("eg_name_2", vec!["extraction_policy_name_2"]);
+        eg2.extraction_policies[0].extractor = extractor_2.name.clone();
+        coordinator.create_extraction_graph(eg2.clone()).await?;
 
         let content_metadata_2 = test_mock_content_metadata("test_id_2", "", &eg2.name);
         coordinator
@@ -951,10 +935,8 @@ mod tests {
         coordinator
             .register_executor("localhost:8956", &executor_id_1, vec![extractor_1.clone()])
             .await?;
-        let (eg, eps) = create_test_extraction_graph("eg_name_1", vec!["ep_policy_name_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        let eg = create_test_extraction_graph("eg_name_1", vec!["ep_policy_name_1"]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
 
         let executor_id_2 = "test_executor_id_2";
         let mut extractor_2 = mock_extractor();
@@ -967,15 +949,13 @@ mod tests {
         // Since both the extraction policy use the same extractors
         // each content will have 2 tasks created for it and assigned to the
         // executor_id_2
-        let (eg2, mut eps2) = create_test_extraction_graph(
+        let mut eg2 = create_test_extraction_graph(
             "extraction_graph_id_1",
             vec!["extraction_policy_id_1", "extraction_policy_id_2"],
         );
-        eps2[0].extractor = "MockExtractor2".to_string();
-        eps2[1].extractor = "MockExtractor2".to_string();
-        coordinator
-            .create_extraction_graph(eg2.clone(), eps2)
-            .await?;
+        eg2.extraction_policies[0].extractor = "MockExtractor2".to_string();
+        eg2.extraction_policies[1].extractor = "MockExtractor2".to_string();
+        coordinator.create_extraction_graph(eg2.clone()).await?;
 
         //  Build a content tree where the parent_content is the root
         let content_meta_root = test_mock_content_metadata("test_parent_id", "", &eg.name);
@@ -1044,17 +1024,15 @@ mod tests {
             .await?;
 
         //  Create an extraction graph
-        let (eg, eps) =
+        let eg =
             create_test_extraction_graph("extraction_graph_id_1", vec!["extraction_policy_id_1"]);
-        coordinator.create_extraction_graph(eg.clone(), eps).await?;
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Create a separate extraction graph
-        let (eg2, eps2) =
+        let eg2 =
             create_test_extraction_graph("extraction_graph_id_2", vec!["extraction_policy_id_2"]);
-        coordinator
-            .create_extraction_graph(eg2.clone(), eps2.clone())
-            .await?;
+        coordinator.create_extraction_graph(eg2.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Build a content tree where the parent_content is the root
@@ -1145,11 +1123,9 @@ mod tests {
             .await?;
 
         //  Create an extraction graph
-        let (eg, eps) =
+        let eg =
             create_test_extraction_graph("extraction_graph_id_1", vec!["extraction_policy_id_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Build a content tree where the parent_content is the root
@@ -1164,7 +1140,8 @@ mod tests {
         let mut child_content_2 =
             test_mock_content_metadata("test_child_id_2", &parent_content.id.id, &eg.name);
         child_content_2.parent_id = Some(parent_content.id.clone());
-        child_content_2.source = ContentSource::ExtractionPolicyName(eps[0].name.clone());
+        child_content_2.source =
+            ContentSource::ExtractionPolicyName(eg.extraction_policies[0].name.clone());
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
             .await?;
@@ -1207,11 +1184,9 @@ mod tests {
             .await?;
 
         //  Create an extraction graph
-        let (eg, eps) =
+        let eg =
             create_test_extraction_graph("extraction_graph_id_1", vec!["extraction_policy_id_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Build a content tree where the parent content id is the root
@@ -1224,12 +1199,14 @@ mod tests {
         let mut child_content_1 =
             test_mock_content_metadata("test_child_id_1", &parent_content.id.id, &eg.name);
         child_content_1.parent_id = Some(parent_content.id.clone());
-        child_content_1.source = ContentSource::ExtractionPolicyName(eps[0].name.clone());
+        child_content_1.source =
+            ContentSource::ExtractionPolicyName(eg.extraction_policies[0].name.clone());
 
         let mut child_content_2 =
             test_mock_content_metadata("test_child_id_2", &parent_content.id.id, &eg.name);
         child_content_2.parent_id = Some(parent_content.id.clone());
-        child_content_2.source = ContentSource::ExtractionPolicyName(eps[0].name.clone());
+        child_content_2.source =
+            ContentSource::ExtractionPolicyName(eg.extraction_policies[0].name.clone());
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
             .await?;
@@ -1299,12 +1276,11 @@ mod tests {
             .await?;
 
         //  Create the extraction policy under the namespace of the content
-        let (eg, mut eps) =
+        let mut eg =
             create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
-        eps[0].filters = HashMap::from([("label1".to_string(), "value1".to_string())]);
-        coordinator
-            .create_extraction_graph(eg.clone(), eps.clone())
-            .await?;
+        eg.extraction_policies[0].filters =
+            HashMap::from([("label1".to_string(), "value1".to_string())]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
 
         //  Create some content
         let content_labels = vec![("label1".to_string(), "value1".to_string())];

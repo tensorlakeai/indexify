@@ -396,17 +396,7 @@ impl App {
         let mut all_extraction_policies: Vec<ExtractionPolicy> = Vec::new();
         for extraction_graph in extraction_graphs {
             if let Some(eg) = extraction_graph {
-                let extraction_policies: Vec<ExtractionPolicy> = self
-                    .state_machine
-                    .get_extraction_policy_by_names(
-                        &content_metadata.namespace,
-                        &eg.name,
-                        &eg.extraction_policies,
-                    )?
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                all_extraction_policies.extend(extraction_policies);
+                all_extraction_policies.extend(eg.extraction_policies);
             }
         }
         println!("all_extraction_policies: {:?}", all_extraction_policies);
@@ -548,7 +538,6 @@ impl App {
     pub async fn create_extraction_graph(
         &self,
         extraction_graph: ExtractionGraph,
-        extraction_policies: Vec<ExtractionPolicy>,
         structured_data_schema: StructuredDataSchema,
         indexes: Vec<internal_api::Index>,
     ) -> Result<()> {
@@ -565,7 +554,6 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionGraph {
                 extraction_graph,
-                extraction_policies,
                 structured_data_schema,
                 indexes,
             },
@@ -722,24 +710,10 @@ impl App {
         // Fetch extraction policies for each namespace
         let mut result_namespaces = Vec::new();
         for namespace_name in namespaces {
-            let extraction_policy_ids = {
-                self.state_machine
-                    .get_extraction_policies_table()
-                    .await
-                    .get(&namespace_name)
-                    .cloned()
-                    .unwrap_or_default()
-            };
-            let extraction_policies = self
-                .state_machine
-                .get_extraction_policies_from_ids(extraction_policy_ids)?
-                .unwrap_or_else(Vec::new);
-
-            let namespace = internal_api::Namespace {
-                name: namespace_name,
-                extraction_policies: extraction_policies.into_iter().collect_vec(),
-            };
-            result_namespaces.push(namespace);
+            let ns = self.state_machine.get_namespace(&namespace_name).await?;
+            if let Some(ns) = ns {
+                result_namespaces.push(ns);
+            }
         }
 
         Ok(result_namespaces)
@@ -1694,29 +1668,24 @@ mod tests {
         node.register_executor(addr, executor_id, vec![extractor.clone()])
             .await?;
 
-        let (eg, mut eps) = create_test_extraction_graph("graph1", vec!["policy1"]);
+        let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
 
-        eps[0].filters = HashMap::from([
+        eg.extraction_policies[0].filters = HashMap::from([
             ("label1".to_string(), "value1".to_string()),
             ("label2".to_string(), "value2".to_string()),
             ("label3".to_string(), "value3".to_string()),
         ]);
 
-        node.create_extraction_graph(
-            eg.clone(),
-            eps.clone(),
-            StructuredDataSchema::default(),
-            vec![],
-        )
-        .await?;
+        node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
+            .await?;
 
         //  Read the policy back using namespace
         let read_policy = node.list_extraction_policy(&eg.namespace).await?;
         assert_eq!(read_policy.len(), 1);
 
         //  Read the policy back using the id
-        let read_policy = node.get_extraction_policy(&eps[0].id)?;
-        assert_eq!(read_policy, eps[0]);
+        let read_policy = node.get_extraction_policy(&eg.extraction_policies[0].id)?;
+        assert_eq!(read_policy, eg.extraction_policies[0]);
 
         //  Create some content
         let content_labels = vec![
@@ -1736,7 +1705,10 @@ mod tests {
             .match_extraction_policies_for_content(&content_metadata.id)
             .await?;
         assert_eq!(matched_policies.len(), 1);
-        assert_eq!(matched_policies.first().unwrap(), &eps[0]);
+        assert_eq!(
+            matched_policies.first().unwrap(),
+            &eg.extraction_policies[0]
+        );
 
         Ok(())
     }
@@ -1756,32 +1728,26 @@ mod tests {
             id: "id".into(),
             namespace: namespace.into(),
             name: "name".into(),
-            extraction_policies: vec!["id1".into(), "id2".into(), "id3".into()]
-                .into_iter()
-                .collect(),
+            extraction_policies: vec![
+                indexify_internal_api::ExtractionPolicy {
+                    id: "id1".into(),
+                    namespace: namespace.into(),
+                    ..Default::default()
+                },
+                indexify_internal_api::ExtractionPolicy {
+                    id: "id2".into(),
+                    namespace: namespace.into(),
+                    ..Default::default()
+                },
+                indexify_internal_api::ExtractionPolicy {
+                    id: "id3".into(),
+                    namespace: namespace.into(),
+                    ..Default::default()
+                },
+            ],
         };
-
-        //  Create 3 extraction policies using the same namespace but all other
-        // attributes as default
-        let extraction_policies = vec![
-            indexify_internal_api::ExtractionPolicy {
-                id: "id1".into(),
-                namespace: namespace.into(),
-                ..Default::default()
-            },
-            indexify_internal_api::ExtractionPolicy {
-                id: "id2".into(),
-                namespace: namespace.into(),
-                ..Default::default()
-            },
-            indexify_internal_api::ExtractionPolicy {
-                id: "id3".into(),
-                namespace: namespace.into(),
-                ..Default::default()
-            },
-        ];
         let structured_schema = StructuredDataSchema::new(&eg.name, &eg.namespace);
-        node.create_extraction_graph(eg, extraction_policies, structured_schema, vec![])
+        node.create_extraction_graph(eg, structured_schema, vec![])
             .await?;
 
         //  Read the namespace back and expect to get the extraction policies as well
@@ -1791,6 +1757,9 @@ mod tests {
         assert_eq!(
             retrieved_namespace
                 .clone()
+                .unwrap()
+                .extraction_graphs
+                .first()
                 .unwrap()
                 .extraction_policies
                 .len(),
@@ -1823,13 +1792,12 @@ mod tests {
             .await?;
 
         //  Create the extraction graph
-        let (eg, mut eps) =
-            create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
-        eps[0].filters = HashMap::from([("label1".to_string(), "value1".to_string())]);
+        let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
+        eg.extraction_policies[0].filters =
+            HashMap::from([("label1".to_string(), "value1".to_string())]);
         let _structured_data_schema = indexify_internal_api::StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),
-            eps,
             StructuredDataSchema::new(&eg.name, &eg.namespace),
             vec![], //  no indexes
         )
