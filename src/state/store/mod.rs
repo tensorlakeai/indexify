@@ -89,19 +89,18 @@ pub enum StateMachineError {
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
-    Executors,                          //  ExecutorId -> Executor Metadata
-    Tasks,                              //  TaskId -> Task
-    GarbageCollectionTasks,             //  GCTaskId -> GCTask
-    TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
-    StateChanges,                       //  StateChangeId -> StateChange
-    ContentTable,                       //  ContentId -> ContentMetadata
-    ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
-    Extractors,                         //  ExtractorName -> ExtractorDescription
-    Namespaces,                         //  Namespaces
-    IndexTable,                         //  String -> Index
-    StructuredDataSchemas,              //  SchemaId -> StructuredDataSchema
-    ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
-    CoordinatorAddress,                 //  NodeId -> Coordinator address
+    Executors,              //  ExecutorId -> Executor Metadata
+    Tasks,                  //  TaskId -> Task
+    GarbageCollectionTasks, //  GCTaskId -> GCTask
+    TaskAssignments,        //  ExecutorId -> HashSet<TaskId>
+    StateChanges,           //  StateChangeId -> StateChange
+    ContentTable,           //  ContentId -> ContentMetadata
+    ExtractionPolicies,     //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,             //  ExtractorName -> ExtractorDescription
+    Namespaces,             //  Namespaces
+    IndexTable,             //  String -> Index
+    StructuredDataSchemas,  //  SchemaId -> StructuredDataSchema
+    CoordinatorAddress,     //  NodeId -> Coordinator address
 }
 
 impl StateMachineColumns {

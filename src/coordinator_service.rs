@@ -153,10 +153,9 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<TombstoneContentRequest>,
     ) -> Result<tonic::Response<TombstoneContentResponse>, tonic::Status> {
         let req = request.into_inner();
-        let namespace = req.namespace;
         let content_ids = req.content_ids;
         self.coordinator
-            .tombstone_content_metadatas(&namespace, &content_ids)
+            .tombstone_content_metadatas(&content_ids)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(TombstoneContentResponse {}))
@@ -649,18 +648,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<GetContentMetadataRequest>,
     ) -> Result<Response<indexify_coordinator::GetContentMetadataResponse>, Status> {
         let req = req.into_inner();
-        let content_metadata_list = self
+        let content_list = self
             .coordinator
             .get_content_metadata(req.content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let content_metadata = content_metadata_list
-            .iter()
-            .map(|c| (c.id.id.clone(), c.clone().into()))
-            .collect::<HashMap<String, indexify_coordinator::ContentMetadata>>();
         Ok(Response::new(
             indexify_coordinator::GetContentMetadataResponse {
-                content_list: content_metadata,
+                content_list: content_list.into_iter().map(Into::into).collect(),
             },
         ))
     }
