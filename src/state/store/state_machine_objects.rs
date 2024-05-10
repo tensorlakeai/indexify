@@ -2245,7 +2245,7 @@ impl IndexifyState {
                 Ok((key_id, value))
             })
             .collect::<Result<_, StateMachineError>>()?;
-        let extraction_policies = self.get_all_rows_from_cf::<internal_api::ExtractionPolicy>(
+        let extraction_policies = self.get_all_rows_from_cf::<ExtractionPolicy>(
             StateMachineColumns::ExtractionPolicies,
             db,
             &txn,
@@ -2532,12 +2532,11 @@ pub struct IndexifyStateSnapshot {
     task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
     state_changes: HashMap<StateChangeId, StateChange>,
     content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata>,
-    extraction_policies: HashMap<ExtractionPolicyId, internal_api::ExtractionPolicy>,
+    extraction_policies: HashMap<ExtractionPolicyId, ExtractionPolicy>,
     extractors: HashMap<ExtractorName, ExtractorDescription>,
     namespaces: HashSet<NamespaceName>,
     index_table: HashMap<String, internal_api::Index>,
-    structured_data_schemas:
-        HashMap<internal_api::StructuredDataSchemaId, internal_api::StructuredDataSchema>,
+    structured_data_schemas: HashMap<String, internal_api::StructuredDataSchema>,
     coordinator_address: HashMap<NodeId, String>,
     metrics: Metrics,
 }
