@@ -150,19 +150,20 @@ impl DataManager {
 
     pub async fn create_extraction_graph(
         &self,
+        namespace: &str,
         req: ExtractionGraphRequest,
     ) -> Result<Vec<internal_api::IndexName>> {
         let mut extraction_policies = Vec::new();
-        for ep in req.policies {
+        for ep in req.extraction_policies {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
             let req = indexify_coordinator::ExtractionPolicyRequest {
-                namespace: req.namespace.to_string(),
+                namespace: namespace.to_string(),
                 extractor: ep.extractor.clone(),
                 name: ep.name.clone(),
                 filters: ep.filters_eq.clone().unwrap_or_default(),
                 input_params: input_params_serialized,
-                content_source: ep.content_source.clone().unwrap_or(req.name.to_string()),
+                content_source: ep.content_source.clone().unwrap_or_default(),
                 created_at: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)?
                     .as_secs() as i64,
@@ -170,11 +171,10 @@ impl DataManager {
             extraction_policies.push(req);
         }
         let req = indexify_coordinator::CreateExtractionGraphRequest {
-            namespace: req.namespace,
+            namespace: namespace.to_string(),
             name: req.name,
             policies: extraction_policies,
         };
-        print!("The request being sent {:#?}", req);
         let response = self
             .coordinator_client
             .get()

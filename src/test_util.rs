@@ -24,6 +24,7 @@ pub mod db_utils {
             root_content_id: Some(root_content_id.to_string()),
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             extraction_graph_names: vec![graph_name.to_string()],
+            labels: HashMap::new(),
             ..Default::default()
         }
     }

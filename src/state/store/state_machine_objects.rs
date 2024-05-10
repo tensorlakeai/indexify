@@ -1513,7 +1513,7 @@ impl IndexifyState {
             } => {
                 self.update_extraction_graph_reverse_idx(&extraction_graph, structured_data_schema);
                 for index in indexes {
-                    self.namespace_index_table.insert(&index.name, &index.id);
+                    self.namespace_index_table.insert(&index.namespace, &index.id);
                 }
                 Ok(())
             }

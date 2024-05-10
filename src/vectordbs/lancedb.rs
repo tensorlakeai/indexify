@@ -19,10 +19,10 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use itertools::izip;
-use lance::dataset::BatchUDF;
+use lance::dataset::{BatchUDF, WriteParams};
 use lancedb::{
     query::{ExecutableQuery, QueryBase},
-    table::NewColumnTransform,
+    table::{NewColumnTransform, WriteOptions},
     Connection,
     Table,
 };
@@ -218,6 +218,12 @@ impl VectorDb for LanceDb {
         let _ = self
             .conn
             .create_table(&index.vectordb_index_name, Box::new(batches))
+            .write_options(WriteOptions {
+                lance_write_params: Some(WriteParams {
+                    mode: lance::dataset::WriteMode::Append,
+                    ..Default::default()
+                }),
+            })
             .execute()
             .await
             .map_err(|e| anyhow!("unable to create table: {}", e))?;

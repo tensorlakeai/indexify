@@ -137,8 +137,6 @@ impl CoordinatorServiceServer {
         extraction_graph: &CreateExtractionGraphRequest,
     ) -> Result<ExtractionPolicyCreationResult> {
         let mut name_to_policy_mapping = HashMap::new();
-        let graph_id =
-            ExtractionGraph::create_id(&extraction_graph.name, &extraction_graph.namespace);
         for extraction_policy in &extraction_graph.policies {
             name_to_policy_mapping
                 .insert(extraction_policy.name.clone(), extraction_policy.clone());
@@ -165,7 +163,7 @@ impl CoordinatorServiceServer {
                 .filters(policy_request.filters.clone())
                 .input_params(input_params)
                 .content_source(content_source)
-                .build(&graph_id, &extraction_graph.name, extractor.clone())
+                .build(&extraction_graph.name, extractor.clone())
                 .map_err(|e| anyhow!(e))?;
             extraction_policies.push(policy.clone());
             extractors.push(extractor.clone());

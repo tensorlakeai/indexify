@@ -176,7 +176,7 @@ impl Server {
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
             .route(
-                "/namespaces/:namespace/extraction_graph",
+                "/namespaces/:namespace/extraction_graphs",
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -551,13 +551,13 @@ async fn get_namespace(
 async fn create_extraction_graph(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
-    Path(_namespace): Path<String>,
+    Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractionGraphRequest>,
 ) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
     let indexes = state
         .data_manager
-        .create_extraction_graph(payload)
+        .create_extraction_graph(&namespace, payload)
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
@@ -582,6 +582,12 @@ async fn add_texts(
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<TextAddRequest>,
 ) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
+    if payload.extraction_graph_names.is_empty() {
+        return Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "extraction_graph_names must not be empty",
+        ));
+    }
     for document in &payload.documents {
         if let Some(id) = &document.id {
             if !DataManager::is_hex_string(id) {
