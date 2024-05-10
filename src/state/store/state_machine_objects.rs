@@ -17,16 +17,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionPolicyId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
+    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -2120,22 +2112,6 @@ impl IndexifyState {
                 db,
                 &txn,
             )?;
-        let extraction_policies_applied_on_content: HashMap<
-            ContentMetadataId,
-            Vec<ExtractionPolicyId>,
-        > = self
-            .get_all_rows_from_cf::<Vec<ExtractionPolicyId>>(
-                StateMachineColumns::ExtractionPoliciesAppliedOnContent,
-                db,
-                &txn,
-            )?
-            .into_iter()
-            .map(|(key, value)| {
-                let key_id: ContentMetadataId =
-                    key.try_into().map_err(StateMachineError::ExternalError)?;
-                Ok((key_id, value))
-            })
-            .collect::<Result<_, StateMachineError>>()?;
         let coordinator_address: HashMap<NodeId, String> = self
             .get_all_rows_from_cf::<String>(StateMachineColumns::CoordinatorAddress, db, &txn)?
             .into_iter()
@@ -2160,9 +2136,6 @@ impl IndexifyState {
             namespaces: namespaces.into_iter().collect(),
             index_table: index_table.into_iter().collect(),
             structured_data_schemas: structured_data_schemas.into_iter().collect(),
-            extraction_policies_applied_on_content: extraction_policies_applied_on_content
-                .into_iter()
-                .collect(),
             coordinator_address: coordinator_address.into_iter().collect(),
             metrics,
         };
@@ -2231,11 +2204,6 @@ impl IndexifyState {
         for (schema_id, schema) in &snapshot.structured_data_schemas {
             let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
             put_cf(&txn, cf, schema_id, &schema)?;
-        }
-        for (content_id, extraction_policy_ids) in &snapshot.extraction_policies_applied_on_content
-        {
-            let cf = StateMachineColumns::ExtractionPoliciesAppliedOnContent.cf(db);
-            put_cf(&txn, cf, &content_id.to_string(), &extraction_policy_ids)?;
         }
         for (node_id, addr) in &snapshot.coordinator_address {
             let cf = StateMachineColumns::CoordinatorAddress.cf(db);
@@ -2411,7 +2379,6 @@ pub struct IndexifyStateSnapshot {
     index_table: HashMap<String, internal_api::Index>,
     structured_data_schemas:
         HashMap<internal_api::StructuredDataSchemaId, internal_api::StructuredDataSchema>,
-    extraction_policies_applied_on_content: HashMap<ContentMetadataId, Vec<ExtractionPolicyId>>,
     coordinator_address: HashMap<NodeId, String>,
     metrics: Metrics,
 }
