@@ -24,8 +24,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const [extractors, indexes, contentList, schemas] = await Promise.all([
     client.extractors(),
     client.indexes(),
-    client.getContent(),
-    client.getSchemas(),
+    client.getExtractedContent(),
+    []//client.getSchemas(),
   ]);
   return { client, extractors, indexes, contentList, schemas, namespace };
 }
@@ -44,14 +44,25 @@ const NamespacePage = () => {
   return (
     <Stack direction="column" spacing={3}>
       <ExtractionGraphs
+
         namespace={client.namespace}
-        extractionPolicies={client.extractionPolicies}
+        extractionPolicies={client.extractionGraphs
+          .map((graph) => graph.extraction_policies)
+          .flat()}
         extractors={extractors}
       />
-      <IndexTable namespace={namespace} indexes={indexes} extractionPolicies={client.extractionPolicies}/>
+      <IndexTable
+        namespace={namespace}
+        indexes={indexes}
+        extractionPolicies={client.extractionGraphs
+          .map((graph) => graph.extraction_policies)
+          .flat()}
+      />
       <SchemasTable schemas={schemas} />
       <ContentTable
-        extractionPolicies={client.extractionPolicies}
+        extractionPolicies={client.extractionGraphs
+          .map((graph) => graph.extraction_policies)
+          .flat()}
         content={contentList}
       />
       <ExtractorsTable extractors={extractors} />

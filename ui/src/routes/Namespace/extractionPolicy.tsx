@@ -16,9 +16,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
     namespace,
   });
 
-  const policy = client.extractionPolicies.find(
-    (policy) => policy.name === policyname
-  );
+  const policy = client.extractionGraphs
+    .map((graph) => graph.extraction_policies)
+    .flat()
+    .find((policy) => policy.name === policyname);
   const tasks = (await client.getTasks()).filter(
     (task) => task.extraction_policy_id === policy?.id
   );
@@ -48,12 +49,12 @@ const ExtractionPolicyPage = () => {
           Extraction Policy - {policy.name}
         </Typography>
       </Box>
-      <TasksTable
+      {/* <TasksTable
         policies={client.extractionPolicies}
         namespace={namespace}
         tasks={tasks}
         hideExtractionPolicy
-      />
+      /> */}
     </Stack>
   );
 };

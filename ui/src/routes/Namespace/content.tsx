@@ -40,9 +40,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
       }
       return null;
     });
-  const contentMetadata = await client.getContentById(contentId);
+  const contentMetadata = await client.getContentMetadata(contentId);
   const extractedMetadataList = await client
-    .getExtractedMetadata(contentId)
+    .getStructuredMetadata(contentId)
     .catch((e) => {
       if (isAxiosError(e)) {
         errors.push(
@@ -51,7 +51,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
           }`
         );
       }
-      return [];
+      return [] as IExtractedMetadata[];
     });
   return {
     client,
@@ -215,12 +215,12 @@ const ContentPage = () => {
           />
         );
       })}
-      <TasksTable
+      {/* <TasksTable
         policies={client.extractionPolicies}
         namespace={namespace}
         tasks={tasks}
         hideContentId
-      />
+      /> */}
     </Stack>
   );
 };
