@@ -673,7 +673,6 @@ impl ExtractionPolicy {
 impl ExtractionPolicyBuilder {
     pub fn build(
         &self,
-        graph_id: &str,
         graph_name: &str,
         extractor_description: ExtractorDescription,
     ) -> Result<ExtractionPolicy> {
