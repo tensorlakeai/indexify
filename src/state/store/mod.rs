@@ -15,6 +15,7 @@ use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
     ExecutorMetadata,
+    NamespaceName,
     StateChange,
     StructuredDataSchema,
 };
@@ -56,7 +57,6 @@ use crate::{
     utils::OptionInspectNone,
 };
 
-pub type NamespaceName = String;
 pub type TaskId = String;
 pub type StateChangeId = String;
 pub type ContentId = String;
@@ -66,6 +66,7 @@ pub type ExtractionEventId = String;
 pub type ExtractionPolicyId = String;
 pub type ExtractorName = String;
 pub type ContentType = String;
+pub type ExtractionGraphId = String;
 pub type SchemaId = String;
 
 pub mod requests;
@@ -89,18 +90,20 @@ pub enum StateMachineError {
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum StateMachineColumns {
-    Executors,              //  ExecutorId -> Executor Metadata
-    Tasks,                  //  TaskId -> Task
-    GarbageCollectionTasks, //  GCTaskId -> GCTask
-    TaskAssignments,        //  ExecutorId -> HashSet<TaskId>
-    StateChanges,           //  StateChangeId -> StateChange
-    ContentTable,           //  ContentId -> ContentMetadata
-    ExtractionPolicies,     //  ExtractionPolicyId -> ExtractionPolicy
-    Extractors,             //  ExtractorName -> ExtractorDescription
-    Namespaces,             //  Namespaces
-    IndexTable,             //  String -> Index
-    StructuredDataSchemas,  //  SchemaId -> StructuredDataSchema
-    CoordinatorAddress,     //  NodeId -> Coordinator address
+    Executors,                          //  ExecutorId -> Executor Metadata
+    Tasks,                              //  TaskId -> Task
+    GarbageCollectionTasks,             //  GCTaskId -> GCTask
+    TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
+    StateChanges,                       //  StateChangeId -> StateChange
+    ContentTable,                       //  ContentId -> ContentMetadata
+    ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
+    Extractors,                         //  ExtractorName -> ExtractorDescription
+    Namespaces,                         //  Namespaces
+    IndexTable,                         //  String -> Index
+    StructuredDataSchemas,              //  SchemaId -> StructuredDataSchema
+    ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
+    CoordinatorAddress,                 //  NodeId -> Coordinator address
+    ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
 }
 
 impl StateMachineColumns {
@@ -318,7 +321,7 @@ impl StateMachineStore {
     }
 
     /// This method fetches a key from a specific column family
-    pub async fn get_from_cf<T, K>(
+    pub fn get_from_cf<T, K>(
         &self,
         column: StateMachineColumns,
         key: K,
@@ -358,13 +361,25 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_extraction_policies_from_ids(
+    pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
     ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
         self.data
             .indexify_state
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_extraction_policy_by_names(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+        policy_names: &HashSet<String>,
+    ) -> Result<Vec<Option<indexify_internal_api::ExtractionPolicy>>> {
+        self.data
+            .indexify_state
+            .get_extraction_policy_by_names(namespace, graph_name, policy_names, &self.db)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -388,7 +403,7 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_content_from_ids_with_version(
+    pub fn get_content_from_ids_with_version(
         &self,
         content_ids: Vec<ContentMetadataId>,
     ) -> Result<Vec<Option<ContentMetadata>>> {
@@ -436,6 +451,27 @@ impl StateMachineStore {
         self.data.indexify_state.get_schemas(ids, &self.db)
     }
 
+    pub fn get_extraction_graphs(
+        &self,
+        extraction_graph_ids: &Vec<String>,
+    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
+        self.data
+            .indexify_state
+            .get_extraction_graphs(extraction_graph_ids, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn get_extraction_graphs_by_name(
+        &self,
+        namespace: &str,
+        graph_names: &[String],
+    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
+        self.data
+            .indexify_state
+            .get_extraction_graphs_by_name(namespace, graph_names, &self.db)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
         self.data
             .indexify_state
@@ -468,7 +504,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_unprocessed_state_changes()
     }
 
-    pub async fn get_content_namespace_table(
+    pub fn get_content_namespace_table(
         &self,
     ) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
         self.data.indexify_state.get_content_namespace_table()
@@ -498,7 +534,9 @@ impl StateMachineStore {
         self.data.indexify_state.get_executor_running_task_count()
     }
 
-    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+    pub async fn get_schemas_by_namespace(
+        &self,
+    ) -> HashMap<NamespaceName, HashSet<ExtractionGraphId>> {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 

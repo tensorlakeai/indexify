@@ -7,7 +7,10 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
-use internal_api::{ContentMetadataId, ExtractorDescription, StateChange, TaskOutcome};
+use internal_api::{
+    ContentMetadataId, ExtractionGraph, ExtractionPolicy, ExtractionPolicyName,
+    ExtractorDescription, StateChange, TaskOutcome,
+};
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
 use rocksdb::OptimisticTransactionDB;
@@ -17,8 +20,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName, SchemaId,
-    StateChangeId, StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId, ExtractionGraphId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName,
+    SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -358,6 +361,43 @@ impl From<HashMap<ExecutorId, u64>> for ExecutorRunningTaskCount {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ExtractionGraphTable {
+    eg_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<ExtractionGraphId>>>>,
+}
+
+impl ExtractionGraphTable {
+    pub fn get(&self, namespace: &NamespaceName) -> HashSet<ExtractionGraphId> {
+        let guard = self.eg_by_namespace.read().unwrap();
+        guard.get(namespace).cloned().unwrap_or_default()
+    }
+
+    pub fn insert(&self, namespace: &NamespaceName, id: &ExtractionGraphId) {
+        let mut guard = self.eg_by_namespace.write().unwrap();
+        guard
+            .entry(namespace.clone())
+            .or_default()
+            .insert(id.clone());
+    }
+
+    pub fn remove(&self, namespace: &NamespaceName, id: &SchemaId) {
+        let mut guard = self.eg_by_namespace.write().unwrap();
+        guard.entry(namespace.clone()).or_default().remove(id);
+    }
+
+    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
+        let guard = self.eg_by_namespace.read().unwrap();
+        guard.clone()
+    }
+}
+
+impl From<HashMap<NamespaceName, HashSet<ExtractionGraphId>>> for ExtractionGraphTable {
+    fn from(eg_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>) -> Self {
+        let eg_by_namespace = Arc::new(RwLock::new(eg_by_namespace));
+        Self { eg_by_namespace }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct SchemasByNamespace {
     schemas_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<SchemaId>>>>,
 }
@@ -577,6 +617,9 @@ pub struct IndexifyState {
     /// Namespace -> Index id
     pub namespace_index_table: NamespaceIndexTable,
 
+    // extraction_policy_id -> List[IndexIds]
+    extraction_policy_index_mapping: HashMap<String, HashSet<String>>,
+
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
     /// Extractor name -> Task Ids
@@ -597,6 +640,9 @@ pub struct IndexifyState {
 
     /// Metrics
     pub metrics: std::sync::Mutex<Metrics>,
+
+    /// Namespace -> Extraction Graph ID
+    extraction_graphs_by_ns: ExtractionGraphTable,
 }
 
 impl fmt::Display for IndexifyState {
@@ -619,6 +665,28 @@ impl fmt::Display for IndexifyState {
 }
 
 impl IndexifyState {
+    fn set_extraction_graph(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        extraction_graph: &ExtractionGraph,
+        structured_data_schema: &internal_api::StructuredDataSchema,
+    ) -> Result<(), StateMachineError> {
+        let serialized_eg = JsonEncoder::encode(extraction_graph)?;
+        let _ = txn
+            .put_cf(
+                &StateMachineColumns::ExtractionGraphs.cf(db),
+                &extraction_graph.id,
+                serialized_eg,
+            )
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()));
+        for ep in extraction_graph.extraction_policies.to_owned() {
+            self.set_extraction_policy(db, txn, &ep)?;
+        }
+        self.set_schema(db, txn, structured_data_schema)?;
+        Ok(())
+    }
+
     fn set_new_state_changes(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -676,22 +744,6 @@ impl IndexifyState {
         txn.put_cf(StateMachineColumns::IndexTable.cf(db), id, serialized_index)
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         Ok(())
-    }
-
-    fn _get_task(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        task_id: &TaskId,
-    ) -> Result<internal_api::Task, StateMachineError> {
-        let serialized_task = txn
-            .get_cf(StateMachineColumns::Tasks.cf(db), task_id)
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| {
-                StateMachineError::DatabaseError(format!("Task {} not found", task_id))
-            })?;
-        let task = JsonEncoder::decode(&serialized_task)?;
-        Ok(task)
     }
 
     fn set_tasks(
@@ -1004,9 +1056,7 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        extraction_policy: &internal_api::ExtractionPolicy,
-        updated_structured_data_schema: &Option<internal_api::StructuredDataSchema>,
-        new_structured_data_schema: &internal_api::StructuredDataSchema,
+        extraction_policy: &ExtractionPolicy,
     ) -> Result<(), StateMachineError> {
         let serialized_extraction_policy = JsonEncoder::encode(extraction_policy)?;
         txn.put_cf(
@@ -1017,10 +1067,6 @@ impl IndexifyState {
         .map_err(|e| {
             StateMachineError::DatabaseError(format!("Error writing extraction policy: {}", e))
         })?;
-        if let Some(schema) = updated_structured_data_schema {
-            self.set_schema(db, txn, schema)?
-        }
-        self.set_schema(db, txn, new_structured_data_schema)?;
         Ok(())
     }
 
@@ -1029,7 +1075,6 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         namespace: &NamespaceName,
-        structured_data_schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_name = JsonEncoder::encode(namespace)?;
         txn.put_cf(
@@ -1038,7 +1083,6 @@ impl IndexifyState {
             serialized_name,
         )
         .map_err(|e| StateMachineError::DatabaseError(format!("Error writing namespace: {}", e)))?;
-        self.set_schema(db, txn, structured_data_schema)?;
         Ok(())
     }
 
@@ -1148,6 +1192,19 @@ impl IndexifyState {
             .insert(&schema.namespace, &schema.id);
     }
 
+    fn update_extraction_graph_reverse_idx(
+        &self,
+        extraction_graph: &ExtractionGraph,
+        schema: internal_api::StructuredDataSchema,
+    ) {
+        for ep in &extraction_graph.extraction_policies {
+            self.extraction_policies_table.insert(&ep.namespace, &ep.id);
+        }
+        self.update_schema_reverse_idx(schema);
+        self.extraction_graphs_by_ns
+            .insert(&extraction_graph.namespace, &extraction_graph.id);
+    }
+
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &self,
@@ -1160,12 +1217,10 @@ impl IndexifyState {
         self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
-            RequestPayload::CreateIndex {
-                index,
-                namespace: _,
-                id,
-            } => {
-                self.set_index(db, &txn, index, id)?;
+            RequestPayload::SetIndex { indexes } => {
+                for index in indexes {
+                    self.set_index(db, &txn, index, &index.id)?;
+                }
             }
             RequestPayload::CreateTasks { tasks } => {
                 self.set_tasks(db, &txn, tasks)?;
@@ -1284,22 +1339,16 @@ impl IndexifyState {
             }
             RequestPayload::CreateExtractionPolicy {
                 extraction_policy,
-                updated_structured_data_schema,
-                new_structured_data_schema,
+                updated_structured_data_schema: _,
+                new_structured_data_schema: _,
             } => {
-                self.set_extraction_policy(
-                    db,
-                    &txn,
-                    extraction_policy,
-                    updated_structured_data_schema,
-                    new_structured_data_schema,
-                )?;
+                self.set_extraction_policy(db, &txn, extraction_policy)?;
             }
             RequestPayload::CreateNamespace {
                 name,
-                structured_data_schema,
+                structured_data_schema: _,
             } => {
-                self.set_namespace(db, &txn, name, structured_data_schema)?;
+                self.set_namespace(db, &txn, name)?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 self.set_processed_state_changes(db, &txn, state_changes)?;
@@ -1311,9 +1360,19 @@ impl IndexifyState {
             } => {
                 self.set_coordinator_addr(db, &txn, *node_id, coordinator_addr)?;
             }
+            RequestPayload::CreateExtractionGraph {
+                extraction_graph,
+                structured_data_schema,
+                indexes,
+            } => {
+                self.set_extraction_graph(db, &txn, extraction_graph, structured_data_schema)?;
+                for index in indexes {
+                    self.set_index(db, &txn, index, &index.id)?;
+                }
+            }
         };
 
-        self.apply(request).map_err(|e| {
+        self.update_reverse_indexes(request).map_err(|e| {
             StateMachineError::ExternalError(anyhow!(
                 "Error while applying reverse index updates: {}",
                 e
@@ -1328,7 +1387,7 @@ impl IndexifyState {
 
     /// This method handles all reverse index writes. All reverse indexes are
     /// written in memory
-    pub fn apply(&self, request: StateMachineUpdateRequest) -> Result<()> {
+    pub fn update_reverse_indexes(&self, request: StateMachineUpdateRequest) -> Result<()> {
         for change in request.new_state_changes {
             self.unprocessed_state_changes.insert(change.id.clone());
         }
@@ -1433,19 +1492,23 @@ impl IndexifyState {
                 self.update_schema_reverse_idx(new_structured_data_schema);
                 Ok(())
             }
+            RequestPayload::CreateExtractionGraph {
+                extraction_graph,
+                structured_data_schema,
+                indexes,
+            } => {
+                self.update_extraction_graph_reverse_idx(&extraction_graph, structured_data_schema);
+                for index in indexes {
+                    self.namespace_index_table
+                        .insert(&index.namespace, &index.id);
+                }
+                Ok(())
+            }
             RequestPayload::CreateNamespace {
                 name: _,
                 structured_data_schema,
             } => {
                 self.update_schema_reverse_idx(structured_data_schema);
-                Ok(())
-            }
-            RequestPayload::CreateIndex {
-                index: _,
-                namespace,
-                id,
-            } => {
-                self.namespace_index_table.insert(&namespace, &id);
                 Ok(())
             }
             RequestPayload::UpdateTask {
@@ -1820,7 +1883,7 @@ impl IndexifyState {
         &self,
         extraction_policy_ids: HashSet<String>,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>, StateMachineError> {
+    ) -> Result<Option<Vec<ExtractionPolicy>>, StateMachineError> {
         let txn = db.transaction();
 
         let mut policies = Vec::new();
@@ -1833,14 +1896,12 @@ impl IndexifyState {
                 .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
             if let Some(bytes) = bytes_opt {
-                let policy =
-                    serde_json::from_slice::<indexify_internal_api::ExtractionPolicy>(&bytes)
-                        .map_err(|e| {
-                            StateMachineError::SerializationError(format!(
-                                "get_extraction_policies from id: unable to deserialize json, {}",
-                                e
-                            ))
-                        })?;
+                let policy = serde_json::from_slice::<ExtractionPolicy>(&bytes).map_err(|e| {
+                    StateMachineError::SerializationError(format!(
+                        "get_extraction_policies from id: unable to deserialize json, {}",
+                        e
+                    ))
+                })?;
                 policies.push(policy);
             }
             // If None, the policy is not found; we simply skip it.
@@ -1851,6 +1912,34 @@ impl IndexifyState {
         } else {
             Ok(Some(policies))
         }
+    }
+
+    pub fn get_extraction_policy_by_names(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+        policy_names: &HashSet<ExtractionPolicyName>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<Option<ExtractionPolicy>>, StateMachineError> {
+        let mut policies = Vec::new();
+        for policy_name in policy_names {
+            let extraction_policy_id =
+                ExtractionPolicy::create_id(graph_name, policy_name, namespace);
+            let extraction_policy_bytes = db
+                .get_cf(
+                    StateMachineColumns::ExtractionPolicies.cf(db),
+                    extraction_policy_id.as_bytes(),
+                )
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+            match extraction_policy_bytes {
+                Some(bytes) => {
+                    let extraction_policy = JsonEncoder::decode::<ExtractionPolicy>(&bytes)?;
+                    policies.push(Some(extraction_policy))
+                }
+                None => policies.push(None),
+            }
+        }
+        Ok(policies)
     }
 
     /// This method gets all task assignments stored in the relevant CF
@@ -1899,15 +1988,20 @@ impl IndexifyState {
             Some(name) => name,
             None => return Ok(None),
         };
-
-        let extraction_policy_ids = self.extraction_policies_table.get(&namespace.to_string());
-        let extraction_policies = self
-            .get_extraction_policies_from_ids(extraction_policy_ids, db)?
-            .unwrap_or_else(Vec::new);
+        let extraction_graphs_ids = self
+            .extraction_graphs_by_ns
+            .get(&namespace.to_string())
+            .into_iter()
+            .collect_vec();
+        let extraction_graphs = self
+            .get_extraction_graphs(&extraction_graphs_ids, db)?
+            .into_iter()
+            .filter_map(|eg| eg)
+            .collect();
 
         Ok(Some(indexify_internal_api::Namespace {
             name: ns_name,
-            extraction_policies,
+            extraction_graphs,
         }))
     }
 
@@ -1931,6 +2025,71 @@ impl IndexifyState {
             schemas.push(schema);
         }
         Ok(schemas)
+    }
+
+    pub fn get_extraction_graphs(
+        &self,
+        extraction_graph_ids: &Vec<ExtractionGraphId>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
+        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids
+            .iter()
+            .map(|egid| (cf, egid.as_bytes()))
+            .collect();
+        let serialized_graphs = db.multi_get_cf(keys);
+        let mut graphs: Vec<Option<ExtractionGraph>> = Vec::new();
+        for serialized_graph in serialized_graphs {
+            match serialized_graph {
+                Ok(graph) => {
+                    if graph.is_some() {
+                        let deserialized_graph =
+                            JsonEncoder::decode::<ExtractionGraph>(&graph.unwrap())?;
+                        graphs.push(Some(deserialized_graph));
+                    } else {
+                        graphs.push(None);
+                    }
+                }
+                Err(e) => {
+                    return Err(StateMachineError::TransactionError(e.to_string()));
+                }
+            }
+        }
+        Ok(graphs)
+    }
+
+    pub fn get_extraction_graphs_by_name(
+        &self,
+        namespace: &str,
+        graph_names: &[String],
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
+        let eg_ids: Vec<String> = graph_names
+            .iter()
+            .map(|name| ExtractionGraph::create_id(name, namespace))
+            .collect();
+        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> =
+            eg_ids.iter().map(|egid| (cf, egid.as_bytes())).collect();
+        let serialized_graphs = db.multi_get_cf(keys);
+        let mut graphs: Vec<Option<ExtractionGraph>> = Vec::new();
+        for serialized_graph in serialized_graphs {
+            match serialized_graph {
+                Ok(graph) => {
+                    if graph.is_some() {
+                        let deserialized_graph =
+                            JsonEncoder::decode::<ExtractionGraph>(&graph.unwrap())?;
+                        graphs.push(Some(deserialized_graph));
+                    } else {
+                        graphs.push(None);
+                    }
+                }
+                Err(e) => {
+                    return Err(StateMachineError::TransactionError(e.to_string()));
+                }
+            }
+        }
+        Ok(graphs)
     }
 
     pub fn get_coordinator_addr(

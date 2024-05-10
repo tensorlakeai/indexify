@@ -9,7 +9,9 @@ crate-type = ["rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
+derive_builder = { workspace = true }
 nanoid = { workspace = true }
+jsonschema = { workspace = true }
 indexify_proto = { workspace = true }
 mime = { workspace = true }
 serde = { workspace = true }

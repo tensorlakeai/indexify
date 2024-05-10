@@ -1,20 +1,24 @@
 use std::collections::HashMap;
 
-use indexify_internal_api as internal_api;
+use itertools::Itertools;
 
 /// filter for content metadata
 pub fn list_content_filter<'a>(
-    content: impl IntoIterator<Item = internal_api::ContentMetadata> + 'a,
+    content_list: Vec<indexify_internal_api::ContentMetadata>,
     source: &'a str,
     parent_id: &'a str,
     labels_eq: &'a HashMap<String, String>,
-) -> impl Iterator<Item = internal_api::ContentMetadata> + 'a {
-    let content_vec: Vec<_> = content.into_iter().collect();
-    content_vec
+) -> Vec<indexify_internal_api::ContentMetadata> {
+    content_list
         .into_iter()
-        .filter(move |c| source.is_empty() || c.source == source)
+        .filter(move |c| source.is_empty() || c.source.to_string().eq(&source.to_string()))
         .filter(move |c| {
-            parent_id.is_empty() || c.parent_id.clone().unwrap_or_default().to_string() == parent_id
+            parent_id.is_empty() ||
+                c.parent_id
+                    .clone()
+                    .map(|p| p.id)
+                    .unwrap_or_default()
+                    .eq(&parent_id.to_string())
         })
         // c.labels HashMap<String, String> must exactly match labels_eq { ("key", "value") }
         // and not have any other labels
@@ -29,12 +33,14 @@ pub fn list_content_filter<'a>(
             }
             true
         })
+        .collect_vec()
 }
 
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
 
+    use indexify_internal_api as internal_api;
     use internal_api::ContentMetadataId;
 
     use super::*;
@@ -44,15 +50,9 @@ mod test {
         let no_labels_filter = HashMap::new();
         let content = vec![
             internal_api::ContentMetadata {
-                id: ContentMetadataId {
-                    id: "1".to_string(),
-                    ..Default::default()
-                },
-                source: "source1".to_string(),
-                parent_id: Some(ContentMetadataId {
-                    id: "parent1".to_string(),
-                    ..Default::default()
-                }),
+                id: ContentMetadataId::new("1"),
+                source: "source1".into(),
+                parent_id: Some(ContentMetadataId::new("parent1")),
                 labels: {
                     let mut labels = HashMap::new();
                     labels.insert("key1".to_string(), "value1".to_string());
@@ -61,28 +61,16 @@ mod test {
                 ..Default::default()
             },
             internal_api::ContentMetadata {
-                id: ContentMetadataId {
-                    id: "2".to_string(),
-                    ..Default::default()
-                },
-                source: "source2".to_string(),
-                parent_id: Some(ContentMetadataId {
-                    id: "parent2".to_string(),
-                    ..Default::default()
-                }),
+                id: ContentMetadataId::new("2"),
+                source: "source2".into(),
+                parent_id: Some(ContentMetadataId::new("parent2")),
                 labels: HashMap::new(),
                 ..Default::default()
             },
             internal_api::ContentMetadata {
-                id: ContentMetadataId {
-                    id: "3".to_string(),
-                    ..Default::default()
-                },
-                source: "source1".to_string(),
-                parent_id: Some(ContentMetadataId {
-                    id: "parent2".to_string(),
-                    ..Default::default()
-                }),
+                id: ContentMetadataId::new("3"),
+                source: "source1".into(),
+                parent_id: Some(ContentMetadataId::new("parent2")),
                 labels: {
                     let mut labels = HashMap::new();
                     labels.insert("key1".to_string(), "value1".to_string());
@@ -92,23 +80,16 @@ mod test {
                 ..Default::default()
             },
             internal_api::ContentMetadata {
-                id: ContentMetadataId {
-                    id: "4".to_string(),
-                    ..Default::default()
-                },
-                source: "source4".to_string(),
-                parent_id: Some(ContentMetadataId {
-                    id: "parent4".to_string(),
-                    ..Default::default()
-                }),
+                id: ContentMetadataId::new("4"),
+                source: "source4".into(),
+                parent_id: Some(ContentMetadataId::new("parent4")),
                 labels: HashMap::new(),
                 ..Default::default()
             },
         ];
 
         // no filters
-        let filtered_content =
-            list_content_filter(content.clone(), "", "", &no_labels_filter).collect::<Vec<_>>();
+        let filtered_content = list_content_filter(content.clone(), "", "", &no_labels_filter);
         assert_eq!(filtered_content.len(), 4);
         assert_eq!(filtered_content[0].id.id, "1");
         assert_eq!(filtered_content[1].id.id, "2");
@@ -117,30 +98,26 @@ mod test {
 
         // source filter
         let filtered_content =
-            list_content_filter(content.clone(), "source1", "", &no_labels_filter)
-                .collect::<Vec<_>>();
+            list_content_filter(content.clone(), "source1", "", &no_labels_filter);
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id.id, "1");
         assert_eq!(filtered_content[1].id.id, "3");
 
         // parent_id and source filter
         let filtered_content =
-            list_content_filter(content.clone(), "source1", "parent2::v1", &no_labels_filter)
-                .collect::<Vec<_>>();
+            list_content_filter(content.clone(), "source1", "parent2", &no_labels_filter);
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id.id, "3");
 
         // parent_id filter
         let filtered_content =
-            list_content_filter(content.clone(), "", "parent2::v1", &no_labels_filter)
-                .collect::<Vec<_>>();
+            list_content_filter(content.clone(), "", "parent2", &no_labels_filter);
         assert_eq!(filtered_content.len(), 2);
         assert_eq!(filtered_content[0].id.id, "2");
         assert_eq!(filtered_content[1].id.id, "3");
 
         // labels filter - empty - skips the labels filter
-        let filtered_content =
-            list_content_filter(content.clone(), "", "", &no_labels_filter).collect::<Vec<_>>();
+        let filtered_content = list_content_filter(content.clone(), "", "", &no_labels_filter);
         assert_eq!(filtered_content.len(), 4);
 
         // labels filter - exact match
@@ -149,8 +126,7 @@ mod test {
             labels.insert("key1".to_string(), "value1".to_string());
             labels
         };
-        let filtered_content =
-            list_content_filter(content.clone(), "", "", &labels_eq).collect::<Vec<_>>();
+        let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq);
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id.id, "1");
 
@@ -161,8 +137,7 @@ mod test {
             labels.insert("key2".to_string(), "value2".to_string());
             labels
         };
-        let filtered_content =
-            list_content_filter(content.clone(), "", "", &labels_eq).collect::<Vec<_>>();
+        let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq);
         assert_eq!(filtered_content.len(), 1);
         assert_eq!(filtered_content[0].id.id, "3");
     }

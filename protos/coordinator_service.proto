@@ -14,7 +14,9 @@ service CoordinatorService {
 
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
 
-    rpc CreateExtractionPolicy(ExtractionPolicyRequest) returns (ExtractionPolicyResponse) {}
+    rpc CreateExtractionGraph(CreateExtractionGraphRequest) returns (CreateExtractionGraphResponse) {}
+
+    rpc GetExtractionPolicy(GetExtractionPolicyRequest) returns (GetExtractionPolicyResponse) {}
 
     rpc ListExtractionPolicies(ListExtractionPoliciesRequest) returns (ListExtractionPoliciesResponse) {}
 
@@ -42,7 +44,7 @@ service CoordinatorService {
 
     rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
 
-    rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
+    rpc UpdateIndexesState(UpdateIndexesStateRequest) returns (UpdateIndexesStateResponse) {}
 
     rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
 
@@ -146,12 +148,11 @@ message GetIndexResponse {
     Index index = 1;
 }
 
-message CreateIndexRequest {
-    Index index = 2;
+message UpdateIndexesStateRequest {
+    repeated Index indexes = 1;
 }
 
-message CreateIndexResponse {
-}
+message UpdateIndexesStateResponse {}
 
 message Index {
     string name = 1;
@@ -160,6 +161,7 @@ message Index {
     string schema = 4;
     string extraction_policy = 5;
     string extractor = 6;
+    string graph_name = 7;
 }
 
 message Embedding {
@@ -294,6 +296,14 @@ message ListContentResponse {
     repeated ContentMetadata content_list = 1; 
 }
 
+message GetExtractionPolicyRequest {
+    string extraction_policy_id = 1;
+}
+
+message GetExtractionPolicyResponse {
+    ExtractionPolicy policy = 1;
+}
+
 message ListExtractionPoliciesRequest {
     string namespace = 1;
 }
@@ -304,7 +314,7 @@ message ListExtractionPoliciesResponse {
 
 message CreateNamespaceRequest {
     string name = 1;
-    repeated ExtractionPolicy policies = 2;
+    repeated ExtractionGraph extraction_graphs = 2;
 }
 
 message CreateNamespaceResponse {
@@ -320,6 +330,13 @@ message ListNamespaceResponse {
     repeated Namespace namespaces = 1;
 }
 
+message ExtractionGraph {
+    string id = 1;
+    string namespace = 2;
+    string name = 3;
+    repeated ExtractionPolicy extraction_policies = 4;
+}
+
 message ExtractionPolicy {
     string id = 1;
     string extractor = 2;
@@ -327,6 +344,7 @@ message ExtractionPolicy {
     string input_params = 4;
     map<string, string> filters = 5;
     string content_source = 6;
+    string graph_name = 7;
 }
 
 message ExtractionPolicyRequest {
@@ -337,6 +355,20 @@ message ExtractionPolicyRequest {
     map<string, string> filters = 5;
     string content_source = 6;
     int64 created_at = 7;
+}
+
+message CreateExtractionGraphRequest {
+    string namespace = 1;
+    string name = 2;
+    repeated ExtractionPolicyRequest policies = 3;
+}
+
+message CreateExtractionGraphResponse {
+    string graph_id = 1;
+    map<string, Extractor> extractors = 2;
+    map<string, ExtractionPolicy> policies = 3;
+    map<string, string> extractor_output_table_mapping = 4;
+    repeated Index indexes = 5;
 }
 
 message ExtractionPolicyResponse {
@@ -361,6 +393,7 @@ message ContentMetadata {
     string hash = 11;
     map<string, uint64> extraction_policy_ids = 12;
     string root_content_id = 13;
+    repeated string extraction_graph_names = 14;
 }
 
 message CreateContentRequest {
@@ -380,12 +413,12 @@ message TombstoneContentResponse {}
 
 message Namespace {
     string name = 1;
-    repeated ExtractionPolicy policies = 2;
+    repeated ExtractionGraph extraction_graphs = 2;
 }
 
 message GetSchemaRequest {
     string namespace = 1;
-    string content_source = 2;
+    string extraction_graph_name = 2;
 }
 
 message GetSchemaResponse {
@@ -393,8 +426,10 @@ message GetSchemaResponse {
 }
 
 message StructuredDataSchema {
-    string columns = 1;
-    string content_source = 2;
+    string id = 1;
+    string extraction_graph_name = 2;
+    string namespace = 3;
+    string columns = 4;
 }
 
 message GetAllSchemaRequest {

@@ -6,7 +6,6 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
-use internal_api::OutputSchema;
 use tracing::info;
 
 use crate::{
@@ -74,17 +73,10 @@ impl Scheduler {
     ) -> Result<Vec<String>> {
         let mut tables = Vec::new();
         for policy in policies {
-            let extractor = self
-                .shared_state
-                .extractor_with_name(&policy.extractor)
-                .await?;
-            for (name, schema) in &extractor.outputs {
-                if let OutputSchema::Embedding(_) = schema {
-                    let index_name = policy.output_index_name_mapping.get(name).unwrap();
-                    let table_name = policy.index_name_table_mapping.get(index_name).unwrap();
-                    tables.push(table_name.clone());
-                    continue;
-                }
+            let extractor = self.shared_state.extractor_with_name(&policy.extractor)?;
+            for name in extractor.outputs.keys() {
+                let table_name = policy.output_table_mapping.get(name).unwrap();
+                tables.push(table_name.clone());
             }
         }
         Ok(tables)
@@ -95,18 +87,10 @@ impl Scheduler {
         state_change: StateChange,
     ) -> Result<Vec<internal_api::Task>> {
         let tasks = match &state_change.change_type {
-            internal_api::ChangeType::NewExtractionPolicy => {
-                let content_list = self
-                    .shared_state
-                    .content_matching_policy(&state_change.object_id)
-                    .await?;
-                self.create_task_list(&state_change.object_id, content_list)
-                    .await?
-            }
             internal_api::ChangeType::NewContent => {
                 let extraction_policies = self
                     .shared_state
-                    .filter_extraction_policy_for_content(
+                    .match_extraction_policies_for_content(
                         &state_change.object_id.clone().try_into()?,
                     )
                     .await?;
@@ -181,28 +165,6 @@ impl Scheduler {
         Ok(TaskAllocationPlan(HashMap::new()))
     }
 
-    pub async fn create_task_list(
-        &self,
-        extraction_policy_id: &str,
-        contents: Vec<internal_api::ContentMetadata>,
-    ) -> Result<Vec<internal_api::Task>> {
-        let mut tasks = Vec::new();
-        for content in &contents {
-            let extraction_policy = self
-                .shared_state
-                .get_extraction_policy(extraction_policy_id)
-                .await?;
-            let tables = self
-                .tables_for_policies(&[extraction_policy.clone()])
-                .await?;
-            let new_tasks = self
-                .create_task(extraction_policy_id, content, &tables)
-                .await?;
-            tasks.push(new_tasks);
-        }
-        Ok(tasks)
-    }
-
     pub async fn create_task(
         &self,
         extraction_policy_id: &str,
@@ -211,26 +173,17 @@ impl Scheduler {
     ) -> Result<internal_api::Task> {
         let extraction_policy = self
             .shared_state
-            .get_extraction_policy(extraction_policy_id)
-            .await?;
+            .get_extraction_policy(extraction_policy_id)?;
         let extractor = self
             .shared_state
-            .extractor_with_name(&extraction_policy.extractor)
-            .await?;
-        let mut output_mapping: HashMap<String, String> = HashMap::new();
+            .extractor_with_name(&extraction_policy.extractor)?;
 
-        // Just store the mapping
+        let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let index_name = extraction_policy
-                .output_index_name_mapping
-                .get(name)
-                .unwrap();
-            let table_name = extraction_policy
-                .index_name_table_mapping
-                .get(index_name)
-                .unwrap();
+            let table_name = extraction_policy.output_table_mapping.get(name).unwrap();
             output_mapping.insert(name.clone(), table_name.clone());
         }
+
         let mut hasher = DefaultHasher::new();
         extraction_policy.name.hash(&mut hasher);
         extraction_policy.namespace.hash(&mut hasher);
