@@ -349,7 +349,6 @@ impl Coordinator {
         let mut indexes_to_create = Vec::new();
         for extraction_policy in &extraction_graph.extraction_policies {
             let extractor = self.get_extractor(&extraction_policy.extractor)?;
-            extractor.validate_input_params(&extraction_policy.input_params)?;
             for (output_name, output_schema) in extractor.outputs {
                 match output_schema {
                     OutputSchema::Embedding(embeddings) => {
@@ -591,7 +590,6 @@ mod tests {
             create_test_extraction_graph,
             mock_extractor,
             test_mock_content_metadata,
-            DEFAULT_TEST_EXTRACTOR,
             DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
@@ -636,29 +634,15 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         //  Create an extraction graph
-        let extraction_policy_id = "extraction_policy_id";
-        let extraction_graph_id = "extraction_graph_id";
-        let extraction_policy = internal_api::ExtractionPolicy {
-            id: extraction_policy_id.into(),
-            graph_name: extraction_graph_id.into(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
-            content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
-            ..Default::default()
-        };
-        let extraction_graph = internal_api::ExtractionGraph {
-            id: extraction_graph_id.into(),
-            name: "test".into(),
-            namespace: DEFAULT_TEST_NAMESPACE.into(),
-            extraction_policies: vec![extraction_policy],
-        };
+        let eg = create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
         coordinator
-            .create_extraction_graph(extraction_graph.clone())
+            .create_extraction_graph(eg.clone())
             .await?;
         coordinator.run_scheduler().await?;
 
         //  Read the extraction graph back
-        let ret_graph = shared_state.get_extraction_graphs(&vec![extraction_graph.id])?;
+        let ret_graph = shared_state
+            .get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &vec![eg.name])?;
         assert!(ret_graph.first().unwrap().is_some());
         assert_eq!(ret_graph.len(), 1);
         Ok(())
@@ -755,9 +739,10 @@ mod tests {
         //  Create a separate piece of content metadata which will not trigger task
         // creation
         let content_metadata = test_mock_content_metadata("test2", "test2", "not_present_graph");
-        coordinator
+        let result = coordinator
             .create_content_metadata(vec![content_metadata.clone()])
-            .await?;
+            .await;
+        assert!(result.is_err());
         coordinator.run_scheduler().await?;
         let tasks = shared_state.unassigned_tasks().await?;
         assert_eq!(tasks.len(), 0);

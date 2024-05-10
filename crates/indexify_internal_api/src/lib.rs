@@ -221,7 +221,7 @@ impl From<ExtractorDescription> for indexify_coordinator::Extractor {
 
 impl ExtractorDescription {
     pub fn validate_input_params(&self, input_params: &serde_json::Value) -> Result<()> {
-        if self.input_params == serde_json::Value::Null {
+        if input_params.eq(&serde_json::Value::Null) {
             return Ok(());
         }
         let input_params_schema = JSONSchema::compile(&self.input_params).map_err(|e| {
@@ -908,7 +908,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             size_bytes: value.size_bytes,
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
-            extraction_graph_names: vec![],
+            extraction_graph_names: value.extraction_graph_names,
         }
     }
 }

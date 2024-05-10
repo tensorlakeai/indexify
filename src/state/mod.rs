@@ -543,10 +543,8 @@ impl App {
             &extraction_graph.id,
         )?;
         if existing_graph.is_some() {
-            return Err(anyhow!(
-                "Extraction graph with id {} already exists",
-                extraction_graph.id
-            ));
+            println!("extraction graph already exists");
+            return Ok(());
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionGraph {
@@ -562,14 +560,6 @@ impl App {
             .await
             .map_err(|e| anyhow!("unable to create extraction graph: {}", e.to_string()))?;
         Ok(())
-    }
-
-    pub fn get_extraction_graphs(
-        &self,
-        extraction_graph_ids: &Vec<String>,
-    ) -> Result<Vec<Option<ExtractionGraph>>> {
-        self.state_machine
-            .get_extraction_graphs(extraction_graph_ids)
     }
 
     pub fn get_extraction_graphs_by_name(
@@ -805,6 +795,27 @@ impl App {
         &self,
         content_metadata: Vec<internal_api::ContentMetadata>,
     ) -> Result<()> {
+        if content_metadata.is_empty() {
+            return Ok(());
+        }
+        let ns = &content_metadata.first().unwrap().namespace.clone();
+        let extraction_graph_names = &content_metadata
+            .iter()
+            .map(|c| c.extraction_graph_names.clone())
+            .flatten()
+            .collect_vec();
+        let extraction_graphs = self.get_extraction_graphs_by_name(&ns, &extraction_graph_names)?;
+        for (eg, extraction_graph_names) in
+            extraction_graphs.into_iter().zip(extraction_graph_names)
+        {
+            if eg.is_none() {
+                return Err(anyhow!(
+                    "Extraction graph with name {} not found",
+                    extraction_graph_names
+                ));
+            }
+        }
+
         let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
         let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
