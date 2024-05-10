@@ -701,7 +701,7 @@ impl ExtractionPolicyBuilder {
         }
         Ok(ExtractionPolicy {
             id,
-            graph_name: graph_id.to_string(),
+            graph_name: graph_name.to_string(),
             name,
             namespace: ns,
             extractor,

@@ -163,7 +163,7 @@ impl DataManager {
                 name: ep.name.clone(),
                 filters: ep.filters_eq.clone().unwrap_or_default(),
                 input_params: input_params_serialized,
-                content_source: ep.content_source.clone().unwrap_or(req.name.to_string()),
+                content_source: ep.content_source.clone().unwrap_or_default(),
                 created_at: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)?
                     .as_secs() as i64,

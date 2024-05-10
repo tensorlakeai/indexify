@@ -434,6 +434,7 @@ pub struct ContentMetadata {
     pub name: String,
     pub mime_type: String,
     pub labels: HashMap<String, String>,
+    pub extraction_graph_names: Vec<String>,
     pub storage_url: String,
     pub created_at: i64,
     pub source: String,
@@ -456,6 +457,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             source: value.source,
             size: value.size_bytes,
             hash: value.hash,
+            extraction_graph_names: value.extraction_graph_names,
         }
     }
 }
@@ -475,6 +477,7 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
             source: value.source.to_string(),
             size: value.size_bytes,
             hash: value.hash,
+            extraction_graph_names: value.extraction_graph_names,
         }
     }
 }

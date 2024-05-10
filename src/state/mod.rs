@@ -384,6 +384,7 @@ impl App {
         if content_metadata.tombstoned {
             return Ok(vec![]);
         }
+
         if content_metadata.extraction_graph_names.is_empty() {
             return Ok(Vec::new());
         }
@@ -543,7 +544,6 @@ impl App {
             &extraction_graph.id,
         )?;
         if existing_graph.is_some() {
-            println!("extraction graph already exists");
             return Ok(());
         }
         let req = StateMachineUpdateRequest {
