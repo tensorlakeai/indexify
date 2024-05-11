@@ -15,6 +15,7 @@ const IndexTable = ({
   namespace: string;
   extractionPolicies: IExtractionPolicy[]
 }) => {
+  console.log("indextable extractionPolicies", extractionPolicies)
   const getPolicyFromIndexname = (indexName:string):IExtractionPolicy | undefined => {
     return extractionPolicies.find(policy => String(indexName).startsWith(policy.name))
   }
