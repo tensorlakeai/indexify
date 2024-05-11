@@ -1358,10 +1358,7 @@ impl IndexifyState {
             } => {
                 self.set_extraction_policy(db, &txn, extraction_policy)?;
             }
-            RequestPayload::CreateNamespace {
-                name,
-                structured_data_schema: _,
-            } => {
+            RequestPayload::CreateNamespace { name } => {
                 self.set_namespace(db, &txn, name)?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
@@ -1513,17 +1510,12 @@ impl IndexifyState {
             } => {
                 self.update_extraction_graph_reverse_idx(&extraction_graph, structured_data_schema);
                 for index in indexes {
-                    self.namespace_index_table.insert(&index.namespace, &index.id);
+                    self.namespace_index_table
+                        .insert(&index.namespace, &index.id);
                 }
                 Ok(())
             }
-            RequestPayload::CreateNamespace {
-                name: _,
-                structured_data_schema,
-            } => {
-                self.update_schema_reverse_idx(structured_data_schema);
-                Ok(())
-            }
+            RequestPayload::CreateNamespace { name: _ } => Ok(()),
             RequestPayload::UpdateTask {
                 task,
                 executor_id,
