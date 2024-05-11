@@ -635,14 +635,12 @@ mod tests {
 
         //  Create an extraction graph
         let eg = create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
-        coordinator
-            .create_extraction_graph(eg.clone())
-            .await?;
+        coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Read the extraction graph back
-        let ret_graph = shared_state
-            .get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &vec![eg.name])?;
+        let ret_graph =
+            shared_state.get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &vec![eg.name])?;
         assert!(ret_graph.first().unwrap().is_some());
         assert_eq!(ret_graph.len(), 1);
         Ok(())

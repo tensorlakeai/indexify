@@ -675,7 +675,6 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateNamespace {
                 name: namespace.to_string(),
-                structured_data_schema: StructuredDataSchema::new("ingestion", namespace),
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],
