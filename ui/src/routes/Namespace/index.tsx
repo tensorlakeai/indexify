@@ -46,9 +46,7 @@ const NamespacePage = () => {
       <ExtractionGraphs
 
         namespace={client.namespace}
-        extractionPolicies={client.extractionGraphs
-          .map((graph) => graph.extraction_policies)
-          .flat()}
+        extractionGraphs={client.extractionGraphs}
         extractors={extractors}
       />
       <IndexTable

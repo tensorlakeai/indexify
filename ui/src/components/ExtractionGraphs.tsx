@@ -1,4 +1,4 @@
-import { IExtractionPolicy, IExtractor } from "getindexify";
+import { IExtractionGraph, IExtractionPolicy, IExtractor } from "getindexify";
 import { Alert, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React, { ReactElement } from "react";
@@ -7,13 +7,13 @@ import ExtractionPolicyItem from "./ExtractionPolicyItem";
 import { IExtractionGraphCol, IExtractionGraphColumns } from "../types";
 
 const ExtractionGraphs = ({
-  extractionPolicies,
+  extractionGraphs,
   namespace,
   extractors,
 }: {
-  extractionPolicies: IExtractionPolicy[];
+  extractionGraphs: IExtractionGraph[];
   namespace: string;
-  extractors:IExtractor[]
+  extractors: IExtractor[];
 }) => {
   const itemheight = 60;
   const cols: IExtractionGraphColumns = {
@@ -76,7 +76,7 @@ const ExtractionGraphs = ({
   };
 
   const renderContent = () => {
-    if (extractionPolicies.length === 0) {
+    if (extractionGraphs.length === 0) {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
@@ -97,9 +97,14 @@ const ExtractionGraphs = ({
         }}
       >
         <div style={{ minWidth: "max-content" }}>{renderHeader()}</div>
-        <Box sx={{ p: 2 }}>
-          {renderGraphItems(extractionPolicies, "ingestion")}
-        </Box>
+        {extractionGraphs.map((graph) => {
+          return (
+            <Box key={graph.name} sx={{ p: 2 }}>
+              <Typography variant="h3">{graph.name}</Typography>
+              {renderGraphItems(graph.extraction_policies, "")}
+            </Box>
+          );
+        })}
       </Box>
     );
   };

@@ -216,7 +216,7 @@ const ContentPage = () => {
         );
       })}
       {/* <TasksTable
-        policies={client.extractionPolicies}
+        extractionGraphs={client.extractionGraphs}
         namespace={namespace}
         tasks={tasks}
         hideContentId

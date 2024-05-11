@@ -45,7 +45,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
-            No Extractors Found
+            No Schemas Found
           </Alert>
         </Box>
       );

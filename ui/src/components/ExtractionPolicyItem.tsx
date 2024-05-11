@@ -23,8 +23,9 @@ const ExtractionPolicyItem = ({
   index?: IIndex;
 }) => {
   const renderInputParams = () => {
+    console.log(extractionPolicy)
     if (
-      extractionPolicy.input_params === undefined ||
+      !extractionPolicy.input_params ||
       Object.keys(extractionPolicy.input_params).length === 0
     ) {
       return <Chip label={`none`} />;

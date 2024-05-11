@@ -49,6 +49,7 @@ const ContentTable = ({
   extractionPolicies: IExtractionPolicy[];
   content: IContentMetadata[];
 }) => {
+  console.log("content", content)
   const childCountMap = getChildCountMap(content);
   const [paginationModel, setPaginationModel] = useState({
     page: 1,
@@ -61,7 +62,7 @@ const ContentTable = ({
   }>({ contentId: "", policyName: "Any" });
 
   const [filteredContent, setFilteredContent] = useState(
-    content.filter((c) => c.source === "ingestion")
+    content.filter((c) => c.source === "")
   );
   const [currentTab, setCurrentTab] = useState("ingested");
 
@@ -112,7 +113,7 @@ const ContentTable = ({
     } else if (currentTab === "ingested") {
       // go back to root node of graph tab
       setGraphTabIds([]);
-      setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
+      setFilteredContent([...content.filter((c) => c.source === "")]);
     } else {
       // current tab is now a content id
       // remove tabs after id: selectedValue if possible
