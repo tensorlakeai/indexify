@@ -29,7 +29,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructurd data
     ```
     ```python
     from indexify import IndexifyClient
-
+    
     client = IndexifyClient()
     ```
 
@@ -40,7 +40,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructurd data
     ```
     ```typescript
     import { IndexifyClient } from "getindexify";
-
+    
     const client = await IndexifyClient.createClient();
     ```
 
@@ -108,7 +108,7 @@ Once the extractor SDK and extractors are downloaded, start and join them to the
     ```shell
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500 --listen-port=9500
     ```
-  
+
 The extractor is now ready to receive content you upload and extract embeddings using the MiniLML6Extractor.
 This process keeps running and will automatically extract any new content it receives.
 
@@ -122,7 +122,7 @@ The extraction policies informs Indexify how to extract information from ingeste
     client.add_extraction_policy(
         extractor="tensorlake/minilm-l6", 
         name="minilml6")
-
+    
     extraction_policies = client.extraction_policies
     ```
 
@@ -150,7 +150,7 @@ The extraction policies informs Indexify how to extract information from ingeste
 
 We now have an index with embedding extracted by MiniLML6.
 
-#### Let's build a Langchain based RAG with our extracted inforation
+#### Let's build a Langchain based RAG with our extracted information
 
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
@@ -177,7 +177,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 ```
 
-Now, let's setup a chain with a prompt and use OpenAI to answer questions. Notice that we are passing the Indexfiy retreiver created above to get context for the RAG.
+Now, let's setup a chain with a prompt and use OpenAI to answer questions. Notice that we are passing the Indexify retriever created above to get context for the RAG.
 ```python
 template = """Answer the question based only on the following context:
 {context}
