@@ -1,26 +1,29 @@
 # Getting Started
 
-We will build a simple RAG application in this demo where Indexify extracts content from text 
-
+We will build a simple RAG application in this demo where Indexify extracts content from text.
 
 ### Download the Indexify Binary
+
 ```shell
 curl https://www.tensorlake.ai | sh
 ```
 
 ### Start the Service
+
 ```shell
 ./indexify server -d
 ```
+
 This starts the Indexify ingestion API and scheduler. The server state, ingested and extract content will be stored on local disk. The following endpoints are started -
 
-* Ingestion API - [http://localhost:8900](http://localhost:8900)
-* User Interface - [http://localhost:8900/ui](http://localhost:8900/ui)
+- Ingestion API - [http://localhost:8900](http://localhost:8900)
+- User Interface - [http://localhost:8900/ui](http://localhost:8900/ui)
 
 A internal scheduler endpoint is started at localhost:8950 for communicating with extractors.
 
 ### Install the client library
-Indexify comes with Python and Typescript clients for ingesting unstructurd data and retreiving indexed content. These clients uses the HTTP APIs of Indexify under the hood.
+
+Indexify comes with Python and Typescript clients for ingesting unstructured data and retrieving indexed content. These clients use the HTTP APIs of Indexify under the hood.
 
 === "python"
 
@@ -46,7 +49,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructurd data
 
 ### Adding Content
 
-Indexify supports multiple ways of adding content through with it's API.
+Indexify supports multiple ways of adding content through its API.
 
 #### Add some documents
 
@@ -75,14 +78,15 @@ Indexify supports multiple ways of adding content through with it's API.
     ```shell
     curl -v -X POST http://localhost:8900/namespaces/default/add_texts \
     -H "Content-Type: application/json" \
-    -d '{"documents": [ 
+    -d '{"documents": [
             {"text": "Indexify is amazing!"},
-            {"text": "Indexify is a retrieval service for LLM agents!"}, 
+            {"text": "Indexify is a retrieval service for LLM agents!"},
             {"text": "Kevin Durant is the best basketball player in the world."}
         ]}'
     ```
 
-## Install the Extractor SDK 
+## Install the Extractor SDK
+
 Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, first install the extractors sdk.
 
 ```shell
@@ -120,7 +124,7 @@ The extraction policies informs Indexify how to extract information from ingeste
 
     ```python
     client.add_extraction_policy(
-        extractor="tensorlake/minilm-l6", 
+        extractor="tensorlake/minilm-l6",
         name="minilml6")
     
     extraction_policies = client.extraction_policies
@@ -155,6 +159,7 @@ We now have an index with embedding extracted by MiniLML6.
 Next let's query the index created by the embedding extractor. The index will allow us to do semantic search over the text.
 
 Install indexify-langchain
+
 ```shell
 pip install indexify-langchain
 ```
@@ -169,7 +174,6 @@ retriever = IndexifyRetriever(client=client, params=params)
 
 We are first setting up the IndexifyRetreiver that langchain is going to use.
 
-
 ```python
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -178,6 +182,7 @@ from langchain_openai import ChatOpenAI
 ```
 
 Now, let's setup a chain with a prompt and use OpenAI to answer questions. Notice that we are passing the Indexify retriever created above to get context for the RAG.
+
 ```python
 template = """Answer the question based only on the following context:
 {context}
