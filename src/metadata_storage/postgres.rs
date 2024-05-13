@@ -136,9 +136,8 @@ impl MetadataStorage for PostgresIndexManager {
     async fn delete_metadata_for_content(&self, namespace: &str, content_id: &str) -> Result<()> {
         let _timer = Timer::start(&self.metrics.metadata_deleted);
         let index_table_name = PostgresIndexName::new(&table_name(namespace));
-        let query = format!(
-            "DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and extraction_graph = $2"
-        );
+        let query =
+            format!("DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and content_id= $2");
 
         sqlx::query(&query)
             .bind(namespace)
@@ -178,7 +177,7 @@ impl MetadataReader for PostgresIndexManager {
             "
             SELECT content_id, data
             FROM \"{table_name}\"
-            WHERE namespace = $1 AND content_source = $2
+            WHERE namespace = $1 AND extraction_graph = $2
         "
         );
 
