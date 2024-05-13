@@ -141,22 +141,6 @@ impl LanceDb {
     }
 }
 
-fn add_nulls_to_record_batch(
-    record_batch: &RecordBatch,
-    schema: arrow_schema::SchemaRef,
-    new_fields: &[Field],
-) -> lance::Result<RecordBatch> {
-    let mut arrays = record_batch.columns().to_vec();
-
-    for _ in new_fields {
-        let null_array = Arc::new(arrow_array::NullArray::new(record_batch.num_rows()));
-        arrays.push(null_array);
-    }
-
-    let ret = RecordBatch::try_new(schema, arrays)?;
-    Ok(ret)
-}
-
 // Update the schema of the table with the missing fields from the metadata keys
 async fn update_schema_with_missing_fields(
     tbl: &Table,
@@ -164,18 +148,27 @@ async fn update_schema_with_missing_fields(
 ) -> Result<Arc<Schema>, anyhow::Error> {
     let mut new_fields = Vec::new();
     let mut schema = tbl.schema().await?;
+    // Find the fields that has to be added 
     for (key, _) in metadata.iter() {
         if schema.field_with_name(key).is_err() {
-            new_fields.push(Field::new(key, DataType::Utf8, true));
+            new_fields.push(Arc::new(Field::new(key, DataType::Utf8, true)));
         }
     }
     if !new_fields.is_empty() {
+        let mut all_fields = schema.fields().to_vec();
+        all_fields.extend(new_fields.clone());
         let new_schema = Arc::new(Schema::new(new_fields.clone()));
-        let cloned_schema = new_schema.clone();
-
+        let new_schema_clone = new_schema.clone();
         //add nulls to record batch
         let mapper = move |record_batch: &RecordBatch| {
-            add_nulls_to_record_batch(record_batch, cloned_schema.clone(), &new_fields)
+            let mut arrays = record_batch.columns().to_vec();
+            for _ in &new_fields {
+                let null_array = Arc::new(arrow_array::NullArray::new(record_batch.num_rows()));
+                arrays.push(null_array);
+            }
+
+            let ret = RecordBatch::try_new(new_schema_clone.clone(), arrays)?;
+            Ok(ret)
         };
 
         let udf = BatchUDF {
