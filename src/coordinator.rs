@@ -966,9 +966,7 @@ mod tests {
 
         ////  check that tasks have been created for the second level for the second
         //// extractor
-        let tasks = shared_state
-            .tasks_for_executor(executor_id_2, None)
-            .await?;
+        let tasks = shared_state.tasks_for_executor(executor_id_2, None).await?;
         assert_eq!(tasks.len(), 4);
 
         ////  Create the final child
