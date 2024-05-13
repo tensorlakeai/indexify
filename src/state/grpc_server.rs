@@ -1,7 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
-use futures::TryFutureExt;
 use indexify_proto::indexify_raft::{
     raft_api_server::RaftApi,
     RaftReply,

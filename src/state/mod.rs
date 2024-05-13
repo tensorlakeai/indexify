@@ -220,7 +220,6 @@ impl App {
             .map_err(|e| anyhow!("unable to create raft address : {}", e.to_string()))?;
 
         info!("starting raft server at {}", addr.to_string());
-        let limit = 10 * 1024 * 1024;
         let raft_srvr = RaftApiServer::new(RaftGrpcServer::new(
             server_config.node_id,
             Arc::new(raft.clone()),
@@ -228,9 +227,7 @@ impl App {
             addr.to_string(),
             server_config.coordinator_addr.clone(),
             sm_blob_store_path.to_path_buf(),
-        ))
-        .max_encoding_message_size(limit)
-        .max_decoding_message_size(limit);
+        ));
         let (leader_change_tx, leader_change_rx) = watch::channel::<bool>(false);
 
         let metrics = Metrics::new(state_machine.clone());
