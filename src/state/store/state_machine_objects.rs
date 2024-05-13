@@ -1106,7 +1106,6 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
-        println!("Setting schema: {:?}", schema);
         let serialized_schema = JsonEncoder::encode(schema)?;
         txn.put_cf(
             &StateMachineColumns::StructuredDataSchemas.cf(db),
@@ -1212,10 +1211,6 @@ impl IndexifyState {
         }
         self.extraction_graphs_by_ns
             .insert(&extraction_graph.namespace, &extraction_graph.id);
-        println!(
-            "Updating structured schema reverse index: {:?}",
-            structured_data_schema
-        );
         self.schemas_by_namespace.insert(
             &structured_data_schema.namespace,
             &structured_data_schema.id,
