@@ -260,9 +260,9 @@ mod tests {
             ("name", SchemaColumnType::Text),
             ("role", SchemaColumnType::Text),
         ];
-        let schema = create_schema(ns, cols1, "test_content_source");
+        let schema = create_schema(ns, cols1, "test_extraction_graph");
         let result = run_query(
-            "SELECT * FROM test_content_source;".to_string(),
+            "SELECT * FROM test_extraction_graph;".to_string(),
             index_manager.clone(),
             vec![schema.clone()],
             ns.to_string(),
@@ -278,7 +278,7 @@ mod tests {
         }
 
         let result = run_query(
-            r#"SELECT * FROM test_content_source where role='founder';"#.to_string(),
+            r#"SELECT * FROM test_extraction_graph where role='founder';"#.to_string(),
             index_manager,
             vec![schema],
             ns.to_string(),
