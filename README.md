@@ -56,14 +56,20 @@ indexify-extractor join-server
 ```python
 from indexify import IndexifyClient
 client = IndexifyClient()
+extraction_graph_spec = """
+name: 'sportsknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/minilm-l6'
+     name: 'minilml6'
+"""
 client.add_extraction_policy(extractor="tensorlake/minilm-l6", name="minilml6")
-client.indexes()
+print(client.indexes())
 client.add_documents(["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
 ```
 
 #### Search the Index
 ```python
-client.search_index(name="minilm6.embedding", query="NBA commissioner", top_k=1)
+client.search_index(name="sportsknowledgebase.minilml6.embedding", query="NBA commissioner", top_k=1)
 ```
 
 #### Use Extracted Data in Applications
