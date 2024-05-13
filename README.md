@@ -43,7 +43,7 @@ curl https://tensorlake.ai | sh
 
 #### Install the Indexify Extractor and Client SDKs
 ```bash
-pip install indexify indexify-extractors
+pip install indexify indexify-extractor-sdk
 ```
 
 #### Start an embedding extractor 
