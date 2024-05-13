@@ -93,14 +93,13 @@ message UpdateTaskRequest {
     string executor_id = 1;
     string task_id = 2;
     TaskOutcome outcome = 3;
-    repeated ContentMetadata content_list = 4;
 }
 
 message ListStateChangesRequest {
 }
 
 message StateChange {
-    string id = 1;
+    uint64 id = 1;
     string object_id = 2;
     string change_type = 3;
     uint64 created_at = 4;

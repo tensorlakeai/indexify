@@ -35,7 +35,7 @@ impl Scheduler {
         // Commit them
         if !tasks.is_empty() {
             self.shared_state
-                .create_tasks(tasks.clone(), &state_change.id)
+                .create_tasks(tasks.clone(), state_change.id)
                 .await?;
             state_change_processed = true;
         }
@@ -44,7 +44,7 @@ impl Scheduler {
         let allocation_plan = self.allocate_tasks(tasks).await?;
         if !allocation_plan.0.is_empty() {
             self.shared_state
-                .commit_task_assignments(allocation_plan.0, &state_change.id)
+                .commit_task_assignments(allocation_plan.0, state_change.id)
                 .await?;
             state_change_processed = true;
         }
@@ -53,7 +53,7 @@ impl Scheduler {
         let allocation_plan = self.redistribute_tasks(&state_change).await?;
         if !allocation_plan.0.is_empty() {
             self.shared_state
-                .commit_task_assignments(allocation_plan.0, &state_change.id)
+                .commit_task_assignments(allocation_plan.0, state_change.id)
                 .await?;
             state_change_processed = true;
         }
@@ -91,23 +91,24 @@ impl Scheduler {
     ) -> Result<Vec<internal_api::Task>> {
         let tasks = match &state_change.change_type {
             internal_api::ChangeType::NewContent => {
-                let extraction_policies = self
-                    .shared_state
-                    .match_extraction_policies_for_content(
-                        &state_change.object_id.clone().try_into()?,
-                    )
-                    .await?;
-                let content = self
-                    .shared_state
-                    .get_content_metadata_with_version(&state_change.object_id.clone().try_into()?)
-                    .await?;
+                let content_id = state_change.object_id;
                 let mut tasks: Vec<internal_api::Task> = Vec::new();
-                let tables = self.tables_for_policies(&extraction_policies).await?;
-                for extraction_policy in extraction_policies {
-                    let task = self
-                        .create_task(&extraction_policy.id, &content, &tables)
+                if let Some(content) = self
+                    .shared_state
+                    .state_machine
+                    .get_latest_version_of_content(&content_id)?
+                {
+                    let extraction_policies = self
+                        .shared_state
+                        .match_extraction_policies_for_content(&content)
                         .await?;
-                    tasks.push(task);
+                    let tables = self.tables_for_policies(&extraction_policies).await?;
+                    for extraction_policy in extraction_policies {
+                        let task = self
+                            .create_task(&extraction_policy.id, &content, &tables)
+                            .await?;
+                        tasks.push(task);
+                    }
                 }
                 tasks
             }

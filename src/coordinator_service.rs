@@ -616,12 +616,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let outcome: internal_api::TaskOutcome = request.outcome().into();
         let _ = self
             .coordinator
-            .update_task(
-                &request.task_id,
-                &request.executor_id,
-                outcome,
-                request.content_list,
-            )
+            .update_task(&request.task_id, &request.executor_id, outcome)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(UpdateTaskResponse {}))

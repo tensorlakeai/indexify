@@ -530,7 +530,6 @@ impl DataManager {
             executor_id: begin_ingest.executor_id,
             task_id: begin_ingest.task_id,
             outcome: outcome as i32,
-            content_list: Vec::new(),
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {

@@ -2,6 +2,20 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
+pub fn content_filter(
+    content: &indexify_internal_api::ContentMetadata,
+    source: &str,
+    labels_eq: &HashMap<String, String>,
+) -> bool {
+    if !source.is_empty() && source != content.source.to_string() {
+        return false;
+    }
+    if !labels_eq.is_empty() && *labels_eq != content.labels {
+        return false;
+    }
+    true
+}
+
 /// filter for content metadata
 pub fn list_content_filter<'a>(
     content_list: Vec<indexify_internal_api::ContentMetadata>,

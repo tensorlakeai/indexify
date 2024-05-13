@@ -32,8 +32,6 @@ pub struct UpdateTaskRequest {
     pub task_id: ::prost::alloc::string::String,
     #[prost(enumeration = "TaskOutcome", tag = "3")]
     pub outcome: i32,
-    #[prost(message, repeated, tag = "4")]
-    pub content_list: ::prost::alloc::vec::Vec<ContentMetadata>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -41,8 +39,8 @@ pub struct ListStateChangesRequest {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StateChange {
-    #[prost(string, tag = "1")]
-    pub id: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "1")]
+    pub id: u64,
     #[prost(string, tag = "2")]
     pub object_id: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]

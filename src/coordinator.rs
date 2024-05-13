@@ -5,7 +5,7 @@ use std::{
     vec,
 };
 
-use anyhow::{Ok, Result};
+use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
@@ -17,7 +17,6 @@ use internal_api::{
     StateChange,
     StructuredDataSchema,
 };
-use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info};
 
@@ -84,15 +83,11 @@ impl Coordinator {
         parent_id: &str,
         labels_eq: &HashMap<String, String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content = self
-            .shared_state
-            .list_content(namespace)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect_vec();
-        let filtered_list = list_content_filter(content, source, parent_id, labels_eq);
-        Ok(filtered_list)
+        self.shared_state
+            .list_content(namespace, parent_id, |c| {
+                content_filter(c, source, labels_eq)
+            })
+            .await
     }
 
     pub fn get_extraction_policy(
@@ -114,17 +109,15 @@ impl Coordinator {
         task_id: &str,
         executor_id: &str,
         outcome: internal_api::TaskOutcome,
-        content_list: Vec<indexify_coordinator::ContentMetadata>,
     ) -> Result<()> {
         info!(
             "updating task: {}, executor_id: {}, outcome: {:?}",
             task_id, executor_id, outcome
         );
         let mut task = self.shared_state.task_with_id(task_id).await?;
-        let content_meta_list = self.external_content_metadata_to_internal(content_list);
         task.outcome = outcome;
         self.shared_state
-            .update_task(task, Some(executor_id.to_string()), content_meta_list)
+            .update_task(task, Some(executor_id.to_string()))
             .await?;
         Ok(())
     }
@@ -463,11 +456,11 @@ impl Coordinator {
     async fn handle_task_completion_state_change(
         &self,
         change: StateChange,
-        content_id: ContentMetadataId,
+        root_content_id: ContentMetadataId,
     ) -> Result<()> {
         let are_content_tasks_completed = self
             .shared_state
-            .are_content_tasks_completed(&content_id)
+            .are_content_tasks_completed(&root_content_id)
             .await;
 
         if !are_content_tasks_completed {
@@ -475,18 +468,20 @@ impl Coordinator {
         }
 
         //  this is the first version of the content, so nothing to garbage collect
-        if content_id.version <= 1 {
+        if root_content_id.version <= 1 {
             self.shared_state
                 .mark_change_events_as_processed(vec![change])
                 .await?;
             return Ok(());
         }
         let previous_version =
-            ContentMetadataId::new_with_version(&content_id.id, content_id.version - 1);
+            ContentMetadataId::new_with_version(&root_content_id.id, root_content_id.version - 1);
         let content_metadata = self
             .shared_state
-            .get_content_metadata_with_version(&previous_version)
-            .await?;
+            .state_machine
+            .get_content_by_id_and_version(&previous_version)
+            .await?
+            .ok_or(anyhow!("content with id: {} not found", previous_version))?;
         self.shared_state
             .tombstone_content_batch_with_version(
                 &[content_metadata.id.clone()],
@@ -517,9 +512,14 @@ impl Coordinator {
                         .await?;
                     continue;
                 }
-                indexify_internal_api::ChangeType::TaskCompleted { ref content_id } => {
-                    self.handle_task_completion_state_change(change.clone(), content_id.clone())
-                        .await?;
+                indexify_internal_api::ChangeType::TaskCompleted {
+                    ref root_content_id,
+                } => {
+                    self.handle_task_completion_state_change(
+                        change.clone(),
+                        root_content_id.clone(),
+                    )
+                    .await?;
                     continue;
                 }
                 _ => self.scheduler.handle_change_event(change).await?,
@@ -579,7 +579,8 @@ mod tests {
     use std::{collections::HashMap, fs, sync::Arc, time::Duration, vec};
 
     use indexify_internal_api as internal_api;
-    use internal_api::ContentSource;
+    use internal_api::{ContentMetadataId, ContentSource, Task, TaskOutcome};
+    use test_util::db_utils::Parent::{Child, Root};
 
     use super::Coordinator;
     use crate::{
@@ -587,11 +588,15 @@ mod tests {
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
         state::App,
-        test_util::db_utils::{
-            create_test_extraction_graph,
-            mock_extractor,
-            test_mock_content_metadata,
-            DEFAULT_TEST_NAMESPACE,
+        test_util::{
+            self,
+            db_utils::{
+                create_test_extraction_graph,
+                create_test_extraction_graph_with_children,
+                mock_extractor,
+                test_mock_content_metadata,
+                DEFAULT_TEST_NAMESPACE,
+            },
         },
         test_utils::RaftTestCluster,
     };
@@ -752,7 +757,7 @@ mod tests {
         let mut task_clone = tasks[0].clone();
         task_clone.outcome = internal_api::TaskOutcome::Success;
         shared_state
-            .update_task(task_clone, Some(executor_id.to_string()), vec![])
+            .update_task(task_clone, Some(executor_id.to_string()))
             .await
             .unwrap();
         let tasks = shared_state
@@ -1128,9 +1133,14 @@ mod tests {
             .await?;
 
         //  before tombstone
+        let content = coordinator
+            .shared_state
+            .state_machine
+            .get_latest_version_of_content(&parent_content.id.id)?
+            .unwrap();
         let policies_matching_content = coordinator
             .shared_state
-            .match_extraction_policies_for_content(&parent_content.id)
+            .match_extraction_policies_for_content(&content)
             .await?;
         assert_eq!(policies_matching_content.len(), 1);
 
@@ -1140,9 +1150,15 @@ mod tests {
             .await?;
 
         //  after tombstone
+        let content = coordinator
+            .shared_state
+            .state_machine
+            .get_content_by_id_and_version(&parent_content.id)
+            .await?
+            .unwrap();
         let policies_matching_content = coordinator
             .shared_state
-            .match_extraction_policies_for_content(&parent_content.id)
+            .match_extraction_policies_for_content(&content)
             .await?;
         assert_eq!(policies_matching_content.len(), 0);
 
@@ -1205,7 +1221,6 @@ mod tests {
                     &task.id,
                     "test_executor_id",
                     internal_api::TaskOutcome::Success,
-                    vec![],
                 )
                 .await?;
         }
@@ -1233,10 +1248,382 @@ mod tests {
         Ok(())
     }
 
+    async fn create_content_for_task(
+        coordinator: &Coordinator,
+        task: &Task,
+        id: &str,
+    ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
+        let mut content = test_mock_content_metadata(
+            id,
+            &task.content_metadata.get_root_id(),
+            &task.content_metadata.extraction_graph_names[0],
+        );
+        content.parent_id = Some(task.content_metadata.id.clone());
+        let policy = coordinator.get_extraction_policy(task.extraction_policy_id.clone())?;
+        content.source = ContentSource::ExtractionPolicyName(policy.name);
+        Ok(content)
+    }
+
+    async fn complete_task(
+        coordinator: &Coordinator,
+        task: &Task,
+        executor_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut task_clone = task.clone();
+        task_clone.outcome = internal_api::TaskOutcome::Success;
+        coordinator
+            .shared_state
+            .update_task(task_clone, Some(executor_id.to_string()))
+            .await
+    }
+
+    async fn perform_task(
+        coordinator: &Coordinator,
+        task: &Task,
+        id: &str,
+        executor_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let content = create_content_for_task(coordinator, task, id).await?;
+        coordinator
+            .create_content_metadata(vec![content.clone()])
+            .await?;
+        complete_task(coordinator, task, executor_id).await
+    }
+
+    fn next_child(child_id: &mut i32) -> String {
+        let child_id_str = format!("child_{}", child_id);
+        *child_id += 1;
+        child_id_str
+    }
+
+    // run all tasks creating child contents until no new tasks are generated
+    async fn perform_all_tasks(
+        coordinator: &Coordinator,
+        executor_id: &str,
+        child_id: &mut i32,
+    ) -> Result<(), anyhow::Error> {
+        loop {
+            coordinator.run_scheduler().await?;
+            let tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+            if tasks.is_empty() {
+                break;
+            }
+            for task in tasks {
+                perform_task(coordinator, &task, &next_child(child_id), executor_id).await?;
+            }
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     // #[tracing_test::traced_test]
     async fn test_content_update() -> Result<(), anyhow::Error> {
-        let (_coordinator, _) = setup_coordinator().await;
+        let (coordinator, _) = setup_coordinator().await;
+
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg = create_test_extraction_graph_with_children(
+            "test_extraction_graph",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &vec![Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
+        );
+        coordinator.create_extraction_graph(eg.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let parent_content = test_mock_content_metadata("test_parent_id", "", &eg.name);
+        coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+
+        let mut child_id = 1;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        // update root content
+        let mut parent_content_1 = parent_content.clone();
+        parent_content_1.hash = "test_parent_id_1".into();
+        coordinator
+            .create_content_metadata(vec![parent_content_1.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+
+        // previous version tree should be moved and no longer be latest
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                1,
+            ))?;
+        assert_eq!(prev_tree.len(), 7); // root + 6 children
+        assert_eq!(prev_tree[0].latest, false);
+
+        // replace all elements in the tree, should have two trees with 7 elements each
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        coordinator.run_scheduler().await?;
+        coordinator.run_scheduler().await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                1,
+            ))?;
+        assert_eq!(prev_tree.len(), 7);
+        assert_eq!(prev_tree[0].latest, false);
+
+        // the previous tree should be deleted after all tasks for new root are complete
+        assert!(prev_tree.iter().all(|c| c.tombstoned));
+        assert!(tree.iter().all(|c| !c.tombstoned));
+
+        let tasks = coordinator.shared_state.list_all_gc_tasks().await?;
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| task.outcome == TaskOutcome::Unknown)
+                .count(),
+            7
+        );
+
+        for task in tasks {
+            if task.outcome == TaskOutcome::Unknown {
+                coordinator
+                    .update_gc_task(&task.id, TaskOutcome::Success)
+                    .await?;
+            }
+        }
+
+        // check if previous tree deleted after gc complete
+        coordinator.run_scheduler().await?;
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                1,
+            ))?;
+        assert_eq!(prev_tree.len(), 0);
+        let tasks = coordinator.shared_state.list_all_gc_tasks().await?;
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| task.outcome == TaskOutcome::Unknown)
+                .count(),
+            0
+        );
+
+        // update root content and have the first child be identical to previous version
+        let mut parent_content_2 = parent_content_1.clone();
+        parent_content_2.hash = "test_parent_id_2".into();
+        coordinator
+            .create_content_metadata(vec![parent_content_2.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+
+        let mut child_content =
+            create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
+                .await?;
+        child_content.hash = tree[1].hash.clone();
+        coordinator
+            .create_content_metadata(vec![child_content])
+            .await?;
+        complete_task(&coordinator, &all_tasks[0], "test_executor_id_1").await?;
+
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        // no new tasks should be created
+        assert_eq!(all_tasks.len(), 0);
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+        assert_eq!(tree[0].id.version, 3);
+
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                2,
+            ))?;
+        // all elements should be transferred to the new root
+        assert_eq!(prev_tree.len(), 1);
+        assert_eq!(prev_tree[0].latest, false);
+
+        coordinator.run_scheduler().await?;
+        // the previous tree should be tombstoned after all tasks for new root are
+        // complete
+        assert!(prev_tree.iter().all(|c| c.tombstoned));
+        assert!(tree.iter().all(|c| !c.tombstoned));
+
+        let tasks = coordinator.shared_state.list_all_gc_tasks().await?;
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| task.outcome == TaskOutcome::Unknown)
+                .count(),
+            1
+        );
+
+        for task in tasks {
+            if task.outcome == TaskOutcome::Unknown {
+                coordinator
+                    .update_gc_task(&task.id, TaskOutcome::Success)
+                    .await?;
+            }
+        }
+
+        // check if previous tree deleted after gc complete
+        coordinator.run_scheduler().await?;
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                2,
+            ))?;
+        assert_eq!(prev_tree.len(), 0);
+        let tasks = coordinator.shared_state.list_all_gc_tasks().await?;
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| task.outcome == TaskOutcome::Unknown)
+                .count(),
+            0
+        );
+
+        // Update root content and have child in the middle of tree be identical to
+        // previous version
+        let mut parent_content_3 = parent_content_2.clone();
+        parent_content_3.hash = "test_parent_id_3".into();
+        coordinator
+            .create_content_metadata(vec![parent_content_3.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+        perform_task(
+            &coordinator,
+            &all_tasks[0],
+            &next_child(&mut child_id),
+            "test_executor_id_1",
+        )
+        .await?;
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 2);
+        for task in all_tasks {
+            perform_task(
+                &coordinator,
+                &task,
+                &next_child(&mut child_id),
+                "test_executor_id_1",
+            )
+            .await?;
+        }
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+        let mut content =
+            create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
+                .await?;
+        let policy =
+            coordinator.get_extraction_policy(all_tasks[0].extraction_policy_id.clone())?;
+        let prev_content = tree
+            .iter()
+            .find(|c| c.source == ContentSource::ExtractionPolicyName(policy.name.clone()))
+            .unwrap();
+        content.hash = prev_content.hash.clone();
+        coordinator.create_content_metadata(vec![content]).await?;
+        complete_task(&coordinator, &all_tasks[0], "test_executor_id_1").await?;
+        coordinator.run_scheduler().await?;
+        // No new task should be created
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 0);
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                3,
+            ))?;
+
+        // elements after and including the identical child should be transferred to the
+        // new root
+        assert_eq!(prev_tree.len(), 4);
+        assert_eq!(prev_tree[0].latest, false);
+
+        coordinator.run_scheduler().await?;
+        // the previous tree should be tombstoned after all tasks for new root are
+        // complete
+        assert!(prev_tree.iter().all(|c| c.tombstoned));
+        assert!(tree.iter().all(|c| !c.tombstoned));
+
+        let tasks = coordinator.shared_state.list_all_gc_tasks().await?;
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| task.outcome == TaskOutcome::Unknown)
+                .count(),
+            4
+        );
+
+        for task in tasks {
+            if task.outcome == TaskOutcome::Unknown {
+                coordinator
+                    .update_gc_task(&task.id, TaskOutcome::Success)
+                    .await?;
+            }
+        }
+        let prev_tree = coordinator
+            .shared_state
+            .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
+                "test_parent_id",
+                3,
+            ))?;
+        assert_eq!(prev_tree.len(), 0);
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
 
         Ok(())
     }
