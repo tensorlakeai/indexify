@@ -276,16 +276,18 @@ pub struct Task {
     pub input_params: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub extraction_policy_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub extraction_graph_name: ::prost::alloc::string::String,
     /// mapping of extractor names to index tables
-    #[prost(map = "string, string", tag = "7")]
+    #[prost(map = "string, string", tag = "8")]
     pub output_index_mapping: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(enumeration = "TaskOutcome", tag = "8")]
+    #[prost(enumeration = "TaskOutcome", tag = "9")]
     pub outcome: i32,
     /// list of all tables that the content may belong to
-    #[prost(string, repeated, tag = "9")]
+    #[prost(string, repeated, tag = "10")]
     pub index_tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -381,8 +383,6 @@ pub struct ListExtractionPoliciesResponse {
 pub struct CreateNamespaceRequest {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "2")]
-    pub extraction_graphs: ::prost::alloc::vec::Vec<ExtractionGraph>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -433,6 +433,11 @@ pub struct ExtractionPolicy {
     pub content_source: ::prost::alloc::string::String,
     #[prost(string, tag = "7")]
     pub graph_name: ::prost::alloc::string::String,
+    #[prost(map = "string, string", tag = "8")]
+    pub output_table_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -479,11 +484,6 @@ pub struct CreateExtractionGraphResponse {
     pub policies: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ExtractionPolicy,
-    >,
-    #[prost(map = "string, string", tag = "4")]
-    pub extractor_output_table_mapping: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
     >,
     #[prost(message, repeated, tag = "5")]
     pub indexes: ::prost::alloc::vec::Vec<Index>,

@@ -17,7 +17,8 @@ where
 {
     let id: String = row.get(0);
     let extractor: String = row.get(2);
-    let content_source: String = row.get(3);
+    let extractor_graph_name: String = row.get(3);
+    let content_source: String = row.get(4);
     let data: serde_json::Value = row.get(5);
     let content_id: String = row.get(6);
     let parent_content_id: String = row.get(7);
@@ -28,6 +29,7 @@ where
         content_source,
         metadata: data,
         extractor_name: extractor,
+        extraction_graph_name: extractor_graph_name,
     }
 }
 

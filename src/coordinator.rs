@@ -345,7 +345,8 @@ impl Coordinator {
         &self,
         extraction_graph: ExtractionGraph,
     ) -> Result<Vec<internal_api::Index>> {
-        let structured_data_schema = StructuredDataSchema::default();
+        let mut structured_data_schema =
+            StructuredDataSchema::new(&extraction_graph.name, &extraction_graph.namespace);
         let mut indexes_to_create = Vec::new();
         for extraction_policy in &extraction_graph.extraction_policies {
             let extractor = self.get_extractor(&extraction_policy.extractor)?;
@@ -369,7 +370,7 @@ impl Coordinator {
                         indexes_to_create.push(index_to_create);
                     }
                     OutputSchema::Attributes(columns) => {
-                        structured_data_schema.merge(columns)?;
+                        structured_data_schema.merge(columns);
                     }
                 }
             }

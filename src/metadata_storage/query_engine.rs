@@ -235,6 +235,7 @@ mod tests {
             "test_content_source",
             json!({"name": "diptanu", "role": "founder"}),
             "test_extractor",
+            "test_extraction_graph",
         );
         let meta2 = ExtractedMetadata::new(
             "test_content_id",
@@ -242,6 +243,7 @@ mod tests {
             "test_content_source",
             json!({"name": "lucas", "role": "engineer"}),
             "test_extractor",
+            "test_extraction_graph",
         );
         let meta3 = ExtractedMetadata::new(
             "test_content_id",
@@ -249,6 +251,7 @@ mod tests {
             "test_content_source",
             json!({"name": "zaid", "role": "engineer"}),
             "test_extractor",
+            "test_extraction_graph",
         );
         index_manager.add_metadata(ns, meta1).await.unwrap();
         index_manager.add_metadata(ns, meta2).await.unwrap();
@@ -257,9 +260,9 @@ mod tests {
             ("name", SchemaColumnType::Text),
             ("role", SchemaColumnType::Text),
         ];
-        let schema = create_schema(ns, cols1, "test_content_source");
+        let schema = create_schema(ns, cols1, "test_extraction_graph");
         let result = run_query(
-            "SELECT * FROM test_content_source;".to_string(),
+            "SELECT * FROM test_extraction_graph;".to_string(),
             index_manager.clone(),
             vec![schema.clone()],
             ns.to_string(),
@@ -275,7 +278,7 @@ mod tests {
         }
 
         let result = run_query(
-            r#"SELECT * FROM test_content_source where role='founder';"#.to_string(),
+            r#"SELECT * FROM test_extraction_graph where role='founder';"#.to_string(),
             index_manager,
             vec![schema],
             ns.to_string(),

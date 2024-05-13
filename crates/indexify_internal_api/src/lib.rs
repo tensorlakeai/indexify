@@ -432,6 +432,7 @@ pub struct Task {
     pub id: String,
     pub extractor: String,
     pub extraction_policy_id: String,
+    pub extraction_graph_name: String,
     pub output_index_table_mapping: HashMap<String, String>,
     pub namespace: String,
     pub content_metadata: ContentMetadata,
@@ -455,6 +456,7 @@ impl Task {
             id: id.to_string(),
             extractor: "".to_string(),
             extraction_policy_id: extraction_policy.id.to_string(),
+            extraction_graph_name: extraction_policy.graph_name,
             output_index_table_mapping: HashMap::new(),
             namespace: content_metadata.namespace.clone(),
             content_metadata: content_metadata.clone(),
@@ -469,8 +471,8 @@ impl Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Task(id: {}, extractor: {}, extraction_policy_id: {}, namespace: {}, content_id: {}, outcome: {:?})",
-            self.id, self.extractor, self.extraction_policy_id, self.namespace, self.content_metadata.id.id, self.outcome
+            "Task(id: {}, extractor: {}, extraction_policy_id: {}, extraction_graph_name: {}, namespace: {}, content_id: {}, outcome: {:?})",
+            self.id, self.extractor, self.extraction_policy_id, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
         )
     }
 }
@@ -485,6 +487,7 @@ impl From<Task> for indexify_coordinator::Task {
             content_metadata: Some(value.content_metadata.into()),
             input_params: value.input_params.to_string(),
             extraction_policy_id: value.extraction_policy_id,
+            extraction_graph_name: value.extraction_graph_name,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
             index_tables: value.index_tables,
@@ -656,6 +659,7 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
             input_params: value.input_params.to_string(),
             content_source: value.content_source.into(),
             graph_name: value.graph_name,
+            output_table_mapping: value.output_table_mapping,
         }
     }
 }
@@ -694,9 +698,16 @@ impl ExtractionPolicyBuilder {
             .ok_or(anyhow!("content source is not present"))?;
         let id = ExtractionPolicy::create_id(graph_name, &name, &ns);
         let mut output_table_mapping = HashMap::new();
-        for output_name in extractor_description.outputs.keys() {
-            let index_table_name = format!("{}.{}.{}.{}", ns, graph_name, name, output_name);
-            output_table_mapping.insert(output_name.clone(), index_table_name.clone());
+        for (output_name, output_schema) in extractor_description.outputs {
+            let index_table_name = match output_schema {
+                OutputSchema::Embedding(_) => {
+                    format!("{}.{}.{}.{}", ns, graph_name, name, output_name)
+                }
+                OutputSchema::Attributes(_) => {
+                    format!("{}.{}", ns, graph_name)
+                }
+            };
+            output_table_mapping.insert(output_name, index_table_name);
         }
         Ok(ExtractionPolicy {
             id,
@@ -1193,23 +1204,17 @@ impl StructuredDataSchema {
         }
     }
 
-    pub fn merge(&self, other: HashMap<String, SchemaColumn>) -> Result<Self> {
-        let mut columns = self.columns.clone();
+    pub fn merge(&mut self, other: HashMap<String, SchemaColumn>) -> Self {
         for (column_name, column) in other {
-            columns.insert(column_name, column);
+            self.columns.insert(column_name, column);
         }
-        Ok(Self {
-            id: self.id.clone(),
-            namespace: self.namespace.clone(),
-            extraction_graph_name: self.extraction_graph_name.clone(),
-            columns,
-        })
+        self.clone()
     }
 
-    pub fn schema_id(namespace: &str, content_source: &str) -> String {
+    pub fn schema_id(namespace: &str, extraction_graph_name: &str) -> String {
         let mut s = DefaultHasher::new();
         namespace.hash(&mut s);
-        content_source.hash(&mut s);
+        extraction_graph_name.hash(&mut s);
         format!("{:x}", s.finish())
     }
 

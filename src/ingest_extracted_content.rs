@@ -190,6 +190,7 @@ impl ContentStateWriting {
                         &content_metadata,
                         Some(root_content_metadata.clone()),
                         &self.task.extractor,
+                        &self.task.extraction_graph_name,
                         payload.features,
                         &self.task.output_index_mapping,
                     )
@@ -214,6 +215,7 @@ impl ContentStateWriting {
             .data_manager
             .write_existing_content_features(
                 &self.task.extractor,
+                &self.task.extraction_graph_name,
                 self.content_metadata(),
                 self.root_content_metadata.clone(),
                 payload.features,

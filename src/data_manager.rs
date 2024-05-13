@@ -94,17 +94,8 @@ impl DataManager {
     #[tracing::instrument]
     pub async fn create_namespace(&self, namespace: &api::DataNamespace) -> Result<()> {
         info!("creating data namespace: {}", namespace.name);
-        self.metadata_index_manager
-            .create_metadata_table(&namespace.name)
-            .await?;
         let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
-            extraction_graphs: namespace
-                .extraction_graphs
-                .clone()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
         };
         let _resp = self
             .coordinator_client
@@ -182,19 +173,32 @@ impl DataManager {
             .create_extraction_graph(req)
             .await?
             .into_inner();
-        let extractors = response.extractors;
-        for (_, extractor) in extractors.iter() {
+        for (_, policy) in response.policies {
+            let extractor = response
+                .extractors
+                .get(policy.extractor.as_str())
+                .ok_or(anyhow!(format!(
+                    "extractor {} not found in response",
+                    policy.extractor
+                ),))?;
             for (name, output_schema) in &extractor.embedding_schemas {
                 let embedding_schema: internal_api::EmbeddingSchema =
                     serde_json::from_str(output_schema)?;
-                let table_name = response.extractor_output_table_mapping.get(name).unwrap();
+                let table_name = policy.output_table_mapping.get(name).unwrap();
                 let _ = self
                     .vector_index_manager
                     .create_index(table_name, embedding_schema.clone())
                     .await?;
             }
-        }
 
+            // Create metadata table for the namespace if it doesn't exist
+            if extractor.metadata_schemas.len() > 0 {
+                let _ = self
+                    .metadata_index_manager
+                    .create_metadata_table(&namespace)
+                    .await?;
+            }
+        }
         let req = indexify_coordinator::UpdateIndexesStateRequest {
             indexes: response.indexes.clone(),
         };
@@ -595,6 +599,7 @@ impl DataManager {
     pub async fn write_existing_content_features(
         &self,
         extractor: &str,
+        extraction_graph_name: &str,
         content_metadata: &indexify_coordinator::ContentMetadata,
         root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         features: Vec<api::Feature>,
@@ -622,6 +627,7 @@ impl DataManager {
             Self::combine_metadata(existing_metadata, &features, content_metadata_labels);
         self.write_extracted_features(
             extractor,
+            extraction_graph_name,
             content_metadata.clone(),
             root_content_metadata,
             features.clone(),
@@ -650,6 +656,7 @@ impl DataManager {
     pub async fn write_extracted_features(
         &self,
         extractor: &str,
+        extraction_graph_name: &str,
         content_metadata: indexify_coordinator::ContentMetadata,
         root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         features: Vec<api::Feature>,
@@ -686,6 +693,7 @@ impl DataManager {
                         &content_metadata.source.to_string(),
                         feature.data.clone(),
                         extractor,
+                        extraction_graph_name,
                     );
                     info!("adding metadata to index {}", feature.data.to_string());
                     self.metadata_index_manager
@@ -705,6 +713,7 @@ impl DataManager {
         content_metadata: &indexify_coordinator::ContentMetadata,
         root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         extractor: &str,
+        extraction_graph_name: &str,
         features: Vec<api::Feature>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
@@ -735,6 +744,7 @@ impl DataManager {
         let metadata = Self::combine_metadata(Vec::new(), &features, content_metadata_labels);
         self.write_extracted_features(
             extractor,
+            extraction_graph_name,
             content_metadata.clone(),
             root_content_metadata,
             features,
