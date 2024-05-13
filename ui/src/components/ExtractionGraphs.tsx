@@ -1,8 +1,14 @@
-import { IExtractionGraph, IExtractionPolicy, IExtractor } from "getindexify";
-import { Alert, Typography } from "@mui/material";
+import {
+  IExtractionGraph,
+  IExtractionPolicy,
+  IExtractor,
+  ITask,
+} from "getindexify";
+import { Alert, IconButton, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import React, { ReactElement } from "react";
 import GavelIcon from "@mui/icons-material/Gavel";
+import InfoIcon from "@mui/icons-material/Info";
 import ExtractionPolicyItem from "./ExtractionPolicyItem";
 import { IExtractionGraphCol, IExtractionGraphColumns } from "../types";
 
@@ -10,19 +16,22 @@ const ExtractionGraphs = ({
   extractionGraphs,
   namespace,
   extractors,
+  tasks,
 }: {
   extractionGraphs: IExtractionGraph[];
   namespace: string;
   extractors: IExtractor[];
+  tasks: ITask[];
 }) => {
   const itemheight = 60;
   const cols: IExtractionGraphColumns = {
     name: { displayName: "Name", width: 350 },
-    extractor: { displayName: "Extractor", width: 250 },
-    mimeTypes: { displayName: "Input MimeTypes", width: 250 },
-    inputParams: { displayName: "Input Parameters", width: 250 },
+    extractor: { displayName: "Extractor", width: 225 },
+    mimeTypes: { displayName: "Input MimeTypes", width: 225},
+    inputParams: { displayName: "Input Parameters", width: 225 },
+    taskCount: { displayName: "Tasks", width: 75 },
   };
-
+  
   const renderHeader = () => {
     return (
       <Stack
@@ -59,6 +68,7 @@ const ExtractionGraphs = ({
         items.push(
           <ExtractionPolicyItem
             key={policy.name}
+            tasks={tasks}
             extractionPolicy={policy}
             namespace={namespace}
             cols={cols}
@@ -80,7 +90,7 @@ const ExtractionGraphs = ({
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
-            No Policies Found
+            No Graphs Found
           </Alert>
         </Box>
       );
@@ -118,7 +128,15 @@ const ExtractionGraphs = ({
         spacing={2}
       >
         <GavelIcon />
-        <Typography variant="h3">Extraction Graphs</Typography>
+        <Typography variant="h3">
+          Extraction Graphs
+          <IconButton
+            href="https://getindexify.ai/concepts/#extraction-graphs"
+            target="_blank"
+          >
+            <InfoIcon fontSize="small" />
+          </IconButton>
+        </Typography>
       </Stack>
       {renderContent()}
     </>

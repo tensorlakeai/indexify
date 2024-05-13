@@ -4,6 +4,7 @@ import {
   IContentMetadata,
   IIndex,
   ISchema,
+  ITask,
 } from "getindexify";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Stack } from "@mui/material";
@@ -21,33 +22,43 @@ export async function loader({ params }: LoaderFunctionArgs) {
     serviceUrl: getIndexifyServiceURL(),
     namespace,
   });
-  const [extractors, indexes, contentList, schemas] = await Promise.all([
+  const [extractors, indexes, contentList, schemas, tasks] = await Promise.all([
     client.extractors(),
     client.indexes(),
     client.getExtractedContent(),
-    []//client.getSchemas(),
+    client.getSchemas(),
+    client.getTasks(),
   ]);
-  return { client, extractors, indexes, contentList, schemas, namespace };
+  return {
+    client,
+    extractors,
+    indexes,
+    contentList,
+    schemas,
+    tasks,
+    namespace,
+  };
 }
 
 const NamespacePage = () => {
-  const { client, extractors, indexes, contentList, schemas, namespace } =
+  const { client, extractors, indexes, contentList, schemas, tasks, namespace } =
     useLoaderData() as {
       client: IndexifyClient;
       extractors: Extractor[];
       indexes: IIndex[];
       contentList: IContentMetadata[];
       schemas: ISchema[];
+      tasks: ITask[];
       namespace: string;
     };
 
   return (
     <Stack direction="column" spacing={3}>
       <ExtractionGraphs
-
         namespace={client.namespace}
         extractionGraphs={client.extractionGraphs}
         extractors={extractors}
+        tasks={tasks}
       />
       <IndexTable
         namespace={namespace}

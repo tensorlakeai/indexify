@@ -11,9 +11,11 @@ import {
   Tabs,
   TextField,
   Typography,
+  IconButton,
 } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
+import InfoIcon from "@mui/icons-material/Info";
 import React, { useEffect, useState } from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
@@ -265,7 +267,15 @@ const ContentTable = ({
         spacing={2}
       >
         <ArticleIcon />
-        <Typography variant="h3">Content</Typography>
+        <Typography variant="h3">
+          Content
+          <IconButton
+            href="https://getindexify.ai/concepts/#content"
+            target="_blank"
+          >
+            <InfoIcon fontSize="small" />
+          </IconButton>
+        </Typography>
       </Stack>
       <Box justifyContent={"space-between"} display={"flex"}>
         <Tabs
