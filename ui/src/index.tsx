@@ -32,7 +32,7 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/extraction-policies/:policyname",
+          path: "/:namespace/extraction-policies/:graphname/:policyname",
           element: <ExtractionPolicyPage />,
           loader: ExtractionPolicyLoader,
           errorElement: <ErrorPage />,

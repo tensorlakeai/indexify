@@ -107,7 +107,7 @@ const ExtractionPolicyItem = ({
         >
           {depth > 0 && <LShapedLine />}
           <Link
-            to={`/${namespace}/extraction-policies/${extractionPolicy.name}`}
+            to={`/${namespace}/extraction-policies/${extractionPolicy.graph_name}/${extractionPolicy.name}`}
           >
             {extractionPolicy.name}
           </Link>

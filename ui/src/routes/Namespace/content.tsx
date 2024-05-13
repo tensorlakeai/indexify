@@ -215,12 +215,12 @@ const ContentPage = () => {
           />
         );
       })}
-      {/* <TasksTable
-        extractionGraphs={client.extractionGraphs}
+      <TasksTable
+        policies={client.extractionGraphs.map(graph => graph.extraction_policies).flat()}
         namespace={namespace}
         tasks={tasks}
         hideContentId
-      /> */}
+      />
     </Stack>
   );
 };

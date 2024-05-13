@@ -6,6 +6,7 @@ import { Box, Stack } from "@mui/system";
 import TaskIcon from '@mui/icons-material/Task';
 import moment from "moment";
 import { Link } from "react-router-dom";
+import {TaskStatus} from "getindexify"
 
 const TasksTable = ({
   namespace,
@@ -40,7 +41,7 @@ const TasksTable = ({
       headerName: "Extraction Policy",
       renderCell: (params) => {
         const policy = policies.find(policy => policy.id === params.value)
-        return policy ? <Link to={`/${namespace}/extraction-policies/${policy?.name}`}>
+        return policy ? <Link to={`/${namespace}/extraction-policies/${policy?.graph_name}/${policy?.name}`}>
           {policy?.name}
         </Link> : null
       },
@@ -49,6 +50,15 @@ const TasksTable = ({
     {
       field: "outcome",
       headerName: "Outcome",
+      valueGetter: (params) => {
+        if (params.value === TaskStatus.Failure) {
+          return "Failure"
+        } else if (params.value === TaskStatus.Success) {
+          return "Success"
+        } else {
+          return "Unknown"
+        }
+      },
       width: 100,
     },
     {

@@ -44,7 +44,7 @@ const IndexTable = ({
           return null
         }
         return (
-          <Link to={`/${namespace}/extraction-policies/${policy.name}`}>{policy.name}</Link>
+          <Link to={`/${namespace}/extraction-policies/${policy.graph_name}/${policy.name}`}>{policy.name}</Link>
         );
       },
     },
