@@ -40,7 +40,6 @@ pub enum RequestPayload {
     },
     CreateNamespace {
         name: String,
-        structured_data_schema: internal_api::StructuredDataSchema,
     },
     CreateTasks {
         tasks: Vec<internal_api::Task>,

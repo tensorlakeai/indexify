@@ -400,7 +400,13 @@ mod tests {
         metrics,
         server::NamespaceEndpointState,
         server_config::{IndexStoreKind, ServerConfig},
-        test_util::db_utils::{create_metadata, create_test_extraction_graph, mock_extractor, test_mock_content_metadata, DEFAULT_TEST_NAMESPACE},
+        test_util::db_utils::{
+            create_metadata,
+            create_test_extraction_graph,
+            mock_extractor,
+            test_mock_content_metadata,
+            DEFAULT_TEST_NAMESPACE,
+        },
         vector_index::VectorIndexManager,
         vectordbs,
     };
@@ -481,7 +487,10 @@ mod tests {
                 .create_extractor(extractor.clone())
                 .await
                 .unwrap();
-            let eg = create_test_extraction_graph("extraction_graph_name", vec!["extraction_policy_name"]);
+            let eg = create_test_extraction_graph(
+                "extraction_graph_name",
+                vec!["extraction_policy_name"],
+            );
             test_coordinator
                 .create_extraction_graph(eg.clone())
                 .await

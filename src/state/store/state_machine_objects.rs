@@ -1344,10 +1344,7 @@ impl IndexifyState {
             } => {
                 self.set_extraction_policy(db, &txn, extraction_policy)?;
             }
-            RequestPayload::CreateNamespace {
-                name,
-                structured_data_schema: _,
-            } => {
+            RequestPayload::CreateNamespace { name } => {
                 self.set_namespace(db, &txn, name)?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
@@ -1504,13 +1501,7 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateNamespace {
-                name: _,
-                structured_data_schema,
-            } => {
-                self.update_schema_reverse_idx(structured_data_schema);
-                Ok(())
-            }
+            RequestPayload::CreateNamespace { name: _ } => Ok(()),
             RequestPayload::UpdateTask {
                 task,
                 executor_id,
