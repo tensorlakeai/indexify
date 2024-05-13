@@ -23,7 +23,6 @@ const ExtractionPolicyItem = ({
   index?: IIndex;
 }) => {
   const renderInputParams = () => {
-    console.log(extractionPolicy)
     if (
       !extractionPolicy.input_params ||
       Object.keys(extractionPolicy.input_params).length === 0

@@ -16,8 +16,9 @@ const IndexTable = ({
   extractionPolicies: IExtractionPolicy[]
 }) => {
   console.log("indextable extractionPolicies", extractionPolicies)
+
   const getPolicyFromIndexname = (indexName:string):IExtractionPolicy | undefined => {
-    return extractionPolicies.find(policy => String(indexName).startsWith(policy.name))
+    return extractionPolicies.find(policy => String(indexName).startsWith(`${policy.graph_name}.${policy.name}`))
   }
 
   const columns: GridColDef[] = [

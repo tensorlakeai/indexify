@@ -49,7 +49,6 @@ const ContentTable = ({
   extractionPolicies: IExtractionPolicy[];
   content: IContentMetadata[];
 }) => {
-  console.log("content", content)
   const childCountMap = getChildCountMap(content);
   const [paginationModel, setPaginationModel] = useState({
     page: 1,
