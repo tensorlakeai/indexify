@@ -170,11 +170,16 @@ impl VectorIndexManager {
                 } else {
                     String::from("")
                 };
+            let mut labels = HashMap::new();
+            labels.extend(result.content_metadata.labels.clone());
+            for (k, v) in result.metadata {
+                labels.insert(k, v.to_string());
+            }
             let search_result = ScoredText {
                 text,
                 content_id: result.content_id.clone(),
                 mime_type: result.content_metadata.content_type.clone(),
-                labels: result.content_metadata.labels.clone(),
+                labels,
                 confidence_score: result.confidence_score,
                 root_content_metadata: result.root_content_metadata,
                 content_metadata: result.content_metadata.clone(),
