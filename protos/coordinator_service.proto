@@ -253,11 +253,12 @@ message Task {
     ContentMetadata content_metadata = 4;
     string input_params = 5;
     string extraction_policy_id = 6;
+    string extraction_graph_name = 7;
     // mapping of extractor names to index tables
-    map<string, string> output_index_mapping = 7;
-    TaskOutcome outcome = 8;
+    map<string, string> output_index_mapping = 8;
+    TaskOutcome outcome = 9;
     // list of all tables that the content may belong to
-    repeated string index_tables = 9;
+    repeated string index_tables = 10;
 }
 
 message ListExtractorsRequest {
@@ -314,7 +315,6 @@ message ListExtractionPoliciesResponse {
 
 message CreateNamespaceRequest {
     string name = 1;
-    repeated ExtractionGraph extraction_graphs = 2;
 }
 
 message CreateNamespaceResponse {
@@ -345,6 +345,7 @@ message ExtractionPolicy {
     map<string, string> filters = 5;
     string content_source = 6;
     string graph_name = 7;
+    map<string, string> output_table_mapping = 8;
 }
 
 message ExtractionPolicyRequest {
@@ -367,7 +368,6 @@ message CreateExtractionGraphResponse {
     string graph_id = 1;
     map<string, Extractor> extractors = 2;
     map<string, ExtractionPolicy> policies = 3;
-    map<string, string> extractor_output_table_mapping = 4;
     repeated Index indexes = 5;
 }
 

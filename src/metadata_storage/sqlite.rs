@@ -47,8 +47,8 @@ impl MetadataStorage for SqliteIndexManager {
             id TEXT PRIMARY KEY,
             namespace TEXT,
             extractor TEXT,
+            extraction_graph TEXT,
             content_source TEXT,
-            index_name TEXT,
             data JSONB,
             content_id TEXT,
             parent_content_id TEXT,
@@ -72,7 +72,7 @@ impl MetadataStorage for SqliteIndexManager {
         namespace: &str,
         metadata: ExtractedMetadata,
     ) -> anyhow::Result<()> {
-        let index_name = PostgresIndexName::new(&table_name(namespace));
+        let table_name = PostgresIndexName::new(&table_name(namespace));
         if !self
             .default_table_created
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -83,9 +83,9 @@ impl MetadataStorage for SqliteIndexManager {
         }
         let query = format!(
             "
-            INSERT INTO {index_name} (
-                id, namespace, extractor,
-                content_source, index_name, data, content_id,
+            INSERT INTO {table_name} (
+                id, namespace, extractor, extraction_graph,
+                content_source, data, content_id,
                 parent_content_id, created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;
@@ -95,8 +95,8 @@ impl MetadataStorage for SqliteIndexManager {
             .bind(metadata.id)
             .bind(namespace)
             .bind(metadata.extractor_name)
+            .bind(metadata.extraction_graph_name)
             .bind(metadata.content_source)
-            .bind(index_name.to_string())
             .bind(metadata.metadata)
             .bind(metadata.content_id)
             .bind(metadata.parent_content_id)
@@ -180,7 +180,7 @@ impl MetadataReader for SqliteIndexManager {
             "
             SELECT content_id, data
             FROM {table_name}
-            WHERE namespace = $1 AND content_source = $2
+            WHERE namespace = $1 AND extraction_graph = $2
         "
         );
 
@@ -191,11 +191,11 @@ impl MetadataReader for SqliteIndexManager {
         &self,
         query: &'a str,
         namespace: &str,
-        content_source: &str,
+        extraction_graph_name: &str,
     ) -> MetadataScanStream<'a> {
         let rows = sqlx::query(query)
             .bind(namespace.to_string())
-            .bind(content_source.to_string())
+            .bind(extraction_graph_name.to_string())
             .fetch(&self.pool)
             .then(|row| async move {
                 let row = row.map_err(|e| {

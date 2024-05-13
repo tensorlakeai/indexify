@@ -6,6 +6,7 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
+use internal_api::OutputSchema;
 use tracing::info;
 
 use crate::{
@@ -74,9 +75,11 @@ impl Scheduler {
         let mut tables = Vec::new();
         for policy in policies {
             let extractor = self.shared_state.extractor_with_name(&policy.extractor)?;
-            for name in extractor.outputs.keys() {
-                let table_name = policy.output_table_mapping.get(name).unwrap();
-                tables.push(table_name.clone());
+            for (name, schema) in extractor.outputs {
+                if let OutputSchema::Embedding(_) = schema {
+                    let table_name = policy.output_table_mapping.get(&name).unwrap();
+                    tables.push(table_name.clone());
+                }
             }
         }
         Ok(tables)
@@ -192,6 +195,7 @@ impl Scheduler {
         let task = internal_api::Task {
             id,
             extractor: extraction_policy.extractor.clone(),
+            extraction_graph_name: extraction_policy.graph_name.clone(),
             extraction_policy_id: extraction_policy.id.clone(),
             output_index_table_mapping: output_mapping.clone(),
             namespace: extraction_policy.namespace.clone(),

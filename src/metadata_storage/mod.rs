@@ -25,6 +25,7 @@ pub struct ExtractedMetadata {
     pub content_source: String,
     pub metadata: serde_json::Value,
     pub extractor_name: String,
+    pub extraction_graph_name: String,
 }
 
 impl ExtractedMetadata {
@@ -34,6 +35,7 @@ impl ExtractedMetadata {
         content_source: &str,
         metadata: serde_json::Value,
         extractor_name: &str,
+        extraction_graph_name: &str,
     ) -> Self {
         Self {
             id: nanoid!(16),
@@ -42,6 +44,7 @@ impl ExtractedMetadata {
             content_source: content_source.into(),
             metadata,
             extractor_name: extractor_name.into(),
+            extraction_graph_name: extraction_graph_name.into(),
         }
     }
 }
@@ -98,7 +101,7 @@ pub trait MetadataReader {
         &self,
         query: &'a str,
         namespace: &str,
-        content_source: &str,
+        extraction_graph_name: &str,
     ) -> MetadataScanStream<'a>;
 }
 
@@ -130,6 +133,7 @@ async fn test_metadata_storage(index_manager: MetadataStorageTS) {
         content_source: "test_content_source".into(),
         metadata: serde_json::json!({"test": "test"}),
         extractor_name: "test_extractor".into(),
+        extraction_graph_name: "test_extraction_graph".into(),
     };
     index_manager
         .add_metadata(namespace, metadata.clone())
