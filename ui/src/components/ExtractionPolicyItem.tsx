@@ -1,5 +1,5 @@
 import { Box, Chip, Stack, Typography } from "@mui/material";
-import { IExtractionPolicy, IExtractor, IIndex } from "getindexify";
+import { IExtractionPolicy, IExtractor, IIndex, ITask } from "getindexify";
 import { IExtractionGraphColumns } from "../types";
 import { Link } from "react-router-dom";
 
@@ -11,6 +11,7 @@ const ExtractionPolicyItem = ({
   depth,
   itemHeight,
   extractors,
+  tasks,
   index,
 }: {
   extractionPolicy: IExtractionPolicy;
@@ -20,11 +21,12 @@ const ExtractionPolicyItem = ({
   depth: number;
   itemHeight: number;
   extractors: IExtractor[];
+  tasks: ITask[];
   index?: IIndex;
 }) => {
   const renderInputParams = () => {
     if (
-      extractionPolicy.input_params === undefined ||
+      !extractionPolicy.input_params ||
       Object.keys(extractionPolicy.input_params).length === 0
     ) {
       return <Chip label={`none`} />;
@@ -48,7 +50,7 @@ const ExtractionPolicyItem = ({
     if (!extractor) return null;
 
     return (
-      <Box sx={{ overflowX: "scroll" }}>
+      <Box sx={{ overflowX: "scroll", maxWidth:`calc(${cols.mimeTypes.width}px - 10px)` }}>
         <Stack gap={1} direction="row">
           {(extractor.input_mime_types ?? []).map((val: string) => {
             return (
@@ -107,7 +109,7 @@ const ExtractionPolicyItem = ({
         >
           {depth > 0 && <LShapedLine />}
           <Link
-            to={`/${namespace}/extraction-policies/${extractionPolicy.name}`}
+            to={`/${namespace}/extraction-policies/${extractionPolicy.graph_name}/${extractionPolicy.name}`}
           >
             {extractionPolicy.name}
           </Link>
@@ -118,6 +120,9 @@ const ExtractionPolicyItem = ({
         <Box sx={{ minWidth: cols.mimeTypes.width }}>{renderMimeTypes()}</Box>
         <Box sx={{ minWidth: cols.inputParams.width }}>
           {renderInputParams()}
+        </Box>
+        <Box sx={{ minWidth: cols.taskCount.width }}>
+          {tasks.filter(task => task.extraction_policy_id === extractionPolicy.id).length}
         </Box>
       </Stack>
     </Box>

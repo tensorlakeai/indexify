@@ -11,9 +11,11 @@ import {
   Tabs,
   TextField,
   Typography,
+  IconButton,
 } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ArticleIcon from "@mui/icons-material/Article";
+import InfoIcon from "@mui/icons-material/Info";
 import React, { useEffect, useState } from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
@@ -61,7 +63,7 @@ const ContentTable = ({
   }>({ contentId: "", policyName: "Any" });
 
   const [filteredContent, setFilteredContent] = useState(
-    content.filter((c) => c.source === "ingestion")
+    content.filter((c) => c.source === "")
   );
   const [currentTab, setCurrentTab] = useState("ingested");
 
@@ -112,7 +114,7 @@ const ContentTable = ({
     } else if (currentTab === "ingested") {
       // go back to root node of graph tab
       setGraphTabIds([]);
-      setFilteredContent([...content.filter((c) => c.source === "ingestion")]);
+      setFilteredContent([...content.filter((c) => c.source === "")]);
     } else {
       // current tab is now a content id
       // remove tabs after id: selectedValue if possible
@@ -265,7 +267,15 @@ const ContentTable = ({
         spacing={2}
       >
         <ArticleIcon />
-        <Typography variant="h3">Content</Typography>
+        <Typography variant="h3">
+          Content
+          <IconButton
+            href="https://getindexify.ai/concepts/#content"
+            target="_blank"
+          >
+            <InfoIcon fontSize="small" />
+          </IconButton>
+        </Typography>
       </Stack>
       <Box justifyContent={"space-between"} display={"flex"}>
         <Tabs
