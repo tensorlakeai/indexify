@@ -1,13 +1,15 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
+use indexify_proto::indexify_raft::{
+    raft_api_server::RaftApi, RaftReply, RaftRequest, SnapshotFrame,
+};
 use openraft::{
     error::{CheckIsLeaderError, ForwardToLeader, RaftError},
     BasicNode,
 };
 use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResponse};
-use tonic::{Request, Status};
+use tonic::{Request, Status, Streaming};
 use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
@@ -248,6 +250,13 @@ impl RaftApi for RaftGrpcServer {
             Ok(resp) => GrpcHelper::ok_response(resp),
             Err(e) => Err(e),
         }
+    }
+
+    async fn install_snapshot_stream<'a>(
+        &'a self,
+        stream: Request<Streaming<SnapshotFrame>>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        Err(tonic::Status::unimplemented("Not implemented"))
     }
 
     async fn vote(

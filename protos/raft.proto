@@ -13,10 +13,31 @@ message RaftReply {
     string error = 2;
 }
 
+message StartSnapshot {
+    uint64 total_size = 1;
+}
+
+message SnapshotData {
+    bytes data = 1;
+}
+
+message EndSnapshot {
+    string hash = 1;
+}
+
+message SnapshotFrame {
+    oneof frame_type {
+        StartSnapshot start_snapshot = 1;
+        SnapshotData snapshot_data = 2;
+        EndSnapshot end_snapshot = 3;
+    }
+}
+
 service RaftApi { 
     rpc Forward(RaftRequest) returns (RaftReply);
     rpc AppendEntries(RaftRequest) returns (RaftReply);
     rpc InstallSnapshot(RaftRequest) returns (RaftReply);
+    rpc InstallSnapshotStream(stream SnapshotFrame) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
     rpc JoinCluster(RaftRequest) returns (RaftReply);
 }
