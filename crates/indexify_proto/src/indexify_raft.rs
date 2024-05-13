@@ -30,6 +30,12 @@ pub struct SnapshotData {
 pub struct EndSnapshot {
     #[prost(string, tag = "1")]
     pub hash: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub metadata_json: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub vote_json: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "4")]
+    pub offset: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

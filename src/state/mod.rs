@@ -67,6 +67,7 @@ pub mod forwardable_raft;
 pub mod grpc_server;
 pub mod network;
 pub mod raft_client;
+pub mod snapshot_receiver;
 pub mod store;
 
 pub type NodeId = u64;
@@ -226,6 +227,7 @@ impl App {
             Arc::clone(&raft_client),
             addr.to_string(),
             server_config.coordinator_addr.clone(),
+            sm_blob_store_path.to_path_buf(),
         ))
         .max_encoding_message_size(limit)
         .max_decoding_message_size(limit);
@@ -808,10 +810,9 @@ impl App {
         let ns = &content_metadata.first().unwrap().namespace.clone();
         let extraction_graph_names = &content_metadata
             .iter()
-            .map(|c| c.extraction_graph_names.clone())
-            .flatten()
+            .flat_map(|c| c.extraction_graph_names.clone())
             .collect_vec();
-        let extraction_graphs = self.get_extraction_graphs_by_name(&ns, &extraction_graph_names)?;
+        let extraction_graphs = self.get_extraction_graphs_by_name(ns, extraction_graph_names)?;
         for (eg, extraction_graph_names) in
             extraction_graphs.into_iter().zip(extraction_graph_names)
         {

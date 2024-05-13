@@ -8,8 +8,13 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionPolicy, ExtractionPolicyName,
-    ExtractorDescription, StateChange, TaskOutcome,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicy,
+    ExtractionPolicyName,
+    ExtractorDescription,
+    StateChange,
+    TaskOutcome,
 };
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
@@ -20,8 +25,17 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractionGraphId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName,
-    SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId,
+    ExtractionGraphId,
+    ExtractionPolicyId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -1987,7 +2001,7 @@ impl IndexifyState {
         let extraction_graphs = self
             .get_extraction_graphs(&extraction_graphs_ids, db)?
             .into_iter()
-            .filter_map(|eg| eg)
+            .flatten()
             .collect();
 
         Ok(Some(indexify_internal_api::Namespace {

@@ -6,10 +6,14 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-        InstallSnapshotResponse, VoteRequest, VoteResponse,
+        AppendEntriesRequest,
+        AppendEntriesResponse,
+        InstallSnapshotRequest,
+        InstallSnapshotResponse,
+        VoteRequest,
+        VoteResponse,
     },
-    BasicNode, LeaderId, Vote,
+    BasicNode,
 };
 use sha2::{Digest, Sha256};
 use tonic::IntoRequest;
@@ -18,15 +22,15 @@ use super::store::requests::StateMachineUpdateResponse;
 use crate::{
     grpc_helper::GrpcHelper,
     metrics::{
-        create_timed_future,
-        raft_metrics::{self, network::incr_snapshot_recv_seconds},
+        raft_metrics::{self},
         CounterGuard,
     },
     state::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId, TypeConfig,
+        NodeId,
+        TypeConfig,
     },
 };
 
@@ -219,6 +223,12 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         let total_size = req.data.len() as u64;
         let mut hasher = Sha256::new();
 
+        //  serialize the metadata and vote as part of the install request
+        let metadata_json = serde_json::to_string(&req.meta)
+            .map_err(|e| new_net_err(&e, || "serialize metadata"))?;
+        let vote_json =
+            serde_json::to_string(&req.vote).map_err(|e| new_net_err(&e, || "serialize vote"))?;
+
         let data_stream = async_stream::stream! {
             //  send the start frame
             yield indexify_proto::indexify_raft::SnapshotFrame {
@@ -246,11 +256,10 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
             yield indexify_proto::indexify_raft::SnapshotFrame {
                 frame_type: Some(
                     indexify_proto::indexify_raft::snapshot_frame::FrameType::EndSnapshot(
-                        indexify_proto::indexify_raft::EndSnapshot { hash }
+                        indexify_proto::indexify_raft::EndSnapshot { hash, metadata_json, vote_json, offset: req.offset }
                     )
                 )
             };
-
         };
 
         //  send the stream and read the response
@@ -261,41 +270,8 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
             self.status_to_unreachable(e)
         })?;
         let raft_res = GrpcHelper::parse_raft_reply(resp)
-            .map_err(|serde_err| new_net_err(&serde_err, || "parse append_entries reply"))?;
+            .map_err(|serde_err| new_net_err(&serde_err, || "parse install_snapshot reply"))?;
         raft_res.map_err(|e| self.to_rpc_err(e))
-
-        //  old code starts here - remove after running tests
-        // let raft_req =
-        //     GrpcHelper::encode_raft_request(&req_clone).map_err(|e| Unreachable::new(&e))?;
-        // let req = GrpcHelper::into_req(raft_req);
-
-        // let bytes_sent = req.get_ref().data.len() as u64;
-        // raft_metrics::network::incr_sent_bytes(&self.target_node.addr, bytes_sent);
-
-        // let addr = self.target_node.addr.clone();
-        // let timed_future = create_timed_future(client.install_snapshot(req), move |duration| {
-        //     incr_snapshot_recv_seconds(&addr, duration);
-        // });
-
-        // let grpc_res = timed_future.await;
-
-        // let resp = grpc_res.map_err(|e| {
-        //     raft_metrics::network::incr_sent_failures(&self.target_node.addr);
-        //     self.status_to_unreachable(e)
-        // })?;
-
-        // let raft_res = GrpcHelper::parse_raft_reply(resp).map_err(|serde_err| {
-        //     raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
-        //     new_net_err(&serde_err, || "parse install_snapshot reply")
-        // })?;
-
-        // if raft_res.is_ok() {
-        //     raft_metrics::network::incr_snapshot_send_success(&self.target_node.addr);
-        // } else {
-        //     raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
-        // }
-
-        // raft_res.map_err(|e| self.to_rpc_err(e))
     }
 
     async fn send_vote(

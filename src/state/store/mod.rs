@@ -12,14 +12,30 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
-    ContentMetadata, ContentMetadataId, ExecutorMetadata, NamespaceName, StateChange,
+    ContentMetadata,
+    ContentMetadataId,
+    ExecutorMetadata,
+    NamespaceName,
+    StateChange,
     StructuredDataSchema,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -965,6 +981,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
 ) -> (LogStore, Arc<StateMachineStore>) {
+    println!("Creating new storage");
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);
@@ -1002,6 +1019,8 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
+    use indexify_internal_api::ContentMetadataId;
+
     use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
 
     /// This is a dummy test which forces building a snapshot on the cluster by
@@ -1012,41 +1031,40 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
         //  set up raft cluster
-        // let overrides = RaftConfigOverrides {
-        //     snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1)),
-        //     max_in_snapshot_log_to_keep: Some(0),
-        // };
-        // let mut cluster = RaftTestCluster::new(1, Some(overrides.clone())).await?;
-        // cluster.initialize(Duration::from_secs(2)).await?;
-        // let node = cluster.get_raft_node(0)?;
-        // let namespace = "test_namespace".to_string();
-        // let id = "index_id".to_string();
-        // let index = indexify_internal_api::Index {
-        //     namespace: namespace.clone(),
-        //     ..Default::default()
-        // };
+        let overrides = RaftConfigOverrides {
+            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(3)),
+            max_in_snapshot_log_to_keep: Some(0),
+        };
+        let mut cluster = RaftTestCluster::new(1, Some(overrides.clone())).await?;
+        cluster.initialize(Duration::from_secs(2)).await?;
+        let node = cluster.get_raft_node(0)?;
 
-        // //  add data
-        // node.create_index(&namespace, index, id.clone()).await?;
+        //  add data
+        let namespace = "test_namespace".to_string();
+        node.create_namespace(&namespace).await?;
+        let content = indexify_internal_api::ContentMetadata {
+            id: ContentMetadataId::new("contnet_id"),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content]).await?;
 
-        // //  add a new node
-        // cluster.add_node_to_cluster(Some(overrides)).await?;
-        // tokio::time::sleep(Duration::from_secs(2)).await;
+        //  add a new node
+        cluster.add_node_to_cluster(Some(overrides)).await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
-        // //  ensure that snapshot invariants are maintained on new node
-        // let new_node = cluster.get_raft_node(1)?;
+        //  ensure that snapshot invariants are maintained on new node
+        let new_node = cluster.get_raft_node(1)?;
 
-        // let table = new_node.state_machine.get_namespace_index_table().await;
-        // assert_eq!(table.len(), 1);
-        // let (key, value) = table.iter().next().unwrap();
-        // assert_eq!(*key, namespace);
-        // assert_eq!(value.len(), 1);
-        // assert!(value.contains(&id));
+        let content_table = new_node.state_machine.get_content_namespace_table();
+        assert_eq!(content_table.len(), 1);
+        let (key, value) = content_table.iter().next().unwrap();
+        assert_eq!(*key, namespace);
+        assert_eq!(value.len(), 1);
 
-        // let indexes = new_node.list_indexes(&namespace).await?;
-        // assert_eq!(indexes.len(), 1);
-        // let index = indexes.first().unwrap();
-        // assert_eq!(index.namespace, namespace);
+        let contents = new_node.list_content(&namespace).await?;
+        assert_eq!(contents.len(), 1);
+        let c = contents.first().unwrap().as_ref().unwrap();
+        assert_eq!(c.namespace, namespace);
         Ok(())
     }
 }

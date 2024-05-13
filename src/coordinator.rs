@@ -9,8 +9,13 @@ use anyhow::{Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionPolicyId, GarbageCollectionTask, OutputSchema,
-    StateChange, StructuredDataSchema,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicyId,
+    GarbageCollectionTask,
+    OutputSchema,
+    StateChange,
+    StructuredDataSchema,
 };
 use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -582,7 +587,9 @@ mod tests {
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{
-            create_test_extraction_graph, mock_extractor, test_mock_content_metadata,
+            create_test_extraction_graph,
+            mock_extractor,
+            test_mock_content_metadata,
             DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
@@ -633,7 +640,7 @@ mod tests {
 
         //  Read the extraction graph back
         let ret_graph =
-            shared_state.get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &vec![eg.name])?;
+            shared_state.get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &[eg.name])?;
         assert!(ret_graph.first().unwrap().is_some());
         assert_eq!(ret_graph.len(), 1);
         Ok(())
@@ -909,7 +916,7 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", &executor_id_1, vec![extractor_1.clone()])
+            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
             .await?;
         let eg = create_test_extraction_graph("eg_name_1", vec!["ep_policy_name_1"]);
         coordinator.create_extraction_graph(eg.clone()).await?;
@@ -918,7 +925,7 @@ mod tests {
         let mut extractor_2 = mock_extractor();
         extractor_2.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor("localhost:8957", &executor_id_2, vec![extractor_2.clone()])
+            .register_executor("localhost:8957", executor_id_2, vec![extractor_2.clone()])
             .await?;
 
         //  Create an extraction graph with two levels of policies
@@ -960,7 +967,7 @@ mod tests {
         ////  check that tasks have been created for the second level for the second
         //// extractor
         let tasks = shared_state
-            .tasks_for_executor(&executor_id_2, None)
+            .tasks_for_executor(executor_id_2, None)
             .await?;
         assert_eq!(tasks.len(), 4);
 

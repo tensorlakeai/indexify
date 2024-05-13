@@ -26,6 +26,7 @@ const BASE_PORT: usize = 18950;
 pub struct RaftTestCluster {
     nodes: BTreeMap<NodeId, Arc<Coordinator>>,
     pub seed_node_id: NodeId,
+    pub append: String,
 }
 
 #[cfg(test)]
@@ -33,7 +34,7 @@ impl RaftTestCluster {
     /// Helper function to create raft configs for as many nodes as required
     fn create_test_raft_configs(
         node_count: usize,
-    ) -> Result<Vec<Arc<ServerConfig>>, anyhow::Error> {
+    ) -> Result<(Vec<Arc<ServerConfig>>, String), anyhow::Error> {
         let append = nanoid::nanoid!();
         let base_port = BASE_PORT;
         let mut configs = Vec::new();
@@ -59,7 +60,7 @@ impl RaftTestCluster {
             configs.push(config.clone());
         }
 
-        Ok(configs)
+        Ok((configs, append))
     }
 
     pub async fn add_node_to_cluster(
@@ -79,8 +80,7 @@ impl RaftTestCluster {
             state_store: StateStoreConfig {
                 path: Some(format!(
                     "/tmp/indexify-test/raft/{}/{}",
-                    nanoid::nanoid!(),
-                    new_node_id
+                    self.append, new_node_id
                 )),
             },
             seed_node,
@@ -215,7 +215,7 @@ impl RaftTestCluster {
         num_of_nodes: usize,
         overrides: Option<RaftConfigOverrides>,
     ) -> anyhow::Result<Self> {
-        let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
+        let (server_configs, append) = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
         let seed_node_id = server_configs.first().unwrap().node_id; //  the seed node will always be the first node in the list
         let mut nodes = BTreeMap::new();
         for config in server_configs {
@@ -237,6 +237,7 @@ impl RaftTestCluster {
         Ok(Self {
             nodes,
             seed_node_id,
+            append,
         })
     }
 

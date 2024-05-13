@@ -23,6 +23,9 @@ message SnapshotData {
 
 message EndSnapshot {
     string hash = 1;
+    string metadata_json = 2;
+    string vote_json = 3;
+    uint64 offset = 4;
 }
 
 message SnapshotFrame {

@@ -1,18 +1,25 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
+use futures::TryFutureExt;
 use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi, RaftReply, RaftRequest, SnapshotFrame,
+    raft_api_server::RaftApi,
+    RaftReply,
+    RaftRequest,
+    SnapshotFrame,
 };
 use openraft::{
     error::{CheckIsLeaderError, ForwardToLeader, RaftError},
     BasicNode,
+    SnapshotMeta,
+    Vote,
 };
 use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResponse};
+use sha2::{Digest, Sha256};
 use tonic::{Request, Status, Streaming};
 use tracing::info;
 
-use super::{raft_client::RaftClient, NodeId};
+use super::{raft_client::RaftClient, snapshot_receiver::SnapshotReceiver, NodeId};
 use crate::{
     grpc_helper::GrpcHelper,
     metrics::{raft_metrics, CounterGuard},
@@ -25,6 +32,7 @@ pub struct RaftGrpcServer {
     raft_client: Arc<RaftClient>,
     address: String,
     coordinator_address: String,
+    snapshot_path: std::path::PathBuf,
 }
 
 impl RaftGrpcServer {
@@ -34,6 +42,7 @@ impl RaftGrpcServer {
         raft_client: Arc<RaftClient>,
         address: String,
         coordinator_addr: String,
+        snapshot_path: std::path::PathBuf,
     ) -> Self {
         Self {
             id,
@@ -41,6 +50,7 @@ impl RaftGrpcServer {
             raft_client,
             address,
             coordinator_address: coordinator_addr,
+            snapshot_path,
         }
     }
 
@@ -252,11 +262,120 @@ impl RaftApi for RaftGrpcServer {
         }
     }
 
-    async fn install_snapshot_stream<'a>(
-        &'a self,
-        stream: Request<Streaming<SnapshotFrame>>,
+    async fn install_snapshot_stream(
+        &self,
+        request: Request<Streaming<SnapshotFrame>>,
     ) -> Result<tonic::Response<RaftReply>, Status> {
-        Err(tonic::Status::unimplemented("Not implemented"))
+        let request_addr = if let Some(addr) = request.remote_addr() {
+            addr.to_string()
+        } else {
+            "unknown address".to_string()
+        };
+        let _guard_inflight = {
+            CounterGuard::new(&request_addr, move |addr, cnt| {
+                raft_metrics::network::incr_snapshot_recv_inflight(addr, cnt);
+            })
+        };
+        let mut snapshot_receiver =
+            SnapshotReceiver::new(&self.snapshot_path)
+                .await
+                .map_err(|e| {
+                    GrpcHelper::internal_err(format!("Error creating snapshot receiver: {}", e))
+                })?;
+
+        //  data that should come in via stream
+        let mut snapshot_meta: Option<SnapshotMeta<NodeId, BasicNode>> = None;
+        let mut vote_info: Option<Vote<NodeId>> = None;
+        let mut offset: Option<u64> = None;
+
+        //  integrity checks
+        let mut total_bytes_written = 0;
+        let mut expected_size = 0;
+        let mut hasher = Sha256::new();
+        let mut final_hash = None;
+
+        let mut stream = request.into_inner();
+        while let Some(frame) = stream.message().await? {
+            match frame.frame_type.unwrap() {
+                indexify_proto::indexify_raft::snapshot_frame::FrameType::StartSnapshot(start) => {
+                    expected_size = start.total_size;
+                }
+                indexify_proto::indexify_raft::snapshot_frame::FrameType::SnapshotData(data) => {
+                    hasher.update(data.data.clone());
+                    snapshot_receiver
+                        .write_chunk(&data.data)
+                        .await
+                        .map_err(|e| {
+                            GrpcHelper::internal_err(format!("Error writing snapshot chunk: {}", e))
+                        })?;
+                    total_bytes_written += data.data.len() as u64;
+                }
+                indexify_proto::indexify_raft::snapshot_frame::FrameType::EndSnapshot(end) => {
+                    final_hash = Some(end.hash);
+                    snapshot_meta =
+                        Some(serde_json::from_str(&end.metadata_json).map_err(|e| {
+                            GrpcHelper::internal_err(format!(
+                                "Error parsing snapshot metadata: {}",
+                                e
+                            ))
+                        })?);
+                    vote_info = Some(serde_json::from_str(&end.vote_json).map_err(|e| {
+                        GrpcHelper::internal_err(format!("Error parsing vote: {}", e))
+                    })?);
+                    offset = Some(end.offset);
+                    snapshot_receiver.finish().await.map_err(|e| {
+                        GrpcHelper::internal_err(format!(
+                            "Error flushing snapshot stream to disk: {}",
+                            e
+                        ))
+                    })?;
+                }
+            }
+        }
+
+        if let Some(expected_hash) = final_hash {
+            let computed_hash = format!("{:x}", hasher.finalize());
+            if computed_hash != expected_hash || total_bytes_written != expected_size {
+                return Err(tonic::Status::internal("Data corruption detected"));
+            }
+        } else {
+            return Err(tonic::Status::internal(
+                "Snapshot transmission incomplete: no end frame received",
+            ));
+        }
+
+        let snapshot_data = snapshot_receiver
+            .read_data()
+            .await
+            .map_err(|e| GrpcHelper::internal_err(format!("Error reading snapshot data: {}", e)))?;
+        let snapshot_size = snapshot_data.len() as u64;
+
+        let snapshot_req: openraft::raft::InstallSnapshotRequest<super::TypeConfig> =
+            openraft::raft::InstallSnapshotRequest {
+                vote: vote_info.unwrap(),
+                meta: snapshot_meta.unwrap(),
+                offset: offset.unwrap(),
+                data: snapshot_data,
+                done: true,
+            };
+
+        let resp = self.raft.install_snapshot(snapshot_req).await.map_err(|e| {
+            raft_metrics::network::incr_snapshot_recv_failure(&request_addr);
+            GrpcHelper::internal_err(e.to_string())
+        });
+
+        match resp {
+            Ok(resp) => {
+                raft_metrics::network::incr_snapshot_recv_success(&request_addr);
+                raft_metrics::network::add_snapshot_size(snapshot_size);
+                raft_metrics::network::set_last_snapshot_creation_time(std::time::Instant::now());
+                GrpcHelper::ok_response(resp)
+            }
+            Err(e) => {
+                raft_metrics::network::incr_snapshot_recv_failure(&request_addr);
+                Err(e)
+            }
+        }
     }
 
     async fn vote(
