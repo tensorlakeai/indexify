@@ -1106,6 +1106,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         schema: &internal_api::StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
+        println!("Setting schema: {:?}", schema);
         let serialized_schema = JsonEncoder::encode(schema)?;
         txn.put_cf(
             &StateMachineColumns::StructuredDataSchemas.cf(db),
@@ -1201,22 +1202,24 @@ impl IndexifyState {
             .remove(&state_change.state_change_id);
     }
 
-    fn update_schema_reverse_idx(&self, schema: internal_api::StructuredDataSchema) {
-        self.schemas_by_namespace
-            .insert(&schema.namespace, &schema.id);
-    }
-
     fn update_extraction_graph_reverse_idx(
         &self,
         extraction_graph: &ExtractionGraph,
-        schema: internal_api::StructuredDataSchema,
+        structured_data_schema: internal_api::StructuredDataSchema,
     ) {
         for ep in &extraction_graph.extraction_policies {
             self.extraction_policies_table.insert(&ep.namespace, &ep.id);
         }
-        self.update_schema_reverse_idx(schema);
         self.extraction_graphs_by_ns
             .insert(&extraction_graph.namespace, &extraction_graph.id);
+        println!(
+            "Updating structured schema reverse index: {:?}",
+            structured_data_schema
+        );
+        self.schemas_by_namespace.insert(
+            &structured_data_schema.namespace,
+            &structured_data_schema.id,
+        );
     }
 
     /// This method will make all state machine forward index writes to RocksDB
@@ -1351,13 +1354,6 @@ impl IndexifyState {
             RequestPayload::TombstoneContentTree { content_metadata } => {
                 self.tombstone_content_tree(db, &txn, content_metadata)?;
             }
-            RequestPayload::CreateExtractionPolicy {
-                extraction_policy,
-                updated_structured_data_schema: _,
-                new_structured_data_schema: _,
-            } => {
-                self.set_extraction_policy(db, &txn, extraction_policy)?;
-            }
             RequestPayload::CreateNamespace { name } => {
                 self.set_namespace(db, &txn, name)?;
             }
@@ -1488,19 +1484,6 @@ impl IndexifyState {
                         self.content_children_table.insert(&parent_id, &content.id);
                     }
                 }
-                Ok(())
-            }
-            RequestPayload::CreateExtractionPolicy {
-                extraction_policy,
-                updated_structured_data_schema,
-                new_structured_data_schema,
-            } => {
-                self.extraction_policies_table
-                    .insert(&extraction_policy.namespace, &extraction_policy.id);
-                if let Some(schema) = updated_structured_data_schema {
-                    self.update_schema_reverse_idx(schema);
-                }
-                self.update_schema_reverse_idx(new_structured_data_schema);
                 Ok(())
             }
             RequestPayload::CreateExtractionGraph {

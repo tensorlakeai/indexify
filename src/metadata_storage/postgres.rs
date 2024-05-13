@@ -56,8 +56,8 @@ impl MetadataStorage for PostgresIndexManager {
             id TEXT PRIMARY KEY,
             namespace TEXT,
             extractor TEXT,
+            extraction_graph TEXT,
             content_source TEXT,
-            index_name TEXT,
             data JSONB,
             content_id TEXT,
             parent_content_id TEXT,
@@ -87,13 +87,13 @@ impl MetadataStorage for PostgresIndexManager {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let table_name = PostgresIndexName::new(&table_name(namespace));
-        let query = format!("INSERT INTO \"{table_name}\" (id, namespace, extractor, content_source, index_name, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
+        let query = format!("INSERT INTO \"{table_name}\" (id, namespace, extractor, extraction_graph, content_source, data, content_id, parent_content_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;");
         let _ = sqlx::query(&query)
             .bind(metadata.id)
             .bind(namespace)
             .bind(metadata.extractor_name)
+            .bind(metadata.extraction_graph_name)
             .bind(metadata.content_source)
-            .bind(table_name.to_string())
             .bind(metadata.metadata)
             .bind(metadata.content_id)
             .bind(metadata.parent_content_id)
@@ -136,8 +136,9 @@ impl MetadataStorage for PostgresIndexManager {
     async fn delete_metadata_for_content(&self, namespace: &str, content_id: &str) -> Result<()> {
         let _timer = Timer::start(&self.metrics.metadata_deleted);
         let index_table_name = PostgresIndexName::new(&table_name(namespace));
-        let query =
-            format!("DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and content_id = $2");
+        let query = format!(
+            "DELETE FROM \"{index_table_name}\" WHERE namespace = $1 and extraction_graph = $2"
+        );
 
         sqlx::query(&query)
             .bind(namespace)

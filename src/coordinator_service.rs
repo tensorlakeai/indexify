@@ -262,11 +262,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .iter()
             .map(|extractor| (extractor.name.clone(), extractor.clone().into()))
             .collect();
-        let extractor_output_table_mapping: HashMap<_, _> = creation_result
-            .extraction_policies
-            .iter()
-            .flat_map(|policy| policy.output_table_mapping.clone())
-            .collect();
         let indexes = indexes
             .into_iter()
             .map(|index| index.into())
@@ -276,7 +271,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             extractors,
             policies,
             indexes,
-            extractor_output_table_mapping,
         }))
     }
 

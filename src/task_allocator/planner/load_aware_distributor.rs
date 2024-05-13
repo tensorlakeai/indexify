@@ -305,12 +305,14 @@ mod tests {
     fn create_task(
         id: &str,
         extractor: &str,
+        extractor_graph_name: &str,
         policy: &str,
         content: ContentMetadata,
     ) -> internal_api::Task {
         internal_api::Task {
             id: id.to_string(),
             extractor: extractor.to_string(),
+            extraction_graph_name: extractor_graph_name.to_string(),
             extraction_policy_id: policy.to_string(),
             output_index_table_mapping: HashMap::new(),
             namespace: "default".to_string(),
@@ -449,7 +451,13 @@ mod tests {
             .create_content_batch(vec![content.clone()])
             .await?;
 
-        let task = create_task("test-task", &mock_extractor().name, "test-binding", content);
+        let task = create_task(
+            "test-task",
+            &mock_extractor().name,
+            "mock-extraction-graph",
+            "test-binding",
+            content,
+        );
         shared_state
             .create_tasks(vec![task.clone()], &state_change_id)
             .await?;
@@ -529,6 +537,7 @@ mod tests {
             let task1 = create_task(
                 &format!("test-text-task-{}", i),
                 "MockTextExtractor",
+                "MockTextExtractionGraph",
                 "text-binding",
                 content1.clone(),
             );
@@ -540,6 +549,7 @@ mod tests {
             let task2 = create_task(
                 &format!("test-json-task-{}", i),
                 "MockJsonExtractor",
+                "MockJsonExtractionGraph",
                 "json-binding",
                 content2.clone(),
             );
@@ -783,6 +793,7 @@ mod tests {
             let task1 = create_task(
                 &format!("test-text-task-{}", i),
                 "MockTextExtractor",
+                "MockTextExtractionGraph",
                 "text-binding",
                 content1.clone(),
             );
@@ -794,6 +805,7 @@ mod tests {
             let task2 = create_task(
                 &format!("test-json-task-{}", i),
                 "MockJsonExtractor",
+                "MockJsonExtractionGraph",
                 "json-binding",
                 content2.clone(),
             );

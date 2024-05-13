@@ -68,11 +68,6 @@ pub enum RequestPayload {
     TombstoneContentTree {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    CreateExtractionPolicy {
-        extraction_policy: internal_api::ExtractionPolicy,
-        updated_structured_data_schema: Option<internal_api::StructuredDataSchema>,
-        new_structured_data_schema: internal_api::StructuredDataSchema,
-    },
     SetIndex {
         indexes: Vec<internal_api::Index>,
     },

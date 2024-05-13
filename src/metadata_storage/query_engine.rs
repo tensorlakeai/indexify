@@ -235,6 +235,7 @@ mod tests {
             "test_content_source",
             json!({"name": "diptanu", "role": "founder"}),
             "test_extractor",
+            "test_extraction_graph",
         );
         let meta2 = ExtractedMetadata::new(
             "test_content_id",
@@ -242,6 +243,7 @@ mod tests {
             "test_content_source",
             json!({"name": "lucas", "role": "engineer"}),
             "test_extractor",
+            "test_extraction_graph",
         );
         let meta3 = ExtractedMetadata::new(
             "test_content_id",
@@ -249,6 +251,7 @@ mod tests {
             "test_content_source",
             json!({"name": "zaid", "role": "engineer"}),
             "test_extractor",
+            "test_extraction_graph",
         );
         index_manager.add_metadata(ns, meta1).await.unwrap();
         index_manager.add_metadata(ns, meta2).await.unwrap();
