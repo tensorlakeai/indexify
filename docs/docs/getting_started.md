@@ -32,9 +32,6 @@ indexify-extractor download hub://embedding/minilm-l6
 indexify-extractor download hub://text/chunking
 ```
 
-
-You can find the available extractors we have built by running ```indexify-extractor list```.
-
 Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane. This is a long running process that extracts continuously when new data is ingested.
 
 ```bash
