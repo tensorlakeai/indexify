@@ -9,7 +9,7 @@ We will build a few different extraction graphs(real time labelling and extracti
 ### Download and Start Indexify Server
 
 ```shell
-curl https://www.tensorlake.ai | sh
+curl https://getindexify.ai | sh
 ```
 Once the binary is downloaded, start the server.
 ```shell
