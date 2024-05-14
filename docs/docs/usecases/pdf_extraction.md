@@ -59,7 +59,7 @@ You can test it locally and unlock the secrets hidden within your documents:
 
 We've made it incredibly easy to integrate Indexify into your workflow. Get ready to supercharge your document processing capabilities! 🔋
 
-1. Start the Indexify Server and Extraction Policies:
+1. Start the Indexify Server:
    ```bash
    curl https://tensorlake.ai | sh
    ./indexify server -d
@@ -71,18 +71,25 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
    indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
    ```
 
-3. Create an Extraction Policy:
+3. Create an Extraction Graph:
    ```python
    from indexify import IndexifyClient
    client = IndexifyClient()
-   client.create_extraction_policy(extractor="tensorlake/pdf-extractor", name="my-pdf-extractor")
+   extraction_graph_spec = """
+   name: 'pdfknowledgebase'
+   extraction_policies:
+      - extractor: 'tensorlake/pdf-extractor'
+        name: 'my-pdf-extractor'
+   """
+   extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+   client.create_extraction_graph(extraction_graph)
    ```
 
 4. Upload PDFs from your application:
    ```python
    from indexify import IndexifyClient
    client = IndexifyClient()
-   content_id = client.upload_file("/path/to/pdf.file")
+   content_id = client.upload_file("pdfknowledgebase", "/path/to/pdf.file")
    ```
 
 5. Inspect the extracted content:

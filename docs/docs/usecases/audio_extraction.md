@@ -75,7 +75,7 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor
    ```
 
-3. Create an Extraction Policy:
+3. Create an Extraction Graph:
    ```python
    from indexify import IndexifyClient
    client = IndexifyClient()
