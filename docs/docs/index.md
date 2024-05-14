@@ -5,6 +5,7 @@
 Indexify is data framework for building LLM Applications that derives knowledge from enterprise or consumer data to make decisions or answer questions. It shines in use-cases where ground truth sources of infromation changes over time. Most data sources in the real world are unstructured and orginate from PDFs, clicks on websites, emails, text messages or videos. Indexify focusses on bringing information from unstructured data sources to LLMs continously for production applications.
 
 It provides the following primitives - 
+
 1. **Real Time Data Pipelines** - For defining data transformation and extraction graphs that execute whenever new data is ingested.
 2. **Extractor SDK** - SDK to extract information models, or other video, document, audio models.
 3. **Storage** - Extracted data is automatically stored in vector stores, structured data stores and blob stores.
