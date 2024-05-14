@@ -49,7 +49,7 @@ You can test it locally:
    indexify-extractor join-server pdf-extractor.pdf_extractor:PDFExtractor
    ```
 
-2. Load it in a notebook or terminal:
+2. Load it in a notebook or in a Python script:
    ```python
    from indexify_extractor_sdk import load_extractor, Content
    extractor, config_cls = load_extractor("pdf-extractor.pdf_extractor:PDFExtractor")
