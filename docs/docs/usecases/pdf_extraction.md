@@ -21,7 +21,7 @@ PDF Extraction Pipelines are usually composed of three stages. You can use one o
 3. 🧠 **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. 
 
 ## 🎞️ Image Extraction
-If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores.
+If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understading of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
 
 ## 📈 Table Extraction
 Tables are automatically extracted by `tensorlake/pdf-extractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
