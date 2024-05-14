@@ -1,6 +1,6 @@
-# 📄 PDF Extraction: Unleash the Power of Your Documents! 
+# 📄 PDF Extraction!
 
-Welcome to the world of PDF extraction with Indexify! 🎉 We're here to revolutionize the way you interact with your documents, making it easier than ever to extract valuable insights and perform powerful question answering. Get ready to dive into a realm of endless possibilities! 💡
+Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. PDF is a complex document type; we offer many different extractors suitable to various use cases.
 
 ![PDF Extraction High Level](../images/PDF_Usecase.png)
 
@@ -8,19 +8,23 @@ Welcome to the world of PDF extraction with Indexify! 🎉 We're here to revolut
 
 With Indexify, you can accomplish the following with your PDFs:
 
-1. 🔍 **Data Extraction:** Easily extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices, and receipts. Say goodbye to manual data entry and hello to automated efficiency!
-2. 📚 **Document Indexing:** Build comprehensive indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. Create a searchable knowledge base that's always at your fingertips!
-3. 🤖 **Document Q&A:** Leverage the power of LLMs to query your document indexes and get accurate answers to your questions. It's like having a personal assistant that knows your documents inside out!
+1. 🔍 **Data Extraction:** Easily extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices, and receipts. Use Cases: Automate Manual Data Entry
+2. 📚 **Document Indexing:** Build searchable indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. Use Cases: RAG Applications, Assitants, etc.
+3. 🤖 **Document Q&A:** Get Answers to specific Questions from Documents without creating indexing. 
 
-## 🔧 The Extraction Pipeline: A Three-Stage Journey
+## 🔧 The Extraction Pipeline: A Three-Stage Process
 
-To unlock the full potential of your PDFs, we've designed a seamless three-stage extraction pipeline that will take you from raw documents to actionable insights:
+PDF Extraction Pipelines are usually composed of three stages. You can use one or more of these stages depending on your usecase - 
 
-1. 📄 **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdf-extractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents, laying the foundation for further analysis.
+1. 📄 **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdf-extractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
 2. ✂️ **Content to Chunk Extraction Stage:** Break down the extracted content into manageable chunks using extractors like `text/chunking`. This stage helps organize your content into coherent and contextually relevant pieces, making it easier to process and understand.
-3. 🧠 **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. By transforming your content into numerical representations, you enable powerful similarity search and retrieval capabilities.
+3. 🧠 **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. 
 
-By chaining these stages together, you can create a powerful pipeline that enables question answering using the RAG (Retrieval-Augmented Generation) approach. Watch as your documents come to life, ready to answer any question you throw at them! 🚀
+## 🎞️ Image Extraction
+If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores.
+
+## 📈 Table Extraction
+Tables are automatically extracted by `tensorlake/pdf-extractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
 
 ## 🌈 Explore the PDF Extractor Landscape
 
@@ -37,7 +41,7 @@ We offer a wide range of PDF extractors to suit your specific needs. Whether you
 
 ## 🚀 Get Started with PDF Extraction
 
-You can test it locally and unlock the secrets hidden within your documents:
+You can test it locally:
 
 1. Download a PDF Extractor:
    ```bash
