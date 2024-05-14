@@ -24,21 +24,22 @@ This starts the Indexify ingestion API and scheduler. The server state, ingested
 
 ### Install the Extractor SDK
 
-Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, first install the extractors sdk.
+Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, download some extractors.
 
-```shell
-pip install indexify-extractor-sdk
-```
-
-Now download some extractors from our hub. 
 ```bash
+pip install indexify-extractor-sdk
 indexify-extractor download hub://embedding/minilm-l6
 indexify-extractor download hub://text/chunking
 ```
 
+
 You can find the available extractors we have built by running ```indexify-extractor list```.
 
 Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane. This is a long running process that extracts continuously when new data is ingested.
+
+```bash
+indexify-extractor join-server
+```
 
 ### Install the client library
 
@@ -74,7 +75,7 @@ into a vector database.
 === "Python"
     ```python
     extraction_graph_spec = """
-    name: 'wikipedia-knowledgebase'
+    name: 'sportsknowledgebase'
     extraction_policies:
        - extractor: 'tensorlake/chunk-extractor'
          name: 'chunker'
@@ -107,7 +108,7 @@ We are going to add some documents from Wikipedia.
     from langchain_community.document_loaders import WikipediaLoader
     docs = WikipediaLoader(query="Kevin Durant", load_max_docs=1).load()
     for doc in docs:
-        client.add_documents("wikipedia-knowledgebase", doc.page_content)                 
+        client.add_documents("sportsknowledgebase", doc.page_content)                 
     ```
 
 === "TypeScript"
