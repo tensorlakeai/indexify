@@ -216,6 +216,9 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
             .map_err(|e| self.status_to_unreachable(tonic::Status::aborted(e.to_string())))?;
 
         println!("deserializing the data before sending it over wire");
+        println!("The meta {:?}", req.meta);
+        println!("The offset {}", req.offset);
+        println!("Done {}", req.done);
         let deserialized_data: crate::state::store::state_machine_objects::IndexifyStateSnapshot =
             serde_json::from_slice(&req.data)
                 .map_err(|e| new_net_err(&e, || "deserialize install snapshot data"))?;
