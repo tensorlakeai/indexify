@@ -2,6 +2,10 @@
 
 We will build a few different extraction graphs(real time labelling and extraction data pipelines) and show you how to upload content, and build RAG applications from the extracted data.
 
+- Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
+- Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
+- Ingest a recent podcast from Youtube and create a summary, and answer questions.
+  
 ### Download the Indexify Binary
 
 ```shell
