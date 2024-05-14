@@ -13,17 +13,17 @@ For example, a PDF document could be broken down to - images, multiple text chun
 Extractors are typically built using AI model and some additional pre and post processing of content.
 
 ## Install the SDK 
-The tools to build, test and package extractors are available through the Python package `indexify_extractor_sdk`. A typescript SDK is under development also. 
+The tools to build, test and package extractors are available through the Python package `indexify-extractor-sdk`. A typescript SDK is under development also. 
 
 ```shell
-pip install indexify_extractor_sdk
+pip install indexify-extractor-sdk
 ```
 
 ## Running Extractors
 
 ### Running extractor locally
 ```shell
-indexify-extractor local  <extractor_file:ClassNameOfExtractor> --text "hello world"
+indexify-extractor local <extractor_file:ClassNameOfExtractor> --text "hello world"
 ```
 This will invoke the extractor in `extractor_file.py` and create a `Content` with *hello world* as the data.
 
@@ -40,11 +40,11 @@ The addresses here can be found from Indexify server's configuration.
 
 Extractors can be deployed in production with ease using docker along with Indexify server in a cluster. You can test an extractor packaged with docker by running docker locally.
 ```shell
-docker run indexify-extractor local --text "hello world"
+docker run tensorlake/minilm-l6 run-local --text hello
 ```
 
 Passing a local file from your laptop to docker requires bind-mounting the file into the container 
 ```shell
-docker run -v /path/to/local/file:/tmp/file run indexify-extractor local --text "hello world"
+ docker run -v /path/to/local/file:/tmp/image.jpg tensorlake/yolo-extractor run-local yolo_extractor:YoloExtractor --file /tmp/image.jpg
 ```
-The name of the extractor module is retreived from an environment variable of the container `INDEXIFY_EXTRACTOR`
+The name of the extractor module is retreived from an environment variable of the container `EXTRACTOR_PATH`
