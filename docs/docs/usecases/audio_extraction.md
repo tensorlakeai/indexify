@@ -46,16 +46,16 @@ You can test it locally and unlock the secrets hidden within your audio files:
 
 1. Download an Audio Extractor:
    ```bash
-   indexify-extractor download hub://tensorlake/whisper-asr
-   indexify-extractor join-server whisper-asr.whisper_asr:WhisperASR
+   indexify-extractor download hub://audio/whisper-asr
+   indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor
    ```
 
 2. Load it in a notebook or terminal:
    ```python
    from indexify_extractor_sdk import load_extractor, Content
-   extractor, config_cls = load_extractor("whisper-asr.whisper_asr:WhisperASR")
+   extractor, config_cls = load_extractor("whisper-asr.whisper_extractor:WhisperExtractor")
    content = Content.from_file("/path/to/audio.mp3")
-   results =  extractor.extract(content)
+   results = extractor.extract(content,params={})
    print(results)
    ```
 
@@ -71,7 +71,7 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
 
 2. Start a long-running Audio Extractor:
    ```bash
-   indexify-extractor download hub://tensorlake/whisper-asr  
+   indexify-extractor download hub://audio/whisper-asr
    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor
    ```
 
@@ -79,14 +79,22 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
    ```python
    from indexify import IndexifyClient
    client = IndexifyClient()
-   client.create_extraction_policy(extractor="tensorlake/whisper-asr", name="my-audio-extractor")
+
+   extraction_graph_spec = """
+   name: 'audioknowledgebase'
+   extraction_policies:
+      - extractor: 'tensorlake/whisper-asr'
+        name: 'my-audio-extractor'
+   """
+   extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+   client.create_extraction_graph(extraction_graph)
    ```
 
 4. Upload Audio Files from your application:
    ```python
    from indexify import IndexifyClient  
    client = IndexifyClient()
-   content_id = client.upload_file("/path/to/audio.mp3")
+   content_id = client.upload_file("audioknowledgebase", "/path/to/audio.mp3")
    ```
 
 5. Inspect the extracted content:
