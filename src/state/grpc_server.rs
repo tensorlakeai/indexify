@@ -2,16 +2,11 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use indexify_proto::indexify_raft::{
-    raft_api_server::RaftApi,
-    RaftReply,
-    RaftRequest,
-    SnapshotFrame,
+    raft_api_server::RaftApi, RaftReply, RaftRequest, SnapshotFrame,
 };
 use openraft::{
     error::{CheckIsLeaderError, ForwardToLeader, RaftError},
-    BasicNode,
-    SnapshotMeta,
-    Vote,
+    BasicNode, SnapshotMeta, Vote,
 };
 use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResponse};
 use sha2::{Digest, Sha256};
@@ -148,6 +143,7 @@ impl RaftGrpcServer {
             .map_err(|e| {
                 GrpcHelper::internal_err(format!("Error writing to state machine: {}", e))
             })?;
+        println!("Done adding the new nodes to the cluster");
 
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
@@ -343,10 +339,26 @@ impl RaftApi for RaftGrpcServer {
             ));
         }
 
+        //  read directly from buffer to see if data was received correctly
+        println!("deserializing from buffer");
+        let data: crate::state::store::state_machine_objects::IndexifyStateSnapshot =
+            serde_json::from_slice(&snapshot_receiver.buffer).map_err(|e| {
+                println!("The error {}", e);
+                GrpcHelper::internal_err(format!("Error parsing snapshot data: {}", e))
+            })?;
+        println!("The data from buffer {:#?}", data);
+        println!("done deserializing from buffer");
+
         let snapshot_data = snapshot_receiver
             .read_data()
             .await
             .map_err(|e| GrpcHelper::internal_err(format!("Error reading snapshot data: {}", e)))?;
+        let data: crate::state::store::state_machine_objects::IndexifyStateSnapshot =
+            serde_json::from_slice(&snapshot_data).map_err(|e| {
+                println!("The error {}", e);
+                GrpcHelper::internal_err(format!("Error parsing snapshot data: {}", e))
+            })?;
+        println!("The data {:#?}", data);
         let snapshot_size = snapshot_data.len() as u64;
 
         let snapshot_req: openraft::raft::InstallSnapshotRequest<super::TypeConfig> =
@@ -358,6 +370,12 @@ impl RaftApi for RaftGrpcServer {
                 done: true,
             };
 
+        println!(
+            "Done streaming and reading the snapshot from file, going to install on raft node"
+        );
+        println!("The offset {}", snapshot_req.offset);
+        println!("The meta {}", snapshot_req.meta);
+        println!("The vote {}", snapshot_req.vote);
         let resp = self.raft.install_snapshot(snapshot_req).await.map_err(|e| {
             raft_metrics::network::incr_snapshot_recv_failure(&request_addr);
             GrpcHelper::internal_err(e.to_string())

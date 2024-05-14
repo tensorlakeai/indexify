@@ -15,62 +15,22 @@ use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CoordinatorCommand,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateExtractionGraphRequest,
-    CreateExtractionGraphResponse,
-    CreateGcTasksRequest,
-    CreateGcTasksResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetContentTreeMetadataRequest,
-    GetExtractionPolicyRequest,
-    GetExtractionPolicyResponse,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetIngestionInfoRequest,
-    GetIngestionInfoResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    GetTaskRequest,
-    GetTaskResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    RemoveIngestionServerRequest,
-    RemoveIngestionServerResponse,
-    TaskAssignments,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateIndexesStateRequest,
-    UpdateIndexesStateResponse,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
+    self, coordinator_service_server::CoordinatorService, CoordinatorCommand, CreateContentRequest,
+    CreateContentResponse, CreateExtractionGraphRequest, CreateExtractionGraphResponse,
+    CreateGcTasksRequest, CreateGcTasksResponse, GcTask, GcTaskAcknowledgement,
+    GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest, GetContentTreeMetadataRequest, GetExtractionPolicyRequest,
+    GetExtractionPolicyResponse, GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetIngestionInfoRequest, GetIngestionInfoResponse, GetRaftMetricsSnapshotRequest,
+    GetSchemaRequest, GetSchemaResponse, GetTaskRequest, GetTaskResponse, HeartbeatRequest,
+    HeartbeatResponse, ListContentRequest, ListContentResponse, ListExtractionPoliciesRequest,
+    ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse,
+    ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest,
+    ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest,
+    RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse,
+    RemoveIngestionServerRequest, RemoveIngestionServerResponse, TaskAssignments,
+    TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateIndexesStateRequest,
+    UpdateIndexesStateResponse, UpdateTaskRequest, UpdateTaskResponse,
 };
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
 use itertools::Itertools;
@@ -82,8 +42,7 @@ use opentelemetry::{
 };
 use prometheus::Encoder;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -96,12 +55,8 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, Instrument};
 
 use crate::{
-    api::IndexifyAPIError,
-    coordinator::Coordinator,
-    coordinator_client::CoordinatorClient,
-    garbage_collector::GarbageCollector,
-    server_config::ServerConfig,
-    state,
+    api::IndexifyAPIError, coordinator::Coordinator, coordinator_client::CoordinatorClient,
+    garbage_collector::GarbageCollector, server_config::ServerConfig, state,
     tonic_streamer::DropReceiver,
 };
 
@@ -1095,9 +1050,15 @@ impl CoordinatorServer {
     ) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let garbage_collector = GarbageCollector::new();
+        //  test overrides
+        let raft_overrides = crate::state::RaftConfigOverrides {
+            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1000)),
+            max_in_snapshot_log_to_keep: Some(0),
+        };
+        //  test overrides
         let shared_state = state::App::new(
             config.clone(),
-            None,
+            Some(raft_overrides),
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
             registry,

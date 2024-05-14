@@ -12,30 +12,14 @@ use anyhow::Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
-    ContentMetadata,
-    ContentMetadataId,
-    ExecutorMetadata,
-    NamespaceName,
-    StateChange,
+    ContentMetadata, ContentMetadataId, ExecutorMetadata, NamespaceName, StateChange,
     StructuredDataSchema,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError,
-    BasicNode,
-    Entry,
-    EntryPayload,
-    ErrorSubject,
-    ErrorVerb,
-    LogId,
-    OptionalSend,
-    RaftLogReader,
-    RaftSnapshotBuilder,
-    SnapshotMeta,
-    StorageError,
-    StorageIOError,
-    StoredMembership,
-    Vote,
+    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
+    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
+    StoredMembership, Vote,
 };
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -216,6 +200,7 @@ impl StateMachineStore {
 
     fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
         debug!("Called get_current_snapshot_");
+        println!("Called get_current_snapshot_");
         if !self.snapshot_file_path.exists() {
             debug!("The snapshot file does not exist");
             return Ok(None);
@@ -240,6 +225,12 @@ impl StateMachineStore {
             JsonEncoder::decode(&decompressed_data).map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?;
+        println!("deserializing the data in the store");
+        let data: IndexifyStateSnapshot =
+            JsonEncoder::decode(&snapshot.data).map_err(|e| StorageError::IO {
+                source: StorageIOError::read(&e),
+            })?;
+        println!("The deserialized data in the store {:#?}", data);
         Ok(Some(snapshot))
     }
 
@@ -734,7 +725,9 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
         debug!("Called get_current_snapshot");
+        println!("Called get_current_snapshot");
         let x = self.get_current_snapshot_()?;
+        println!("Got the snapshot, returning it");
         Ok(x.map(|s| Snapshot {
             meta: s.meta.clone(),
             snapshot: Box::new(Cursor::new(s.data.clone())),

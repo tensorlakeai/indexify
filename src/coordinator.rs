@@ -9,13 +9,8 @@ use anyhow::{Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId,
-    ExtractionGraph,
-    ExtractionPolicyId,
-    GarbageCollectionTask,
-    OutputSchema,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadataId, ExtractionGraph, ExtractionPolicyId, GarbageCollectionTask, OutputSchema,
+    StateChange, StructuredDataSchema,
 };
 use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -258,6 +253,7 @@ impl Coordinator {
                 .get_coordinator_addr(leader_node_id)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            let leader_coord_addr = format!("http://{}", leader_coord_addr);
             self.forwardable_coordinator
                 .register_ingestion_server(&leader_coord_addr, ingestion_server_id)
                 .await?;
@@ -588,9 +584,7 @@ mod tests {
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{
-            create_test_extraction_graph,
-            mock_extractor,
-            test_mock_content_metadata,
+            create_test_extraction_graph, mock_extractor, test_mock_content_metadata,
             DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,

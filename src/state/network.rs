@@ -6,12 +6,8 @@ use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RaftNetwork, RaftNetworkFactory},
     raft::{
-        AppendEntriesRequest,
-        AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
-        VoteRequest,
-        VoteResponse,
+        AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
+        InstallSnapshotResponse, VoteRequest, VoteResponse,
     },
     BasicNode,
 };
@@ -29,8 +25,7 @@ use crate::{
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
         typ::{InstallSnapshotError, RPCError, RaftError},
-        NodeId,
-        TypeConfig,
+        NodeId, TypeConfig,
     },
 };
 
@@ -209,6 +204,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
+        println!("Called send_install_snapshot");
         let _guard_inflight = CounterGuard::new(&self.target_node.addr, move |addr, cnt| {
             raft_metrics::network::incr_snapshot_send_inflight(addr, cnt);
         });
@@ -218,6 +214,15 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
             .get(&self.target_node.addr)
             .await
             .map_err(|e| self.status_to_unreachable(tonic::Status::aborted(e.to_string())))?;
+
+        println!("deserializing the data before sending it over wire");
+        let deserialized_data: crate::state::store::state_machine_objects::IndexifyStateSnapshot =
+            serde_json::from_slice(&req.data)
+                .map_err(|e| new_net_err(&e, || "deserialize install snapshot data"))?;
+        println!(
+            "The deserialized data on the client {:#?}",
+            deserialized_data
+        );
 
         let chunk_size = 1024 * 1024; //  1 MB
         let total_size = req.data.len() as u64;
