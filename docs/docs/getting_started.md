@@ -6,14 +6,12 @@ We will build a few different extraction graphs(real time labelling and extracti
 - Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
 - Ingest a recent podcast from Youtube and create a summary, and answer questions.
   
-### Download the Indexify Binary
+### Download and Start Indexify Server
 
 ```shell
 curl https://www.tensorlake.ai | sh
 ```
-
-### Start the Service
-
+Once the binary is downloaded, start the server.
 ```shell
 ./indexify server -d
 ```
@@ -67,16 +65,21 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     
     const client = await IndexifyClient.createClient();
     ```
-### Create an Extraction Graph
+### Building the Chat Bot 
+Building a chatbot is a three step process -
+- Create an Extraction Graph to transform content into searchable vector indexes and structured data.
+- Retrieve relevant information from the index, based on the question.
+- Use an LLM to generate a response.
+
+##### Create an Extraction Graph
 Extraction Graphs allow you to create real time data pipelines that extract structured data or embeddings from unstructured data like documents or videos.
 
-The following extraction graph first chunks texts, and then runs them through an embedding model, and finally writes the embedding
-into a vector database.
+We create an extraction graph named `nbakb`. It first chunks texts, and then runs them through an embedding model, and finally writes the embedding into a vector database.
 
 === "Python"
     ```python
     extraction_graph_spec = """
-    name: 'sportsknowledgebase'
+    name: 'nbakb'
     extraction_policies:
        - extractor: 'tensorlake/chunk-extractor'
          name: 'chunker'
@@ -93,16 +96,12 @@ into a vector database.
     ```
 === "TypeScript"
     ```typescript
-
     ```
 
 
-### Adding Content
+##### Adding Content
 
-Indexify supports multiple ways of adding content through its API.
-We are going to add some documents from Wikipedia.
-
-
+Download and add some pages about a few players.
 === "python"
 
     ```python
@@ -120,9 +119,9 @@ We are going to add some documents from Wikipedia.
 !!! note "Outcome"
     We now have an index, with texts from wikipedia chunked and embedded by MiniLML6.
 
-### Building RAG Applications on Vector Indexes 
+##### RAG for Question Answering
 
-You can build a RAG Application on the extracted embeddings easily by retreiving data from the indexes and adding them into the context of an LLM request. You can use any LLMs - OpenAI, Cohere, Anthropic or local models using LLama.cpp, Ollama or Hugginface.
+We can use RAG to build the chatbot. We will retreive data from the indexes, based on the question, and add them into the context of an LLM request to generate an answer. You can use any LLMs - OpenAI, Cohere, Anthropic or local models using LLama.cpp, Ollama or Hugginface.
 
 Get the name of the Indexes created by the extraction graph - 
 ```python
