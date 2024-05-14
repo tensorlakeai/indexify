@@ -78,6 +78,8 @@ We create an extraction graph named `nbakb`. It first chunks texts, and then run
 
 === "Python"
     ```python
+    from indexify import ExtractionGraph
+    
     extraction_graph_spec = """
     name: 'nbakb'
     extraction_policies:
@@ -147,7 +149,7 @@ def get_context(question: str, index: str, top_k=3):
     return context
 
 def create_prompt(question, context):
-    return f"Answer the question, based on the question.\n question: {question} \n context: {context}"
+    return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
 ```
 
 Thats pretty much all you need to create a Basic RAG application that relies only on vector indexes
