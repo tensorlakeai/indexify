@@ -26,19 +26,24 @@ import { formatDocumentsAsString } from "langchain/util/document";
 (async () => {
   // setup client
   const client = await IndexifyClient.createNamespace("testlangchain");
-  client.addExtractionPolicy({
-    extractor: "tensorlake/minilm-l6",
-    name: "minilml6",
-  });
-
+  const client = await IndexifyClient.createClient();
+  const extractionPolicy = {
+    "tensorlake/minilm-l6",
+    name: `minilml6`,
+  };
+  const resp = await client.createExtractionGraph(
+    "myextractiongraph",
+    extractionPolicy
+  );
   // add documents
-  await client.addDocuments("Lucas is in Los Angeles, California");
+  await client.addDocuments("myextractiongraph", "Lucas is in Los Angeles, California");
 
+  // wait for content to be processed
   await new Promise((r) => setTimeout(r, 5000));
 
   // setup indexify retriever
   const retriever = new IndexifyRetriever(client, {
-    name: "minilml6.embedding",
+    name: "myextractiongraph.minilml6.embedding",
     topK: 9,
   });
 

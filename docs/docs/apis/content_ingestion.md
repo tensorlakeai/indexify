@@ -7,11 +7,30 @@ Import the language specific clients
 
     ```python
     from indexify import IndexifyClient
+    extraction_graph_spec = """
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+    """
+    extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+    client.create_extraction_graph(extraction_graph)  
     ```
 === "TypeScript"
 
     ```typescript
     import { IndexifyClient } from "getindexify";
+
+    const client = await IndexifyClient.createClient();
+    const extractionPolicy = {
+      "tensorlake/minilm-l6",
+      name: `minilml6`,
+      graph_name: "myextractiongraph"
+    };
+    const resp = await client.createExtractionGraph(
+      "myextractiongraph",
+      extractionPolicy
+    );
     ```
 
 ## Upload File
@@ -19,22 +38,20 @@ Import the language specific clients
 === "Python"
 
     ```python
-    client = IndexifyClient()
-    content = client.upload_file(path="/path/to/file")
+    content = client.upload_file(extraction_graphs="myextractiongraph",path="/path/to/file")
     ```
 
 === "TypeScript"
   
     ```typescript
-    const client = await IndexifyClient.createClient();
-    await client.uploadFile(`files/test.txt`);
+    await client.uploadFile("myextractiongraph", `files/test.txt`);
     ```
 
 ## Upload Raw Text
 === "Python"
 
     ```python
-    client.add_documents([
+    client.add_documents("myextractiongraph", [
       "Indexify is amazing!",
       "Indexify is a retrieval service for LLM agents!",
       "Kevin Durant is the best basketball player in the world."
@@ -43,7 +60,7 @@ Import the language specific clients
 === "TypeScript"
 
     ```typescript
-    await client.addDocuments([
+    await client.addDocuments("myextractiongraph", [
       "Indexify is amazing!",
       "Indexify is a retrieval service for LLM agents!",
       "Kevin Durant is the best basketball player in the world."
@@ -66,14 +83,9 @@ A namespace can be created by specifying a unique name, and any additional label
     ```python
     from indexify import IndexifyClient, ExtractionPolicy
 
-    minilm_policy = ExtractionPolicy(
-        extractor="tensorlake/minilm-l6",
-        name="minilm-l6",
-    )
-    
     IndexifyClient.create_namespace(
         name="research",
-        extraction_policies=[minilm_policy],
+        extraction_graphs=[],
         labels={"sensitive": "true"},
     )
     ```
@@ -83,12 +95,10 @@ A namespace can be created by specifying a unique name, and any additional label
     ```typescript
     import { IndexifyClient, IExtractionPolicy } from "getindexify";
 
-    const minilmPolicy:IExtractionPolicy = {
-      extractor: "tensorlake/minilm-l6",
-      name: "minilm-l6"
-    };
-
-    IndexifyClient.createNamespace("research", [minilmPolicy], {"sensitive":"true"});
+    IndexifyClient.createNamespace({
+      name:"research", 
+      extractionGraphs:[], 
+      labels:{"sensitive":"true"}});
     ```
 
 === "curl"
@@ -99,12 +109,7 @@ A namespace can be created by specifying a unique name, and any additional label
     -d '
         {
           "name": "research",
-          "extraction_policies": [
-            {
-              "extractor": "tensorlake/minilm-l6",
-              "name": "minilm-l6"
-            }
-          ],
+          "extraction_graphs": [],
           "labels": {"sensitive": "true"}
         }
     '
@@ -132,21 +137,28 @@ A namespace can be created by specifying a unique name, and any additional label
 
     ``` json
     {
-      "namespaces": [
-        {
-          "name": "research",
-          "extraction_policies": [
-            {
-              "extractor": "diptanu/minilm-l6-extractor",
-              "name": "minilml6",
-              "filters_eq": {},
-              "input_params": {}
-            }
-          ],
-          "labels": {
-            "sensitive": "true"
-          }
-        }
+      "namespaces" : [
+          {
+            "extraction_graphs" : [
+                {
+                  "extraction_policies" : [
+                      {
+                        "content_source" : "",
+                        "extractor" : "tensorlake/minilm-l6",
+                        "filters_eq" : {},
+                        "graph_name" : "sportsknowledgebase",
+                        "id" : "f4ac72a165927ada",
+                        "input_params" : null,
+                        "name" : "minilml6"
+                      }
+                  ],
+                  "id" : "default",
+                  "name" : "sportsknowledgebase",
+                  "namespace" : "default"
+                }
+            ],
+            "name" : "default"
+          },
       ]
     }
     ```

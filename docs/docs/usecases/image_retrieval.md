@@ -1,9 +1,9 @@
 Image Retrieval based on natural language is typically done in the following manner today -
 
-1. Embed images with CLIP, embed the query using the same model and do KNN search to retreive semantically similar images.
+1. Embed images with CLIP, embed the query using the same model and do KNN search to retrieve semantically similar images.
 2. Describe an image using a Visual LLM such as LLava and GPT-V, embed the description and retrieve images by searching the descriptions.
 
-While these work, semantic search on descriptions or CLIP based algorithms retreive semantically similar images so they can be less accurate. In addition to that, running these models are expensive. To make retrieval more accurate and cheaper, Indexify in addition to **supporting CLIP and VLLM based extractors**, also supports **SQL based querying of images which are far more cheaper and accurate**. Indexify automatically exposes structured data extracted by object detection and tracking models with a SQL interface.
+While these work, semantic search on descriptions or CLIP based algorithms retrieve semantically similar images so they can be less accurate. In addition to that, running these models are expensive. To make retrieval more accurate and cheaper, Indexify in addition to **supporting CLIP and VLLM based extractors**, also supports **SQL based querying of images which are far more cheaper and accurate**. Indexify automatically exposes structured data extracted by object detection and tracking models with a SQL interface.
 
 For SQL based retrieval, you will -
 

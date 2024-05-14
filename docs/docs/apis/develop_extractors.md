@@ -11,14 +11,14 @@ The content object has the following properties -
 * ** data ** - The unstructured data encoded as raw bytes.
 * ** content_type ** - The mime type of the data. For example, `text/plain`, `image/png`, etc. This allows you to decode the bytes correctly.
 * ** labels ** - Optional Key Value metadata associated with the content provided by users or added by Indexify. Labels are meant for filtering content while deciding which bindings are invoked on them or for storing user defined opaque metadata 
-* ** Feature ** - Optional Feature associated with the content, such as embedding or JSON metadata. Embeddings are stored in indexes in Vector Store and JSON metadata are stored in structured store such as Postgres. Feartures are searchable, if they are embedding you can perform KNN search on the resulting index, if it's JSON you could do JSON path queries on them.
+* ** Feature ** - Optional Feature associated with the content, such as embedding or JSON metadata. Embeddings are stored in indexes in Vector Store and JSON metadata are stored in structured store such as Postgres. Features are searchable, if they are embedding you can perform KNN search on the resulting index, if it's JSON you could do JSON path queries on them.
 
 The **Content** object is [defined here](https://github.com/tensorlakeai/indexify/blob/11346c29055f16d397fc0901ec10139cdc945134/indexify_extractor_sdk/base_extractor.py#L48) 
 
 ### Feature
 Feature is some form of extracted information from unstructured data. Embedding, or JSON metadata are the possible features for now. Features extracted are indexed and searchable.
 Features can be easily constructed from [helper methods](https://github.com/tensorlakeai/indexify/blob/11346c29055f16d397fc0901ec10139cdc945134/indexify_extractor_sdk/base_extractor.py#L37)
-You can optionaly give features a name such as `my_custom_text_embedding`, we use the names as sufixes of index names.
+You can optionally give features a name such as `my_custom_text_embedding`, we use the names as sufixes of index names.
 
 ## Install the Extractor SDK 
 ```shell
@@ -30,7 +30,7 @@ pip install indexify-extractor-sdk
 The following command will create a template for a new extractor in the current directory. 
 
 ```shell
-git clone github.com/tensorlakeai/extractor-template
+git clone https://github.com/tensorlakeai/indexify-extractor-template
 ```
 
 ## Implement the Extractor 
@@ -73,17 +73,17 @@ Add a name to your extractor, a description of what it does and python and syste
 Extractors are just python modules so you can write a unit test like any any other python module. You should also test the extractor using the indexify binary to make sure it works as expected. 
 
 ```shell
-indexify-extractor local -e custom_extractor:MyExtractor --text "hello world"
+indexify-extractor run-local custom_extractor:MyExtractor --text "hello world"
 ```
 
 #### Join with Control Plane
-You can join the extractor with the Indexfy server for it to recieve streams of content to extract from
+You can join the extractor with the Indexfy server for it to receive streams of content to extract from
 ```shell
-indexify-extractor join-server --coordinator-addr localhost:8950 --ingestion-addr localhost:8900
+indexify-extractor join-server
 ```
 
 #### Package the extractor
-Once you have tested the package, pakcage it into a container. From here the extractor is deployable to production using Kubernetes, ECS or other container based deployment platforms.
+Once you have tested the package, package it into a container. From here the extractor is deployable to production using Kubernetes, ECS or other container based deployment platforms.
 
 ```shell
 indexify-extractor package </path/to/extractor>:<ExtractorClass>

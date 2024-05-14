@@ -47,7 +47,7 @@ rag_chain = (
     | StrOutputParser()
 )
 ```
-Pass in the retreiver created above into the chain so that langchain uses that for retreival.
+Pass in the retriever created above into the chain so that langchain uses that for retreival.
 
 ### Ask LLM Question
 ```python

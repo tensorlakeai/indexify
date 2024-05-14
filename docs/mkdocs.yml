@@ -49,7 +49,7 @@ nav:
 
   - APIs:
     - Content Ingestion: 'apis/content_ingestion.md'
-    - Extraction Policies: 'apis/extraction_policies.md'
+    - Extraction Graphs: 'apis/extraction_graphs.md'
     - Retrieval: 'apis/retrieval.md'
   - Use Cases:
     - Basic RAG: 'usecases/rag.md'

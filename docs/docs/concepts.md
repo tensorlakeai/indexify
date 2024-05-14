@@ -13,7 +13,7 @@ Unstructured data(documents, video, images) ingested into Indexify or produced w
 A python class that can -
 
 1. Transform unstructured data into intermediate forms. For example, a PDF document transformed into text, images, structured data if it contains tabular data.
-2. Extract features like embedding or metadata(JSON) that goes into various indexes that can be retreived by LLM applications.
+2. Extract features like embedding or metadata(JSON) that goes into various indexes that can be retrieved by LLM applications.
 
 ###### Transformation
 Transformation is done by returning a list of Content objects from an extractor. Examples - Ingesting a Video content and returning the Audio from the video. Ingesting a PDF and returning chunks of text. Ingesting a Audio and segmenting it by voice activity detection such that it's chunked by pauses in speech. 

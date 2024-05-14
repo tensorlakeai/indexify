@@ -18,7 +18,7 @@ Once the binary is downloaded, start the server.
 
 This starts the Indexify ingestion API and scheduler. The server state, ingested and extract content will be stored on local disk. The following endpoints are started -
 
-- Ingestion API ([http://localhost:8900](http://localhost:8900)) - The API endpoint for uploading content and retreive from indexes and SQL Tables.
+- Ingestion API ([http://localhost:8900](http://localhost:8900)) - The API endpoint for uploading content and retrieve from indexes and SQL Tables.
 - User Interface ([http://localhost:8900/ui](http://localhost:8900/ui)) - Dashboard for extraction graphs, content and indexes.
 
 !!! note ""
@@ -123,7 +123,7 @@ Download and add some pages about a few players.
 
 ##### RAG for Question Answering
 
-We can use RAG to build the chatbot. We will retreive data from the indexes, based on the question, and add them into the context of an LLM request to generate an answer. You can use any LLMs - OpenAI, Cohere, Anthropic or local models using LLama.cpp, Ollama or Hugginface.
+We can use RAG to build the chatbot. We will retrieve data from the indexes, based on the question, and add them into the context of an LLM request to generate an answer. You can use any LLMs - OpenAI, Cohere, Anthropic or local models using LLama.cpp, Ollama or Hugginface.
 
 Get the name of the Indexes created by the extraction graph - 
 ```python
@@ -139,7 +139,7 @@ client.indexes()
 pip install openai
 ```
 
-Write a function that retreives context for your RAG application
+Write a function that retrieves context for your RAG application
 ```python
 def get_context(question: str, index: str, top_k=3):
     results = client.search_index(name=index, query=question, top_k=3)
@@ -154,7 +154,7 @@ def create_prompt(question, context):
 
 Thats pretty much all you need to create a Basic RAG application that relies only on vector indexes
 
-You can now use LLM to generate responses based on questions and the retreived context:
+You can now use LLM to generate responses based on questions and the retrieved context:
 
 ```python
 from openai import OpenAI

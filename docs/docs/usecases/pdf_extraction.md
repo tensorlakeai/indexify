@@ -9,19 +9,19 @@ Indexify provides extractors that extract text, images, and tables from PDF docu
 With Indexify, you can accomplish the following with your PDFs:
 
 1. 🔍 **Data Extraction:** Easily extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices, and receipts. Use Cases: Automate Manual Data Entry
-2. 📚 **Document Indexing:** Build searchable indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. Use Cases: RAG Applications, Assitants, etc.
+2. 📚 **Document Indexing:** Build searchable indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. Use Cases: RAG Applications, Assistants, etc.
 3. 🤖 **Document Q&A:** Get Answers to specific Questions from Documents without creating indexing. 
 
 ## 🔧 The Extraction Pipeline: A Three-Stage Process
 
-PDF Extraction Pipelines are usually composed of three stages. You can use one or more of these stages depending on your usecase - 
+PDF Extraction Pipelines are usually composed of three stages. You can use one or more of these stages depending on your use case - 
 
 1. 📄 **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdf-extractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
 2. ✂️ **Content to Chunk Extraction Stage:** Break down the extracted content into manageable chunks using extractors like `text/chunking`. This stage helps organize your content into coherent and contextually relevant pieces, making it easier to process and understand.
 3. 🧠 **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. 
 
 ## 🎞️ Image Extraction
-If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understading of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
+If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understanding of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
 
 ## 📈 Table Extraction
 Tables are automatically extracted by `tensorlake/pdf-extractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
