@@ -43,7 +43,7 @@ curl https://tensorlake.ai | sh
 
 #### Install the Indexify Extractor and Client SDKs
 ```bash
-pip install indexify indexify-extractors
+pip install indexify indexify-extractor-sdk
 ```
 
 #### Start an embedding extractor 
@@ -54,16 +54,21 @@ indexify-extractor join-server
 
 #### Upload some texts 
 ```python
-from indexify import IndexifyClient
-client = IndexifyClient()
-client.add_extraction_policy(extractor="tensorlake/minilm-l6", name="minilml6")
-client.indexes()
-client.add_documents(["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
+extraction_graph_spec = """
+name: 'sportsknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/minilm-l6'
+     name: 'minilml6'
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)  
+client.add_documents("sportsknowledgebase", ["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
+print("indexes", client.indexes())
 ```
 
 #### Search the Index
 ```python
-client.search_index(name="minilm6.embedding", query="NBA commissioner", top_k=1)
+client.search_index(name="sportsknowledgebase.minilml6.embedding", query="NBA commissioner", top_k=1)
 ```
 
 #### Use Extracted Data in Applications

@@ -28,17 +28,11 @@ On another terminal start the embedding extractor which we will use to index tex
     ```
 
 
-### Upload Content
+### Initialize Client
 We will use the lanchain wikipedia loader to download content from wikipedia and upload to Indexify. We will also use langchain to prompt OpenAI for the RAG application.
 
 ```python
 pip install --upgrade --quiet  wikipedia langchain_openai langchain-community
-```
-
-Now download some pages from Wikipedia and upload them to Indexify
-```python
-from langchain_community.document_loaders import WikipediaLoader
-docs = WikipediaLoader(query="Kevin Durant", load_max_docs=10).load()
 ```
 
 Instantiate the Indexify Client 
@@ -47,14 +41,31 @@ from indexify import IndexifyClient
 client = IndexifyClient()
 ```
 
+### Create an Extraction Graph 
 ```python
-for doc in docs:
-    client.add_documents(doc.page_content)
+extraction_graph_spec = """
+name: 'wikipediaknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/minilm-l6'
+     name: 'wiki-embedding'
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+# display indexes
+print(client.indexes())
 ```
 
-### Create an Extraction Policy 
+### Add Docs
+
+Now download some pages from Wikipedia and upload them to Indexify
 ```python
-client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="wiki-embedding")
+from langchain_community.document_loaders import WikipediaLoader
+docs = WikipediaLoader(query="Kevin Durant", load_max_docs=10).load()
+```
+
+```python
+for doc in docs:
+    client.add_documents("wikipediaknowledgebase", doc.page_content)
 ```
 
 ### Perform RAG
@@ -63,7 +74,7 @@ Create a retriever to feed in data from Indexify.
 
 ```python
 from indexify_langchain import IndexifyRetriever
-params = {"name": "wiki-embedding.embedding", "top_k": 20}
+params = {"name": "wikipediaknowledgebase.wiki-embedding.embedding", "top_k": 20}
 retriever = IndexifyRetriever(client=client, params=params)
 ```
 

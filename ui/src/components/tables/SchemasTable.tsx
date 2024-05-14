@@ -1,17 +1,27 @@
 import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { Alert, Chip, Typography } from "@mui/material";
+import { Alert, Chip, IconButton, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import StorageIcon from "@mui/icons-material/Storage";
+import InfoIcon from "@mui/icons-material/Info";
 import { ISchema } from "getindexify";
 
 const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
+  const getRowId = (row: ISchema) => {
+    return row.id;
+  };
+
   const columns: GridColDef[] = [
-    { field: "content_source", headerName: "Content Source", width: 300 },
+    { field: "namespace", headerName: "namespace", width: 200 },
+    {
+      field: "extraction_graph_name",
+      headerName: "Extraction Graph",
+      width: 250,
+    },
     {
       field: "columns",
       headerName: "Columns",
-      width: 250,
+      width: 500,
       renderCell: (params) => {
         if (!params.value) {
           return <Typography variant="body1">None</Typography>;
@@ -23,7 +33,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
                 <Chip
                   key={val}
                   sx={{ backgroundColor: "#060D3F", color: "white" }}
-                  label={`${val}: ${params.value[val]}`}
+                  label={`${val}: ${params.value[val].type}`}
                 />
               ))}
             </Stack>
@@ -33,10 +43,6 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
     },
   ];
 
-  const getRowId = (row: ISchema) => {
-    return row.content_source;
-  };
-
   const renderContent = () => {
     const filteredSchemas = schemas.filter(
       (schema) => Object.keys(schema.columns).length > 0
@@ -45,7 +51,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
-            No Extractors Found
+            No Schemas Found
           </Alert>
         </Box>
       );
@@ -59,9 +65,9 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         <DataGrid
           sx={{ backgroundColor: "white" }}
           autoHeight
-          getRowId={getRowId}
           rows={filteredSchemas}
           columns={columns}
+          getRowId={getRowId}
           initialState={{
             pagination: {
               paginationModel: { page: 0, pageSize: 5 },
@@ -82,7 +88,15 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         spacing={2}
       >
         <StorageIcon />
-        <Typography variant="h3">SQL Tables</Typography>
+        <Typography variant="h3">
+          SQL Tables
+          <IconButton
+            href="https://getindexify.ai/concepts/#vector-index-and-retreival-apis"
+            target="_blank"
+          >
+            <InfoIcon fontSize="small" />
+          </IconButton>
+        </Typography>
       </Stack>
       {renderContent()}
     </>

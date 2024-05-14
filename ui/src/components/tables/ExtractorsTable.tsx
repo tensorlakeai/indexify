@@ -1,8 +1,9 @@
 import React from "react";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { Alert, Chip, Typography } from "@mui/material";
+import { Alert, Chip, IconButton, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import MemoryIcon from "@mui/icons-material/MemoryOutlined";
+import InfoIcon from "@mui/icons-material/Info";
 import { Extractor } from "getindexify";
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
@@ -125,7 +126,15 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         spacing={2}
       >
         <MemoryIcon />
-        <Typography variant="h3">Extractors</Typography>
+        <Typography variant="h3">
+          Extractors
+          <IconButton
+            href="https://getindexify.ai/concepts/#extractor"
+            target="_blank"
+          >
+            <InfoIcon fontSize="small" />
+          </IconButton>
+        </Typography>
       </Stack>
       {renderContent()}
     </>

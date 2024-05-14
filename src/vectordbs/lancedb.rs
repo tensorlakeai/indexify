@@ -148,7 +148,7 @@ async fn update_schema_with_missing_fields(
 ) -> Result<Arc<Schema>, anyhow::Error> {
     let mut new_fields = Vec::new();
     let mut schema = tbl.schema().await?;
-    // Find the fields that has to be added 
+    // Find the fields that has to be added
     for (key, _) in metadata.iter() {
         if schema.field_with_name(key).is_err() {
             new_fields.push(Arc::new(Field::new(key, DataType::Utf8, true)));

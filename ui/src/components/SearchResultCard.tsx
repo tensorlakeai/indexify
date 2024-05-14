@@ -31,16 +31,24 @@ const SearchResultCard = ({
   return (
     <Paper elevation={3} sx={{ padding: 2, marginBottom: 2 }}>
       <Typography variant="h4">
-        Content ID: <Link to={`/${namespace}/content/${data.content_id}`} target="_blank">{data.content_id}</Link>
+        Content ID:{" "}
+        <Link to={`/${namespace}/content/${data.content_id}`} target="_blank">
+          {data.content_id}
+        </Link>
       </Typography>
-      <Divider sx={{ my: 1 }} />
-      <Typography py={1} variant="body1">
-        {data.text}
-      </Typography>
+
+      {data.text ? (
+        <>
+          <Divider sx={{ my: 1 }} />
+          <Typography py={1} variant="body1">
+            {data.text}
+          </Typography>
+        </>
+      ) : null}
       <Divider sx={{ my: 1 }} />
       <DisplayData label="Confidence Score" value={data.confidence_score} />
       {Object.keys(data.labels).length !== 0 && (
-        <Box pt={1}>
+        <Box pt={1} display={"flex"} gap={1}>
           {Object.keys(data.labels).map((val: string) => {
             return <Chip key={val} label={`${val}:${data.labels[val]}`} />;
           })}

@@ -29,7 +29,7 @@ for file_url in file_urls:
 ```
 If you have local files, you can upload them by -
 ```
-client.upload_file(path="../path/to/file")
+client.upload_file("yourextractiongraphname", path="../path/to/file")
 ```
 
 ## SQL Based Retrieval 
@@ -59,7 +59,14 @@ print(results)
 
 ### Create an Extraction Policy
 ```
-client.add_extraction_policy(extractor='tensorlake/yolo-extractor', name="object_detection")
+extraction_graph_spec = """
+name: 'imageknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/yolo-extractor'
+     name: 'object_detection'
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
 ```
 
 ### Search using SQL
@@ -91,11 +98,18 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
     ```
 
 
-### Create an Extraction Policy 
+### Create an Extraction Graph 
 ```
-client.add_extraction_policy(extractor='tensorlake/clip-extractor', name="clip_embedding")
+extraction_graph_spec = """
+name: 'imageknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/clip-extractor'
+     name: 'clip_embedding'
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
 ```
-This creates an embedding index `clip_embedding.embedding`. You can also find the index name via the following API - 
+This creates an embedding index `imageknowledgebase.clip_embedding.embedding`. You can also find the index name via the following API - 
 
 ```
 client.indexes()
@@ -106,5 +120,5 @@ Upload some images or search on the images which were already uploaded
 
 ### Search
 ```
-client.search_index(name="clip_embedding.embedding", query="skateboard", top_k=2)
+client.search_index(name="imageknowledgebase.clip_embedding.embedding", query="skateboard", top_k=2)
 ```

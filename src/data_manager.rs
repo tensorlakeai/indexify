@@ -192,12 +192,10 @@ impl DataManager {
             }
 
             // Create metadata table for the namespace if it doesn't exist
-            if extractor.metadata_schemas.len() > 0 {
-                let _ = self
-                    .metadata_index_manager
-                    .create_metadata_table(&namespace)
-                    .await?;
-            }
+            let _ = self
+                .metadata_index_manager
+                .create_metadata_table(&namespace)
+                .await?;
         }
         let req = indexify_coordinator::UpdateIndexesStateRequest {
             indexes: response.indexes.clone(),

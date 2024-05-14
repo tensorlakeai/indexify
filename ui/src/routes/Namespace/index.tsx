@@ -4,6 +4,7 @@ import {
   IContentMetadata,
   IIndex,
   ISchema,
+  ITask,
 } from "getindexify";
 import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
 import { Stack } from "@mui/material";
@@ -21,23 +22,33 @@ export async function loader({ params }: LoaderFunctionArgs) {
     serviceUrl: getIndexifyServiceURL(),
     namespace,
   });
-  const [extractors, indexes, contentList, schemas] = await Promise.all([
+  const [extractors, indexes, contentList, schemas, tasks] = await Promise.all([
     client.extractors(),
     client.indexes(),
-    client.getContent(),
+    client.getExtractedContent(),
     client.getSchemas(),
+    client.getTasks(),
   ]);
-  return { client, extractors, indexes, contentList, schemas, namespace };
+  return {
+    client,
+    extractors,
+    indexes,
+    contentList,
+    schemas,
+    tasks,
+    namespace,
+  };
 }
 
 const NamespacePage = () => {
-  const { client, extractors, indexes, contentList, schemas, namespace } =
+  const { client, extractors, indexes, contentList, schemas, tasks, namespace } =
     useLoaderData() as {
       client: IndexifyClient;
       extractors: Extractor[];
       indexes: IIndex[];
       contentList: IContentMetadata[];
       schemas: ISchema[];
+      tasks: ITask[];
       namespace: string;
     };
 
@@ -45,13 +56,22 @@ const NamespacePage = () => {
     <Stack direction="column" spacing={3}>
       <ExtractionGraphs
         namespace={client.namespace}
-        extractionPolicies={client.extractionPolicies}
+        extractionGraphs={client.extractionGraphs}
         extractors={extractors}
+        tasks={tasks}
       />
-      <IndexTable namespace={namespace} indexes={indexes} extractionPolicies={client.extractionPolicies}/>
+      <IndexTable
+        namespace={namespace}
+        indexes={indexes}
+        extractionPolicies={client.extractionGraphs
+          .map((graph) => graph.extraction_policies)
+          .flat()}
+      />
       <SchemasTable schemas={schemas} />
       <ContentTable
-        extractionPolicies={client.extractionPolicies}
+        extractionPolicies={client.extractionGraphs
+          .map((graph) => graph.extraction_policies)
+          .flat()}
         content={contentList}
       />
       <ExtractorsTable extractors={extractors} />

@@ -1,29 +1,34 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IExtractionPolicy, IIndex } from "getindexify";
-import { Alert, Typography } from "@mui/material";
+import { Alert, IconButton, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
+import InfoIcon from "@mui/icons-material/Info";
 import React from "react";
 import { Link } from "react-router-dom";
 
 const IndexTable = ({
   indexes,
   namespace,
-  extractionPolicies
+  extractionPolicies,
 }: {
   indexes: IIndex[];
   namespace: string;
-  extractionPolicies: IExtractionPolicy[]
+  extractionPolicies: IExtractionPolicy[];
 }) => {
-  const getPolicyFromIndexname = (indexName:string):IExtractionPolicy | undefined => {
-    return extractionPolicies.find(policy => String(indexName).startsWith(policy.name))
-  }
+  const getPolicyFromIndexname = (
+    indexName: string
+  ): IExtractionPolicy | undefined => {
+    return extractionPolicies.find((policy) =>
+      String(indexName).startsWith(`${policy.graph_name}.${policy.name}`)
+    );
+  };
 
   const columns: GridColDef[] = [
     {
       field: "name",
       headerName: "Name",
-      width: 300,
+      width: 500,
       renderCell: (params) => {
         return (
           <Link to={`/${namespace}/indexes/${params.value}`}>
@@ -37,12 +42,16 @@ const IndexTable = ({
       headerName: "Policy Name",
       width: 300,
       renderCell: (params) => {
-        const policy = getPolicyFromIndexname(params.row.name)
+        const policy = getPolicyFromIndexname(params.row.name);
         if (!policy) {
-          return null
+          return null;
         }
         return (
-          <Link to={`/${namespace}/extraction-policies/${policy.name}`}>{policy.name}</Link>
+          <Link
+            to={`/${namespace}/extraction-policies/${policy.graph_name}/${policy.name}`}
+          >
+            {policy.name}
+          </Link>
         );
       },
     },
@@ -96,7 +105,15 @@ const IndexTable = ({
         spacing={2}
       >
         <ManageSearchIcon />
-        <Typography variant="h3">Indexes</Typography>
+        <Typography variant="h3">
+          Indexes
+          <IconButton
+            href="https://getindexify.ai/apis/retrieval/#vector-indexes"
+            target="_blank"
+          >
+            <InfoIcon fontSize="small" />
+          </IconButton>
+        </Typography>
       </Stack>
       {renderContent()}
     </>
