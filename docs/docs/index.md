@@ -2,10 +2,14 @@
 
 ![Indexify High Level](images/Indexify_KAT.gif)
 
-Indexify is an open-source engine for embedding, extract structured information, and transform unstructured data(video, audio, images and documents). Indexes are always kept updated as data is ingested. LLM applications can query content by semantic search and SQL queries on embedding and structured data.
+Indexify is data framework for building LLM Applications that derives knowledge from enterprise or consumer data to make decisions or answer questions. It shines in use-cases where ground truth sources of infromation changes over time. Most data sources in the real world are unstructured and orginate from PDFs, clicks on websites, emails, text messages or videos. Indexify focusses on bringing information from unstructured data sources to LLMs continously for production applications.
 
-[Join our Discord Community](https://discord.gg/8yQK6xRcj4){ .md-button .md-button--primary }
-[Talk To Us](https://calendly.com/diptanu/tensorlake-client-call){ .md-button .md-button--primary }
+It provides the following primitives - 
+1. **Real Time Data Pipelines** - For defining data transformation and extraction graphs that execute whenever new data is ingested.
+2. **Extractor SDK** - SDK to extract information models, or other video, document, audio models.
+3. **Storage** - Extracted data is automatically stored in vector stores, structured data stores and blob stores.
+4. **Retreival API** - Exposes data from vector stores and structured stores using Semantic Search APIs and SQL. 
+
 
 ## Why Use Indexify 
 Building a product with LLMs often involves -
