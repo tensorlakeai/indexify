@@ -11,7 +11,7 @@ A good small and fast general model for similarity search or downstream enrichme
 Based on [E5_Small_V2](https://huggingface.co/intfloat/e5-small-v2) which only works for English texts. Long texts will be truncated to at most 512 tokens.
 
 #### [Hash](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/hash-embedding)
-This extractor extractors an "identity-"embedding for a piece of text, or file. It uses the sha256 to calculate the unique embeding for a given text, or file. This can be used to quickly search for duplicates within a large set of data.
+This extractor extractors an "identity-"embedding for a piece of text, or file. It uses the sha256 to calculate the unique embedding for a given text, or file. This can be used to quickly search for duplicates within a large set of data.
 
 #### [Jina](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/jina_base_en)
 This extractor extractors an embedding for a piece of text.
@@ -23,7 +23,7 @@ It uses the huggingface [Snowflake's Arctic-embed-m](https://huggingface.co/Snow
 
 #### [MiniLML6 - Sentence Transformer](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/minilm-l6)
 This extractor extractors an embedding for a piece of text.
-It uses the huggingface [MiniLM-6 model](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), which is a tiny but very robust emebdding model for text.
+It uses the huggingface [MiniLM-6 model](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), which is a tiny but very robust embedding model for text.
 
 #### [MPnet - Sentence Transformer](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/mpnet)
 This is a sentence embedding extractor based on the [MPNET Multilingual Base V2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2).

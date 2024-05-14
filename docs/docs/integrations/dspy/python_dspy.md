@@ -22,7 +22,7 @@ from indexify_dspy import IndexifyRM
 ```
 
 ### Instantiate the Retreival Model
-You can create a Retreival Model to retreive from an index mantained by Indexify. Use the DSPy settings to confgiure the retreiver model.
+You can create a Retreival Model to retrieve from an index mantained by Indexify. Use the DSPy settings to confgiure the retriever model.
 
 ```python
 turbo = dspy.OpenAI(model="gpt-3.5-turbo")
