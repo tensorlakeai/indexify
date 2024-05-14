@@ -157,6 +157,9 @@ You can now use LLM to generate responses based on questions and the retreived c
 ```python
 from openai import OpenAI
 client_openai = OpenAI()
+
+prompt = create_prompt("When and where did Kevin Durant win NBA championships?")
+
 chat_completion = client_openai.chat.completions.create(
     messages=[
         {
@@ -167,7 +170,6 @@ chat_completion = client_openai.chat.completions.create(
     model="gpt-3.5-turbo",
 )
 print(chat_completion.choices[0].message.content)
-# Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
 ```
 !!! note "Response"
     Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
