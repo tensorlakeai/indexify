@@ -110,23 +110,36 @@ Second, the extracted audio are passed through the `tensorlake/whisper-asr` extr
 Third, we pass the transcripts though a `tensorlake/minilm-l6` extractor to extract embedding. 
 
 ```python
-client.add_extraction_policy(extractor='tensorlake/audio-extractor', name="audio_clips_of_videos")
-client.add_extraction_policy(extractor='tensorlake/whisper-asr', name="audio-transcription", content_source='audio_clips_of_videos')
-client.add_extraction_policy(extractor='tensorlake/chunk-extractor', name="transcription-chunks", content_source='audio-transcription', input_params={"chunk_size": 2000, "overlap":200})
-client.add_extraction_policy(extractor='tensorlake/minilm-l6', name="transcription-embedding", content_source='transcription-chunks')
+extraction_graph_spec = """
+name: 'videoknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/audio-extractor'
+     name: 'audio_clips_of_videos'
+   - extractor: 'tensorlake/whisper-asr'
+     name: 'audio_transcription'
+     content_source: 'audio_clips_of_videos'
+   - extractor: 'tensorlake/chunk-extractor'
+     name: 'transcription_chunks'
+     content_source: 'audio_transcription'
+   - extractor: 'tensorlake/minilm-l6'
+     name: 'transcript_embedding'
+     content_source: 'transcription_chunks'
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
 ```
 
 
 ### Upload the Video
 ```
-client.upload_file(path=file_name)
+client.upload_file("videoknowledgebase", path=file_name)
 ```
 
 ### Perform RAG
 Create the Indexify Langchain Retreiver
 ```python
 from indexify_langchain import IndexifyRetriever
-params = {"name": "transcription-embedding.embedding", "top_k": 50}
+params = {"name": "videoknowledgebase.transcription_embedding.embedding", "top_k": 50}
 retriever = IndexifyRetriever(client=client, params=params)
 ```
 
