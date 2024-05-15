@@ -97,9 +97,10 @@ theme:
     - content.code.annotate
 
 
+
+  
   palette:
     - scheme: default
-      primary: light blue
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -122,3 +123,5 @@ extra:
       link: mailto:<diptanuc@gmail.com>
       name: Email
 
+extra_css:
+  - stylesheets/extras.css
