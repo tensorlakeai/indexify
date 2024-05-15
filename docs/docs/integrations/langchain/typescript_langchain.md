@@ -25,16 +25,14 @@ import { formatDocumentsAsString } from "langchain/util/document";
 
 (async () => {
   // setup client
-  const client = await IndexifyClient.createNamespace("testlangchain");
-  const client = await IndexifyClient.createClient();
-  const extractionPolicy = {
-    "tensorlake/minilm-l6",
-    name: `minilml6`,
-  };
-  const resp = await client.createExtractionGraph(
-    "myextractiongraph",
-    extractionPolicy
-  );
+  const client = await IndexifyClient.createNamespace({ name:"testlangchain" });
+  const graph = ExtractionGraph.fromYaml(`
+  name: 'myextractiongraph'
+  extraction_policies:
+    - extractor: 'tensorlake/minilm-l6'
+      name: 'minilml6'
+  `);
+  await client.createExtractionGraph(graph);
   // add documents
   await client.addDocuments("myextractiongraph", "Lucas is in Los Angeles, California");
 
