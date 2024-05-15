@@ -1,6 +1,6 @@
 # 🎧 Audio Extraction: Real Time Speech Recognition Pipelines 
 
-You can build real time pipelines with Indexify that incorporates speech, build applications that retreive information from the audio. We describe the possible tasks and provide some examples -
+You can build real time pipelines with Indexify that incorporates speech, build applications that retrieve information from the audio. We describe the possible tasks and provide some examples -
 
 ## 🌟 What Can You Achieve with Indexify?
 

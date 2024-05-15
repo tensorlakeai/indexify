@@ -1,5 +1,5 @@
 site_name: ""
-site_url: https://getindexify.ai/
+site_url: https://docs.getindexify.ai/
 
 repo_url: https://github.com/tensorlakeai/indexify
 repo_name: tensorlakeai/indexify
@@ -49,7 +49,7 @@ nav:
 
   - APIs:
     - Content Ingestion: 'apis/content_ingestion.md'
-    - Extraction Policies: 'apis/extraction_policies.md'
+    - Extraction Graphs: 'apis/extraction_graphs.md'
     - Retrieval: 'apis/retrieval.md'
   - Use Cases:
     - Basic RAG: 'usecases/rag.md'

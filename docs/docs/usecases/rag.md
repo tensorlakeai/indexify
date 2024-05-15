@@ -13,7 +13,7 @@ indexify server -d
 ```
 
 ### Download an Embedding Extractor
-On another terminal start the embedding extractor which we will use to index text from the wikiepdia page.
+On another terminal start the embedding extractor which we will use to index text from the Wikipedia page.
 
 === "Shell"
 
@@ -29,7 +29,7 @@ On another terminal start the embedding extractor which we will use to index tex
 
 
 ### Initialize Client
-We will use the lanchain wikipedia loader to download content from wikipedia and upload to Indexify. We will also use langchain to prompt OpenAI for the RAG application.
+We will use the langchain wikipedia loader to download content from wikipedia and upload to Indexify. We will also use langchain to prompt OpenAI for the RAG application.
 
 ```python
 pip install --upgrade --quiet  wikipedia langchain_openai langchain-community
@@ -78,7 +78,7 @@ params = {"name": "wikipediaknowledgebase.wiki-embedding.embedding", "top_k": 20
 retriever = IndexifyRetriever(client=client, params=params)
 ```
 
-Initialize the Langchain Retreiver, create a chain to prompt OpenAI with data retreived from Indexify to create a simple Q and A bot
+Initialize the Langchain Retriever, create a chain to prompt OpenAI with data retrieved from Indexify to create a simple Q and A bot
 ```python
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate

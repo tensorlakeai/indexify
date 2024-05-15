@@ -22,7 +22,7 @@ from indexify_dspy import IndexifyRM
 ```
 
 ### Instantiate the Retreival Model
-You can create a Retreival Model to retreive from an index mantained by Indexify. Use the DSPy settings to confgiure the retreiver model.
+You can create a Retreival Model to retrieve from an index mantained by Indexify. Use the DSPy settings to confgiure the retriever model.
 
 ```python
 turbo = dspy.OpenAI(model="gpt-3.5-turbo")
@@ -43,17 +43,23 @@ topK_passages = retrieve(question).passages
 
 ```python
 indexify_client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'myextractiongraph'
+extraction_policies:
+  - extractor: 'tensorlake/minilm-l6'
+    name: 'minilml6'
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)  
+
 indexify_client.add_documents(
+    "myextractiongraph",
     [
         "Indexify is amazing!",
         "Indexify is a retrieval service for LLM agents!",
         "Steph Curry is the best basketball player in the world.",
     ],
-)
-
-indexify_client.add_extraction_policy(
-    extractor="tensorlake/minilm-l6", name="minilml6",
-    content_source="ingestion"
 )
 ```
 
@@ -62,7 +68,7 @@ Initialize the IndexifyRM class
 ### Using the RM class 
 ```python
 retrieve = IndexifyRM(indexify_client)
-topk_passages = retrieve("Sports", "minilml6.embedding", k=2).passages
+topk_passages = retrieve("Sports", "myextractiongraph.minilml6.embedding", k=2).passages
 print(topk_passages)
 ```
 
