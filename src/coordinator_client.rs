@@ -4,10 +4,7 @@ use anyhow::{anyhow, Result};
 use axum::{http::StatusCode, Json};
 use indexify_internal_api::StructuredDataSchema;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_client,
-    ContentMetadata,
-    Task,
+    self, coordinator_service_client, ContentMetadata, Task,
 };
 use itertools::Itertools;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
@@ -15,8 +12,7 @@ use tokio::sync::Mutex;
 use tonic::{
     service::Interceptor,
     transport::{Channel, ClientTlsConfig},
-    Request,
-    Status,
+    Request, Status,
 };
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -84,7 +80,6 @@ impl CoordinatorClient {
             OpenTelemetryInjector,
         );
         clients.insert(addr.to_string(), client.clone());
-        println!("created client");
         Ok(client)
     }
 

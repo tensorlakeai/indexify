@@ -137,7 +137,6 @@ impl RaftGrpcServer {
             .map_err(|e| {
                 GrpcHelper::internal_err(format!("Error writing to state machine: {}", e))
             })?;
-        println!("Done adding the new nodes to the cluster");
 
         let response = StateMachineUpdateResponse {
             handled_by: self.id,
