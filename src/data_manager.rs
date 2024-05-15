@@ -192,9 +192,8 @@ impl DataManager {
             }
 
             // Create metadata table for the namespace if it doesn't exist
-            let _ = self
-                .metadata_index_manager
-                .create_metadata_table(&namespace)
+            self.metadata_index_manager
+                .create_metadata_table(namespace)
                 .await?;
         }
         let req = indexify_coordinator::UpdateIndexesStateRequest {

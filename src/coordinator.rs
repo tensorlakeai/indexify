@@ -9,8 +9,13 @@ use anyhow::{Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionPolicyId, GarbageCollectionTask, OutputSchema,
-    StateChange, StructuredDataSchema,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicyId,
+    GarbageCollectionTask,
+    OutputSchema,
+    StateChange,
+    StructuredDataSchema,
 };
 use itertools::Itertools;
 use tokio::sync::{broadcast, watch::Receiver};
@@ -584,7 +589,9 @@ mod tests {
         server_config::ServerConfig,
         state::App,
         test_util::db_utils::{
-            create_test_extraction_graph, mock_extractor, test_mock_content_metadata,
+            create_test_extraction_graph,
+            mock_extractor,
+            test_mock_content_metadata,
             DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
