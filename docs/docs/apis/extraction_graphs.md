@@ -21,15 +21,14 @@ For ex, the example below adds graph with a policy `minilml6` to all the content
 
     ```typescript
     const client = await IndexifyClient.createClient();
-    const extractionPolicy = {
-      "tensorlake/minilm-l6",
-      name: `minilml6`,
-      labels_eq: "source:google"
-    };
-    const resp = await client.createExtractionGraph(
-      "myextractiongraph",
-      extractionPolicy
-    );
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+        labels_eq: source:google
+    `);
+    await client.createExtractionGraph(graph);
     ```
 === "curl"
 
@@ -73,17 +72,14 @@ For ex -
 === "TypeScript"
 
     ```typescript
-    const wikipediaPolicy = {
-      "tensorlake/wikipedia",
-      name: `wikipedia`,
-    };
-    const minilmPolicy = {
-      "tensorlake/minilm-l6",
-      name: `minilml6`,
-      content_source: 'wikipedia'
-    };
-    const resp = await client.createExtractionGraph(
-      "myextractiongraph",
-      [wikipediaPolicy, minilmPolicy]
-    );
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/wikipedia'
+        name: 'wikipedia'
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+        content_source: 'wikipedia'
+    `);
+    await client.createExtractionGraph(graph);
     ```
