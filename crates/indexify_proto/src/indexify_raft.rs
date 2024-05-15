@@ -13,49 +13,6 @@ pub struct RaftReply {
     #[prost(string, tag = "2")]
     pub error: ::prost::alloc::string::String,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StartSnapshot {
-    #[prost(uint64, tag = "1")]
-    pub total_size: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SnapshotData {
-    #[prost(bytes = "vec", tag = "1")]
-    pub data: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EndSnapshot {
-    #[prost(string, tag = "1")]
-    pub hash: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub metadata_json: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub vote_json: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "4")]
-    pub offset: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SnapshotFrame {
-    #[prost(oneof = "snapshot_frame::FrameType", tags = "1, 2, 3")]
-    pub frame_type: ::core::option::Option<snapshot_frame::FrameType>,
-}
-/// Nested message and enum types in `SnapshotFrame`.
-pub mod snapshot_frame {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum FrameType {
-        #[prost(message, tag = "1")]
-        StartSnapshot(super::StartSnapshot),
-        #[prost(message, tag = "2")]
-        SnapshotData(super::SnapshotData),
-        #[prost(message, tag = "3")]
-        EndSnapshot(super::EndSnapshot),
-    }
-}
 /// Generated client implementations.
 pub mod raft_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
@@ -207,30 +164,6 @@ pub mod raft_api_client {
                 .insert(GrpcMethod::new("indexify_raft.RaftApi", "InstallSnapshot"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn install_snapshot_stream(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::SnapshotFrame>,
-        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_raft.RaftApi/InstallSnapshotStream",
-            );
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("indexify_raft.RaftApi", "InstallSnapshotStream"),
-                );
-            self.inner.client_streaming(req, path, codec).await
-        }
         pub async fn vote(
             &mut self,
             request: impl tonic::IntoRequest<super::RaftRequest>,
@@ -295,10 +228,6 @@ pub mod raft_api_server {
         async fn install_snapshot(
             &self,
             request: tonic::Request<super::RaftRequest>,
-        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
-        async fn install_snapshot_stream(
-            &self,
-            request: tonic::Request<tonic::Streaming<super::SnapshotFrame>>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
         async fn vote(
             &self,
@@ -516,55 +445,6 @@ pub mod raft_api_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/indexify_raft.RaftApi/InstallSnapshotStream" => {
-                    #[allow(non_camel_case_types)]
-                    struct InstallSnapshotStreamSvc<T: RaftApi>(pub Arc<T>);
-                    impl<
-                        T: RaftApi,
-                    > tonic::server::ClientStreamingService<super::SnapshotFrame>
-                    for InstallSnapshotStreamSvc<T> {
-                        type Response = super::RaftReply;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<super::SnapshotFrame>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as RaftApi>::install_snapshot_stream(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = InstallSnapshotStreamSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

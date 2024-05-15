@@ -11,14 +11,14 @@ use openraft::{
     },
     BasicNode,
 };
-use sha2::{Digest, Sha256};
 use tonic::IntoRequest;
 
 use super::store::requests::StateMachineUpdateResponse;
 use crate::{
     grpc_helper::GrpcHelper,
     metrics::{
-        raft_metrics::{self},
+        create_timed_future,
+        raft_metrics::{self, network::incr_snapshot_recv_seconds},
         CounterGuard,
     },
     state::{
@@ -204,7 +204,6 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
-        println!("Called send_install_snapshot");
         let _guard_inflight = CounterGuard::new(&self.target_node.addr, move |addr, cnt| {
             raft_metrics::network::incr_snapshot_send_inflight(addr, cnt);
         });
@@ -215,70 +214,35 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
             .await
             .map_err(|e| self.status_to_unreachable(tonic::Status::aborted(e.to_string())))?;
 
-        println!("deserializing the data before sending it over wire");
-        println!("The meta {:?}", req.meta);
-        println!("The offset {}", req.offset);
-        println!("Done {}", req.done);
-        let deserialized_data: crate::state::store::state_machine_objects::IndexifyStateSnapshot =
-            serde_json::from_slice(&req.data)
-                .map_err(|e| new_net_err(&e, || "deserialize install snapshot data"))?;
-        println!(
-            "The deserialized data on the client {:#?}",
-            deserialized_data
-        );
+        let raft_req = GrpcHelper::encode_raft_request(&req).map_err(|e| Unreachable::new(&e))?;
+        let req = GrpcHelper::into_req(raft_req);
 
-        let chunk_size = 1024 * 1024; //  1 MB
-        let total_size = req.data.len() as u64;
-        let mut hasher = Sha256::new();
+        let bytes_sent = req.get_ref().data.len() as u64;
+        raft_metrics::network::incr_sent_bytes(&self.target_node.addr, bytes_sent);
 
-        //  serialize the metadata and vote as part of the install request
-        let metadata_json = serde_json::to_string(&req.meta)
-            .map_err(|e| new_net_err(&e, || "serialize metadata"))?;
-        let vote_json =
-            serde_json::to_string(&req.vote).map_err(|e| new_net_err(&e, || "serialize vote"))?;
+        let addr = self.target_node.addr.clone();
+        let timed_future = create_timed_future(client.install_snapshot(req), move |duration| {
+            incr_snapshot_recv_seconds(&addr, duration);
+        });
 
-        let data_stream = async_stream::stream! {
-            //  send the start frame
-            yield indexify_proto::indexify_raft::SnapshotFrame {
-                frame_type: Some(
-                    indexify_proto::indexify_raft::snapshot_frame::FrameType::StartSnapshot(
-                        indexify_proto::indexify_raft::StartSnapshot { total_size },
-                    ),
-                ),
-            };
+        let grpc_res = timed_future.await;
 
-            //  send the data frames
-            for chunk in req.data.chunks(chunk_size) {
-                hasher.update(chunk);
-                yield indexify_proto::indexify_raft::SnapshotFrame {
-                    frame_type: Some(
-                        indexify_proto::indexify_raft::snapshot_frame::FrameType::SnapshotData(
-                            indexify_proto::indexify_raft::SnapshotData { data: chunk.to_vec() }
-                        )
-                    )
-                };
-            }
-
-            //  send the end frame
-            let hash = format!("{:x}", hasher.finalize());
-            yield indexify_proto::indexify_raft::SnapshotFrame {
-                frame_type: Some(
-                    indexify_proto::indexify_raft::snapshot_frame::FrameType::EndSnapshot(
-                        indexify_proto::indexify_raft::EndSnapshot { hash, metadata_json, vote_json, offset: req.offset }
-                    )
-                )
-            };
-        };
-
-        //  send the stream and read the response
-        let raft_req = tonic::Request::new(data_stream);
-        let grpc_res = client.install_snapshot_stream(raft_req).await;
         let resp = grpc_res.map_err(|e| {
             raft_metrics::network::incr_sent_failures(&self.target_node.addr);
             self.status_to_unreachable(e)
         })?;
-        let raft_res = GrpcHelper::parse_raft_reply(resp)
-            .map_err(|serde_err| new_net_err(&serde_err, || "parse install_snapshot reply"))?;
+
+        let raft_res = GrpcHelper::parse_raft_reply(resp).map_err(|serde_err| {
+            raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
+            new_net_err(&serde_err, || "parse install_snapshot reply")
+        })?;
+
+        if raft_res.is_ok() {
+            raft_metrics::network::incr_snapshot_send_success(&self.target_node.addr);
+        } else {
+            raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
+        }
+
         raft_res.map_err(|e| self.to_rpc_err(e))
     }
 

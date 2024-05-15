@@ -225,12 +225,6 @@ impl StateMachineStore {
             JsonEncoder::decode(&decompressed_data).map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?;
-        println!("deserializing the data in the store");
-        let data: IndexifyStateSnapshot =
-            JsonEncoder::decode(&snapshot.data).map_err(|e| StorageError::IO {
-                source: StorageIOError::read(&e),
-            })?;
-        println!("The deserialized data in the store {:#?}", data);
         Ok(Some(snapshot))
     }
 

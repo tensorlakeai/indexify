@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 use tonic::transport::Channel;
 use tracing::info;
 
-use crate::metrics::raft_metrics;
+use crate::{metrics::raft_metrics, state::grpc_config::GrpcConfig};
 
 pub struct RaftClient {
     clients: Arc<Mutex<HashMap<String, RaftApiClient<Channel>>>>,
@@ -38,7 +38,9 @@ impl RaftClient {
             .map_err(|e| {
                 raft_metrics::network::incr_fail_connect_to_peer(addr);
                 anyhow!("unable to connect to raft: {} at addr {}", e, addr)
-            })?;
+            })?
+            .max_encoding_message_size(GrpcConfig::MAX_ENCODING_SIZE)
+            .max_decoding_message_size(GrpcConfig::MAX_DECODING_SIZE);
         clients.insert(addr.to_string(), client.clone());
         Ok(client)
     }

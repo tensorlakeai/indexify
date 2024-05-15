@@ -15,27 +15,19 @@ use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
 use internal_api::{
-    ContentMetadataId,
-    ExtractionGraph,
-    ExtractionPolicy,
-    StateChange,
-    StructuredDataSchema,
+    ContentMetadataId, ExtractionGraph, ExtractionPolicy, StateChange, StructuredDataSchema,
 };
 use itertools::Itertools;
 use network::Network;
 use openraft::{
     self,
     error::{InitializeError, RaftError},
-    BasicNode,
-    TokioRuntime,
+    BasicNode, TokioRuntime,
 };
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
-    ExecutorId,
-    ExecutorIdRef,
-    Response,
-    TaskId,
+    ExecutorId, ExecutorIdRef, Response, TaskId,
 };
 use tokio::{
     sync::{
@@ -59,15 +51,15 @@ use crate::{
         raft_metrics::{self, network::MetricsSnapshot},
     },
     server_config::ServerConfig,
-    state::{raft_client::RaftClient, store::new_storage},
+    state::{grpc_config::GrpcConfig, raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
 };
 
 pub mod forwardable_raft;
+pub mod grpc_config;
 pub mod grpc_server;
 pub mod network;
 pub mod raft_client;
-pub mod snapshot_receiver;
 pub mod store;
 
 pub type NodeId = u64;
@@ -158,6 +150,7 @@ impl App {
             election_timeout_max: 3000,
             enable_heartbeat: true,
             install_snapshot_timeout: 2000,
+            snapshot_max_chunk_size: 4194304, //  4MB
             ..Default::default()
         };
 
@@ -226,8 +219,9 @@ impl App {
             Arc::clone(&raft_client),
             addr.to_string(),
             server_config.coordinator_addr.clone(),
-            sm_blob_store_path.to_path_buf(),
-        ));
+        ))
+        .max_encoding_message_size(GrpcConfig::MAX_ENCODING_SIZE)
+        .max_decoding_message_size(GrpcConfig::MAX_DECODING_SIZE);
         let (leader_change_tx, leader_change_rx) = watch::channel::<bool>(false);
 
         let metrics = Metrics::new(state_machine.clone());
@@ -593,9 +587,9 @@ impl App {
             ));
         }
         let mark_finished = task.outcome != internal_api::TaskOutcome::Unknown;
-        if mark_finished &&
-            task.outcome == internal_api::TaskOutcome::Success &&
-            task.content_metadata.id.version > 1
+        if mark_finished
+            && task.outcome == internal_api::TaskOutcome::Success
+            && task.content_metadata.id.version > 1
         {
             state_changes.push(StateChange::new(
                 task.id.clone(),
@@ -1368,26 +1362,19 @@ mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use indexify_internal_api::{
-        ContentMetadata,
-        ContentMetadataId,
-        ExtractionGraph,
-        StructuredDataSchema,
-        TaskOutcome,
+        ContentMetadata, ContentMetadataId, ExtractionGraph, StructuredDataSchema, TaskOutcome,
     };
 
     use crate::{
         state::{
             store::{
                 requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
+                ExecutorId, TaskId,
             },
             App,
         },
         test_util::db_utils::{
-            create_test_extraction_graph,
-            mock_extractor,
-            test_mock_content_metadata,
+            create_test_extraction_graph, mock_extractor, test_mock_content_metadata,
         },
         test_utils::RaftTestCluster,
     };
@@ -1537,9 +1524,9 @@ mod tests {
         let read_back = |node: Arc<App>| async move {
             match node.tasks_for_executor("executor_id", None).await {
                 Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
+                    if tasks_vec.len() == 1
+                        && tasks_vec.first().unwrap().id == "task_id"
+                        && tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
                 {
                     Ok(true)
                 }
