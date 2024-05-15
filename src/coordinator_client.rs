@@ -4,10 +4,7 @@ use anyhow::{anyhow, Result};
 use axum::{http::StatusCode, Json};
 use indexify_internal_api::StructuredDataSchema;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_client,
-    ContentMetadata,
-    Task,
+    self, coordinator_service_client, ContentMetadata, Task,
 };
 use itertools::Itertools;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
@@ -15,8 +12,7 @@ use tokio::sync::Mutex;
 use tonic::{
     service::Interceptor,
     transport::{Channel, ClientTlsConfig},
-    Request,
-    Status,
+    Request, Status,
 };
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -78,14 +74,7 @@ impl CoordinatorClient {
 
         tracing::info!("connecting to coordinator at {}", addr);
 
-        let channel = Channel::from_shared(addr.to_string())?
-            .connect()
-            .await
-            .map_err(|e| {
-                println!("The error {:#?}", e);
-                e
-            })?;
-        println!("connected to channel");
+        let channel = Channel::from_shared(addr.to_string())?.connect().await?;
         let client = coordinator_service_client::CoordinatorServiceClient::with_interceptor(
             channel,
             OpenTelemetryInjector,
