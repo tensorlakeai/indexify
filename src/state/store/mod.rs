@@ -215,8 +215,6 @@ impl StateMachineStore {
     }
 
     fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
-        debug!("Called get_current_snapshot_");
-        println!("Called get_current_snapshot_");
         if !self.snapshot_file_path.exists() {
             debug!("The snapshot file does not exist");
             return Ok(None);
@@ -247,8 +245,6 @@ impl StateMachineStore {
     /// This method is called when a new snapshot is received via
     /// InstallSnapshot RPC and is used to write the snapshot to disk
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
-        debug!("Called set_current_snapshot_");
-
         //  Serialize the data into JSON bytes
         let serialized_data = JsonEncoder::encode(&snap).map_err(|e| StorageError::IO {
             source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
@@ -293,11 +289,6 @@ impl StateMachineStore {
         debug!("Compressed size: {} bytes", compressed_size);
         debug!("Compression ratio: {:.2}", compression_ratio);
         debug!("Compressed by: {:.2}%", compression_percentage);
-
-        debug!(
-            "Done writing the snapshot to {:#?}",
-            self.snapshot_file_path
-        );
 
         Ok(())
     }
@@ -570,7 +561,6 @@ impl StateMachineStore {
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        debug!("Called build_snapshot");
         let (last_applied_log, last_membership) = {
             let guard = self.data.last_applied_log_id.read().await;
             let last_applied_log = *guard;
@@ -718,7 +708,6 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
-        debug!("Called install_snapshot");
         let new_snapshot = StoredSnapshot {
             meta: meta.clone(),
             data: snapshot.into_inner(),
@@ -734,10 +723,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
-        debug!("Called get_current_snapshot");
-        println!("Called get_current_snapshot");
         let x = self.get_current_snapshot_()?;
-        println!("Got the snapshot, returning it");
         Ok(x.map(|s| Snapshot {
             meta: s.meta.clone(),
             snapshot: Box::new(Cursor::new(s.data.clone())),
@@ -984,7 +970,6 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
     snapshot_path: P,
 ) -> (LogStore, Arc<StateMachineStore>) {
-    println!("Creating new storage");
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);

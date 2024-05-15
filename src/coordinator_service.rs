@@ -1095,15 +1095,9 @@ impl CoordinatorServer {
     ) -> Result<Self, anyhow::Error> {
         let addr: SocketAddr = config.coordinator_lis_addr_sock()?;
         let garbage_collector = GarbageCollector::new();
-        //  test overrides
-        let raft_overrides = crate::state::RaftConfigOverrides {
-            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1000)),
-            max_in_snapshot_log_to_keep: Some(0),
-        };
-        //  test overrides
         let shared_state = state::App::new(
             config.clone(),
-            Some(raft_overrides),
+            None,
             Arc::clone(&garbage_collector),
             &config.coordinator_addr,
             registry,
