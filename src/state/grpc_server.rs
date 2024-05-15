@@ -7,7 +7,6 @@ use openraft::{
     BasicNode,
 };
 use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResponse};
-use sha2::{Digest, Sha256};
 use tonic::{Request, Status};
 use tracing::info;
 
