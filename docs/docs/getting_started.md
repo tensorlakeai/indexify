@@ -3,8 +3,8 @@
 We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. 
 
 - Create a chat bot that can answer questions about NBA players based on information on Wikipedia.
-- Create a chat bot that can answer statistics related to chess based on information pulled in from this PDF [PDF file](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/files/chess.pdf)
-     
+- Ingest a [PDF file](https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf) related to income tax and get personalized analysis according to salary.
+  
 You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
 
 Indexify will automatically generate Vector Indexes if any embeddings are produced. Any structured data generated during extraction will be written into structured stores.
@@ -202,7 +202,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     !!! note "Response"
         Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
 
-* ### Ingesting Chess PDF file for Question Answering
+* ### Ingesting Income Tax PDF file for tax analysis on salary
     ##### Indexify Client Setup
 
     1. Import the `IndexifyClient` class from the `indexify` package.
@@ -258,7 +258,13 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
 
     1. Add the PDF document to the "pdfqa" extraction graph using `client.upload_file()`.
     ```
-    client.upload_file("pdfqa", "chess.pdf")
+    import requests
+
+    response = requests.get("https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf")
+    with open("taxes.pdf", 'wb') as file:
+        file.write(response.content)
+
+    client.upload_file("taxes", "taxes.pdf")
     ```
     ##### Context Retrieval Function
 
@@ -270,7 +276,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
 
     4. Return the context string.
     ```
-    def get_context(question: str, index: str, top_k=3):
+    def get_context(question: str, index: str, top_k=20):
         results = client.search_index(name=index, query=question, top_k=3)
         context = ""
         for result in results:
@@ -294,8 +300,8 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
 
     2. Call the `get_context` function with the question, index name ("pdfqa.pdfembedding.embedding"), and top_k (default is 3) to retrieve the relevant context.
     ```
-    question = "Who is the greatest player of all time and what is his record?"
-    context = get_context(question, "pdfqa.pdfembedding.embedding")
+    question = "My income is $24000. What are the taxes applicable on me? How much do I need to pay and provide reference."
+    context = get_context(question, "taxes.pdfembedding.embedding")
     ```
     ##### OpenAI Client Setup
 
@@ -329,6 +335,24 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     )
     print(chat_completion.choices[0].message.content)
     ```
+    !!! note "Response"
+        Based on the provided information, the tax rates and brackets for California are as follows:
+
+        - $0 - $11,450: 10% of the amount over $0
+        - $11,450 - $43,650: $1,145 plus 15% of the amount over $11,450
+        - $43,650 - $112,650: $5,975 plus 25% of the amount over $43,650
+        - $112,650 - $182,400: $23,225 plus 28% of the amount over $112,650
+        - $182,400 - $357,700: $42,755 plus 33% of the amount over $182,400
+        - $357,700 and above: $100,604 plus 35% of the amount over $357,700
+
+        For an income of $24,000, you fall within the $0 - $43,650 bracket. To calculate your tax liability, you would need to determine the tax owed on the first $11,450 at 10%, the tax owed on $11,450 - $24,000 at 15%, and add those together.
+
+        Given that $24,000 falls within the $0 - $43,650 bracket, you would need to calculate the following:
+
+        - Tax on first $11,450: $11,450 x 10% = $1,145
+        - Tax on next $12,550 ($24,000 - $11,450): $12,550 x 15% = $1,882.50
+
+        Therefore, your total tax liability would be $1,145 + $1,882.50 = $3,027.50.
 
 ### Next Steps
 Now that you have learnt how to use Indexify, you can follow along to learn the following topics -
