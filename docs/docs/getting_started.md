@@ -68,7 +68,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     npm install getindexify
     ```
 
-### Building the Wikipedia Chat Bot 
+* ### Building the Wikipedia Chat Bot 
     Building a chatbot is a three step process -
 
     - Create an Extraction Graph to transform content into searchable vector indexes and structured data.
@@ -202,7 +202,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     !!! note "Response"
         Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
 
-### Ingesting Chess PDF file for Question Answering
+* ### Ingesting Chess PDF file for Question Answering
     ##### Indexify Client Setup
 
     1. Import the `IndexifyClient` class from the `indexify` package.
