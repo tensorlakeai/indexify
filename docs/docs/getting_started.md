@@ -163,7 +163,7 @@ pip install openai
 Write a function that retrieves context for your RAG application
 ```python
 def get_context(question: str, index: str, top_k=3):
-    results = client.search_index(name=index, query=question, top_k=3)
+    results = client.search_index(name=index, query=question, top_k=top_k)
     context = ""
     for result in results:
         context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
