@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
@@ -539,9 +539,8 @@ impl Coordinator {
     pub async fn create_content_metadata(
         &self,
         content_list: Vec<indexify_internal_api::ContentMetadata>,
-    ) -> Result<()> {
-        self.shared_state.create_content_batch(content_list).await?;
-        Ok(())
+    ) -> Result<Vec<CreateContentStatus>> {
+        self.shared_state.create_content_batch(content_list).await
     }
 
     pub async fn tombstone_content_metadatas(&self, content_ids: &[String]) -> Result<()> {
@@ -579,6 +578,7 @@ mod tests {
     use std::{collections::HashMap, fs, sync::Arc, time::Duration, vec};
 
     use indexify_internal_api as internal_api;
+    use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{ContentMetadataId, ContentSource, Task, TaskOutcome};
     use test_util::db_utils::Parent::{Child, Root};
 
@@ -1284,9 +1284,11 @@ mod tests {
         executor_id: &str,
     ) -> Result<(), anyhow::Error> {
         let content = create_content_for_task(coordinator, task, id).await?;
-        coordinator
+        let create_res = coordinator
             .create_content_metadata(vec![content.clone()])
             .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
         complete_task(coordinator, task, executor_id).await
     }
 
@@ -1349,9 +1351,11 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         let parent_content = test_mock_content_metadata("test_parent_id", "", &eg.name);
-        coordinator
+        let create_res = coordinator
             .create_content_metadata(vec![parent_content.clone()])
             .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
         assert_eq!(all_tasks.len(), 1);
@@ -1367,9 +1371,11 @@ mod tests {
         // update root content
         let mut parent_content_1 = parent_content.clone();
         parent_content_1.hash = "test_parent_id_1".into();
-        coordinator
+        let create_res = coordinator
             .create_content_metadata(vec![parent_content_1.clone()])
             .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
         assert_eq!(all_tasks.len(), 1);
@@ -1446,10 +1452,12 @@ mod tests {
         // update root content and have the first child be identical to previous version
         let mut parent_content_2 = parent_content_1.clone();
         parent_content_2.hash = "test_parent_id_2".into();
-        coordinator
+        let create_res = coordinator
             .create_content_metadata(vec![parent_content_2.clone()])
             .await?;
         coordinator.run_scheduler().await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
         assert_eq!(all_tasks.len(), 1);
 
@@ -1457,9 +1465,11 @@ mod tests {
             create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
                 .await?;
         child_content.hash = tree[1].hash.clone();
-        coordinator
+        let create_res = coordinator
             .create_content_metadata(vec![child_content])
             .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Duplicate);
         complete_task(&coordinator, &all_tasks[0], "test_executor_id_1").await?;
 
         coordinator.run_scheduler().await?;
@@ -1528,9 +1538,11 @@ mod tests {
         // previous version
         let mut parent_content_3 = parent_content_2.clone();
         parent_content_3.hash = "test_parent_id_3".into();
-        coordinator
+        let create_res = coordinator
             .create_content_metadata(vec![parent_content_3.clone()])
             .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
         assert_eq!(all_tasks.len(), 1);
@@ -1566,7 +1578,9 @@ mod tests {
             .find(|c| c.source == ContentSource::ExtractionPolicyName(policy.name.clone()))
             .unwrap();
         content.hash = prev_content.hash.clone();
-        coordinator.create_content_metadata(vec![content]).await?;
+        let create_res = coordinator.create_content_metadata(vec![content]).await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Duplicate);
         complete_task(&coordinator, &all_tasks[0], "test_executor_id_1").await?;
         coordinator.run_scheduler().await?;
         // No new task should be created

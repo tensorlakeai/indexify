@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self};
+use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
@@ -717,7 +717,8 @@ impl DataManager {
         let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata.clone()),
         };
-        self.coordinator_client
+        let res = self
+            .coordinator_client
             .get()
             .await?
             .create_content(GrpcHelper::into_req(req))
@@ -727,7 +728,18 @@ impl DataManager {
                     "unable to write content metadata to coordinator {}",
                     e.to_string()
                 )
-            })?;
+            })?
+            .into_inner();
+        if res.status() == CreateContentStatus::Duplicate {
+            if let Err(e) = self.delete_file(&content_metadata.storage_url).await {
+                tracing::warn!(
+                    "unable to delete duplicate file for {:?}: {}",
+                    content_metadata.id,
+                    e
+                );
+            }
+            return Ok(());
+        }
         let content_metadata_labels = content_metadata
             .labels
             .iter()

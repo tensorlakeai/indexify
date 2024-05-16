@@ -395,12 +395,17 @@ message ContentMetadata {
     repeated string extraction_graph_names = 14;
 }
 
+enum CreateContentStatus {
+    CREATED = 0;
+    DUPLICATE = 1;
+}
+
 message CreateContentRequest {
     ContentMetadata content = 2;
 }
 
 message CreateContentResponse {
-    string id = 1;
+    CreateContentStatus status = 2;
 }
 
 message TombstoneContentRequest {
