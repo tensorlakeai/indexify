@@ -89,6 +89,8 @@ Once you have tested the package, package it into a container. From here the ext
 indexify-extractor package </path/to/extractor>:<ExtractorClass>
 ```
 
+If you want to package an extractor in a container that support NVIDIA GPU, you can pass the `--gpu` flag to the package command.
+
 The packaged extractors should also be visible as a docker container locally.
 ```shell
 docker images
