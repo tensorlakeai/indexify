@@ -327,9 +327,8 @@ Set up an extraction graph to process the PDF documents -
     ```
 === "TypeScript"
     ```typescript
-    import { IndexifyClient } from "getindexify";
+    import { ExtractionGraph } from "getindexify";
     
-    const client = await IndexifyClient.createClient();
     const graph = ExtractionGraph.fromYaml(`
     name: 'pdfqa'
     extraction_policies:
