@@ -11,6 +11,7 @@ import GavelIcon from "@mui/icons-material/Gavel";
 import InfoIcon from "@mui/icons-material/Info";
 import ExtractionPolicyItem from "./ExtractionPolicyItem";
 import { IExtractionGraphCol, IExtractionGraphColumns } from "../types";
+import CopyText from "./CopyText";
 
 const ExtractionGraphs = ({
   extractionGraphs,
@@ -27,11 +28,11 @@ const ExtractionGraphs = ({
   const cols: IExtractionGraphColumns = {
     name: { displayName: "Name", width: 350 },
     extractor: { displayName: "Extractor", width: 225 },
-    mimeTypes: { displayName: "Input MimeTypes", width: 225},
+    mimeTypes: { displayName: "Input MimeTypes", width: 225 },
     inputParams: { displayName: "Input Parameters", width: 225 },
     taskCount: { displayName: "Tasks", width: 75 },
   };
-  
+
   const renderHeader = () => {
     return (
       <Stack
@@ -110,7 +111,12 @@ const ExtractionGraphs = ({
         {extractionGraphs.map((graph) => {
           return (
             <Box key={graph.name} sx={{ p: 2 }}>
-              <Typography variant="h3">{graph.name}</Typography>
+              <Box display="flex" alignItems={"center"}>
+                <Typography variant="h3">
+                  {graph.name}
+                </Typography>
+                <CopyText text={graph.name} />
+              </Box>
               {renderGraphItems(graph.extraction_policies, "")}
             </Box>
           );
