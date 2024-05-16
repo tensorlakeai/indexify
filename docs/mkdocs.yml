@@ -68,6 +68,7 @@ nav:
     - Deployment: 'deployment.md'
     - Metrics: 'metrics.md'
     - Develop Indexify: 'develop.md'
+    - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
     - Scientific Journals: 'examples/Scientific_Journals.ipynb'
     - Image RAG: 'examples/Image_RAG_Structured_Extraction.ipynb'
