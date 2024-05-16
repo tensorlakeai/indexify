@@ -1,6 +1,8 @@
 # Getting Started
 
-We will build a few applications to show how you can build LLM applications that can make decisions or answer questions on unstructured data. You will build declarative extraction graphs(real time labelling and extraction data pipelines) that automatically extracts information from unstructured data. Vector Indexes are automatically created by Indexify if any embeddings are produced. If any structured data is produced during extraction, they are written into structured stores.
+We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
+
+Indexify will automatically generate Vector Indexes if any embeddings are produced. Any structured data generated during extraction will be written into structured stores.
 
 !!! note "Storage"
     Indexify uses LanceDB for storing embedding and sqlite3 for storing structured data, when it's run locally on laptops in the "dev" mode. You can use one of the many supported vector stores, and structured stores by specifying a custom configuration file.
@@ -13,7 +15,7 @@ We will build a few applications to show how you can build LLM applications that
 ```shell
 curl https://getindexify.ai | sh
 ```
-Once the binary is downloaded, start the server.
+Once the binary is downloaded, start the server in development mode.
 ```shell
 ./indexify server -d
 ```
