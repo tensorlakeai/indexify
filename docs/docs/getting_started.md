@@ -1,10 +1,9 @@
 # Getting Started
 
-We will build a few different extraction graphs(real time labelling and extraction data pipelines) and show you how to upload content, and build RAG applications from the extracted data.
+We will build a few applications to show how you can build LLM applications that understands data. You will build declarative extraction graphs(real time labelling and extraction data pipelines) that automatically extracts information from unstructured data, and automatically create vector indexes if any embeddings are produced.
 
 - Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
 - Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
-- Ingest a recent podcast from Youtube and create a summary, and answer questions.
   
 ### Download and Start Indexify Server
 
@@ -28,6 +27,13 @@ This starts the Indexify ingestion API and scheduler. The server state, ingested
 
 Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, download some extractors.
 
+!!! note "Tip"
+    Create a virtualenv or miniconda environment to install any Python library you will be downloading and using to do this getting started exercise. 
+    ```shell
+    virtualenv ve
+    source ve/bin/activate
+    ```
+
 ```bash
 pip install indexify-extractor-sdk
 indexify-extractor download hub://embedding/minilm-l6
@@ -45,40 +51,41 @@ indexify-extractor join-server
 Indexify comes with Python and Typescript clients for ingesting unstructured data and retrieving indexed content. These clients use the HTTP APIs of Indexify under the hood.
 
 === "python"
-
     ```bash
     pip install indexify
     ```
-    ```python
-    from indexify import IndexifyClient
-    
-    client = IndexifyClient()
-    ```
-
 === "TypeScript"
 
     ```bash
     npm install getindexify
     ```
-    ```typescript
-    import { IndexifyClient } from "getindexify";
-    
-    const client = await IndexifyClient.createClient();
-    ```
+
 ### Building the Chat Bot 
 Building a chatbot is a three step process -
 - Create an Extraction Graph to transform content into searchable vector indexes and structured data.
 - Retrieve relevant information from the index, based on the question.
 - Use an LLM to generate a response.
 
+Create a file to write your application. In this tutorial we will create the extraction graph, ingestion and querying in a single application file, for real production usecases these aspects will probably live in separate components of your application.
+
+=== "python"
+    Create a file app.py
+=== "typescript"
+    Create a file app.ts
+
 ##### Create an Extraction Graph
 Extraction Graphs allow you to create real time data pipelines that extract structured data or embeddings from unstructured data like documents or videos.
 
-We create an extraction graph named `nbakb`. It first chunks texts, and then runs them through an embedding model, and finally writes the embedding into a vector database.
+We create an extraction graph named `nbakb`. It instructs Indexify to do the following when any new content is added to this graph -
+- Chunks texts.
+- Runs them through an embedding model.
+- Writes the embedding into a vector database.
 
 === "Python"
     ```python
-    from indexify import ExtractionGraph
+    from indexify import IndexifyClient, ExtractionGraph 
+    
+    client = IndexifyClient()
     
     extraction_graph_spec = """
     name: 'nbakb'
@@ -98,25 +105,42 @@ We create an extraction graph named `nbakb`. It first chunks texts, and then run
     ```
 === "TypeScript"
     ```typescript
+    import { IndexifyClient } from "getindexify";
+    
+    const client = await IndexifyClient.createClient();
+    ```
+At this point, if you visit the [UI](http://localhost:8900/ui) you will see an extraction graph being created.
+![Extraction Graph](images/GS_ExtractionGraph.png)
+
+#### Vector Indexes 
+Extraction Graphs automatically creates and updates vector indexes if one or more extractors in the graph produces embedding as output. Indexify takes care of updating these indexes for you automatically when new embeddings are created. 
+
+You can list all the vector indexes in a given namespace.
+
+=== "python"
+    ```python
+    print(client.list_indexes())
+    ```
+=== "typescript"
+    ```typescript
     ```
 
-
+![alt text](images/GS_Vector_Indexes.png)
 ##### Adding Content
-
-Download and add some pages about a few players.
+You can now add content to the extraction graph. Indexify will start running the graph whenever new content is added.
 === "python"
-
     ```python
     from langchain_community.document_loaders import WikipediaLoader
     docs = WikipediaLoader(query="Kevin Durant", load_max_docs=1).load()
     for doc in docs:
-        client.add_documents("sportsknowledgebase", doc.page_content)                 
+        client.add_documents("nbakb", doc.page_content)                 
     ```
 
 === "TypeScript"
     ```typescript
     ```
 
+![alt text](images/GS_Content.png)
 
 !!! note "Outcome"
     We now have an index, with texts from wikipedia chunked and embedded by MiniLML6.
@@ -124,16 +148,6 @@ Download and add some pages about a few players.
 ##### RAG for Question Answering
 
 We can use RAG to build the chatbot. We will retrieve data from the indexes, based on the question, and add them into the context of an LLM request to generate an answer. You can use any LLMs - OpenAI, Cohere, Anthropic or local models using LLama.cpp, Ollama or Hugginface.
-
-Get the name of the Indexes created by the extraction graph - 
-```python
-client.indexes()
-```
-!!! note "Response"
-    ```python
-    [{'name': 'sportsknowledgebase.wikiembedding.embedding',
-    'embedding_schema': {'dim': 384, 'distance': 'cosine'}}]
-    ```
 
 ```shell
 pip install openai
@@ -160,7 +174,9 @@ You can now use LLM to generate responses based on questions and the retrieved c
 from openai import OpenAI
 client_openai = OpenAI()
 
-prompt = create_prompt("When and where did Kevin Durant win NBA championships?")
+question = "When and where did Kevin Durant win NBA championships?"
+context = get_context(question, "nbakb.wikiembedding.embedding")
+prompt = create_prompt(question, context)
 
 chat_completion = client_openai.chat.completions.create(
     messages=[
@@ -176,3 +192,9 @@ print(chat_completion.choices[0].message.content)
 !!! note "Response"
     Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
 
+### Next Steps
+Now that you have learnt how to use Indexify, you can follow along to learn the following topics -
+- Learn more about PDF, Video and Audio Extraction Use Cases.
+- Integration with Langchain and DSPy if you use these frameworks.
+- Deployment on Kubernetes
+- Observability and understanding performance of Retreival and Extraction processes.
