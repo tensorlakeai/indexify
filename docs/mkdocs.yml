@@ -78,6 +78,7 @@ plugins:
 
 theme:
   name: material
+  custom_dir: overrides
   logo: ./images/Indexify_Logo_Wordmark_Dark.png
   icon:
     repo: fontawesome/brands/github
@@ -97,9 +98,10 @@ theme:
     - content.code.annotate
 
 
+
+  
   palette:
     - scheme: default
-      primary: light blue
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -122,3 +124,5 @@ extra:
       link: mailto:<diptanuc@gmail.com>
       name: Email
 
+extra_css:
+  - stylesheets/extras.css

@@ -19,18 +19,16 @@ Import the language specific clients
 === "TypeScript"
 
     ```typescript
-    import { IndexifyClient } from "getindexify";
+    import { IndexifyClient, ExtractionGraph } from "getindexify";
 
     const client = await IndexifyClient.createClient();
-    const extractionPolicy = {
-      "tensorlake/minilm-l6",
-      name: `minilml6`,
-      graph_name: "myextractiongraph"
-    };
-    const resp = await client.createExtractionGraph(
-      "myextractiongraph",
-      extractionPolicy
-    );
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'myextractiongraph'
+    extraction_policies:
+    - extractor: 'minilm-l6'
+      name: 'minilml6'
+    `);
+    await client.createExtractionGraph(graph);
     ```
 
 ## Upload File
