@@ -168,7 +168,7 @@ You can now add content to the extraction graph. Indexify will start running the
         client.add_documents("nbakb", doc.page_content)                 
     ```
 
- === "TypeScript"
+=== "TypeScript"
 
     ```typescript
     import wiki from "wikijs";
@@ -309,15 +309,15 @@ Set up an extraction graph to process the PDF documents -
     extraction_graph_spec = """
     name: 'pdfqa'
     extraction_policies:
-    - extractor: 'tensorlake/marker'
+      - extractor: 'tensorlake/marker'
         name: 'mdextract'
-    - extractor: 'tensorlake/chunk-extractor'
+      - extractor: 'tensorlake/chunk-extractor'
         name: 'chunker'
         input_params:
             chunk_size: 1000
             overlap: 100
         content_source: 'mdextract'
-    - extractor: 'tensorlake/minilm-l6'
+      - extractor: 'tensorlake/minilm-l6'
         name: 'pdfembedding'
         content_source: 'chunker'
     """
@@ -327,6 +327,25 @@ Set up an extraction graph to process the PDF documents -
     ```
 === "TypeScript"
     ```typescript
+    import { IndexifyClient } from "getindexify";
+    
+    const client = await IndexifyClient.createClient();
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'pdfqa'
+    extraction_policies:
+      - extractor: 'tensorlake/marker'
+        name: 'mdextract'
+      - extractor: 'tensorlake/chunk-extractor'
+        name: 'chunker'
+        input_params:
+            chunk_size: 1000
+            overlap: 100
+        content_source: 'mdextract'
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'pdfembedding'
+        content_source: 'chunker'
+    `);
+    await client.createExtractionGraph(graph);
     ```
 ##### Document Ingestion
 
@@ -343,6 +362,18 @@ Add the PDF document to the "pdfqa" extraction graph
     ```
 === "TypeScript"
     ```typescript
+    import axios from 'axios';
+    import * as fs from 'fs';
+
+    const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf";
+    const filePath = "taxes.pdf";
+
+    await axios.get(url, { responseType: 'arraybuffer' })
+    .then(response => {
+        fs.writeFile(filePath, response.data);
+    })
+
+    await client.uploadFile("taxes", "taxes.pdf");
     ```
 ##### Prompting and Context Retrieval Function
 We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
@@ -364,6 +395,24 @@ We can use the same prompting and context retrieval function defined above to ge
     ```
 === "Typescript"
     ```typescript
+    const prompt = createPrompt(question, context);
+
+    clientOpenAI.chat.completions
+      .create({
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: "gpt-3.5-turbo",
+      })
+      .then((chatCompletion) => {
+        console.log(chatCompletion.choices[0].message.content);
+      })
+      .catch((error) => {
+        console.error(error);
+      });
     ```
 
 !!! note "Response"
