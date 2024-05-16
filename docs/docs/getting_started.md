@@ -3,7 +3,7 @@
 We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. 
 
 - Create a chat bot that can answer questions about NBA players based on information on Wikipedia.
-- Ingest a [PDF file](/docs/docs/files/chess.pdf) related to Chess which contains details about top players and history of the game.
+- Ingest a [PDF file](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/files/chess.pdf) related to Chess which contains details about top players and history of the game.
   
 You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
 
@@ -68,7 +68,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     npm install getindexify
     ```
 
-1. ### Building the Wikipedia Chat Bot 
+### Building the Wikipedia Chat Bot 
     Building a chatbot is a three step process -
 
     - Create an Extraction Graph to transform content into searchable vector indexes and structured data.
@@ -202,7 +202,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
     !!! note "Response"
         Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
 
-2. ### Ingesting Chess PDF file for Question Answering
+### Ingesting Chess PDF file for Question Answering
     ##### Indexify Client Setup
 
     1. Import the `IndexifyClient` class from the `indexify` package.
