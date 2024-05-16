@@ -37,3 +37,4 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['coordinator:8960']
+```

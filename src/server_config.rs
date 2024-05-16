@@ -53,7 +53,7 @@ impl Default for MetadataStoreConfig {
     fn default() -> Self {
         Self {
             metadata_store: MetadataStoreKind::Sqlite,
-            conn_url: "/tmp/indexify_metadata.db".to_string(),
+            conn_url: "/tmp/indexify/structured_data.db".to_string(),
         }
     }
 }
@@ -76,7 +76,7 @@ pub struct LancedbConfig {
 impl Default for LancedbConfig {
     fn default() -> Self {
         Self {
-            path: "/tmp/indexify-lancedb".into(),
+            path: "/tmp/indexify/lancedb".into(),
         }
     }
 }
@@ -377,7 +377,7 @@ pub struct StateStoreConfig {
 impl Default for StateStoreConfig {
     fn default() -> Self {
         Self {
-            path: Some("/tmp/indexify-state".to_string()),
+            path: Some("/tmp/indexify/internal_state".to_string()),
         }
     }
 }
@@ -448,7 +448,7 @@ impl Default for ServerConfig {
             blob_storage: BlobStorageConfig {
                 s3: None,
                 disk: Some(DiskStorageConfig {
-                    path: "/tmp/indexify-blob-storage".to_string(),
+                    path: "/tmp/indexify/blob_storage".to_string(),
                 }),
             },
             tls: None,
