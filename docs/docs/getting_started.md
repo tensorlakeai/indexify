@@ -198,6 +198,7 @@ print(chat_completion.choices[0].message.content)
 
 ### Next Steps
 Now that you have learnt how to use Indexify, you can follow along to learn the following topics -
+
 - Learn more about PDF, Video and Audio Extraction Use Cases.
 - Integration with Langchain and DSPy if you use these frameworks.
 - Deployment on Kubernetes
