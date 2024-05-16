@@ -83,6 +83,7 @@ Create a file to write your application. In this tutorial we will create the ext
 Extraction Graphs allow you to create real time data pipelines that extract structured data or embeddings from unstructured data like documents or videos.
 
 We create an extraction graph named `nbakb`. It instructs Indexify to do the following when any new content is added to this graph -
+
 - Chunks texts.
 - Runs them through an embedding model.
 - Writes the embedding into a vector database.
