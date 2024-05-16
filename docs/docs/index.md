@@ -1,5 +1,7 @@
 # Reliable Extraction and Retrieval for AI Applications at Any Scale
 
+[Subscribe to our newsletter](#){ .md-button .md-button--primary }
+
 ![Indexify High Level](images/Indexify_KAT.gif)
 
 Indexify is data framework for building LLM Applications that derives knowledge from enterprise or consumer data to make decisions or answer questions. It shines in use-cases where ground truth sources of infromation changes over time. Most data sources in the real world are unstructured and orginate from PDFs, clicks on websites, emails, text messages or videos. Indexify focusses on bringing information from unstructured data sources to LLMs continously for production applications.
