@@ -2,7 +2,7 @@
 
 We will build a few applications to show how you can build LLM applications that can make decisions or answer questions on unstructured data. You will build declarative extraction graphs(real time labelling and extraction data pipelines) that automatically extracts information from unstructured data. Vector Indexes are automatically created by Indexify if any embeddings are produced. If any structured data is produced during extraction, they are written into structured stores.
 
-!!! note "Facts"
+!!! note "Storage"
     Indexify uses LanceDB for storing embedding and sqlite3 for storing structured data, when it's run locally on laptops in the "dev" mode. You can use one of the many supported vector stores, and structured stores by specifying a custom configuration file.
 
 - Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
@@ -65,6 +65,7 @@ Indexify comes with Python and Typescript clients for ingesting unstructured dat
 
 ### Building the Chat Bot 
 Building a chatbot is a three step process -
+
 - Create an Extraction Graph to transform content into searchable vector indexes and structured data.
 - Retrieve relevant information from the index, based on the question.
 - Use an LLM to generate a response.
