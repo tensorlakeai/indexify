@@ -1,6 +1,9 @@
 # Getting Started
 
-We will build a few applications to show how you can build LLM applications that understands data. You will build declarative extraction graphs(real time labelling and extraction data pipelines) that automatically extracts information from unstructured data, and automatically create vector indexes if any embeddings are produced.
+We will build a few applications to show how you can build LLM applications that can make decisions or answer questions on unstructured data. You will build declarative extraction graphs(real time labelling and extraction data pipelines) that automatically extracts information from unstructured data. Vector Indexes are automatically created by Indexify if any embeddings are produced. If any structured data is produced during extraction, they are written into structured stores.
+
+!!! note "Facts"
+    Indexify uses LanceDB for storing embedding and sqlite3 for storing structured data, when it's run locally on laptops in the "dev" mode. You can use one of the many supported vector stores, and structured stores by specifying a custom configuration file.
 
 - Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
 - Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
