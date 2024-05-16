@@ -1,15 +1,17 @@
 # Getting Started
 
-We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
+We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. 
+
+- Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
+- Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
+  
+You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
 
 Indexify will automatically generate Vector Indexes if any embeddings are produced. Any structured data generated during extraction will be written into structured stores.
 
 !!! note "Storage"
     Indexify uses LanceDB for storing embedding and sqlite3 for storing structured data, when it's run locally on laptops in the "dev" mode. You can use one of the many supported vector stores, and structured stores by specifying a custom configuration file.
 
-- Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
-- Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
-  
 ### Download and Start Indexify Server
 
 ```shell
