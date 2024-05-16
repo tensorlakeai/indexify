@@ -59,9 +59,11 @@ indexify-extractor join-server
 Indexify comes with Python and Typescript clients for ingesting unstructured data and retrieving indexed content. These clients use the HTTP APIs of Indexify under the hood.
 
 === "python"
+
     ```bash
     pip install indexify
     ```
+
 === "TypeScript"
 
     ```bash
@@ -92,6 +94,7 @@ We create an extraction graph named `nbakb`. It instructs Indexify to do the fol
 - Writes the embedding into a vector database.
 
 === "Python"
+
     ```python
     from indexify import IndexifyClient, ExtractionGraph 
     
@@ -100,12 +103,12 @@ We create an extraction graph named `nbakb`. It instructs Indexify to do the fol
     extraction_graph_spec = """
     name: 'nbakb'
     extraction_policies:
-    - extractor: 'tensorlake/chunk-extractor'
+      - extractor: 'tensorlake/chunk-extractor'
         name: 'chunker'
         input_params:
             chunk_size: 1000
             overlap: 100
-    - extractor: 'tensorlake/minilm-l6'
+      - extractor: 'tensorlake/minilm-l6'
         name: 'wikiembedding'
         content_source: 'chunker'
     """
@@ -114,11 +117,26 @@ We create an extraction graph named `nbakb`. It instructs Indexify to do the fol
     client.create_extraction_graph(extraction_graph)                                            
     ```
 === "TypeScript"
+
     ```typescript
     import { IndexifyClient } from "getindexify";
     
     const client = await IndexifyClient.createClient();
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'nbakb'
+    extraction_policies:
+      - extractor: 'tensorlake/chunk-extractor'
+        name: 'chunker'
+        input_params:
+          chunk_size: 1000
+          overlap: 100
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'wikiembedding'
+        content_source: 'chunker'
+    `);
+    await client.createExtractionGraph(graph);
     ```
+
 At this point, if you visit the [UI](http://localhost:8900/ui) you will see an extraction graph being created.
 ![Extraction Graph](images/GS_ExtractionGraph.png)
 
@@ -128,17 +146,21 @@ Extraction Graphs automatically creates and updates vector indexes if one or mor
 You can list all the vector indexes in a given namespace.
 
 === "python"
+
     ```python
     print(client.list_indexes())
     ```
 === "typescript"
+
     ```typescript
+    console.log(await client.indexes());
     ```
 
 ![alt text](images/GS_Vector_Indexes.png)
 ##### Adding Content
 You can now add content to the extraction graph. Indexify will start running the graph whenever new content is added.
 === "python"
+
     ```python
     from langchain_community.document_loaders import WikipediaLoader
     docs = WikipediaLoader(query="Kevin Durant", load_max_docs=1).load()
@@ -146,8 +168,14 @@ You can now add content to the extraction graph. Indexify will start running the
         client.add_documents("nbakb", doc.page_content)                 
     ```
 
-=== "TypeScript"
+ === "TypeScript"
+
     ```typescript
+    import wiki from "wikijs";
+    // using wikijs to query wikipedia content
+    const page = await wiki().page(query);
+    const wikipediaContent = await page.rawContent();
+    client.addDocuments("nbakb", wikipediaContent);
     ```
 
 ![alt text](images/GS_Content.png)
@@ -164,43 +192,102 @@ pip install openai
 ```
 
 Write a function that retrieves context for your RAG application
-```python
-def get_context(question: str, index: str, top_k=3):
-    results = client.search_index(name=index, query=question, top_k=top_k)
-    context = ""
-    for result in results:
-        context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
-    return context
+=== "python"
 
-def create_prompt(question, context):
-    return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
-```
+    ```python
+    def get_context(question: str, index: str, top_k=3):
+        results = client.search_index(name=index, query=question, top_k=top_k)
+        context = ""
+        for result in results:
+            context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
+        return context
+
+    def create_prompt(question, context):
+        return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    async function getContext(
+      question: string,
+      index: string,
+      topK: number = 3
+    ): Promise<string> {
+      const results = await client.searchIndex(index, question, topK);
+      let context = "";
+      results.forEach((result) => {
+        context += `content id: ${result.content_id} \n\n passage: ${result.text}\n`;
+      });
+      return context;
+    }
+
+    function createPrompt(question: string, context: string): string {
+      return `Answer the question, based on the context.\n question: ${question} \n context: ${context}`;
+    }
+    ```
 
 Thats pretty much all you need to create a Basic RAG application that relies only on vector indexes
 
 You can now use LLM to generate responses based on questions and the retrieved context:
 
-```python
-from openai import OpenAI
-client_openai = OpenAI()
+=== "python"
 
-question = "When and where did Kevin Durant win NBA championships?"
-context = get_context(question, "nbakb.wikiembedding.embedding")
-prompt = create_prompt(question, context)
+    ```python
+    from openai import OpenAI
+    client_openai = OpenAI()
 
-chat_completion = client_openai.chat.completions.create(
-    messages=[
-        {
-            "role": "user",
-            "content": prompt,
-        }
-    ],
-    model="gpt-3.5-turbo",
-)
-print(chat_completion.choices[0].message.content)
-```
+    question = "When and where did Kevin Durant win NBA championships?"
+    context = get_context(question, "nbakb.wikiembedding.embedding")
+    prompt = create_prompt(question, context)
+
+    chat_completion = client_openai.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        model="gpt-3.5-turbo",
+    )
+    print(chat_completion.choices[0].message.content)
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    import { OpenAI } from "openai";
+    const clientOpenAI = new OpenAI();
+
+    const question = "When and where did Kevin Durant win NBA championships?";
+    const context = await getContext(
+      question,
+      "nbakb.wikiembedding.embedding"
+    );
+    const prompt = createPrompt(question, context);
+
+    clientOpenAI.chat.completions
+      .create({
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: "gpt-3.5-turbo",
+      })
+      .then((chatCompletion) => {
+        console.log(chatCompletion.choices[0].message.content);
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+    ```
+
 !!! note "Response"
     Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
+
+You can view the full OpenAI Rag [Python example](https://github.com/tensorlakeai/indexify-python-client/blob/main/examples/openai_rag.py) or [TypeScript example](https://github.com/tensorlakeai/indexify-typescript-client/blob/main/examples/openaiRag.ts) on our repos.
 
 ### Ingesting Income Tax PDF file for tax analysis on salary
 In this example, we will ingest California's state tax guide, and make an LLM answer how much someone would be paying in taxes. While this example is simple, if you were building a production application on tax laws, you can ingest and extract information from 100s of such documents.
