@@ -3,8 +3,8 @@
 We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. 
 
 - Create a chat bot that can answer questions about NBA players based on information on Wikipedia.
-- Ingest a [PDF file](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/files/chess.pdf) related to Chess which contains details about top players and history of the game.
-  
+- Create a chat bot that can answer statistics related to chess based on information pulled in from this PDF [PDF file](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/files/chess.pdf)
+     
 You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
 
 Indexify will automatically generate Vector Indexes if any embeddings are produced. Any structured data generated during extraction will be written into structured stores.
