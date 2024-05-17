@@ -1,6 +1,19 @@
 [data-md-color-scheme="default"] {
-  --md-primary-fg-color:        #060D3F;
+  --md-primary-fg-color:#060D3F;
+  --md-typeset-a-color: #526cfe;
 }
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color:        #060D3F;
+  --md-primary-fg-color:#060D3F;
+  --md-typeset-a-color: #526cfe;
+}
+
+.header-button {
+  font-size: .7rem;
+  opacity: 0.8;
+  margin-right: 16px;
+  font-weight: bold;
+}
+
+.header-button:hover {
+  opacity: 1;
 }

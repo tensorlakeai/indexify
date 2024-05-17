@@ -68,6 +68,7 @@ nav:
     - Deployment: 'deployment.md'
     - Metrics: 'metrics.md'
     - Develop Indexify: 'develop.md'
+    - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
     - Scientific Journals: 'examples/Scientific_Journals.ipynb'
     - Image RAG: 'examples/Image_RAG_Structured_Extraction.ipynb'
@@ -78,6 +79,7 @@ plugins:
 
 theme:
   name: material
+  custom_dir: overrides
   logo: ./images/Indexify_Logo_Wordmark_Dark.png
   icon:
     repo: fontawesome/brands/github
