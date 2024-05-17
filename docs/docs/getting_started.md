@@ -149,8 +149,6 @@ Now that we've written up a simple function to define our extraction graph, let'
         for doc in docs:
             client.add_documents("summarize_and_chunk", doc.page_content)
 
-    create_extraction_graph()
-    load_data()
     ```
 
 We can then run this code to create our new extraction graph and load in the data into our data pipeline. Once we use the add the documents, all we need to do is to let Indexify handle all of the batching and storage.
@@ -213,4 +211,4 @@ Now that you have learnt how to use Indexify, you can follow along to learn the 
 - Learn more about PDF, Video and Audio Extraction Use Cases.
 - Integration with Langchain and DSPy if you use these frameworks.
 - Deployment on Kubernetes
-- Observability and understanding performance of Retreival and Extraction processes.
+- Observability and understanding performance of Retrieval and Extraction processes.
