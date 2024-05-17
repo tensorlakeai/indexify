@@ -576,7 +576,7 @@ mod tests {
 
             self.coordinator
                 .shared_state
-                .create_tasks(vec![task], &state_change_id)
+                .create_tasks(vec![task], state_change_id)
                 .await
                 .unwrap();
             Ok(())
