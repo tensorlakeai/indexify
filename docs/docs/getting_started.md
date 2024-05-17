@@ -77,7 +77,7 @@ Building a chatbot is a three step process -
 - Retrieve relevant information from the index, based on the question.
 - Use an LLM to generate a response.
 
-Create a file to write your application. In this tutorial we will create the extraction graph, ingestion and querying in a single application file, for real production usecases these aspects will probably live in separate components of your application.
+Create a file to write your application. In this tutorial we will create the extraction graph, ingestion and querying in a single application file, for real production use-cases these aspects will probably live in separate components of your application.
 
 === "python"
     Create a file app.py
@@ -298,7 +298,7 @@ Set up an extraction graph to process the PDF documents -
 
 - Set the name of the extraction graph to "pdfqa".
 - The first stage of the graph converts the PDF document into Markdown. We use the extractor `tensorlake/marker`, which uses a popular Open Source PDF to markdown converter model.
-- The text is then chunked into smaller fragments. Chunking makes retreival and processing by LLMs efficient.
+- The text is then chunked into smaller fragments. Chunking makes retrieval and processing by LLMs efficient.
 - The chunks are then embedded to make them searchable.
 - Each stage has of the pipeline is named and connected to their upstream extractors using the field `content_source`
 
@@ -439,4 +439,4 @@ Now that you have learnt how to use Indexify, you can follow along to learn the 
 - Learn more about PDF, Video and Audio Extraction Use Cases.
 - Integration with Langchain and DSPy if you use these frameworks.
 - Deployment on Kubernetes
-- Observability and understanding performance of Retreival and Extraction processes.
+- Observability and understanding performance of Retrieval and Extraction processes.
