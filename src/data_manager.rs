@@ -214,6 +214,19 @@ impl DataManager {
         Ok(index_names)
     }
 
+    pub async fn wait_content_extraction(&self, content_id: &str) -> Result<()> {
+        let req = indexify_coordinator::WaitContentExtractionRequest {
+            content_id: content_id.to_string(),
+        };
+        let _ = self
+            .coordinator_client
+            .get()
+            .await?
+            .wait_content_extraction(req)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_content(
         &self,
         namespace: &str,

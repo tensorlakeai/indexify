@@ -572,6 +572,15 @@ impl Coordinator {
     pub fn get_raft_metrics(&self) -> RaftMetrics {
         self.shared_state.get_raft_metrics()
     }
+
+    pub async fn wait_content_extraction(&self, content_id: &str) {
+        self.shared_state
+            .state_machine
+            .data
+            .indexify_state
+            .wait_root_task_count_zero(content_id)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -1312,6 +1321,74 @@ mod tests {
                 perform_task(coordinator, &task, &next_child(child_id), executor_id).await?;
             }
         }
+        Ok(())
+    }
+
+    use futures::FutureExt;
+    use tokio::select;
+
+    #[tokio::test]
+    async fn test_wait_content_extraction() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor.clone()],
+            )
+            .await?;
+
+        let eg =
+            create_test_extraction_graph("test_extraction_graph", vec!["test_extraction_policy"]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let content = test_mock_content_metadata("test_content_id", "", &eg.name);
+        coordinator
+            .create_content_metadata(vec![content.clone()])
+            .await?;
+        coordinator.run_scheduler().await?;
+
+        let tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(tasks.len(), 1);
+        let task = tasks.first().unwrap();
+        let content_id = task.content_metadata.id.id.clone();
+
+        let wait_future = coordinator.wait_content_extraction(&content_id).fuse();
+
+        tokio::pin!(wait_future);
+
+        let mut wait_completed = false;
+
+        select! {
+            _ = &mut wait_future => {
+                wait_completed = true;
+            }
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {
+            }
+        }
+
+        assert!(
+            !wait_completed,
+            "wait should not complete with task pending"
+        );
+
+        perform_all_tasks(&coordinator, "test_executor_id", &mut 1).await?;
+
+        select! {
+            _ = &mut wait_future => {
+                wait_completed = true;
+            }
+            _ = tokio::time::sleep(Duration::from_millis(10)) => {
+            }
+        }
+
+        assert!(wait_completed, "wait should complete after task completion");
+
         Ok(())
     }
 

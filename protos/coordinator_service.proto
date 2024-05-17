@@ -65,6 +65,8 @@ service CoordinatorService {
     rpc GetTask(GetTaskRequest) returns (GetTaskResponse) {}
 
     rpc GetIngestionInfo(GetIngestionInfoRequest) returns (GetIngestionInfoResponse) {}
+
+    rpc WaitContentExtraction(WaitContentExtractionRequest) returns (WaitContentExtractionResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -495,3 +497,10 @@ message GetIngestionInfoResponse {
     Task task = 1;
     ContentMetadata root_content = 2;
 }
+
+// wait for content to complete all extraction tasks
+message WaitContentExtractionRequest {
+    string content_id = 1;
+}
+
+message WaitContentExtractionResponse {}
