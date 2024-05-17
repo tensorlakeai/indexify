@@ -20,9 +20,9 @@ Building a data-intensive product with LLMs often involves -
 3. Running compute intensive models for extraction efficiently in pipelines.
 4. Serving fresh data by searching vector indexes adn structured stores to LLMs for making accurate decisions.
 
-While there are many data frameworks for unstructured data, they are mostly optimized for prototyping applications locally. Reliable data infrastructure for production use-cases are designed to be distributed on many machines to allow scale outs, fault tolerant to hardware or software crashes, have predictable latencies and throughput, and observable to help with troubleshooting.
+While there are many data frameworks for unstructured data, they are primarily optimized for prototyping applications locally. Reliable data infrastructure for production use cases is designed to be distributed on many machines to allow scale-outs, fault-tolerant to hardware or software crashes, predictable latencies and throughput, and observable to help troubleshoot.
 
-Indexify runs locally without **any** dependencies, making it easy to build applications and test and iterate locally. It does so without sacrificing the properties that makes data systems shine in production environments. Applications built with Indexify can run on laptops can run un-changed in production. Indexify can auto-scale, distributed and fault tolerant and fully observable with predictable latencies and throughput. 
+Indexify runs locally without **any** dependencies, making it easy to build applications and test and iterate locally. It does so without sacrificing the properties that make data systems shine in production environments. Applications built with Indexify can run on laptops and can run unchanged in production. Indexify can auto-scale, is distributed, fault-tolerant, and is fully observable with predictable latencies and throughput. 
 
 ## Start Using Indexify
 
