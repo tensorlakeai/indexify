@@ -19,6 +19,7 @@ import InfoIcon from "@mui/icons-material/Info";
 import React, { useEffect, useState } from "react";
 import moment from "moment";
 import { Link } from "react-router-dom";
+import CopyText from "../CopyText";
 
 function getChildCountMap(
   contents: IContentMetadata[]
@@ -143,7 +144,7 @@ const ContentTable = ({
           to={`/${params.row.namespace}/content/${params.row.id}`}
           target="_blank"
         >
-          <Button sx={{ p: 0.5 }} variant="outlined">
+          <Button sx={{ py: 0.5, px:2 }} variant="outlined">
             View
           </Button>
         </Link>
@@ -152,7 +153,15 @@ const ContentTable = ({
     {
       field: "id",
       headerName: "ID",
-      width: 170,
+      width: 200,
+      renderCell: (params) => {
+        return (
+          <>
+            {params.value}
+            <CopyText text={params.value} />
+          </>
+        );
+      },
     },
     {
       field: "childCount",

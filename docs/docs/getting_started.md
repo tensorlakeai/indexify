@@ -1,210 +1,214 @@
 # Getting Started
 
-We will build a few applications to demonstrate how to create LLM applications capable of making decisions or providing answers based on unstructured data. 
+In this tutorial, we'll show you how to create a simple RAG application using Indexify that you can use to query Wikipedia about Kevin Durant or any other topic of your choice.
 
-- Create a chat bot that can answer questions about NBA players based on information on Wikiepdia
-- Ingest a [PDF file](https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2023/06/2023-NBA-Collective-Bargaining-Agreement.pdf) which contains ther rules that govern salary and player trading between teams.
-  
-You will design declarative extraction graphs(real-time labeling and extraction data pipelines) that can automatically extract information from unstructured data. 
+You'll need three different terminals open to complete this tutorial
 
-Indexify will automatically generate Vector Indexes if any embeddings are produced. Any structured data generated during extraction will be written into structured stores.
+1. Terminal 1 to download and run the Indexify Server
+2. Terminal 2 to run our Indexify extractors which will handle the chunking and embedding of the data we download
+3. Terminal 3 to run our python scripts to help load and query data from our Indexify server.
 
-!!! note "Storage"
-    Indexify uses LanceDB for storing embedding and sqlite3 for storing structured data, when it's run locally on laptops in the "dev" mode. You can use one of the many supported vector stores, and structured stores by specifying a custom configuration file.
+We'll indicate which terminal to run a command in by using the annotation
 
-### Download and Start Indexify Server
-
-```shell
-curl https://getindexify.ai | sh
+```bash title="( Terminal 1 ) Description Of Command"
+<command goes here>
 ```
-Once the binary is downloaded, start the server in development mode.
-```shell
+
+We can think of our Indexify server as a central coordinator and our Extractors ( which we'll set up in a bit ) as specialized workers designed to perform a specific task.
+
+These tasks can range from embedding data, generating summaries or even automatically extracting features from unstructured data. All it takes to chain together these extractors into a complex pipeline is a **a single declarative `.yaml` file**.
+
+## Creating a Virtual Environment
+
+??? note "Want the Source Code?"
+
+    The source code for this tutorial can be found [here](https://github.com/ivanleomk/indexify-python-client/tree/update-openai-example/examples/openai-rag) in our example folder
+
+Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
+
+```bash title="( Terminal 1 ) Install Dependencies"
+python3 -m venv venv
+source venv/bin/activate
+pip3 install indexify-extractor-sdk==0.0.63 indexify==0.0.21 wikipedia==1.4.0 openai==1.30.1
+```
+
+## Indexify Server
+
+Let's first start by downloading the indexify server and running it
+
+```bash title="( Terminal 1 ) Download Indexify Server"
+curl https://getindexify.ai | sh
 ./indexify server -d
 ```
 
-This starts the Indexify ingestion API and scheduler. The server state, ingested and extract content will be stored on local disk. The following endpoints are started -
+By doing so, we immediately get the two following endpoints created.
 
-- Ingestion API ([http://localhost:8900](http://localhost:8900)) - The API endpoint for uploading content and retrieve from indexes and SQL Tables.
-- User Interface ([http://localhost:8900/ui](http://localhost:8900/ui)) - Dashboard for extraction graphs, content and indexes.
+| Endpoint       | Route                           | Description                                                                        |
+| -------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
+| Ingestion API  | [/](http://localhost:8900)      | The API endpoint for uploading content and retrieving from indexes and SQL Tables. |
+| User Interface | [/ui](http://localhost:8900/ui) | Dashboard for extraction graphs, content, and indexes.                             |
 
-!!! note ""
-    A internal scheduler endpoint is started at localhost:8950 for communicating with extractors.
+## Indexify Extractors
 
-### Install the Extractor SDK
+??? info "Extractors"
 
-Extraction from unstructured data is done through Extractors. Install some extractors to get started. Open another shell, download some extractors.
+    Extractors help convert unstructured data into structured data we can query using a vector database or simple SQL. Examples of this could include converting PDF invoices to JSON, labelling objects in a video or even extracting text to embed from PDFs. You can read more about extractors [here](/apis/extractors)
 
-!!! note "Tip"
-    Create a virtualenv or miniconda environment to install any Python library you will be downloading and using to do this getting started exercise. 
-    ```shell
-    virtualenv ve
-    source ve/bin/activate
-    ```
+Next, we'll need to download two extractors - one for chunking our pages that we've downloaded from Wikipedia and another that will embed the text chunks that we've generated.
 
-```bash
-pip install indexify-extractor-sdk
+```bash title="( Terminal 2 ) Download Indexify Extractors"
+source venv/bin/activate
 indexify-extractor download hub://embedding/minilm-l6
 indexify-extractor download hub://text/chunking
 ```
 
-Once the extractor SDK and extractors are downloaded, start and join them to the Indexify Control Plane. This is a long running process that extracts continuously when new data is ingested.
+We can then run all avaliable extractors using the command below.
 
-```bash
+```python title="( Terminal 2 ) Starting Extractor Workers"
 indexify-extractor join-server
 ```
 
-### Install the client library
+## Loading in our data
 
-Indexify comes with Python and Typescript clients for ingesting unstructured data and retrieving indexed content. These clients use the HTTP APIs of Indexify under the hood.
+### Defining Our Data Pipeline
 
-=== "python"
-    ```bash
-    pip install indexify
-    ```
-=== "TypeScript"
+Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. What we want is a simple pipeline that will take in text documents, split it into individual chunks and then embed it.
 
-    ```bash
-    npm install getindexify
-    ```
+We can do so using a simple `.yaml` file as seen below
 
-### Building the Chat Bot 
-Building a chatbot is a three step process -
+```yaml title="graph.yaml"
+name: "summarize_and_chunk" #(1)!
+extraction_policies:
+  - extractor: "tensorlake/chunk-extractor"
+    name: "chunker" #(2)!
+    input_params:
+      chunk_size: 1000 #(3)!
+      overlap: 100
 
-- Create an Extraction Graph to transform content into searchable vector indexes and structured data.
-- Retrieve relevant information from the index, based on the question.
-- Use an LLM to generate a response.
+  - extractor: "tensorlake/minilm-l6"
+    name: "wikiembedding"
+    content_source: "chunker" #(4)!
+```
 
-Create a file to write your application. In this tutorial we will create the extraction graph, ingestion and querying in a single application file, for real production usecases these aspects will probably live in separate components of your application.
+1. Every data pipeline needs to have a unique name - this is known as a namespace
+2. Each extractor is uniquely identified by a single `name`
+3. We can configure each extractor using the `input_params` field easily so that it is customized to our needs
+4. We can chain together multiple extractors sequentially by specifying a `content_source` for each extractor.
 
-=== "python"
-    Create a file app.py
-=== "typescript"
-    Create a file app.ts
+Now that we've defined our pipeline using a `.yaml` file , let's see how we can create our first data pipeline in Indexify using our Indexify SDK.
 
-##### Create an Extraction Graph
-Extraction Graphs allow you to create real time data pipelines that extract structured data or embeddings from unstructured data like documents or videos.
+```python title="setup.py"
+from indexify import IndexifyClient, ExtractionGraph
 
-We create an extraction graph named `nbakb`. It instructs Indexify to do the following when any new content is added to this graph -
+client = IndexifyClient() #(1)!
 
-- Chunks texts.
-- Runs them through an embedding model.
-- Writes the embedding into a vector database.
+def create_extraction_graph():
+    with open("graph.yaml", "r") as file:
+        extraction_graph_spec = file.read()
+        extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec) #(2)!
+        client.create_extraction_graph(extraction_graph) #(3)!
+```
 
-=== "Python"
-    ```python
-    from indexify import IndexifyClient, ExtractionGraph 
-    
-    client = IndexifyClient()
-    
-    extraction_graph_spec = """
-    name: 'nbakb'
-    extraction_policies:
-       - extractor: 'tensorlake/chunk-extractor'
-         name: 'chunker'
-         input_params:
-            chunk_size: 1000
-            overlap: 100
-       - extractor: 'tensorlake/minilm-l6'
-         name: 'wikiembedding'
-         content_source: 'chunker'
-    """
+1. We first create an instance of an `Indexify` client so that we can interact with our Indexify server in a typesafe manner
+2. We then read in our `.yaml` file which we defined above and create an Extraction Graph using the yaml definition. This is a python object which tells Indexify how to chain together different Extractors together
+3. Lastly, we create our new data pipeline with the help of our `Indexify` client.
 
-    extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-    client.create_extraction_graph(extraction_graph)                                            
-    ```
-=== "TypeScript"
-    ```typescript
-    import { IndexifyClient } from "getindexify";
-    
-    const client = await IndexifyClient.createClient();
-    ```
-At this point, if you visit the [UI](http://localhost:8900/ui) you will see an extraction graph being created.
-![Extraction Graph](images/GS_ExtractionGraph.png)
+### Loading in Data
 
-#### Vector Indexes 
-Extraction Graphs automatically creates and updates vector indexes if one or more extractors in the graph produces embedding as output. Indexify takes care of updating these indexes for you automatically when new embeddings are created. 
+Now that we've written up a simple function to define our extraction graph, let's see how we can update `setup.py` so that we can load in data from wikipedia using our new data pipeline.
 
-You can list all the vector indexes in a given namespace.
+=== "New Additions"
 
-=== "python"
-    ```python
-    print(client.list_indexes())
-    ```
-=== "typescript"
-    ```typescript
-    ```
-
-![alt text](images/GS_Vector_Indexes.png)
-##### Adding Content
-You can now add content to the extraction graph. Indexify will start running the graph whenever new content is added.
-=== "python"
-    ```python
+    ``` python
     from langchain_community.document_loaders import WikipediaLoader
-    docs = WikipediaLoader(query="Kevin Durant", load_max_docs=1).load()
-    for doc in docs:
-        client.add_documents("nbakb", doc.page_content)                 
+
+    def load_data():
+        docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
+
+        for doc in docs:
+            client.add_documents("summarize_and_chunk", doc.page_content)
     ```
 
-=== "TypeScript"
-    ```typescript
+=== "Full Code"
+
+    ``` python hl_lines="2 12-16"
+    from indexify import IndexifyClient, ExtractionGraph
+    from langchain_community.document_loaders import WikipediaLoader
+
+    client = IndexifyClient()
+
+    def create_extraction_graph():
+        with open("graph.yaml", "r") as file:
+            extraction_graph_spec = file.read()
+            extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+            client.create_extraction_graph(extraction_graph)
+
+    def load_data():
+        docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
+
+        for doc in docs:
+            client.add_documents("summarize_and_chunk", doc.page_content)
+
     ```
 
-![alt text](images/GS_Content.png)
+We can then run this code to create our new extraction graph and load in the data into our data pipeline. Once we use the add the documents, all we need to do is to let Indexify handle all of the batching and storage.
 
-!!! note "Outcome"
-    We now have an index, with texts from wikipedia chunked and embedded by MiniLML6.
-
-##### RAG for Question Answering
-
-We can use RAG to build the chatbot. We will retrieve data from the indexes, based on the question, and add them into the context of an LLM request to generate an answer. You can use any LLMs - OpenAI, Cohere, Anthropic or local models using LLama.cpp, Ollama or Hugginface.
-
-```shell
-pip install openai
+```bash title="( Terminal 3) Create Data Pipeline using Extraction Graph and load data"
+source venv/bin/activate
+python3 ./setup.pys
 ```
 
-Write a function that retrieves context for your RAG application
-```python
-def get_context(question: str, index: str, top_k=3):
-    results = client.search_index(name=index, query=question, top_k=top_k)
-    context = ""
-    for result in results:
-        context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
-    return context
+## Query Indexify
 
-def create_prompt(question, context):
-    return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
-```
-
-Thats pretty much all you need to create a Basic RAG application that relies only on vector indexes
-
-You can now use LLM to generate responses based on questions and the retrieved context:
+Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG.
 
 ```python
 from openai import OpenAI
+from indexify import IndexifyClient
+
+client = IndexifyClient()
 client_openai = OpenAI()
 
-question = "When and where did Kevin Durant win NBA championships?"
-context = get_context(question, "nbakb.wikiembedding.embedding")
-prompt = create_prompt(question, context)
 
-chat_completion = client_openai.chat.completions.create(
-    messages=[
-        {
-            "role": "user",
-            "content": prompt,
-        }
-    ],
-    model="gpt-3.5-turbo",
+def query_database(question: str, index: str, top_k=3):
+    retrieved_results = client.search_index(name=index, query=question, top_k=top_k) #(1)!
+    context = "\n-".join([item["text"] for item in retrieved_results])
+    response = client_openai.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": f"Answer the question, based on the context.\n question: {question} \n context: {context}",
+            },
+        ],
+        model="gpt-3.5-turbo",
+    )
+    return response.choices[0].message.content
+
+
+
+print(
+    query_database(
+        "What accomplishments did Kevin durant achieve during his career?",
+        "summarize_and_chunk.wikiembedding.embedding",
+        4,
+    )
 )
-print(chat_completion.choices[0].message.content)
 ```
-!!! note "Response"
-    Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.
 
-### Next Steps
+1. All we need to do to query our database is to use the `.search_index` method and we can get the top `k` elements which are closest in semantic meaning to the user's query.
+
+When we run this file, we get the following output
+
+```bash title="( Terminal 3 ) Run our RAG query"
+>> python3 ./query.py
+During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
+```
+
+## Next Steps
+
 Now that you have learnt how to use Indexify, you can follow along to learn the following topics -
 
 - Learn more about PDF, Video and Audio Extraction Use Cases.
 - Integration with Langchain and DSPy if you use these frameworks.
 - Deployment on Kubernetes
-- Observability and understanding performance of Retreival and Extraction processes.
+- Observability and understanding performance of Retrieval and Extraction processes.

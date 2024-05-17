@@ -1,11 +1,12 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { IExtractionPolicy, IIndex } from "getindexify";
-import { Alert, IconButton, Typography } from "@mui/material";
+import { Alert, Button, IconButton, Typography } from "@mui/material";
 import { Box, Stack } from "@mui/system";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import InfoIcon from "@mui/icons-material/Info";
 import React from "react";
 import { Link } from "react-router-dom";
+import CopyText from "../CopyText";
 
 const IndexTable = ({
   indexes,
@@ -26,14 +27,34 @@ const IndexTable = ({
 
   const columns: GridColDef[] = [
     {
+      field: "searchIndex",
+      headerName: "",
+      width: 140,
+      renderCell: (params) => {
+        return (
+          <>
+            <Link
+              to={`/${namespace}/indexes/${params.row.name}`}
+              target="_blank"
+            >
+              <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
+                Search Index
+              </Button>
+            </Link>
+          </>
+        );
+      },
+    },
+    {
       field: "name",
       headerName: "Name",
       width: 500,
       renderCell: (params) => {
         return (
-          <Link to={`/${namespace}/indexes/${params.value}`}>
+          <>
             {params.value}
-          </Link>
+            <CopyText text={params.value} />
+          </>
         );
       },
     },

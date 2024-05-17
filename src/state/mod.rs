@@ -1555,14 +1555,13 @@ mod tests {
         let task = indexify_internal_api::Task {
             id: "task_id".into(),
             content_metadata: content.clone(),
-            outcome: indexify_internal_api::TaskOutcome::Success,
+            outcome: TaskOutcome::Success,
             ..Default::default()
         };
         let executor_id = "executor_id";
-        let content_meta_list: Vec<ContentMetadata> =
-            std::iter::repeat(indexify_internal_api::ContentMetadata::default())
-                .take(3)
-                .collect();
+        let content_meta_list: Vec<ContentMetadata> = std::iter::repeat(ContentMetadata::default())
+            .take(3)
+            .collect();
         let node = cluster.get_raft_node(0)?;
         node.update_task(task, Some(executor_id.into()), content_meta_list)
             .await?;
@@ -1810,7 +1809,7 @@ mod tests {
         let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
         eg.extraction_policies[0].filters =
             HashMap::from([("label1".to_string(), "value1".to_string())]);
-        let _structured_data_schema = indexify_internal_api::StructuredDataSchema::default();
+        let _structured_data_schema = StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),
             StructuredDataSchema::new(&eg.name, &eg.namespace),
