@@ -155,12 +155,12 @@ We can then run this code to create our new extraction graph and load in the dat
 
 ```bash title="( Terminal 3) Create Data Pipeline using Extraction Graph and load data"
 source venv/bin/activate
-python3 ./setup.pys
+python3 ./setup.py
 ```
 
 ## Query Indexify
 
-Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG.
+Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
 
 ```python
 from openai import OpenAI
@@ -169,10 +169,12 @@ from indexify import IndexifyClient
 client = IndexifyClient()
 client_openai = OpenAI()
 
-
-def query_database(question: str, index: str, top_k=3):
+def query_indexify(question: str, index: str, top_k: int = 3):
     retrieved_results = client.search_index(name=index, query=question, top_k=top_k) #(1)!
     context = "\n-".join([item["text"] for item in retrieved_results])
+    return context
+
+def synthesize_response(question: str, context: str) -> str:
     response = client_openai.chat.completions.create(
         messages=[
             {
@@ -185,14 +187,9 @@ def query_database(question: str, index: str, top_k=3):
     return response.choices[0].message.content
 
 
-
-print(
-    query_database(
-        "What accomplishments did Kevin durant achieve during his career?",
-        "summarize_and_chunk.wikiembedding.embedding",
-        4,
-    )
-)
+question = "What accomplishments did Kevin durant achieve during his career?"
+context = query_indexify(question, "summarize_and_chunk.wikiembedding.embedding", 4)
+print(query_database(question,context))
 ```
 
 1. All we need to do to query our database is to use the `.search_index` method and we can get the top `k` elements which are closest in semantic meaning to the user's query.
