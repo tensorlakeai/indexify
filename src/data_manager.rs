@@ -214,6 +214,8 @@ impl DataManager {
         Ok(index_names)
     }
 
+    // FIXME - Pass Namespace to this so that we don't let waiting on content that
+    // doesn't belong to this namespace
     pub async fn wait_content_extraction(&self, content_id: &str) -> Result<()> {
         let req = indexify_coordinator::WaitContentExtractionRequest {
             content_id: content_id.to_string(),

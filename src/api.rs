@@ -255,7 +255,9 @@ pub struct ListExtractorsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
-pub struct TextAdditionResponse {}
+pub struct TextAdditionResponse {
+    pub content_ids: Vec<String>,
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Index {
