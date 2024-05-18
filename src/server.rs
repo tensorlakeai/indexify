@@ -767,6 +767,27 @@ async fn get_content_metadata(
 #[tracing::instrument]
 #[utoipa::path(
     get,
+    path = "/wait_extraction/{content_id}",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "wait for all extraction tasks for content to complete"),
+    ),
+)]
+#[axum::debug_handler]
+async fn wait_content_extraction(
+    Path(content_id): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .wait_content_extraction(&content_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    get,
     path = "/namespaces/{namespace}/content/{content_id}/content-tree",
     tag = "indexify",
     responses(

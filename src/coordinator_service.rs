@@ -71,6 +71,8 @@ use indexify_proto::indexify_coordinator::{
     UpdateIndexesStateResponse,
     UpdateTaskRequest,
     UpdateTaskResponse,
+    WaitContentExtractionRequest,
+    WaitContentExtractionResponse,
 };
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
 use itertools::Itertools;
@@ -921,6 +923,17 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(TaskAssignments { assignments }))
+    }
+
+    async fn wait_content_extraction(
+        &self,
+        req: Request<WaitContentExtractionRequest>,
+    ) -> Result<Response<WaitContentExtractionResponse>, Status> {
+        let req = req.into_inner();
+        self.coordinator
+            .wait_content_extraction(&req.content_id)
+            .await;
+        Ok(Response::new(WaitContentExtractionResponse {}))
     }
 }
 

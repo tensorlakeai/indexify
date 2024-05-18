@@ -20,6 +20,7 @@ use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
+use tokio::sync::broadcast;
 use tracing::{error, warn};
 
 use super::{
@@ -610,7 +611,13 @@ impl Metrics {
     }
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Debug, Default)]
+struct TaskCount {
+    count: u64,
+    notify: Option<broadcast::Sender<()>>,
+}
+
+#[derive(thiserror::Error, Debug, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -631,9 +638,6 @@ pub struct IndexifyState {
     /// Namespace -> Index id
     pub namespace_index_table: NamespaceIndexTable,
 
-    // extraction_policy_id -> List[IndexIds]
-    extraction_policy_index_mapping: HashMap<String, HashSet<String>>,
-
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
     /// Extractor name -> Task Ids
@@ -653,7 +657,7 @@ pub struct IndexifyState {
     pub pending_tasks_for_content: PendingTasksForContent,
 
     /// Number of tasks pending for root content
-    pub root_task_counts: RwLock<HashMap<String, u64>>,
+    root_task_counts: RwLock<HashMap<String, TaskCount>>,
 
     /// Metrics
     pub metrics: std::sync::Mutex<Metrics>,
@@ -2127,8 +2131,11 @@ impl IndexifyState {
         let mut root_task_counts = self.root_task_counts.write().unwrap();
         root_task_counts
             .entry(content_id.to_string())
-            .and_modify(|c| *c += 1)
-            .or_insert(1);
+            .and_modify(|c| c.count += 1)
+            .or_insert(TaskCount {
+                count: 1,
+                notify: None,
+            });
     }
 
     fn root_tasks_completed(
@@ -2163,9 +2170,15 @@ impl IndexifyState {
         let mut root_task_counts = self.root_task_counts.write().unwrap();
         match root_task_counts.entry(content_id.to_string()) {
             Entry::Occupied(mut entry) => {
-                *entry.get_mut() -= 1;
-                if *entry.get() == 0 {
+                entry.get_mut().count -= 1;
+                if entry.get().count == 0 {
+                    let notify = entry.get().notify.clone();
                     entry.remove_entry();
+                    drop(root_task_counts);
+
+                    if let Some(tx) = notify {
+                        let _ = tx.send(());
+                    }
                     self.root_tasks_completed(content_id, db, txn)
                 } else {
                     Ok(None)
@@ -2175,6 +2188,26 @@ impl IndexifyState {
                 // this should never happen
                 Ok(None)
             }
+        }
+    }
+
+    pub async fn wait_root_task_count_zero(&self, content_id: &str) {
+        loop {
+            let mut receiver = {
+                let mut root_task_counts = self.root_task_counts.write().unwrap();
+                match root_task_counts.get_mut(content_id) {
+                    Some(tc) => match tc.notify {
+                        Some(ref n) => n.subscribe(),
+                        None => {
+                            let (tx, rx) = broadcast::channel(1);
+                            tc.notify = Some(tx);
+                            rx
+                        }
+                    },
+                    None => return,
+                }
+            };
+            let _ = receiver.recv().await;
         }
     }
 
