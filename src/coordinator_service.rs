@@ -156,6 +156,16 @@ impl CoordinatorServiceServer {
                     policy_request.content_source.clone(),
                 )
             };
+
+            let _source = &content_source.to_string();
+            if !_source.is_empty() && !name_to_policy_mapping.contains_key(_source) {
+                let message = format!(
+                    "content source '{_source}' is not found in the graph. \
+                    make sure the extraction policy name used as the source is defined."
+                );
+                return Err(anyhow!(message));
+            }
+
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
                 .name(policy_request.name.clone())
