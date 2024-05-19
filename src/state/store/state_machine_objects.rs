@@ -8,13 +8,8 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use internal_api::{
-    ContentMetadataId,
-    ExtractionGraph,
-    ExtractionPolicy,
-    ExtractionPolicyName,
-    ExtractorDescription,
-    StateChange,
-    TaskOutcome,
+    ContentMetadataId, ExtractionGraph, ExtractionPolicy, ExtractionPolicyName,
+    ExtractorDescription, StateChange, TaskOutcome,
 };
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
@@ -25,17 +20,8 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId,
-    ExtractionGraphId,
-    ExtractionPolicyId,
-    ExtractorName,
-    JsonEncoder,
-    NamespaceName,
-    SchemaId,
-    StateChangeId,
-    StateMachineColumns,
-    StateMachineError,
-    TaskId,
+    ExecutorId, ExtractionGraphId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName,
+    SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId,
 };
 use crate::state::NodeId;
 
@@ -2092,7 +2078,6 @@ impl IndexifyState {
         &self,
         column: StateMachineColumns,
         db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
     ) -> Result<Vec<(String, V)>, StateMachineError>
     where
         V: DeserializeOwned,
@@ -2103,7 +2088,7 @@ impl IndexifyState {
                 "Failed to get column family {}",
                 column
             )))?;
-        let iter = txn.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+        let iter = db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
 
         iter.map(|item| {
             item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
@@ -2195,31 +2180,24 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<IndexifyStateSnapshot, StateMachineError> {
-        let txn = db.transaction();
         let executors = self.get_all_rows_from_cf::<internal_api::ExecutorMetadata>(
             StateMachineColumns::Executors,
             db,
-            &txn,
         )?;
         let tasks =
-            self.get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks, db, &txn)?;
+            self.get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks, db)?;
         let gc_tasks = self.get_all_rows_from_cf::<internal_api::GarbageCollectionTask>(
             StateMachineColumns::GarbageCollectionTasks,
             db,
-            &txn,
         )?;
-        let task_assignments = self.get_all_rows_from_cf::<HashSet<TaskId>>(
-            StateMachineColumns::TaskAssignments,
-            db,
-            &txn,
-        )?;
+        let task_assignments =
+            self.get_all_rows_from_cf::<HashSet<TaskId>>(StateMachineColumns::TaskAssignments, db)?;
         let state_changes =
-            self.get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges, db, &txn)?;
+            self.get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges, db)?;
         let content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata> = self
             .get_all_rows_from_cf::<internal_api::ContentMetadata>(
                 StateMachineColumns::ContentTable,
                 db,
-                &txn,
             )?
             .into_iter()
             .map(|(key, value)| {
@@ -2231,31 +2209,23 @@ impl IndexifyState {
         let extraction_policies = self.get_all_rows_from_cf::<ExtractionPolicy>(
             StateMachineColumns::ExtractionPolicies,
             db,
-            &txn,
         )?;
-        let extractors = self.get_all_rows_from_cf::<ExtractorDescription>(
-            StateMachineColumns::Extractors,
-            db,
-            &txn,
-        )?;
+        let extractors =
+            self.get_all_rows_from_cf::<ExtractorDescription>(StateMachineColumns::Extractors, db)?;
         let namespaces: HashSet<String> = self
-            .get_all_rows_from_cf::<NamespaceName>(StateMachineColumns::Namespaces, db, &txn)?
+            .get_all_rows_from_cf::<NamespaceName>(StateMachineColumns::Namespaces, db)?
             .into_iter()
             .map(|(key, _)| key)
             .collect();
-        let index_table = self.get_all_rows_from_cf::<internal_api::Index>(
-            StateMachineColumns::IndexTable,
-            db,
-            &txn,
-        )?;
+        let index_table =
+            self.get_all_rows_from_cf::<internal_api::Index>(StateMachineColumns::IndexTable, db)?;
         let structured_data_schemas = self
             .get_all_rows_from_cf::<internal_api::StructuredDataSchema>(
                 StateMachineColumns::StructuredDataSchemas,
                 db,
-                &txn,
             )?;
         let coordinator_address: HashMap<NodeId, String> = self
-            .get_all_rows_from_cf::<String>(StateMachineColumns::CoordinatorAddress, db, &txn)?
+            .get_all_rows_from_cf::<String>(StateMachineColumns::CoordinatorAddress, db)?
             .into_iter()
             .map(|(key, value)| {
                 let k = key
@@ -2264,6 +2234,8 @@ impl IndexifyState {
                 Ok((k, value))
             })
             .collect::<Result<_, StateMachineError>>()?;
+        let extraction_graphs = self
+            .get_all_rows_from_cf::<ExtractionGraph>(StateMachineColumns::ExtractionGraphs, db)?;
         let metrics = self.metrics.lock().unwrap().clone();
 
         let snapshot = IndexifyStateSnapshot {
@@ -2279,6 +2251,7 @@ impl IndexifyState {
             index_table: index_table.into_iter().collect(),
             structured_data_schemas: structured_data_schemas.into_iter().collect(),
             coordinator_address: coordinator_address.into_iter().collect(),
+            extraction_graphs: extraction_graphs.into_iter().collect(),
             metrics,
         };
         Ok(snapshot)
@@ -2521,6 +2494,7 @@ pub struct IndexifyStateSnapshot {
     index_table: HashMap<String, internal_api::Index>,
     structured_data_schemas: HashMap<String, internal_api::StructuredDataSchema>,
     coordinator_address: HashMap<NodeId, String>,
+    extraction_graphs: HashMap<ExtractionGraphId, ExtractionGraph>,
     metrics: Metrics,
 }
 
