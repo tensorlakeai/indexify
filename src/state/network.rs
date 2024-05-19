@@ -1,7 +1,6 @@
 use std::{error::Error, fmt::Display, sync::Arc};
 
 use anyerror::AnyError;
-use anyhow::Ok;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
     network::{RPCOption, RaftNetwork, RaftNetworkFactory},
