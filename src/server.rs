@@ -200,6 +200,10 @@ impl Server {
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/content/:content_id/wait",
+                get(wait_content_extraction).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
             )
@@ -610,7 +614,7 @@ async fn add_texts(
         }
     }
 
-    let content = payload
+    let content: Vec<api::ContentWithId> = payload
         .documents
         .iter()
         .map(|d| api::ContentWithId {
@@ -624,6 +628,7 @@ async fn add_texts(
             extraction_graph_names: payload.extraction_graph_names.clone(),
         })
         .collect();
+    let content_ids = content.iter().map(|c| c.id.clone()).collect();
     state
         .data_manager
         .add_texts(&namespace, content, payload.extraction_graph_names)
@@ -634,7 +639,7 @@ async fn add_texts(
                 &format!("failed to add text: {}", e),
             )
         })?;
-    Ok(Json(TextAdditionResponse::default()))
+    Ok(Json(TextAdditionResponse { content_ids }))
 }
 
 #[axum::debug_handler]
@@ -762,6 +767,27 @@ async fn get_content_metadata(
     Ok(Json(GetContentMetadataResponse {
         content_metadata: content_metadata.clone(),
     }))
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path ="/namespaces/{namespace}/content/{content_id}/wait",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "wait for all extraction tasks for content to complete"),
+    ),
+)]
+#[axum::debug_handler]
+async fn wait_content_extraction(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .wait_content_extraction(&content_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)
 }
 
 #[tracing::instrument]

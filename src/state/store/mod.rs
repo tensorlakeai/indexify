@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
@@ -21,7 +21,9 @@ use openraft::{
     RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
     StoredMembership, Vote,
 };
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, OptimisticTransactionDB, Options};
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, OptimisticTransactionDB, Options,
+};
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
@@ -29,6 +31,8 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
 
 type Node = BasicNode;
+
+use indexify_internal_api::StateChangeId;
 
 use self::{
     requests::RequestPayload,
@@ -42,7 +46,6 @@ use crate::{
 };
 
 pub type TaskId = String;
-pub type StateChangeId = String;
 pub type ContentId = String;
 pub type ExecutorId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -379,14 +382,33 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub fn get_content_from_ids_with_version(
+    pub fn list_content(
         &self,
-        content_ids: Vec<ContentMetadataId>,
-    ) -> Result<Vec<Option<ContentMetadata>>> {
-        self.data
-            .indexify_state
-            .get_content_from_ids_with_version(content_ids, &self.db)
-            .map_err(|e| anyhow::anyhow!(e))
+        namespace: &str,
+        parent_id: &str,
+        predicate: impl Fn(&ContentMetadata) -> bool,
+    ) -> Result<Vec<ContentMetadata>> {
+        let txn = self.db.transaction();
+        let iter = txn.iterator_cf(
+            StateMachineColumns::ContentTable.cf(&self.db),
+            IteratorMode::Start,
+        );
+        let mut contents = Vec::new();
+        for res in iter {
+            if let Ok((_, value)) = res {
+                let content = JsonEncoder::decode::<ContentMetadata>(&value)?;
+                if content.namespace == namespace
+                    && (parent_id.is_empty()
+                        || content.parent_id.as_ref().map(|id| id.id.as_str()) == Some(parent_id))
+                    && predicate(&content)
+                {
+                    contents.push(content);
+                }
+            } else {
+                return Err(anyhow!("error reading db content"));
+            }
+        }
+        Ok(contents)
     }
 
     pub async fn get_content_by_id_and_version(
@@ -627,15 +649,18 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
             match ent.payload {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(req) => {
-                    change_events.extend(req.new_state_changes.clone());
-
-                    if let Err(e) = self
+                    match self
                         .data
                         .indexify_state
                         .apply_state_machine_updates(req.clone(), &self.db)
                     {
-                        panic!("error applying state machine update: {}", e);
-                    };
+                        Ok(changes) => {
+                            change_events.extend(changes);
+                        }
+                        Err(e) => {
+                            panic!("error applying state machine update: {}", e);
+                        }
+                    }
 
                     //  if the payload is a GC task, send it via channel
                     if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
@@ -666,6 +691,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
 
             replies.push(Response { value: resp_value });
         }
+
         for change_event in change_events {
             if let Err(err) = self.data.state_change_tx.send(change_event) {
                 tracing::error!("error sending state change event: {}", err);
@@ -820,7 +846,7 @@ impl LogStore {
 }
 
 impl RaftLogReader<TypeConfig> for LogStore {
-    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + Send + Sync>(
+    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
         &mut self,
         range: RB,
     ) -> StorageResult<Vec<Entry<TypeConfig>>> {
@@ -830,10 +856,7 @@ impl RaftLogReader<TypeConfig> for LogStore {
             std::ops::Bound::Unbounded => id_to_bin(0),
         };
         self.db
-            .iterator_cf(
-                self.logs(),
-                rocksdb::IteratorMode::From(&start, Direction::Forward),
-            )
+            .iterator_cf(self.logs(), IteratorMode::From(&start, Direction::Forward))
             .map(|res| {
                 let (id, val) = res.unwrap();
                 let entry: StorageResult<Entry<_>> =
@@ -857,7 +880,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
     async fn get_log_state(&mut self) -> StorageResult<LogState<TypeConfig>> {
         let last = self
             .db
-            .iterator_cf(self.logs(), rocksdb::IteratorMode::End)
+            .iterator_cf(self.logs(), IteratorMode::End)
             .next()
             .and_then(|res| {
                 let (_, ent) = res.unwrap();
@@ -899,7 +922,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn append<I>(&mut self, entries: I, callback: LogFlushed<NodeId>) -> StorageResult<()>
+    async fn append<I>(&mut self, entries: I, callback: LogFlushed<TypeConfig>) -> StorageResult<()>
     where
         I: IntoIterator<Item = Entry<TypeConfig>> + Send,
         I::IntoIter: Send,
@@ -1032,9 +1055,11 @@ mod tests {
         assert_eq!(*key, namespace);
         assert_eq!(value.len(), 1);
 
-        let contents = new_node.list_content(&namespace).await?;
+        let contents = new_node.list_content(&namespace, "", |c| true).await?;
         assert_eq!(contents.len(), 1);
-        let c = contents.first().unwrap().as_ref().unwrap();
+        let c = contents
+            .first()
+            .expect("expected the content to be present");
         assert_eq!(c.namespace, namespace);
         Ok(())
     }

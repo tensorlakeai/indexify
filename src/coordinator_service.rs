@@ -71,6 +71,8 @@ use indexify_proto::indexify_coordinator::{
     UpdateIndexesStateResponse,
     UpdateTaskRequest,
     UpdateTaskResponse,
+    WaitContentExtractionRequest,
+    WaitContentExtractionResponse,
 };
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
 use itertools::Itertools;
@@ -156,6 +158,16 @@ impl CoordinatorServiceServer {
                     policy_request.content_source.clone(),
                 )
             };
+
+            let _source = &content_source.to_string();
+            if !_source.is_empty() && !name_to_policy_mapping.contains_key(_source) {
+                let message = format!(
+                    "content source '{_source}' is not found in the graph. \
+                    make sure the extraction policy name used as the source is defined."
+                );
+                return Err(anyhow!(message));
+            }
+
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
                 .name(policy_request.name.clone())
@@ -616,12 +628,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let outcome: internal_api::TaskOutcome = request.outcome().into();
         let _ = self
             .coordinator
-            .update_task(
-                &request.task_id,
-                &request.executor_id,
-                outcome,
-                request.content_list,
-            )
+            .update_task(&request.task_id, &request.executor_id, outcome)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(UpdateTaskResponse {}))
@@ -916,6 +923,17 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(TaskAssignments { assignments }))
+    }
+
+    async fn wait_content_extraction(
+        &self,
+        req: Request<WaitContentExtractionRequest>,
+    ) -> Result<Response<WaitContentExtractionResponse>, Status> {
+        let req = req.into_inner();
+        self.coordinator
+            .wait_content_extraction(&req.content_id)
+            .await;
+        Ok(Response::new(WaitContentExtractionResponse {}))
     }
 }
 

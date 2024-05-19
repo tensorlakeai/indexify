@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     sync::{Arc, RwLock},
     time::SystemTime,
 };
@@ -15,6 +15,7 @@ use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
+use tokio::sync::broadcast;
 use tracing::{error, warn};
 
 use super::{
@@ -596,7 +597,13 @@ impl Metrics {
     }
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Debug, Default)]
+struct TaskCount {
+    count: u64,
+    notify: Option<broadcast::Sender<()>>,
+}
+
+#[derive(thiserror::Error, Debug, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -617,9 +624,6 @@ pub struct IndexifyState {
     /// Namespace -> Index id
     pub namespace_index_table: NamespaceIndexTable,
 
-    // extraction_policy_id -> List[IndexIds]
-    extraction_policy_index_mapping: HashMap<String, HashSet<String>>,
-
     /// Tasks that are currently unfinished, by extractor. Once they are
     /// finished, they are removed from this set.
     /// Extractor name -> Task Ids
@@ -638,11 +642,17 @@ pub struct IndexifyState {
     /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
     pub pending_tasks_for_content: PendingTasksForContent,
 
+    /// Number of tasks pending for root content
+    root_task_counts: RwLock<HashMap<String, TaskCount>>,
+
     /// Metrics
     pub metrics: std::sync::Mutex<Metrics>,
 
     /// Namespace -> Extraction Graph ID
     extraction_graphs_by_ns: ExtractionGraphTable,
+
+    /// Next change id
+    pub change_id: std::sync::Mutex<u64>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -691,13 +701,19 @@ impl IndexifyState {
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        state_changes: &Vec<StateChange>,
+        state_changes: &mut Vec<StateChange>,
     ) -> Result<(), StateMachineError> {
+        let mut change_id = self.get_next_change_ids(state_changes.len());
         for change in state_changes {
-            let serialized_change = JsonEncoder::encode(change)?;
+            if let Some(refcnt_object_id) = change.refcnt_object_id.as_ref() {
+                self.inc_root_ref_count(refcnt_object_id);
+            }
+            change.id = StateChangeId::new(change_id);
+            change_id += 1;
+            let serialized_change = JsonEncoder::encode(&change)?;
             txn.put_cf(
                 StateMachineColumns::StateChanges.cf(db),
-                &change.id,
+                &change.id.to_key(),
                 &serialized_change,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -710,12 +726,14 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         state_changes: &Vec<StateChangeProcessed>,
-    ) -> Result<(), StateMachineError> {
+    ) -> Result<Vec<StateChange>, StateMachineError> {
         let state_changes_cf = StateMachineColumns::StateChanges.cf(db);
+        let mut changes = Vec::new();
 
         for change in state_changes {
+            let key = change.state_change_id.to_key();
             let result = txn
-                .get_cf(state_changes_cf, &change.state_change_id)
+                .get_cf(state_changes_cf, &key)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             let result = result
                 .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
@@ -723,14 +741,11 @@ impl IndexifyState {
             let mut state_change = JsonEncoder::decode::<StateChange>(&result)?;
             state_change.processed_at = Some(change.processed_at);
             let serialized_change = JsonEncoder::encode(&state_change)?;
-            txn.put_cf(
-                state_changes_cf,
-                &change.state_change_id,
-                &serialized_change,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            txn.put_cf(state_changes_cf, &key, &serialized_change)
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            changes.push(state_change);
         }
-        Ok(())
+        Ok(changes)
     }
 
     fn set_index(
@@ -920,18 +935,17 @@ impl IndexifyState {
         Ok(task_ids)
     }
 
-    fn set_content(
+    fn set_content<'a>(
         &self,
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        contents_vec: &Vec<internal_api::ContentMetadata>,
+        contents_vec: impl IntoIterator<Item = &'a internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
-            let content_key = format!("{}::v{}", content.id.id, content.id.version);
             let serialized_content = JsonEncoder::encode(content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
-                content_key,
+                content.id_key(),
                 &serialized_content,
             )
             .map_err(|e| {
@@ -948,16 +962,20 @@ impl IndexifyState {
         content_metadata: &Vec<indexify_internal_api::ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in content_metadata {
-            let content_key = format!("{}::v{}", content.id.id, content.id.version);
-            let serialized_content = JsonEncoder::encode(content)?;
-            txn.put_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                content_key,
-                &serialized_content,
-            )
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!("error writing content: {}", e))
-            })?;
+            let cf = StateMachineColumns::ContentTable.cf(db);
+            let mut content = content.clone();
+            // If updating latest version of root node, the key will change so delete from
+            // previous location.
+            if content.latest && content.parent_id.is_none() {
+                txn.delete_cf(cf, &content.id.id)
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+                content.latest = false;
+            }
+            let serialized_content = JsonEncoder::encode(&content)?;
+            txn.put_cf(cf, content.id_key(), &serialized_content)
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!("error writing content: {}", e))
+                })?;
         }
 
         Ok(())
@@ -1111,10 +1129,7 @@ impl IndexifyState {
         policy_completion_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         let value = txn
-            .get_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                format!("{}::v{}", content_id.id, content_id.version),
-            )
+            .get_cf(StateMachineColumns::ContentTable.cf(db), &content_id.id)
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!(
                     "Error getting the content policies applied on content id {}: {}",
@@ -1143,7 +1158,7 @@ impl IndexifyState {
         let data = JsonEncoder::encode(&content_meta)?;
         txn.put_cf(
             StateMachineColumns::ContentTable.cf(db),
-            format!("{}::v{}", content_id.id, content_id.version),
+            &content_id.id,
             data,
         )
         .map_err(|e| {
@@ -1206,13 +1221,14 @@ impl IndexifyState {
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &self,
-        request: StateMachineUpdateRequest,
+        mut request: StateMachineUpdateRequest,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<(), StateMachineError> {
+    ) -> Result<Vec<StateChange>, StateMachineError> {
         let txn = db.transaction();
 
-        self.set_new_state_changes(db, &txn, &request.new_state_changes)?;
-        self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
+        self.set_new_state_changes(db, &txn, &mut request.new_state_changes)?;
+        let mut state_changes_processed =
+            self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
             RequestPayload::SetIndex { indexes } => {
@@ -1222,6 +1238,9 @@ impl IndexifyState {
             }
             RequestPayload::CreateTasks { tasks } => {
                 self.set_tasks(db, &txn, tasks)?;
+                for task in tasks {
+                    self.inc_root_ref_count(task.content_metadata.get_root_id());
+                }
             }
             RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
                 self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
@@ -1260,11 +1279,9 @@ impl IndexifyState {
             RequestPayload::UpdateTask {
                 task,
                 executor_id,
-                content_metadata,
                 update_time,
             } => {
                 self.update_tasks(db, &txn, vec![task], *update_time)?;
-                self.set_content(db, &txn, content_metadata)?;
 
                 if task.terminal_state() {
                     self.metrics
@@ -1281,6 +1298,11 @@ impl IndexifyState {
                         let new_task_assignment =
                             HashMap::from([(executor_id.to_string(), existing_tasks)]);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
+                    }
+                    if let Some(change) =
+                        self.dec_root_ref_count(task.content_metadata.get_root_id(), db, &txn)?
+                    {
+                        request.new_state_changes.push(change);
                     }
                 }
             }
@@ -1324,13 +1346,10 @@ impl IndexifyState {
                 // Remove from the executor load table
                 self.executor_running_task_count.remove(executor_id);
 
-                return Ok(());
+                return Ok(request.new_state_changes);
             }
-            RequestPayload::CreateContent { content_metadata } => {
-                self.set_content(db, &txn, content_metadata)?;
-            }
-            RequestPayload::UpdateContent { content_metadata } => {
-                self.set_content(db, &txn, content_metadata)?;
+            RequestPayload::CreateOrUpdateContent { entries } => {
+                self.set_content(db, &txn, entries.iter().map(|e| &e.content))?;
             }
             RequestPayload::TombstoneContentTree { content_metadata } => {
                 self.tombstone_content_tree(db, &txn, content_metadata)?;
@@ -1339,7 +1358,9 @@ impl IndexifyState {
                 self.set_namespace(db, &txn, name)?;
             }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
-                self.set_processed_state_changes(db, &txn, state_changes)?;
+                let payload_changes_processed =
+                    self.set_processed_state_changes(db, &txn, state_changes)?;
+                state_changes_processed.extend(payload_changes_processed);
             }
             RequestPayload::JoinCluster {
                 node_id,
@@ -1360,6 +1381,19 @@ impl IndexifyState {
             }
         };
 
+        let unprocessed_changes = self.get_unprocessed_state_changes();
+        for state_change in state_changes_processed {
+            if unprocessed_changes.contains(&state_change.id) {
+                if let Some(refcnt_object_id) = &state_change.refcnt_object_id {
+                    if let Some(change) = self.dec_root_ref_count(&refcnt_object_id, db, &txn)? {
+                        request.new_state_changes.push(change);
+                    }
+                }
+            }
+        }
+
+        let new_state_changes = request.new_state_changes.clone();
+
         self.update_reverse_indexes(request).map_err(|e| {
             StateMachineError::ExternalError(anyhow!(
                 "Error while applying reverse index updates: {}",
@@ -1370,7 +1404,7 @@ impl IndexifyState {
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
-        Ok(())
+        Ok(new_state_changes)
     }
 
     /// This method handles all reverse index writes. All reverse indexes are
@@ -1438,31 +1472,23 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateContent { content_metadata } => {
-                for content in content_metadata {
+            RequestPayload::CreateOrUpdateContent { entries } => {
+                for entry in entries {
                     self.content_namespace_table
-                        .insert(&content.namespace, &content.id);
+                        .insert(&entry.content.namespace, &entry.content.id);
                     let mut guard = self.metrics.lock().unwrap();
-                    if let Some(parent_id) = content.parent_id {
-                        self.content_children_table.insert(&parent_id, &content.id);
+                    if let Some(prev_parent) = entry.previous_parent {
+                        self.content_children_table
+                            .remove(&prev_parent, &entry.content.id);
+                    }
+                    if let Some(parent_id) = entry.content.parent_id {
+                        self.content_children_table
+                            .insert(&parent_id, &entry.content.id);
                         guard.content_extracted += 1;
-                        guard.content_extracted_bytes += content.size_bytes;
+                        guard.content_extracted_bytes += entry.content.size_bytes;
                     } else {
                         guard.content_uploads += 1;
-                        guard.content_bytes += content.size_bytes;
-                    }
-                }
-                Ok(())
-            }
-            RequestPayload::UpdateContent { content_metadata } => {
-                for content in content_metadata {
-                    if let Some(parent_id) = content.parent_id {
-                        let old_parent = ContentMetadataId::new_with_version(
-                            &parent_id.id,
-                            parent_id.version - 1,
-                        );
-                        self.content_children_table.remove(&old_parent, &content.id);
-                        self.content_children_table.insert(&parent_id, &content.id);
+                        guard.content_bytes += entry.content.size_bytes;
                     }
                 }
                 Ok(())
@@ -1483,7 +1509,6 @@ impl IndexifyState {
             RequestPayload::UpdateTask {
                 task,
                 executor_id,
-                content_metadata,
                 update_time: _,
             } => {
                 if task.terminal_state() {
@@ -1500,10 +1525,6 @@ impl IndexifyState {
                         &task.extraction_policy_id,
                         &task.id,
                     );
-                }
-                for content in content_metadata {
-                    self.content_namespace_table
-                        .insert(&content.namespace, &content.id);
                 }
                 Ok(())
             }
@@ -1527,44 +1548,10 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
     ) -> Result<Option<internal_api::ContentMetadata>, StateMachineError> {
-        let prefix = format!("{}::v", content_id);
-
-        let mut read_opts = rocksdb::ReadOptions::default();
-        read_opts.set_prefix_same_as_start(true);
-        let iter = txn.iterator_cf(
-            StateMachineColumns::ContentTable.cf(db),
-            rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
-        );
-
-        let mut latest_content_metada: Option<internal_api::ContentMetadata> = None;
-
-        for item in iter {
-            match item {
-                Ok((key, value)) => {
-                    let content_metadata =
-                        JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?;
-                    if content_metadata.tombstoned {
-                        continue;
-                    }
-                    if let Ok(key_str) = std::str::from_utf8(&key) {
-                        if let Some(version_str) = key_str.strip_prefix(&prefix) {
-                            if let Ok(version) = version_str.parse::<u64>() {
-                                latest_content_metada = Some(match latest_content_metada {
-                                    Some(current_high) if version > current_high.id.version => {
-                                        content_metadata
-                                    }
-                                    None => content_metadata,
-                                    Some(current_high) => current_high,
-                                });
-                            }
-                        }
-                    }
-                }
-                Err(e) => return Err(StateMachineError::TransactionError(e.to_string())),
-            }
-        }
-
-        Ok(latest_content_metada)
+        txn.get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+            .map(|data| JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&data))
+            .transpose()
     }
 
     /// This method fetches a key from a specific column family
@@ -1685,45 +1672,6 @@ impl IndexifyState {
         executors
     }
 
-    /// This method will fetch content based on the id and version provided.
-    /// It will skip over any content that it cannot find
-    pub fn get_content_from_ids_with_version(
-        &self,
-        content_ids: Vec<ContentMetadataId>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<Option<indexify_internal_api::ContentMetadata>>, StateMachineError> {
-        let txn = db.transaction();
-        let keys = content_ids
-            .iter()
-            .map(|id| {
-                (
-                    StateMachineColumns::ContentTable.cf(db),
-                    format!("{}::v{}", id.id, id.version),
-                )
-            })
-            .collect_vec();
-        let mut content_metadatas = Vec::new();
-
-        let content_metadata_bytes = txn.multi_get_cf(keys);
-        for content_metadata in content_metadata_bytes {
-            let content_metadata =
-                content_metadata.map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-            match content_metadata {
-                Some(content_bytes) => {
-                    let content = JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
-                        &content_bytes,
-                    )
-                    .map_err(StateMachineError::from)?;
-                    content_metadatas.push(Some(content));
-                }
-                None => {
-                    content_metadatas.push(None);
-                }
-            }
-        }
-        Ok(content_metadatas)
-    }
-
     pub fn get_content_by_id_and_version(
         &self,
         db: &Arc<OptimisticTransactionDB>,
@@ -1756,93 +1704,96 @@ impl IndexifyState {
     ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
         let mut contents = Vec::new();
-
-        //  For each content id find the highest version, deserialize it and collect it
-        for content_id in &content_ids {
-            // Construct prefix for content ID to search for all its versions
-            let highest_version = self.get_latest_version_of_content(content_id, db, &txn)?;
-
-            if highest_version.is_none() {
-                continue;
+        let cf_handle = StateMachineColumns::ContentTable.cf(db);
+        let cf_keys = content_ids
+            .into_iter()
+            .map(|id| (cf_handle, id))
+            .collect_vec();
+        let results = txn.multi_get_cf(cf_keys);
+        for res in results {
+            match res {
+                Ok(Some(value)) => {
+                    contents.push(
+                        JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?,
+                    );
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(StateMachineError::DatabaseError(format!(
+                        "error reading content: {}",
+                        e
+                    )))
+                }
             }
-            contents.push(highest_version.unwrap());
         }
         Ok(contents)
     }
 
+    // Root of the tree can be either latest version, or an overwritten/deleted
+    // content with a version supplied. The rest of the elements in the tree are
+    // always version 1.
+    fn get_content_tree_metadata_inner(
+        &self,
+        content_id: &str,
+        version: Option<u64>,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        let txn = db.transaction();
+        let mut collected_content_metadata = Vec::new();
+        let content_key = internal_api::ContentMetadata::make_id_key(content_id, version);
+        let cf_handle = StateMachineColumns::ContentTable.cf(db);
+        let val = txn
+            .get_cf(cf_handle, content_key)
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+
+        let content = match val {
+            None => return Ok(collected_content_metadata),
+            Some(bytes) => JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&bytes)?,
+        };
+
+        let mut cf_ids = Vec::new();
+
+        let mut queue = VecDeque::new();
+        queue.push_back(content.id.clone());
+        collected_content_metadata.push(content);
+        while let Some(current_root) = queue.pop_front() {
+            let children = self.content_children_table.get_children(&current_root);
+            cf_ids.extend(children.iter().map(|id| (cf_handle, id.id.clone())));
+            queue.extend(children.into_iter());
+        }
+
+        let content_metadata_bytes = txn.multi_get_cf(cf_ids);
+
+        for res in content_metadata_bytes {
+            if let Ok(Some(value)) = res {
+                let content =
+                    JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?;
+                collected_content_metadata.push(content);
+            }
+        }
+
+        Ok(collected_content_metadata)
+    }
+
     /// This method will fetch all pieces of content metadata for the tree
-    /// rooted at content_id. It will look for the latest version of each node
+    /// rooted at latest version of content_id.
     pub fn get_content_tree_metadata(
         &self,
         content_id: &str,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
-        let txn = db.transaction();
-        let mut collected_content_metadata = Vec::new();
-
-        let mut queue = VecDeque::new();
-        queue.push_back(content_id.to_string());
-
-        while let Some(current_root) = queue.pop_front() {
-            let highest_version = self.get_latest_version_of_content(&current_root, db, &txn)?;
-            if highest_version.is_none() {
-                continue;
-            }
-            let highest_version = highest_version.unwrap();
-            let content_bytes = txn
-                .get_cf(
-                    StateMachineColumns::ContentTable.cf(db),
-                    &format!("{}::v{}", current_root, highest_version.id.version),
-                )
-                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                .ok_or_else(|| {
-                    StateMachineError::DatabaseError(format!(
-                        "Content {} not found while fetching content tree",
-                        &current_root
-                    ))
-                })?;
-            let content =
-                JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
-            collected_content_metadata.push(content.clone());
-            let children = self.content_children_table.get_children(&content.id);
-            queue.extend(children.into_iter().map(|id| id.id));
-        }
-        Ok(collected_content_metadata)
+        self.get_content_tree_metadata_inner(content_id, None, db)
     }
 
     /// This method will fetch all pieces of content metadata for the tree
-    /// rooted at content_id. It will look for a specfic version of the node
+    /// rooted at overwritten/deleted content_id. It will look for a specfic
+    /// version of the node.
     pub fn get_content_tree_metadata_with_version(
         &self,
         content_id: &ContentMetadataId,
         db: &Arc<OptimisticTransactionDB>,
     ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
-        let txn = db.transaction();
-        let mut collected_content_metadata = Vec::new();
-
-        let mut queue = VecDeque::new();
-        queue.push_back(content_id.clone());
-
-        while let Some(current_root) = queue.pop_front() {
-            let content_bytes = txn
-                .get_cf(
-                    StateMachineColumns::ContentTable.cf(db),
-                    &format!("{}::v{}", current_root.id, current_root.version),
-                )
-                .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                .ok_or_else(|| {
-                    StateMachineError::DatabaseError(format!(
-                        "Content {} not found while fetching content tree",
-                        &current_root
-                    ))
-                })?;
-            let content =
-                JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&content_bytes)?;
-            collected_content_metadata.push(content.clone());
-            let children = self.content_children_table.get_children(&content.id);
-            queue.extend(children.into_iter());
-        }
-        Ok(collected_content_metadata)
+        self.get_content_tree_metadata_inner(&content_id.id, Some(content_id.version), db)
     }
 
     /// This method tries to retrieve all policies based on id's. If it cannot
@@ -1945,6 +1896,14 @@ impl IndexifyState {
             }
         }
         Ok(assignments)
+    }
+
+    /// Allocate a block of state change ids
+    pub fn get_next_change_ids(&self, num: usize) -> u64 {
+        let mut guard = self.change_id.lock().unwrap();
+        let next_id = *guard;
+        *guard = next_id + num as u64;
+        next_id
     }
 
     /// This method will get the namespace based on the key provided
@@ -2156,9 +2115,96 @@ impl IndexifyState {
         self.pending_tasks_for_content.inner()
     }
 
+    fn inc_root_ref_count(&self, content_id: &str) {
+        let mut root_task_counts = self.root_task_counts.write().unwrap();
+        root_task_counts
+            .entry(content_id.to_string())
+            .and_modify(|c| c.count += 1)
+            .or_insert(TaskCount {
+                count: 1,
+                notify: None,
+            });
+    }
+
+    fn root_tasks_completed(
+        &self,
+        root_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+    ) -> Result<Option<StateChange>, StateMachineError> {
+        if let Some(root_content) = self.get_latest_version_of_content(&root_id, db, &txn)? {
+            if root_content.id.version > 1 {
+                let state_change = StateChange::new(
+                    root_content.id.id.clone(),
+                    internal_api::ChangeType::TaskCompleted {
+                        root_content_id: root_content.id,
+                    },
+                    crate::utils::timestamp_secs(),
+                );
+                let mut change_vec = vec![state_change];
+                self.set_new_state_changes(db, &txn, &mut change_vec)?;
+                return Ok(change_vec.first().cloned());
+            }
+        }
+        Ok(None)
+    }
+
+    fn dec_root_ref_count(
+        &self,
+        content_id: &str,
+        db: &Arc<OptimisticTransactionDB>,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+    ) -> Result<Option<StateChange>, StateMachineError> {
+        let mut root_task_counts = self.root_task_counts.write().unwrap();
+        match root_task_counts.entry(content_id.to_string()) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().count -= 1;
+                if entry.get().count == 0 {
+                    let notify = entry.get().notify.clone();
+                    entry.remove_entry();
+                    drop(root_task_counts);
+
+                    if let Some(tx) = notify {
+                        let _ = tx.send(());
+                    }
+                    self.root_tasks_completed(content_id, db, txn)
+                } else {
+                    Ok(None)
+                }
+            }
+            Entry::Vacant(_) => {
+                // this should never happen
+                Ok(None)
+            }
+        }
+    }
+
+    pub async fn wait_root_task_count_zero(&self, content_id: &str) {
+        loop {
+            let mut receiver = {
+                let mut root_task_counts = self.root_task_counts.write().unwrap();
+                match root_task_counts.get_mut(content_id) {
+                    Some(tc) => match tc.notify {
+                        Some(ref n) => n.subscribe(),
+                        None => {
+                            let (tx, rx) = broadcast::channel(1);
+                            tc.notify = Some(tx);
+                            rx
+                        }
+                    },
+                    None => return,
+                }
+            };
+            let _ = receiver.recv().await;
+        }
+    }
+
     pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        self.pending_tasks_for_content
-            .are_content_tasks_completed(content_id)
+        self.root_task_counts
+            .read()
+            .unwrap()
+            .get(&content_id.id)
+            .is_none()
     }
 
     pub fn executor_count(&self) -> usize {
@@ -2192,8 +2238,16 @@ impl IndexifyState {
         )?;
         let task_assignments =
             self.get_all_rows_from_cf::<HashSet<TaskId>>(StateMachineColumns::TaskAssignments, db)?;
-        let state_changes =
-            self.get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges, db)?;
+        let state_changes: HashMap<StateChangeId, StateChange> = self
+            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges, db)?
+            .into_iter()
+            .map(|(key, value)| {
+                let key = key
+                    .parse::<u64>()
+                    .map_err(|e| StateMachineError::ExternalError(e.into()))?;
+                Ok((StateChangeId::new(key), value))
+            })
+            .collect::<Result<_, StateMachineError>>()?;
         let content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata> = self
             .get_all_rows_from_cf::<internal_api::ContentMetadata>(
                 StateMachineColumns::ContentTable,
@@ -2262,12 +2316,16 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         snapshot: IndexifyStateSnapshot,
     ) -> Result<(), StateMachineError> {
-        fn put_cf<T: serde::Serialize + std::fmt::Debug>(
+        fn put_cf<K, T>(
             txn: &rocksdb::Transaction<OptimisticTransactionDB>,
             cf: &rocksdb::ColumnFamily,
-            key: &str,
+            key: K,
             value: &T,
-        ) -> Result<(), StateMachineError> {
+        ) -> Result<(), StateMachineError>
+        where
+            K: AsRef<[u8]>,
+            T: serde::Serialize + std::fmt::Debug,
+        {
             let serialized = JsonEncoder::encode(value)?;
             txn.put_cf(cf, key, serialized)
                 .map_err(|e| StateMachineError::TransactionError(e.to_string()))
@@ -2294,7 +2352,7 @@ impl IndexifyState {
         }
         for (state_change_id, state_change) in &snapshot.state_changes {
             let cf = StateMachineColumns::StateChanges.cf(db);
-            put_cf(&txn, cf, state_change_id, &state_change)?;
+            put_cf(&txn, cf, state_change_id.to_key(), &state_change)?;
         }
         for (content_id, content) in &snapshot.content_table {
             let cf = StateMachineColumns::ContentTable.cf(db);

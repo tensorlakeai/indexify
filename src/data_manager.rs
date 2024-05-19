@@ -213,6 +213,21 @@ impl DataManager {
         Ok(index_names)
     }
 
+    // FIXME - Pass Namespace to this so that we don't let waiting on content that
+    // doesn't belong to this namespace
+    pub async fn wait_content_extraction(&self, content_id: &str) -> Result<()> {
+        let req = indexify_coordinator::WaitContentExtractionRequest {
+            content_id: content_id.to_string(),
+        };
+        let _ = self
+            .coordinator_client
+            .get()
+            .await?
+            .wait_content_extraction(req)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_content(
         &self,
         namespace: &str,
@@ -529,7 +544,6 @@ impl DataManager {
             executor_id: begin_ingest.executor_id,
             task_id: begin_ingest.task_id,
             outcome: outcome as i32,
-            content_list: Vec::new(),
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {

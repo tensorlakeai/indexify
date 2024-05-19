@@ -9,7 +9,6 @@ use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
-use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
@@ -502,6 +501,7 @@ pub type GarbageCollectionTaskId = String;
 pub struct GarbageCollectionTask {
     pub namespace: String,
     pub id: GarbageCollectionTaskId,
+    pub latest: bool,
     pub content_id: ContentMetadataId,
     pub parent_content_id: Option<ContentMetadataId>,
     pub output_tables: HashSet<String>,
@@ -509,27 +509,6 @@ pub struct GarbageCollectionTask {
     pub outcome: TaskOutcome,
     pub blob_store_path: String,
     pub assigned_to: Option<String>,
-}
-
-impl Default for GarbageCollectionTask {
-    fn default() -> Self {
-        Self {
-            namespace: "test_namespace".to_string(),
-            id: "test_id".to_string(),
-            content_id: ContentMetadataId {
-                id: "test_content_id".to_string(),
-                version: 1,
-            },
-            parent_content_id: Some(ContentMetadataId {
-                id: "test_parent_content_id".to_string(),
-                version: 1,
-            }),
-            output_tables: HashSet::new(),
-            outcome: TaskOutcome::Unknown,
-            blob_store_path: "test_blob_store_path".to_string(),
-            assigned_to: None,
-        }
-    }
 }
 
 impl GarbageCollectionTask {
@@ -547,6 +526,7 @@ impl GarbageCollectionTask {
             id,
             content_id: content_metadata.id,
             parent_content_id: content_metadata.parent_id,
+            latest: content_metadata.latest,
             output_tables,
             outcome: TaskOutcome::Unknown,
             blob_store_path: content_metadata.storage_url,
@@ -884,6 +864,7 @@ pub struct ContentMetadata {
     pub id: ContentMetadataId,
     pub parent_id: Option<ContentMetadataId>,
     pub root_content_id: Option<String>,
+    pub latest: bool, // if true this is the latest version of content with same ids
     // Namespace name == Namespace ID
     pub namespace: NamespaceName,
     pub name: String,
@@ -898,6 +879,31 @@ pub struct ContentMetadata {
     pub extraction_policy_ids: HashMap<ExtractionPolicyId, u64>, /*  map of completion time for
                                                                   * each extraction policy id */
     pub extraction_graph_names: Vec<ExtractionGraphName>,
+}
+
+impl ContentMetadata {
+    pub fn get_root_id(&self) -> &str {
+        self.root_content_id.as_ref().unwrap_or(&self.id.id)
+    }
+
+    // Return key to store structure in k/v store. The latest version of root and
+    // children are stored with id as key (children always have version 1 and
+    // are never overwritten). Overwritten or deleted roots keys are
+    // formed from id and version.
+    pub fn id_key(&self) -> String {
+        if self.latest {
+            self.id.id.clone()
+        } else {
+            format!("{}::v{}", self.id.id, self.id.version)
+        }
+    }
+
+    pub fn make_id_key(id: &str, version: Option<u64>) -> String {
+        match version {
+            None => id.to_string(),
+            Some(v) => format!("{}::v{}", id, v),
+        }
+    }
 }
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
@@ -942,6 +948,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             },
             parent_id,
             root_content_id,
+            latest: true,
             name: value.file_name,
             content_type: value.mime,
             labels: value.labels,
@@ -964,6 +971,7 @@ impl Default for ContentMetadata {
             id: ContentMetadataId::default(),
             parent_id: None,
             root_content_id: Some(ContentMetadataId::default().id),
+            latest: true,
             namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
             content_type: "test_content_type".to_string(),
@@ -1061,7 +1069,7 @@ pub enum ChangeType {
     ExecutorAdded,
     ExecutorRemoved,
     NewGargabeCollectionTask,
-    TaskCompleted { content_id: ContentMetadataId },
+    TaskCompleted { root_content_id: ContentMetadataId },
 }
 
 impl fmt::Display for ChangeType {
@@ -1074,30 +1082,63 @@ impl fmt::Display for ChangeType {
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
             ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
-            ChangeType::TaskCompleted { content_id } => {
+            ChangeType::TaskCompleted {
+                root_content_id: content_id,
+            } => {
                 write!(f, "TaskCompleted(content_id: {})", content_id)
             }
         }
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Copy, Ord, PartialOrd)]
+pub struct StateChangeId(u64);
+
+impl StateChangeId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    /// Return key to store in k/v db
+    pub fn to_key(&self) -> [u8; 8] {
+        self.0.to_be_bytes()
+    }
+}
+
+impl From<StateChangeId> for u64 {
+    fn from(value: StateChangeId) -> Self {
+        value.0
+    }
+}
+
+impl Display for StateChangeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct StateChange {
-    pub id: String,
+    pub id: StateChangeId,
     pub object_id: String,
     pub change_type: ChangeType,
     pub created_at: u64,
     pub processed_at: Option<u64>,
+
+    /// If Some, this change holds a reference to an object until it is
+    /// processed.
+    pub refcnt_object_id: Option<String>,
 }
 
 impl Default for StateChange {
     fn default() -> Self {
         Self {
-            id: "".to_string(),
+            id: StateChangeId(0),
             object_id: "".to_string(),
             change_type: ChangeType::NewContent,
             created_at: 0,
             processed_at: None,
+            refcnt_object_id: None,
         }
     }
 }
@@ -1105,11 +1146,28 @@ impl Default for StateChange {
 impl StateChange {
     pub fn new(object_id: String, change_type: ChangeType, created_at: u64) -> Self {
         Self {
-            id: nanoid!(16),
+            id: StateChangeId(0),
             object_id,
             change_type,
             created_at,
             processed_at: None,
+            refcnt_object_id: None,
+        }
+    }
+
+    pub fn new_with_refcnt(
+        object_id: String,
+        change_type: ChangeType,
+        created_at: u64,
+        refcnt_object_id: String,
+    ) -> Self {
+        Self {
+            id: StateChangeId(0),
+            object_id,
+            change_type,
+            created_at,
+            processed_at: None,
+            refcnt_object_id: Some(refcnt_object_id),
         }
     }
 }
@@ -1126,11 +1184,12 @@ impl TryFrom<indexify_coordinator::StateChange> for StateChange {
             _ => return Err(anyhow!("Invalid ChangeType")),
         };
         Ok(Self {
-            id: value.id,
+            id: StateChangeId(value.id),
             object_id: value.object_id,
             change_type,
             created_at: value.created_at,
             processed_at: Some(value.processed_at),
+            refcnt_object_id: None,
         })
     }
 }
@@ -1138,7 +1197,7 @@ impl TryFrom<indexify_coordinator::StateChange> for StateChange {
 impl From<StateChange> for indexify_coordinator::StateChange {
     fn from(value: StateChange) -> Self {
         Self {
-            id: value.id,
+            id: value.id.into(),
             object_id: value.object_id,
             change_type: value.change_type.to_string(),
             created_at: value.created_at,

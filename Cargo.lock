@@ -4256,16 +4256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "macros"
-version = "0.9.0"
-source = "git+https://github.com/datafuselabs/openraft.git?rev=bde63c0#bde63c009b336daf64858056a523001fccafb096"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.58",
-]
-
-[[package]]
 name = "maplit"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4691,23 +4681,38 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "openraft"
-version = "0.9.0"
-source = "git+https://github.com/datafuselabs/openraft.git?rev=bde63c0#bde63c009b336daf64858056a523001fccafb096"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3450250d289f5277dfad62c337a9e6021e7ba744ffdf7ba6605b4dd7a91dfeb"
 dependencies = [
  "anyerror",
  "byte-unit",
  "clap",
  "derive_more",
  "futures",
- "macros",
  "maplit",
+ "openraft-macros",
  "rand",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
  "tracing-futures",
  "validit",
+]
+
+[[package]]
+name = "openraft-macros"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "620d86704bbf07df227bfd4d8de534deb0b54fdb025726c433774fcb82a31c76"
+dependencies = [
+ "chrono",
+ "proc-macro2",
+ "quote",
+ "semver",
+ "syn 2.0.58",
 ]
 
 [[package]]
