@@ -10,7 +10,7 @@ use opentelemetry_sdk::{
     Resource,
 };
 use rustls::crypto::CryptoProvider;
-use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Layer};
 
 pub mod coordinator_filters;
 pub mod coordinator_service;
@@ -155,13 +155,14 @@ fn setup_fmt_tracing() {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     println!("Running with tracing filter {}", env_filter);
-
-    let subscriber = tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Setting default tracing subscriber failed");
+    let subscriber = tracing_subscriber::Registry::default().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_filter(env_filter),
+    );
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        eprintln!("failed to set global default subscriber: {}", e);
+    }
 }
 
 struct OtelGuard;
