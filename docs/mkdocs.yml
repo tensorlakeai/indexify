@@ -28,7 +28,9 @@ markdown_extensions:
 nav:
   - Home:
     - Indexify: index.md
-    - Getting Started: 'getting_started.md'
+    - Getting Started - Basic: 'getting_started.md'
+    - Getting Started - Intermediate: 'getting_started_intermediate.md'
+    - Getting Started - Advanced: 'getting_started_advanced.md'
     - Key Concepts: 'concepts.md'
     - Comparisons: 'comparisons.md'
   - CLI and UI:
