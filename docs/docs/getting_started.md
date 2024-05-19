@@ -203,9 +203,9 @@ During his career, Kevin Durant has achieved numerous accomplishments, including
 
 ## Next Steps
 
-Now that you have learnt how to use Indexify, you can follow along to learn the following topics -
+Now that you have learnt how to build a basic RAG application using Indexify, you can head over to learning more advanced topics
 
-- Learn more about PDF, Video and Audio Extraction Use Cases.
-- Integration with Langchain and DSPy if you use these frameworks.
-- Deployment on Kubernetes
+- Learn how to extract text, tables and images from PDF documents.
+- See how you can reteive extracted data from Langchain or DSPy.
+- Deploying Indexify server and extractors on Kubernetes, when you are ready to take your app to production.
 - Observability and understanding performance of Retrieval and Extraction processes.
