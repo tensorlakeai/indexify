@@ -3,7 +3,7 @@ use std::{error::Error, fmt::Display, sync::Arc};
 use anyerror::AnyError;
 use openraft::{
     error::{NetworkError, RemoteError, Unreachable},
-    network::{RaftNetwork, RaftNetworkFactory},
+    network::{RPCOption, RaftNetwork, RaftNetworkFactory},
     raft::{
         AppendEntriesRequest,
         AppendEntriesResponse,
@@ -174,9 +174,10 @@ impl NetworkConnection {
 }
 
 impl RaftNetwork<TypeConfig> for NetworkConnection {
-    async fn send_append_entries(
+    async fn append_entries(
         &mut self,
         req: AppendEntriesRequest<TypeConfig>,
+        _option: RPCOption,
     ) -> Result<AppendEntriesResponse<NodeId>, RPCError<RaftError>> {
         let mut client = self
             .raft_client
@@ -204,9 +205,10 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         raft_res.map_err(|e| self.to_rpc_err(e))
     }
 
-    async fn send_install_snapshot(
+    async fn install_snapshot(
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
+        _option: RPCOption,
     ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
         let _guard_inflight = CounterGuard::new(&self.target_node.addr, move |addr, cnt| {
             raft_metrics::network::incr_snapshot_send_inflight(addr, cnt);
@@ -250,9 +252,10 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         raft_res.map_err(|e| self.to_rpc_err(e))
     }
 
-    async fn send_vote(
+    async fn vote(
         &mut self,
         req: VoteRequest<NodeId>,
+        _option: RPCOption,
     ) -> Result<VoteResponse<NodeId>, RPCError<RaftError>> {
         let mut client = self
             .raft_client

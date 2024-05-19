@@ -47,10 +47,7 @@ mime = { version = "0.3" }
 mime_guess = { version = "2" }
 moka = { version = "0.12", features = ["default", "future"] }
 nanoid = { version = "0.4" }
-openraft = { git = "https://github.com/datafuselabs/openraft.git", rev = "bde63c0", features = [
-    "serde",
-    "storage-v2",
-] }
+openraft = {version = "0.9.10", features =["serde_json", "serde", "storage-v2"]}
 opensearch = { version = "2", default_features = false, features = [
     "rustls-tls",
 ] }
