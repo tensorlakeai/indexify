@@ -122,7 +122,7 @@ impl DiskStorage {
     #[tracing::instrument]
     pub fn new(config: DiskStorageConfig) -> Result<Self, anyhow::Error> {
         let tmp_path = format!("{}/tmp", config.path);
-        std::fs::create_dir_all(&tmp_path)?;
+        std::fs::create_dir_all(tmp_path)?;
         Ok(Self { config })
     }
 }

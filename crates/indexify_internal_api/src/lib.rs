@@ -1103,6 +1103,10 @@ impl StateChangeId {
     pub fn to_key(&self) -> [u8; 8] {
         self.0.to_be_bytes()
     }
+
+    pub fn from_key(key: [u8; 8]) -> Self {
+        Self(u64::from_be_bytes(key))
+    }
 }
 
 impl From<StateChangeId> for u64 {

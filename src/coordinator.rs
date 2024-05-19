@@ -487,7 +487,7 @@ impl Coordinator {
             .tombstone_content_batch_with_version(
                 &[content_metadata.id.clone()],
                 vec![StateChangeProcessed {
-                    state_change_id: change.id.clone(),
+                    state_change_id: change.id,
                     processed_at: utils::timestamp_secs(),
                 }],
             )
@@ -1263,7 +1263,7 @@ mod tests {
     ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
         let mut content = test_mock_content_metadata(
             id,
-            &task.content_metadata.get_root_id(),
+            task.content_metadata.get_root_id(),
             &task.content_metadata.extraction_graph_names[0],
         );
         content.parent_id = Some(task.content_metadata.id.clone());
@@ -1419,7 +1419,7 @@ mod tests {
                 "test_extraction_policy_5",
                 "test_extraction_policy_6",
             ],
-            &vec![Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
+            &[Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
         );
         coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
@@ -1458,7 +1458,7 @@ mod tests {
                 1,
             ))?;
         assert_eq!(prev_tree.len(), 7); // root + 6 children
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         // replace all elements in the tree, should have two trees with 7 elements each
         perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
@@ -1478,7 +1478,7 @@ mod tests {
                 1,
             ))?;
         assert_eq!(prev_tree.len(), 7);
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         // the previous tree should be deleted after all tasks for new root are complete
         assert!(prev_tree.iter().all(|c| c.tombstoned));
@@ -1557,7 +1557,7 @@ mod tests {
             ))?;
         // all elements should be transferred to the new root
         assert_eq!(prev_tree.len(), 1);
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         coordinator.run_scheduler().await?;
         // the previous tree should be tombstoned after all tasks for new root are
@@ -1664,7 +1664,7 @@ mod tests {
         // elements after and including the identical child should be transferred to the
         // new root
         assert_eq!(prev_tree.len(), 4);
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         coordinator.run_scheduler().await?;
         // the previous tree should be tombstoned after all tasks for new root are

@@ -12,17 +12,38 @@ use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
-    ContentMetadata, ContentMetadataId, ExecutorMetadata, NamespaceName, StateChange,
+    ContentMetadata,
+    ContentMetadataId,
+    ExecutorMetadata,
+    NamespaceName,
+    StateChange,
     StructuredDataSchema,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
-    AnyError, BasicNode, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend,
-    RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError, StorageIOError,
-    StoredMembership, Vote,
+    AnyError,
+    BasicNode,
+    Entry,
+    EntryPayload,
+    ErrorSubject,
+    ErrorVerb,
+    LogId,
+    OptionalSend,
+    RaftLogReader,
+    RaftSnapshotBuilder,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    StoredMembership,
+    Vote,
 };
 use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, OptimisticTransactionDB, Options,
+    ColumnFamily,
+    ColumnFamilyDescriptor,
+    Direction,
+    IteratorMode,
+    OptimisticTransactionDB,
+    Options,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
@@ -397,10 +418,11 @@ impl StateMachineStore {
         for res in iter {
             if let Ok((_, value)) = res {
                 let content = JsonEncoder::decode::<ContentMetadata>(&value)?;
-                if content.namespace == namespace
-                    && (parent_id.is_empty()
-                        || content.parent_id.as_ref().map(|id| id.id.as_str()) == Some(parent_id))
-                    && predicate(&content)
+                if content.namespace == namespace &&
+                    (parent_id.is_empty() ||
+                        content.parent_id.as_ref().map(|id| id.id.as_str()) ==
+                            Some(parent_id)) &&
+                    predicate(&content)
                 {
                     contents.push(content);
                 }
@@ -1026,7 +1048,7 @@ mod tests {
     async fn test_install_snapshot() -> anyhow::Result<()> {
         //  set up raft cluster
         let overrides = RaftConfigOverrides {
-            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(3)),
+            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1)),
             max_in_snapshot_log_to_keep: Some(0),
         };
         let mut cluster = RaftTestCluster::new(1, Some(overrides.clone())).await?;
@@ -1037,25 +1059,24 @@ mod tests {
         let namespace = "test_namespace".to_string();
         node.create_namespace(&namespace).await?;
         let content = indexify_internal_api::ContentMetadata {
-            id: ContentMetadataId::new("contnet_id"),
+            id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
         node.create_content_batch(vec![content]).await?;
 
         //  add a new node
         cluster.add_node_to_cluster(Some(overrides)).await?;
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         //  ensure that snapshot invariants are maintained on new node
         let new_node = cluster.get_raft_node(1)?;
-
         let content_table = new_node.state_machine.get_content_namespace_table();
         assert_eq!(content_table.len(), 1);
         let (key, value) = content_table.iter().next().unwrap();
         assert_eq!(*key, namespace);
         assert_eq!(value.len(), 1);
 
-        let contents = new_node.list_content(&namespace, "", |c| true).await?;
+        let contents = new_node.list_content(&namespace, "", |_| true).await?;
         assert_eq!(contents.len(), 1);
         let c = contents
             .first()

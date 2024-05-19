@@ -8,8 +8,13 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use internal_api::{
-    ContentMetadataId, ExtractionGraph, ExtractionPolicy, ExtractionPolicyName,
-    ExtractorDescription, StateChange, TaskOutcome,
+    ContentMetadataId,
+    ExtractionGraph,
+    ExtractionPolicy,
+    ExtractionPolicyName,
+    ExtractorDescription,
+    StateChange,
+    TaskOutcome,
 };
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
@@ -21,8 +26,17 @@ use tracing::{error, warn};
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
-    ExecutorId, ExtractionGraphId, ExtractionPolicyId, ExtractorName, JsonEncoder, NamespaceName,
-    SchemaId, StateChangeId, StateMachineColumns, StateMachineError, TaskId,
+    ExecutorId,
+    ExtractionGraphId,
+    ExtractionPolicyId,
+    ExtractorName,
+    JsonEncoder,
+    NamespaceName,
+    SchemaId,
+    StateChangeId,
+    StateMachineColumns,
+    StateMachineError,
+    TaskId,
 };
 use crate::state::NodeId;
 
@@ -713,7 +727,7 @@ impl IndexifyState {
             let serialized_change = JsonEncoder::encode(&change)?;
             txn.put_cf(
                 StateMachineColumns::StateChanges.cf(db),
-                &change.id.to_key(),
+                change.id.to_key(),
                 &serialized_change,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -733,7 +747,7 @@ impl IndexifyState {
         for change in state_changes {
             let key = change.state_change_id.to_key();
             let result = txn
-                .get_cf(state_changes_cf, &key)
+                .get_cf(state_changes_cf, key)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             let result = result
                 .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
@@ -741,7 +755,7 @@ impl IndexifyState {
             let mut state_change = JsonEncoder::decode::<StateChange>(&result)?;
             state_change.processed_at = Some(change.processed_at);
             let serialized_change = JsonEncoder::encode(&state_change)?;
-            txn.put_cf(state_changes_cf, &key, &serialized_change)
+            txn.put_cf(state_changes_cf, key, &serialized_change)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             changes.push(state_change);
         }
@@ -1385,7 +1399,7 @@ impl IndexifyState {
         for state_change in state_changes_processed {
             if unprocessed_changes.contains(&state_change.id) {
                 if let Some(refcnt_object_id) = &state_change.refcnt_object_id {
-                    if let Some(change) = self.dec_root_ref_count(&refcnt_object_id, db, &txn)? {
+                    if let Some(change) = self.dec_root_ref_count(refcnt_object_id, db, &txn)? {
                         request.new_state_changes.push(change);
                     }
                 }
@@ -1411,7 +1425,7 @@ impl IndexifyState {
     /// written in memory
     pub fn update_reverse_indexes(&self, request: StateMachineUpdateRequest) -> Result<()> {
         for change in request.new_state_changes {
-            self.unprocessed_state_changes.insert(change.id.clone());
+            self.unprocessed_state_changes.insert(change.id);
         }
         for change in request.state_changes_processed {
             self.mark_state_changes_processed(&change, change.processed_at);
@@ -2052,11 +2066,28 @@ impl IndexifyState {
         iter.map(|item| {
             item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
                 .and_then(|(key, value)| {
-                    let key = String::from_utf8(key.to_vec())
-                        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                    let value = JsonEncoder::decode(&value)
-                        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                    Ok((key, value))
+                    match column {
+                        StateMachineColumns::StateChanges => {
+                            // let key = u64::from_be_bytes(key).to_string();
+                            let key =
+                                StateChangeId::from_key(key.to_vec()[..8].try_into().map_err(
+                                    |e: std::array::TryFromSliceError| {
+                                        StateMachineError::DatabaseError(e.to_string())
+                                    },
+                                )?)
+                                .to_string();
+                            let value = JsonEncoder::decode(&value)
+                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                            Ok((key, value))
+                        }
+                        _ => {
+                            let key = String::from_utf8(key.to_vec())
+                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                            let value = JsonEncoder::decode(&value)
+                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                            Ok((key, value))
+                        }
+                    }
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
@@ -2132,7 +2163,7 @@ impl IndexifyState {
         db: &Arc<OptimisticTransactionDB>,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
     ) -> Result<Option<StateChange>, StateMachineError> {
-        if let Some(root_content) = self.get_latest_version_of_content(&root_id, db, &txn)? {
+        if let Some(root_content) = self.get_latest_version_of_content(root_id, db, txn)? {
             if root_content.id.version > 1 {
                 let state_change = StateChange::new(
                     root_content.id.id.clone(),
@@ -2142,7 +2173,7 @@ impl IndexifyState {
                     crate::utils::timestamp_secs(),
                 );
                 let mut change_vec = vec![state_change];
-                self.set_new_state_changes(db, &txn, &mut change_vec)?;
+                self.set_new_state_changes(db, txn, &mut change_vec)?;
                 return Ok(change_vec.first().cloned());
             }
         }
@@ -2254,11 +2285,7 @@ impl IndexifyState {
                 db,
             )?
             .into_iter()
-            .map(|(key, value)| {
-                let key_id: ContentMetadataId =
-                    key.try_into().map_err(StateMachineError::ExternalError)?;
-                Ok((key_id, value))
-            })
+            .map(|(_, value)| Ok((value.id.clone(), value)))
             .collect::<Result<_, StateMachineError>>()?;
         let extraction_policies = self.get_all_rows_from_cf::<ExtractionPolicy>(
             StateMachineColumns::ExtractionPolicies,
@@ -2356,7 +2383,7 @@ impl IndexifyState {
         }
         for (content_id, content) in &snapshot.content_table {
             let cf = StateMachineColumns::ContentTable.cf(db);
-            put_cf(&txn, cf, &content_id.to_string(), &content)?;
+            put_cf(&txn, cf, &content_id.id, &content)?;
         }
         for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
             let cf = StateMachineColumns::ExtractionPolicies.cf(db);
@@ -2448,7 +2475,7 @@ impl IndexifyState {
         }
 
         for state_change_id in snapshot.state_changes.keys() {
-            unprocessed_state_changes_guard.insert(state_change_id.clone());
+            unprocessed_state_changes_guard.insert(*state_change_id);
         }
 
         for (content_id, content) in &snapshot.content_table {
@@ -2532,7 +2559,6 @@ impl IndexifyState {
 
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-
         Ok(())
     }
     //  END SNAPSHOT METHODS
