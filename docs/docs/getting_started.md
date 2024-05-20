@@ -22,7 +22,7 @@ These tasks can range from embedding data, generating summaries or even automati
 
 ??? note "Want the Source Code?"
 
-    The source code for this tutorial can be found [here](https://github.com/ivanleomk/indexify-python-client/tree/update-openai-example/examples/openai-rag) in our example folder
+    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify-python-client/tree/main/examples/openai-rag) in our example folder
 
 Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
 
