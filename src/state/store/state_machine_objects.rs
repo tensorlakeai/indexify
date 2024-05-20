@@ -1313,11 +1313,7 @@ impl IndexifyState {
                             HashMap::from([(executor_id.to_string(), existing_tasks)]);
                         self.set_task_assignments(db, &txn, &new_task_assignment)?;
                     }
-                    if let Some(change) =
-                        self.dec_root_ref_count(task.content_metadata.get_root_id(), db, &txn)?
-                    {
-                        request.new_state_changes.push(change);
-                    }
+                    self.dec_root_ref_count(task.content_metadata.get_root_id());
                 }
             }
             RequestPayload::RegisterExecutor {
@@ -1399,9 +1395,7 @@ impl IndexifyState {
         for state_change in state_changes_processed {
             if unprocessed_changes.contains(&state_change.id) {
                 if let Some(refcnt_object_id) = &state_change.refcnt_object_id {
-                    if let Some(change) = self.dec_root_ref_count(&refcnt_object_id, db, &txn)? {
-                        request.new_state_changes.push(change);
-                    }
+                    self.dec_root_ref_count(&refcnt_object_id);
                 }
             }
         }
@@ -2138,35 +2132,7 @@ impl IndexifyState {
             });
     }
 
-    fn root_tasks_completed(
-        &self,
-        root_id: &str,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-    ) -> Result<Option<StateChange>, StateMachineError> {
-        if let Some(root_content) = self.get_latest_version_of_content(&root_id, db, &txn)? {
-            if root_content.id.version > 1 {
-                let state_change = StateChange::new(
-                    root_content.id.id.clone(),
-                    internal_api::ChangeType::TaskCompleted {
-                        root_content_id: root_content.id,
-                    },
-                    crate::utils::timestamp_secs(),
-                );
-                let mut change_vec = vec![state_change];
-                self.set_new_state_changes(db, &txn, &mut change_vec)?;
-                return Ok(change_vec.first().cloned());
-            }
-        }
-        Ok(None)
-    }
-
-    fn dec_root_ref_count(
-        &self,
-        content_id: &str,
-        db: &Arc<OptimisticTransactionDB>,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-    ) -> Result<Option<StateChange>, StateMachineError> {
+    fn dec_root_ref_count(&self, content_id: &str) {
         let mut root_task_counts = self.root_task_counts.write().unwrap();
         match root_task_counts.entry(content_id.to_string()) {
             Entry::Occupied(mut entry) => {
@@ -2179,14 +2145,10 @@ impl IndexifyState {
                     if let Some(tx) = notify {
                         let _ = tx.send(());
                     }
-                    self.root_tasks_completed(content_id, db, txn)
-                } else {
-                    Ok(None)
                 }
             }
             Entry::Vacant(_) => {
                 // this should never happen
-                Ok(None)
             }
         }
     }

@@ -425,7 +425,7 @@ impl Coordinator {
             .await?;
         self.shared_state.create_gc_tasks(tasks.clone()).await?;
         self.shared_state
-            .mark_change_events_as_processed(vec![state_change.clone()])
+            .mark_change_events_as_processed(vec![state_change.clone()], Vec::new())
             .await?;
         Ok(tasks)
     }
@@ -470,7 +470,7 @@ impl Coordinator {
         //  this is the first version of the content, so nothing to garbage collect
         if root_content_id.version <= 1 {
             self.shared_state
-                .mark_change_events_as_processed(vec![change])
+                .mark_change_events_as_processed(vec![change], Vec::new())
                 .await?;
             return Ok(());
         }
@@ -522,7 +522,14 @@ impl Coordinator {
                     .await?;
                     continue;
                 }
-                _ => self.scheduler.handle_change_event(change).await?,
+                indexify_internal_api::ChangeType::ExecutorAdded => {
+                    self.scheduler.redistribute_tasks(&change).await?
+                }
+                indexify_internal_api::ChangeType::NewContent => {
+                    self.scheduler.create_new_tasks(change).await?
+                }
+                indexify_internal_api::ChangeType::ExecutorRemoved => {}
+                indexify_internal_api::ChangeType::NewGargabeCollectionTask => {}
             }
         }
         Ok(())
