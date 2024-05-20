@@ -13,7 +13,10 @@ use std::{
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_raft::raft_api_server::RaftApiServer;
+use indexify_proto::{
+    indexify_coordinator::CreateContentStatus,
+    indexify_raft::raft_api_server::RaftApiServer,
+};
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
@@ -146,6 +149,7 @@ pub struct RaftConfigOverrides {
 fn add_update_entry(
     update_entries: &mut Vec<CreateOrUpdateContentEntry>,
     state_changes: &mut Vec<StateChange>,
+    statuses: &mut Vec<CreateContentStatus>,
     content: internal_api::ContentMetadata,
 ) {
     // Hold a reference to the content until the tasks are created if any.
@@ -159,6 +163,7 @@ fn add_update_entry(
         content,
         previous_parent: None,
     });
+    statuses.push(CreateContentStatus::Created);
 }
 
 impl App {
@@ -780,9 +785,9 @@ impl App {
     pub async fn create_content_batch(
         &self,
         content_metadata: Vec<internal_api::ContentMetadata>,
-    ) -> Result<()> {
+    ) -> Result<Vec<CreateContentStatus>> {
         if content_metadata.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let ns = &content_metadata.first().unwrap().namespace.clone();
         let extraction_graph_names = &content_metadata
@@ -802,6 +807,8 @@ impl App {
             }
         }
 
+        let mut statuses = Vec::new();
+
         let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
         let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
         let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
@@ -820,7 +827,12 @@ impl App {
                     // This is a root node that is being updated. Mark existing content as no
                     // longer latest and write both existing and new content.
                     incoming_content.id.version = existing_content.id.version + 1;
-                    add_update_entry(&mut update_entries, &mut state_changes, incoming_content);
+                    add_update_entry(
+                        &mut update_entries,
+                        &mut state_changes,
+                        &mut statuses,
+                        incoming_content,
+                    );
                     let mut existing_content = existing_content.clone();
                     existing_content.latest = false;
                     update_entries.push(CreateOrUpdateContentEntry {
@@ -829,13 +841,19 @@ impl App {
                     });
                 } else {
                     tracing::warn!("Content with the same id and hash has been received");
+                    statuses.push(CreateContentStatus::Duplicate);
                 }
                 continue;
             }
             let incoming_content_parent_id = match incoming_content.parent_id.clone() {
                 None => {
                     // This is a new root node, create the content
-                    add_update_entry(&mut update_entries, &mut state_changes, incoming_content);
+                    add_update_entry(
+                        &mut update_entries,
+                        &mut state_changes,
+                        &mut statuses,
+                        incoming_content,
+                    );
                     continue;
                 }
                 Some(parent_id) => parent_id,
@@ -875,7 +893,12 @@ impl App {
                 .find(|content| content.hash == incoming_content.hash)
             {
                 None => {
-                    add_update_entry(&mut update_entries, &mut state_changes, incoming_content);
+                    add_update_entry(
+                        &mut update_entries,
+                        &mut state_changes,
+                        &mut statuses,
+                        incoming_content,
+                    );
                 }
                 Some(mut content) => {
                     // No new content state change is needed since content is identical.
@@ -884,6 +907,7 @@ impl App {
                         content,
                         previous_parent,
                     });
+                    statuses.push(CreateContentStatus::Duplicate);
                 }
             };
         }
@@ -900,7 +924,7 @@ impl App {
             .await
             .map_err(|e| anyhow!("unable to create new content metadata: {}", e.to_string()))?;
 
-        Ok(())
+        Ok(statuses)
     }
 
     async fn tombstone_content_root_batch(
