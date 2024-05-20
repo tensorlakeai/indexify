@@ -30,7 +30,6 @@ nav:
     - Indexify: index.md
     - Getting Started - Basic: 'getting_started.md'
     - Getting Started - Intermediate: 'getting_started_intermediate.md'
-    - Getting Started - Advanced: 'getting_started_advanced.md'
     - Key Concepts: 'concepts.md'
     - Architecture: 'architecture.md'
     - Comparisons: 'comparisons.md'
