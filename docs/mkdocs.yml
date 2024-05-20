@@ -32,6 +32,7 @@ nav:
     - Getting Started - Intermediate: 'getting_started_intermediate.md'
     - Getting Started - Advanced: 'getting_started_advanced.md'
     - Key Concepts: 'concepts.md'
+    - Architecture: 'architecture.md'
     - Comparisons: 'comparisons.md'
   - CLI and UI:
     - User Interface: 'ui.md'
