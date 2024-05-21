@@ -54,7 +54,7 @@ We need to use 2 terminals to start the Indexify server and the extractors.
     indexify-extractor join-server
     ```
 
-### Starting Extractors with Docker.
+### Starting Extractors with Docker
 
 === "Audio Extractor"
 
