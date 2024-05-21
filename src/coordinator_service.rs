@@ -7,6 +7,7 @@ use std::{
         Arc,
     },
     task::{Context, Poll},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -91,11 +92,12 @@ use tokio::{
         watch::{self, Receiver, Sender},
     },
     task::JoinHandle,
+    time::timeout,
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{body::BoxBody, Request, Response, Status, Streaming};
 use tower::{Layer, Service, ServiceBuilder};
-use tracing::{error, info, Instrument};
+use tracing::{error, info, warn, Instrument};
 
 use crate::{
     api::IndexifyAPIError,
@@ -132,6 +134,9 @@ impl<'a> Extractor for MetadataMap<'a> {
         self.0.keys().map(|key| key.as_str()).collect::<Vec<_>>()
     }
 }
+
+// How often we expect the executor to send us heartbeats.
+const EXECUTOR_HEARTBEAT_PERIOD: Duration = Duration::new(5, 0);
 
 impl CoordinatorServiceServer {
     fn create_extraction_policies_for_graph(
@@ -572,7 +577,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                         info!("shutting down server, stopping heartbeats from executor: {:?}", executor_id);
                         break;
                     }
-                    frame = in_stream.next() => {
+                    result = timeout(EXECUTOR_HEARTBEAT_PERIOD * 3, in_stream.next()) => {
+                        match result {
+                            Ok(frame) => {
                         // Ensure the frame has something
                         if frame.as_ref().is_none() {
                             break;
@@ -610,7 +617,12 @@ impl CoordinatorService for CoordinatorServiceServer {
                                 }
                             }
                         }
-
+                            }
+                            Err(_) => {
+                                warn!("heartbeat timed out, stopping executor: {:?}", executor_id);
+                                break;
+                            }
+                        }
                     }
                 }
             }
