@@ -599,23 +599,20 @@ impl App {
         };
         // Trigger garbage collection for previous content if the root content has been
         // updated.
-        let new_state_changes = if let Some(root_content_id) = root_content_id {
-            if root_content_id.version > 1 {
-                vec![StateChange::new(
-                    root_content_id.to_string(),
-                    indexify_internal_api::ChangeType::TaskCompleted { root_content_id },
-                    timestamp_secs(),
-                )]
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
+        let new_state_changes = match root_content_id {
+            Some(id) if id.version > 1 => vec![StateChange::new(
+                id.to_string(),
+                indexify_internal_api::ChangeType::TaskCompleted {
+                    root_content_id: id,
+                },
+                timestamp_secs(),
+            )],
+            _ => Vec::new(),
         };
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
-                task: task.clone(),
-                executor_id: executor_id.clone(),
+                task,
+                executor_id,
                 update_time: SystemTime::now(),
             },
             new_state_changes,
