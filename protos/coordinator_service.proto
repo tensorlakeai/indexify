@@ -67,6 +67,8 @@ service CoordinatorService {
     rpc GetIngestionInfo(GetIngestionInfoRequest) returns (GetIngestionInfoResponse) {}
 
     rpc WaitContentExtraction(WaitContentExtractionRequest) returns (WaitContentExtractionResponse) {}
+
+    rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -509,3 +511,12 @@ message WaitContentExtractionRequest {
 }
 
 message WaitContentExtractionResponse {}
+
+// list all contents that have a pending task
+message ListActiveContentsRequest {
+    string namespace = 1;
+}
+
+message ListActiveContentsResponse {
+    repeated string content_ids = 1;
+}

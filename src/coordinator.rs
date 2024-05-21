@@ -90,6 +90,13 @@ impl Coordinator {
             .await
     }
 
+    pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
+        self.shared_state
+            .state_machine
+            .list_active_contents(namespace)
+            .await
+    }
+
     pub fn get_extraction_policy(
         &self,
         id: ExtractionPolicyId,

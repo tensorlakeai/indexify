@@ -196,6 +196,10 @@ impl Server {
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/active_content",
+                get(active_content).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/content/:content_id",
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
@@ -788,6 +792,28 @@ async fn wait_content_extraction(
         .wait_content_extraction(&content_id)
         .await
         .map_err(IndexifyAPIError::internal_error)
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path ="/namespaces/{namespace}/active_content",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "wait for all extraction tasks for content to complete"),
+    ),
+)]
+#[axum::debug_handler]
+async fn active_content(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<Vec<String>>, IndexifyAPIError> {
+    let res = state
+        .data_manager
+        .list_active_contents(&namespace)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(Json(res))
 }
 
 #[tracing::instrument]

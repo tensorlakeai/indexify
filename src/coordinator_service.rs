@@ -45,6 +45,8 @@ use indexify_proto::indexify_coordinator::{
     GetTaskResponse,
     HeartbeatRequest,
     HeartbeatResponse,
+    ListActiveContentsRequest,
+    ListActiveContentsResponse,
     ListContentRequest,
     ListContentResponse,
     ListExtractionPoliciesRequest,
@@ -242,6 +244,24 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map(|c| c.into())
             .collect_vec();
         Ok(tonic::Response::new(ListContentResponse { content_list }))
+    }
+
+    async fn list_active_contents(
+        &self,
+        request: tonic::Request<ListActiveContentsRequest>,
+    ) -> Result<tonic::Response<ListActiveContentsResponse>, tonic::Status> {
+        let req = request.into_inner();
+        let content_ids = self
+            .coordinator
+            .list_active_contents(&req.namespace)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .into_iter()
+            .map(|c| c.into())
+            .collect_vec();
+        Ok(tonic::Response::new(ListActiveContentsResponse {
+            content_ids,
+        }))
     }
 
     async fn create_extraction_graph(
