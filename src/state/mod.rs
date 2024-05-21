@@ -378,7 +378,11 @@ impl App {
         Ok(state_changes)
     }
 
-    pub async fn mark_change_events_as_processed(&self, events: Vec<StateChange>) -> Result<()> {
+    pub async fn mark_change_events_as_processed(
+        &self,
+        events: Vec<StateChange>,
+        new_state_changes: Vec<StateChange>,
+    ) -> Result<()> {
         let mut state_changes = vec![];
         for event in events {
             state_changes.push(StateChangeProcessed {
@@ -388,7 +392,7 @@ impl App {
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::MarkStateChangesProcessed { state_changes },
-            new_state_changes: vec![],
+            new_state_changes,
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
@@ -591,13 +595,32 @@ impl App {
         task: internal_api::Task,
         executor_id: Option<String>,
     ) -> Result<()> {
+        let root_content_id = if let Some(root_id) = &task.content_metadata.root_content_id {
+            self.state_machine
+                .get_latest_version_of_content(root_id)?
+                .map(|c| c.id)
+        } else {
+            Some(task.content_metadata.id.clone())
+        };
+        // Trigger garbage collection for previous content if the root content has been
+        // updated.
+        let new_state_changes = match root_content_id {
+            Some(id) if id.version > 1 => vec![StateChange::new(
+                id.to_string(),
+                indexify_internal_api::ChangeType::TaskCompleted {
+                    root_content_id: id,
+                },
+                timestamp_secs(),
+            )],
+            _ => Vec::new(),
+        };
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateTask {
-                task: task.clone(),
-                executor_id: executor_id.clone(),
+                task,
+                executor_id,
                 update_time: SystemTime::now(),
             },
-            new_state_changes: vec![],
+            new_state_changes,
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
