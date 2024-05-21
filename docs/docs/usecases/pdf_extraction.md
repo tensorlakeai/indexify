@@ -141,6 +141,7 @@ With just a few lines of code, you can use data locked in PDFs in your applicati
 
 We've curated a collection of inspiring examples to showcase the versatility of PDF extraction. Check out these notebooks:
 
+- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
 - [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.ipynb)
 - [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
 - [Multi-state Terms Documents](../examples/Sixt.ipynb)
