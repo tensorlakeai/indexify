@@ -1,6 +1,14 @@
-# RAG on Videos
+# Videos Extraction and Understanding
 
-In this tutorial we will build a RAG application to answer questions about topics from a video. We will ingest the [State of The Union address from President Biden](https://www.youtube.com/watch?v=cplSUhU2avc) video and build a Q&A bot to answer questions.
+Indexify supports videos, and you could build complex pipelines that extracts information from videos. Some of the capabilities provided by Indexify extractors are - 
+
+1. [Key Frame Extraction](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/keyframes)
+2. [Audio Extraction from videos](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/audio-extractor) 
+3. [Tracking objects in a video](https://github.com/tensorlakeai/indexify-extractors/tree/main/video/tracking) 
+4. Video Description using Visual LLMs
+
+## Video RAG Example
+To demonstrate video understanding capabilities, we will build a RAG application to answer questions about topics from a video. We will ingest the [State of The Union address from President Biden](https://www.youtube.com/watch?v=cplSUhU2avc) video and build a Q&A bot to answer questions.
 
 At the end of the tutorial your application will be able to answer the following questions.
 
@@ -9,11 +17,8 @@ Q: Whats biden doing to save climate?
 A: Biden is taking significant action on climate by cutting carbon emissions in half by 2030 ...
 ```
 
-## Introduction
 
-Indexify can extract information from videos, including key scenes in a video, audio of the video, the transcripts, and also detects all the objects of interest in a video. All of these are done through Indexify's open source extractors.
-
-For this example, since we are only interested in the topics discussed in the video, we will extract the audio from the video, transcribe it, and index it. Then we will use the extracted information to answer questions about the video.
+We will extract the audio from the video, transcribe it, and index it. Then we will use the extracted information to answer questions about the video.
 
 We will be using the following extractors:
 
