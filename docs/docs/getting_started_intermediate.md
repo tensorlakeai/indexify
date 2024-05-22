@@ -4,15 +4,29 @@ In this example, we will make an LLM answer how much someone would be paying in 
 
 While this example is simple, if you were building a production application on tax laws, you can ingest and extract information from 100s of state specific documents.
 
-##### Extraction Graph Setup
+## Indexify Server
+
+Download the indexify server and run it
+
+```bash title="( Terminal 1 ) Download Indexify Server"
+curl https://getindexify.ai | sh
+./indexify server -d
+```
+## Download the Extractors
+Before we begin, let's download the extractors
+
+```bash title="( Terminal 2 ) Download Indexify Extractors"
+python3 -m venv venv
+source venv/bin/activate
+pip3 install indexify-extractor-sdk indexify wikipedia openai
+indexify-extractor download hub://pdf/marker
+indexify-extractor download hub://embedding/minilm-l6
+indexify-extractor download hub://text/chunking
+```
+
+## Extraction Graph Setup
 
 Set up an extraction graph to process the PDF documents -
-
-- Set the name of the extraction graph to "pdfqa".
-- The first stage of the graph converts the PDF document into Markdown. We use the extractor `tensorlake/marker`, which uses a popular Open Source PDF to markdown converter model.
-- The text is then chunked into smaller fragments. Chunking makes retrieval and processing by LLMs efficient.
-- The chunks are then embedded to make them searchable.
-- Each stage has of the pipeline is named and connected to their upstream extractors using the field `content_source`
 
 === "Python"
     ```python
@@ -42,7 +56,7 @@ Set up an extraction graph to process the PDF documents -
     import { ExtractionGraph } from "getindexify";
     
     const graph = ExtractionGraph.fromYaml(`
-    name: 'pdfqa'
+    name: 'pdfqa' #(1)!
     extraction_policies:
       - extractor: 'tensorlake/marker'
         name: 'mdextract'
@@ -58,7 +72,13 @@ Set up an extraction graph to process the PDF documents -
     `);
     await client.createExtractionGraph(graph);
     ```
-##### Document Ingestion
+!!! note "The Graph"
+    1. Set the name of the extraction graph to "pdfqa".
+    2. Converts the PDF document into Markdown. We use the extractor `tensorlake/marker`, which uses a popular Open Source PDF to markdown converter model.
+    3. The text is then chunked into smaller fragments. Chunking makes retrieval and processing by LLMs efficient.
+    4. The chunks are then embedded to make them searchable.
+    5. Each stage has of the pipeline is named and connected to their upstream extractors using the field `content_source`
+## Document Ingestion
 
 Add the PDF document to the "pdfqa" extraction graph
 === "Python"
@@ -86,7 +106,7 @@ Add the PDF document to the "pdfqa" extraction graph
 
     await client.uploadFile("taxes", "taxes.pdf");
     ```
-##### Prompting and Context Retrieval Function
+## Prompting and Context Retrieval Function
 We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
 
 === "Python"

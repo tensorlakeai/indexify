@@ -8,6 +8,7 @@ copyright: Copyright &copy; 2024 Tensorlake
 
 markdown_extensions:
   - attr_list
+  - md_in_html
   - def_list
   - admonition
   - pymdownx.details
