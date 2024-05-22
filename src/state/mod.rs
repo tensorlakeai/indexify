@@ -183,8 +183,6 @@ impl App {
             enable_heartbeat: true,
             install_snapshot_timeout: 2000,
             snapshot_max_chunk_size: 4194304, //  4MB
-            snapshot_policy: openraft::SnapshotPolicy::LogsSinceLast(1000), //  ONLY FOR TESTING
-            max_in_snapshot_log_to_keep: 0,   //  ONLY FOR TESTING
             ..Default::default()
         };
 
