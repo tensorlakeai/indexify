@@ -87,32 +87,33 @@ client = IndexifyClient()
 
 Next, we create an extraction graph with 4 extraction policies:
 
-1. Extract audio from every video that is ingested by applying the `tensorlake/audio-extractor` on the videos.
+```yaml title="graph.yaml"
+name: "videoknowledgebase"
+extraction_policies:
+  - extractor: "tensorlake/audio-extractor" #(1)!
+    name: "audio_clips_of_videos"
+  - extractor: "tensorlake/whisper-asr" #(2)!
+    name: "audio_transcription"
+    content_source: "audio_clips_of_videos" #(5)!
+  - extractor: "tensorlake/chunk-extractor" #(3)!
+    name: "transcription_chunks"
+    content_source: "audio_transcription"
+  - extractor: "tensorlake/minilm-l6" #(4)!
+    name: "transcript_embedding"
+    content_source: "transcription_chunks"
+```
+
+1. We extract the audio from every video that is ingested by using the `tensorlake/audio-extractor` on the videos.
 2. The extracted audio are passed through the `tensorlake/whisper-asr` extractor to be transcribed.
 3. We pass the transcripts to the `tensorlake/chunk-extractor` to chunk the transcripts into smaller parts.
 4. We process the transcript chunks through `tensorlake/minilm-l6` extractor to extract the vector embedding and index them.
+5. The `content_source` parameter is used to specify the source of the content for the extraction policy. Typically, when creating a pipeline of multiple extractors, the output of one extractor is used as the input for the next extractor.
 
-Note: The `content_source` parameter is used to specify the source of the content for the extraction policy. Typically, when creating a pipeline of multiple extractors, the output of one extractor is used as the input for the next extractor.
-
-```python
-extraction_graph_spec = """
-name: "videoknowledgebase"
-extraction_policies:
-   - extractor: "tensorlake/audio-extractor"
-     name: "audio_clips_of_videos"
-   - extractor: "tensorlake/whisper-asr"
-     name: "audio_transcription"
-     content_source: "audio_clips_of_videos"
-   - extractor: "tensorlake/chunk-extractor"
-     name: "transcription_chunks"
-     content_source: "audio_transcription"
-   - extractor: "tensorlake/minilm-l6"
-     name: "transcript_embedding"
-     content_source: "transcription_chunks"
-"""
-
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)
+```py
+with open("graph.yaml", "r") as file:
+  extraction_graph_spec = file.read()
+  extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+  client.create_extraction_graph(extraction_graph)
 ```
 
 ### Upload the Video
