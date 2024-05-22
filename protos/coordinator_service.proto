@@ -67,6 +67,8 @@ service CoordinatorService {
     rpc GetIngestionInfo(GetIngestionInfoRequest) returns (GetIngestionInfoResponse) {}
 
     rpc WaitContentExtraction(WaitContentExtractionRequest) returns (WaitContentExtractionResponse) {}
+
+    rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -397,12 +399,17 @@ message ContentMetadata {
     repeated string extraction_graph_names = 14;
 }
 
+enum CreateContentStatus {
+    CREATED = 0;
+    DUPLICATE = 1;
+}
+
 message CreateContentRequest {
     ContentMetadata content = 2;
 }
 
 message CreateContentResponse {
-    string id = 1;
+    CreateContentStatus status = 2;
 }
 
 message TombstoneContentRequest {
@@ -504,3 +511,12 @@ message WaitContentExtractionRequest {
 }
 
 message WaitContentExtractionResponse {}
+
+// list all contents that have a pending task
+message ListActiveContentsRequest {
+    string namespace = 1;
+}
+
+message ListActiveContentsResponse {
+    repeated string content_ids = 1;
+}

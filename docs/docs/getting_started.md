@@ -22,14 +22,14 @@ These tasks can range from embedding data, generating summaries or even automati
 
 ??? note "Want the Source Code?"
 
-    The source code for this tutorial can be found [here](https://github.com/ivanleomk/indexify-python-client/tree/update-openai-example/examples/openai-rag) in our example folder
+    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify-python-client/tree/main/examples/openai-rag) in our example folder
 
 Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
 
 ```bash title="( Terminal 1 ) Install Dependencies"
 python3 -m venv venv
 source venv/bin/activate
-pip3 install indexify-extractor-sdk==0.0.63 indexify==0.0.21 wikipedia==1.4.0 openai==1.30.1
+pip3 install indexify-extractor-sdk indexify wikipedia openai
 ```
 
 ## Indexify Server
@@ -107,6 +107,9 @@ def create_extraction_graph():
         extraction_graph_spec = file.read()
         extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec) #(2)!
         client.create_extraction_graph(extraction_graph) #(3)!
+
+if __name__ == "__main__":
+    create_extraction_graph()
 ```
 
 1. We first create an instance of an `Indexify` client so that we can interact with our Indexify server in a typesafe manner
@@ -119,7 +122,7 @@ Now that we've written up a simple function to define our extraction graph, let'
 
 === "New Additions"
 
-    ``` python
+    ```python
     from langchain_community.document_loaders import WikipediaLoader
 
     def load_data():
@@ -127,11 +130,14 @@ Now that we've written up a simple function to define our extraction graph, let'
 
         for doc in docs:
             client.add_documents("summarize_and_chunk", doc.page_content)
+
+    if __name__ == "__main__":
+        load_data()
     ```
 
 === "Full Code"
 
-    ``` python hl_lines="2 12-16"
+    ```python hl_lines="2 12-16"
     from indexify import IndexifyClient, ExtractionGraph
     from langchain_community.document_loaders import WikipediaLoader
 
@@ -149,6 +155,9 @@ Now that we've written up a simple function to define our extraction graph, let'
         for doc in docs:
             client.add_documents("summarize_and_chunk", doc.page_content)
 
+    if __name__ == "__main__":
+        create_extraction_graph()
+        load_data()
     ```
 
 We can then run this code to create our new extraction graph and load in the data into our data pipeline. Once we use the add the documents, all we need to do is to let Indexify handle all of the batching and storage.
@@ -163,18 +172,9 @@ python3 ./setup.py
 Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
 
 ```python
-from openai import OpenAI
-from indexify import IndexifyClient
-
-client = IndexifyClient()
-client_openai = OpenAI()
-
-def query_indexify(question: str, index: str, top_k: int = 3):
+def query_database(question: str, index: str, top_k=3):
     retrieved_results = client.search_index(name=index, query=question, top_k=top_k) #(1)!
     context = "\n-".join([item["text"] for item in retrieved_results])
-    return context
-
-def synthesize_response(question: str, context: str) -> str:
     response = client_openai.chat.completions.create(
         messages=[
             {
@@ -187,9 +187,14 @@ def synthesize_response(question: str, context: str) -> str:
     return response.choices[0].message.content
 
 
-question = "What accomplishments did Kevin durant achieve during his career?"
-context = query_indexify(question, "summarize_and_chunk.wikiembedding.embedding", 4)
-print(query_database(question,context))
+if __name__ == "__main__":
+    print(
+        query_database(
+            "What accomplishments did Kevin durant achieve during his career?",
+            "summarize_and_chunk.wikiembedding.embedding",
+            4,
+        )
+    )
 ```
 
 1. All we need to do to query our database is to use the `.search_index` method and we can get the top `k` elements which are closest in semantic meaning to the user's query.
@@ -197,7 +202,7 @@ print(query_database(question,context))
 When we run this file, we get the following output
 
 ```bash title="( Terminal 3 ) Run our RAG query"
->> python3 ./query.py
+>> OPENAI_API_KEY=<MY_API_KEY> python3 ./query.py
 During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
 ```
 

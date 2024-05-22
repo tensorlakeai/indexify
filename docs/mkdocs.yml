@@ -8,6 +8,7 @@ copyright: Copyright &copy; 2024 Tensorlake
 
 markdown_extensions:
   - attr_list
+  - md_in_html
   - def_list
   - admonition
   - pymdownx.details
@@ -30,8 +31,8 @@ nav:
     - Indexify: index.md
     - Getting Started - Basic: 'getting_started.md'
     - Getting Started - Intermediate: 'getting_started_intermediate.md'
-    - Getting Started - Advanced: 'getting_started_advanced.md'
     - Key Concepts: 'concepts.md'
+    - Architecture: 'architecture.md'
     - Comparisons: 'comparisons.md'
   - CLI and UI:
     - User Interface: 'ui.md'
@@ -58,7 +59,7 @@ nav:
     - Audio Extraction: 'usecases/audio_extraction.md'
     - PDF Extraction: 'usecases/pdf_extraction.md'
     - Image Retrieval: 'usecases/image_retrieval.md'
-    - RAG on Video: 'usecases/video_rag.md'
+    - Video Understanding: 'usecases/video_rag.md'
   - LLM Frameworks:
     - Langchain:
       - Python: 'integrations/langchain/python_langchain.md'

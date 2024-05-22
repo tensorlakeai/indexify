@@ -7,6 +7,7 @@ use std::{
         Arc,
     },
     task::{Context, Poll},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -45,6 +46,8 @@ use indexify_proto::indexify_coordinator::{
     GetTaskResponse,
     HeartbeatRequest,
     HeartbeatResponse,
+    ListActiveContentsRequest,
+    ListActiveContentsResponse,
     ListContentRequest,
     ListContentResponse,
     ListExtractionPoliciesRequest,
@@ -91,11 +94,12 @@ use tokio::{
         watch::{self, Receiver, Sender},
     },
     task::JoinHandle,
+    time::timeout,
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{body::BoxBody, Request, Response, Status, Streaming};
 use tower::{Layer, Service, ServiceBuilder};
-use tracing::{error, info, Instrument};
+use tracing::{error, info, warn, Instrument};
 
 use crate::{
     api::IndexifyAPIError,
@@ -132,6 +136,9 @@ impl<'a> Extractor for MetadataMap<'a> {
         self.0.keys().map(|key| key.as_str()).collect::<Vec<_>>()
     }
 }
+
+// How often we expect the executor to send us heartbeats.
+const EXECUTOR_HEARTBEAT_PERIOD: Duration = Duration::new(5, 0);
 
 impl CoordinatorServiceServer {
     fn create_extraction_policies_for_graph(
@@ -201,14 +208,18 @@ impl CoordinatorService for CoordinatorServiceServer {
             .content
             .ok_or(tonic::Status::aborted("content is missing"))?;
         let content_meta: indexify_internal_api::ContentMetadata = content_meta.into();
-        let id = content_meta.id.clone();
         let content_list = vec![content_meta];
-        let _ = self
+        let statuses = self
             .coordinator
             .create_content_metadata(content_list)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateContentResponse { id: id.id }))
+        Ok(tonic::Response::new(CreateContentResponse {
+            status: *statuses
+                .first()
+                .ok_or_else(|| tonic::Status::aborted("result invalid"))?
+                as i32,
+        }))
     }
 
     async fn tombstone_content(
@@ -238,6 +249,24 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map(|c| c.into())
             .collect_vec();
         Ok(tonic::Response::new(ListContentResponse { content_list }))
+    }
+
+    async fn list_active_contents(
+        &self,
+        request: tonic::Request<ListActiveContentsRequest>,
+    ) -> Result<tonic::Response<ListActiveContentsResponse>, tonic::Status> {
+        let req = request.into_inner();
+        let content_ids = self
+            .coordinator
+            .list_active_contents(&req.namespace)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?
+            .into_iter()
+            .map(|c| c.into())
+            .collect_vec();
+        Ok(tonic::Response::new(ListActiveContentsResponse {
+            content_ids,
+        }))
     }
 
     async fn create_extraction_graph(
@@ -568,7 +597,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                         info!("shutting down server, stopping heartbeats from executor: {:?}", executor_id);
                         break;
                     }
-                    frame = in_stream.next() => {
+                    result = timeout(EXECUTOR_HEARTBEAT_PERIOD * 3, in_stream.next()) => {
+                        match result {
+                            Ok(frame) => {
                         // Ensure the frame has something
                         if frame.as_ref().is_none() {
                             break;
@@ -606,7 +637,12 @@ impl CoordinatorService for CoordinatorServiceServer {
                                 }
                             }
                         }
-
+                            }
+                            Err(_) => {
+                                warn!("heartbeat timed out, stopping executor: {:?}", executor_id);
+                                break;
+                            }
+                        }
                     }
                 }
             }

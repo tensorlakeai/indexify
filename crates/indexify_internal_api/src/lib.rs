@@ -1063,9 +1063,7 @@ impl From<Namespace> for indexify_coordinator::Namespace {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
-    UpdateContent,
     TombstoneContentTree,
-    NewExtractionPolicy,
     ExecutorAdded,
     ExecutorRemoved,
     NewGargabeCollectionTask,
@@ -1076,9 +1074,7 @@ impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
-            ChangeType::UpdateContent => write!(f, "UpdateContent"),
             ChangeType::TombstoneContentTree => write!(f, "TombstoneContentTree"),
-            ChangeType::NewExtractionPolicy => write!(f, "NewBinding"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
             ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
@@ -1182,7 +1178,6 @@ impl TryFrom<indexify_coordinator::StateChange> for StateChange {
     fn try_from(value: indexify_coordinator::StateChange) -> Result<Self> {
         let change_type = match value.change_type.as_str() {
             "NewContent" => ChangeType::NewContent,
-            "NewBinding" => ChangeType::NewExtractionPolicy,
             "ExecutorAdded" => ChangeType::ExecutorAdded,
             "ExecutorRemoved" => ChangeType::ExecutorRemoved,
             _ => return Err(anyhow!("Invalid ChangeType")),

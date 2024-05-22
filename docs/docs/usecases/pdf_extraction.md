@@ -1,4 +1,4 @@
-# PDF Extraction!
+# PDF Extraction
 
 Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. PDF is a complex document type; we offer many different extractors suitable to various use cases.
 
@@ -23,8 +23,42 @@ PDF Extraction Pipelines are usually composed of three stages. You can use one o
 ## Image Extraction
 If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understanding of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
 
+You can get extracted images from pdf-extractor with a simple python code like this:
+```python
+def get_image_content(client, content_id):
+    extracted_content = client.get_extracted_content(content_id)
+    
+    for item in extracted_content:
+        child_id = item['id']
+        
+        structured_data = client.get_structured_data(child_id)
+        
+        for data in structured_data:
+            if 'metadata' in data and data['metadata'].get('type') == 'image':
+                return item['content']
+    
+    return None
+```
+
 ## Table Extraction
 Tables are automatically extracted by `tensorlake/pdf-extractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
+
+You can get extracted tables from pdf-extractor with a simple python code like this:
+```python
+def get_table_content(client, content_id):
+    extracted_content = client.get_extracted_content(content_id)
+    
+    for item in extracted_content:
+        child_id = item['id']
+        
+        structured_data = client.get_structured_data(child_id)
+        
+        for data in structured_data:
+            if 'metadata' in data and data['metadata'].get('type') == 'table':
+                return item['content']
+    
+    return None
+```
 
 ## Explore the PDF Extractor Landscape
 
@@ -107,7 +141,8 @@ With just a few lines of code, you can use data locked in PDFs in your applicati
 
 We've curated a collection of inspiring examples to showcase the versatility of PDF extraction. Check out these notebooks:
 
-- [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.py)
+- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
+- [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.ipynb)
 - [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
 - [Multi-state Terms Documents](../examples/Sixt.ipynb)
 - [Scientific Journals](../examples/Scientific_Journals.ipynb)

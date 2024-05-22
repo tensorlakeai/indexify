@@ -3339,7 +3339,7 @@ dependencies = [
 
 [[package]]
 name = "indexify"
-version = "0.0.40"
+version = "0.0.42"
 dependencies = [
  "anyerror",
  "anyhow",
@@ -4681,9 +4681,9 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "openraft"
-version = "0.9.10"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3450250d289f5277dfad62c337a9e6021e7ba744ffdf7ba6605b4dd7a91dfeb"
+checksum = "0c59cc236e958d1991209e674918cb19d727ba15246225fa4a55e050e635098b"
 dependencies = [
  "anyerror",
  "byte-unit",
