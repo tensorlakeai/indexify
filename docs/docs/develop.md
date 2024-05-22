@@ -2,7 +2,7 @@
 
 ## Install Dependencies
 
-Before you start, this doc may be outdated. Please follow the procedur in `run_tests.sh`, this is the source of truth.
+Before you start, this doc may be outdated. Please follow the procedure in `run_tests.sh`, this is the source of truth.
 
 ### Rust Compiler
 

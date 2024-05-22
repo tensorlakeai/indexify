@@ -64,7 +64,7 @@ Vector Indexes are automatically created from extractors that returns embeddings
 ### Structured Data Tables
 Metadata extracted from content is exposed using SQL Queries. Content Sources become tables, and any metadata added to content for a given source can be queried either by using the ID of content or by predicates to a sql query.
 
-Example - If you create a policy named `object_dector` which runs the Yolo object detector against all images ingested, you can query all the images which has a ball like this -
+Example - If you create a policy named `object_detector` which runs the Yolo object detector against all images ingested, you can query all the images which has a ball like this -
 
 ```
 select * from object_detector where object_name='ball'
