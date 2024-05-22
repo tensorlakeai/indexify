@@ -333,6 +333,13 @@ impl StateMachineStore {
         self.data.indexify_state.get_from_cf(&self.db, column, key)
     }
 
+    pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
+        self.data
+            .indexify_state
+            .list_active_contents(&self.db, namespace)
+            .map_err(|e| anyhow::anyhow!("Failed to list active contents: {}", e))
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,

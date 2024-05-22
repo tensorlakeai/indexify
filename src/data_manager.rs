@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
+use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
@@ -254,6 +254,20 @@ impl DataManager {
             .into_iter()
             .map(|c| c.into())
             .collect_vec();
+        Ok(content_list)
+    }
+
+    pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
+        let req = ListActiveContentsRequest {
+            namespace: namespace.to_string(),
+        };
+        let response = self
+            .coordinator_client
+            .get()
+            .await?
+            .list_active_contents(req)
+            .await?;
+        let content_list = response.into_inner().content_ids;
         Ok(content_list)
     }
 
