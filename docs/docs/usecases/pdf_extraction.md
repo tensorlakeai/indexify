@@ -25,7 +25,7 @@ If you would like to extract images from PDF, the best extractor to use is `tens
 
 You can get extracted images from pdf-extractor with a simple python code like this:
 ```python
-def get_table_content(client, content_id):
+def get_image_content(client, content_id):
     extracted_content = client.get_extracted_content(content_id)
     
     for item in extracted_content:
