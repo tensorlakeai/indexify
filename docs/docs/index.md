@@ -2,13 +2,12 @@
 
 ![Indexify High Level](images/Indexify_KAT.gif)
 
-Build complex, distributed data pipelines at scale with Indexify. Using Indexify, you can
+Indexify helps you build complex distributed data pipelines that scale from a demo to billions of users by changing a single line of configuration. With Indexify, you'll be able to have
 
-- transform unstructured data into structured data using the latest state of the art models
-- chain together complex data transformations, with automatic reindexing of data when changes are detected
-- query data extracted at each step of the pipeline with simple SQL, Semantic Search or both!
-
-With Indexify, integrating the latest cutting edge model and scaling your product from a demo to billions of users is easy. **Just change a single line of config**.
+- **Insights from Unstructured Data** : Run state of the art models efficiently to transform unstructured data into structured data
+- **Fault Tolerant Pipelines**: Effectively distribute workloads without worrying about network failures, automatic retries or scaling
+- **Full Observability**: Every step of the pipeline can be queried with SQL, Semantic Search or both
+- **Up to Date Information**: Data is automatically re-indexed when changes are detected, even after you chaining together any complex transformations
 
 ## Why Use Indexify
 

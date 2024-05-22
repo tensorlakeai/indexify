@@ -76,6 +76,8 @@ nav:
     - Scientific Journals: 'examples/Scientific_Journals.ipynb'
     - Image RAG: 'examples/Image_RAG_Structured_Extraction.ipynb'
     - MoonDream Visual Description: 'examples/Moondream_Visual_Description_Index.ipynb'
+  - Book a Call: 'https://calendly.com/diptanu/tensorlake-client-call'
+  - Discord: 'https://discord.gg/mrXrq3DmV8'
 
 plugins:
   - mkdocs-jupyter
