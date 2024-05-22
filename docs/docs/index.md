@@ -2,17 +2,16 @@
 
 ![Indexify High Level](images/Indexify_KAT.gif)
 
-Indexify is data framework for building LLM Applications that derives knowledge from enterprise or consumer data to make decisions or answer questions. It shines in use-cases where ground truth sources of information changes over time. Most data sources in the real world are unstructured and originate from PDFs, clicks on websites, emails, text messages or videos. Indexify brings information from unstructured data sources to LLMs continuously for production applications.
+Build complex, distributed data pipelines at scale with Indexify. Using Indexify, you can
 
-It provides the following primitives - 
+- transform unstructured data into structured data using the latest state of the art models
+- chain together complex data transformations, with automatic reindexing of data when changes are detected
+- query data extracted at each step of the pipeline with simple SQL, Semantic Search or both!
 
-1. **Real Time Data Pipelines** - Declarative data transformation and extraction graphs that execute whenever new data is ingested.
-2. **Extractor SDK** - SDK to write embedding and un-structured data extraction algorithms that can be used by real-time pipelines.
-3. **Storage Interface** - Extracted data is automatically stored in vector stores, structured data stores and blob stores.
-4. **Retrieval API** - Exposes data from vector stores and structured stores using Semantic Search APIs and SQL. 
+With Indexify, integrating the latest cutting edge model and scaling your product from a demo to billions of users is easy. **Just change a single line of config**.
 
+## Why Use Indexify
 
-## Why Use Indexify 
 Building a data-intensive product with LLMs often involves -
 
 1. Ingesting new data, extracting structured information, or embedding and writing them to storage.
@@ -22,27 +21,26 @@ Building a data-intensive product with LLMs often involves -
 
 While there are many data frameworks for unstructured data, they are primarily optimized for prototyping applications locally. Reliable data infrastructure for production use cases is designed to be distributed on many machines to allow scale-outs, fault-tolerant to hardware or software crashes, predictable latencies and throughput, and observable to help troubleshoot.
 
-Indexify runs locally without **any** dependencies, making it easy to build applications and test and iterate locally. It does so without sacrificing the properties that make data systems shine in production environments. Applications built with Indexify can run on laptops and can run unchanged in production. Indexify can auto-scale, is distributed, fault-tolerant, and is fully observable with predictable latencies and throughput. 
+Indexify runs locally without **any** dependencies, making it easy to build applications and test and iterate locally. It does so without sacrificing the properties that make data systems shine in production environments. Applications built with Indexify can run on laptops and can run unchanged in production. Indexify can auto-scale, is distributed, fault-tolerant, and is fully observable with predictable latencies and throughput.
 
 ## Start Using Indexify
 
 Dive into [Getting Started](getting_started.md) to learn how to use Indexify.
 
-If you would like to learn some common use-cases - 
+If you would like to learn some common use-cases -
 
 1. Learn how to build production grade [RAG Applications](usecases/rag.md)
 2. Extract [PDF](usecases/pdf_extraction.md), [Videos](usecases/video_rag.md) and [Audio](usecases/audio_extraction.md) to extract embedding and [structured data](usecases/image_retrieval.md).
 
 ## Features
 
-* Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
-* **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
-* Create **Extraction Graph** to create multi-step workflows for **data transformation**, **embedding** and **structured extraction**.
-* **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
-* **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
-* **Multi-Tenant** from the ground up, **Namespaces** to isolate sensitive data.
-* Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
-* Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
-* Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
-* We have even **Open Sourced Automation** to deploy to Kubernetes in production.
-
+- Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
+- **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
+- Create **Extraction Graph** to create multi-step workflows for **data transformation**, **embedding** and **structured extraction**.
+- **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
+- **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
+- **Multi-Tenant** from the ground up, **Namespaces** to isolate sensitive data.
+- Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
+- Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
+- Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
+- We have even **Open Sourced Automation** to deploy to Kubernetes in production.

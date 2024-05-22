@@ -53,7 +53,7 @@
     <a href="https://discord.gg/mrXrq3DmV8" class="header-button">
         Discord
     </a>
-
+    
     <!-- Color palette -->
     {% if not config.theme.palette is mapping %}
       <form class="md-header__option" data-md-component="palette">
@@ -88,6 +88,16 @@
         {% endfor %}
       </form>
     {% endif %}
+
+    {% if "material/search" in config.plugins %}
+      <label class="md-header__button md-icon" for="__search">
+        {% include ".icons/material/magnify.svg" %}
+      </label>
+
+      <!-- Search interface -->
+      {% include "partials/search.html" %}
+    {% endif %}
+
 
     <!-- Site language selector -->
     {% if config.extra.alternate %}

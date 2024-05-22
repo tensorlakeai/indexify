@@ -79,6 +79,9 @@ nav:
 
 plugins:
   - mkdocs-jupyter
+  - search:
+      lang: en
+      enabled: true
 
 theme:
   name: material
