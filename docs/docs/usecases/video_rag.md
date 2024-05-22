@@ -29,7 +29,7 @@ We will be using the following extractors:
 
 The Q&A will be powered by Langchain and OpenAI. We will use Indexify Retriever and pass it to Langchain to retrieve the relevant text of the questions based on semantic search.
 
-## Download Indexify and Extractors
+### Download Indexify and Extractors
 
 ```bash
 # Indexify server.
@@ -43,7 +43,7 @@ indexify-extractor download hub://text/chunking
 indexify-extractor download hub://embedding/minilm-l6
 ```
 
-## Start Indexify and Extractors in Terminal
+### Start Indexify and Extractors in Terminal
 
 We need to use 2 terminals to start the Indexify server and the extractors.
 
@@ -59,39 +59,13 @@ We need to use 2 terminals to start the Indexify server and the extractors.
     indexify-extractor join-server
     ```
 
-### Starting Extractors with Docker
-
-=== "Audio Extractor"
-
-    ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/audio-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500 --listen-port=9500
-    ```
-
-=== "MiniLM-L6 Extractor"
-
-    ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501 --listen-port=9501
-    ```
-
-=== "Whisper Extractor"
-
-    ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9502:9502 tensorlake/whisper-asr join-server --workers=1 --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9502 --listen-port=9502
-    ```
-
-=== "Chunking Extractor"
-
-    ```shell
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9503:9503 tensorlake/chunk-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9503 --listen-port=9503
-    ```
-
-## Download the Libraries
+### Download the Libraries
 
 ```bash
 pip install pytube indexify indexify-langchain langchain-openai
 ```
 
-## Download the Video
+### Download the Video
 
 ```python
 from pytube import YouTube
@@ -104,7 +78,7 @@ if not os.path.exists(file_name):
     video.download(filename=file_name)
 ```
 
-## Create the Extraction Policies
+### Create the Extraction Policies
 
 ```python
 from indexify import IndexifyClient
@@ -141,7 +115,7 @@ extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
 ```
 
-## Upload the Video
+### Upload the Video
 
 ```
 client.upload_file("videoknowledgebase", path=file_name)
@@ -149,7 +123,7 @@ client.upload_file("videoknowledgebase", path=file_name)
 
 Without needing to do anything, Indexify will automatically start the extraction process on the video. This is because Indexify will evaluate any data that is uploaded to it against the extraction graph and start the extraction process if the data matches the graph specification.
 
-## Perform RAG
+### Perform RAG
 
 Create the Indexify Langchain Retriever. This retriever is automatically created by Indexify Extractor MiniLM-L6 and after the extraction process is completed, we can use it to retrieve the relevant text based on the questions.
 
