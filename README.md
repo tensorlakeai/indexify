@@ -131,12 +131,35 @@ This example shows how to create a pipeline that performs object detection on im
 More details about Image understanding and retrieval - https://docs.getindexify.ai/usecases/image_retrieval/
 
 #### Create an Extraction Graph
+```python
+from indexify import IndexifyClient, ExtractionGraph
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'imageknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/yolo-extractor'
+     name: 'object_detection'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+```
 
 #### Upload Images
+```python
+content_id = client.upload_file("imageknowledgebase", "file.jpg")
+```
 
 #### Retrieve Features of an Image
+```python
+client.get_extracted_content(content_id)
+```
 
 #### Query using SQL
+```python
+result = client.sql_query("select * from ingestion where object_name='skateboard';")
+```
 
 ###  PDF Extraction and Retrieval
 This example shows how to create a pipeline that extracts from PDF documents.
