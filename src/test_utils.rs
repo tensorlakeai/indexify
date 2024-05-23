@@ -20,10 +20,13 @@ use crate::{
     },
 };
 
+const BASE_PORT: usize = 18950;
+
 #[cfg(test)]
 pub struct RaftTestCluster {
     nodes: BTreeMap<NodeId, Arc<Coordinator>>,
     pub seed_node_id: NodeId,
+    pub append: String,
 }
 
 #[cfg(test)]
@@ -31,9 +34,9 @@ impl RaftTestCluster {
     /// Helper function to create raft configs for as many nodes as required
     fn create_test_raft_configs(
         node_count: usize,
-    ) -> Result<Vec<Arc<ServerConfig>>, anyhow::Error> {
+    ) -> Result<(Vec<Arc<ServerConfig>>, String), anyhow::Error> {
         let append = nanoid::nanoid!();
-        let base_port = 18950;
+        let base_port = BASE_PORT;
         let mut configs = Vec::new();
         let seed_node = format!("localhost:{}", base_port + 1); //  use the first node as the seed node
 
@@ -57,7 +60,48 @@ impl RaftTestCluster {
             configs.push(config.clone());
         }
 
-        Ok(configs)
+        Ok((configs, append))
+    }
+
+    pub async fn add_node_to_cluster(
+        &mut self,
+        overrides: Option<RaftConfigOverrides>,
+    ) -> Result<(), anyhow::Error> {
+        let new_node_id = self.nodes.len();
+        let base_port = BASE_PORT;
+        let port = (base_port + new_node_id * 10) as u64;
+        let seed_node = format!("localhost:{}", base_port + 1);
+        let new_node_config = Arc::new(ServerConfig {
+            node_id: new_node_id as u64,
+            coordinator_port: port,
+            coordinator_http_port: port + 2,
+            coordinator_addr: format!("localhost:{}", port),
+            raft_port: port + 1,
+            state_store: StateStoreConfig {
+                path: Some(format!(
+                    "/tmp/indexify-test/raft/{}/{}",
+                    self.append, new_node_id
+                )),
+            },
+            seed_node,
+            ..Default::default()
+        });
+        let garbage_collector = GarbageCollector::new();
+        let _ = fs::remove_dir_all(new_node_config.state_store.clone().path.unwrap());
+        let shared_state = App::new(
+            new_node_config.clone(),
+            overrides,
+            Arc::clone(&garbage_collector),
+            &new_node_config.coordinator_addr,
+            Arc::new(crate::metrics::init_provider()),
+        )
+        .await?;
+        let coordinator_client = CoordinatorClient::new(Arc::clone(&new_node_config));
+        let coordinator = Coordinator::new(shared_state, coordinator_client, garbage_collector);
+
+        // Add the new node to the map
+        self.nodes.insert(new_node_id as u64, coordinator);
+        Ok(())
     }
 
     /// This checks whether a node has been initialized by comparing the
@@ -171,7 +215,7 @@ impl RaftTestCluster {
         num_of_nodes: usize,
         overrides: Option<RaftConfigOverrides>,
     ) -> anyhow::Result<Self> {
-        let server_configs = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
+        let (server_configs, append) = RaftTestCluster::create_test_raft_configs(num_of_nodes)?;
         let seed_node_id = server_configs.first().unwrap().node_id; //  the seed node will always be the first node in the list
         let mut nodes = BTreeMap::new();
         for config in server_configs {
@@ -193,6 +237,7 @@ impl RaftTestCluster {
         Ok(Self {
             nodes,
             seed_node_id,
+            append,
         })
     }
 

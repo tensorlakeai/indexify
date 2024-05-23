@@ -63,11 +63,12 @@ use crate::{
         raft_metrics::{self, network::MetricsSnapshot},
     },
     server_config::ServerConfig,
-    state::{raft_client::RaftClient, store::new_storage},
+    state::{grpc_config::GrpcConfig, raft_client::RaftClient, store::new_storage},
     utils::timestamp_secs,
 };
 
 pub mod forwardable_raft;
+pub mod grpc_config;
 pub mod grpc_server;
 pub mod network;
 pub mod raft_client;
@@ -144,6 +145,7 @@ pub struct App {
 #[derive(Clone)]
 pub struct RaftConfigOverrides {
     snapshot_policy: Option<openraft::SnapshotPolicy>,
+    max_in_snapshot_log_to_keep: Option<u64>,
 }
 
 fn add_update_entry(
@@ -179,6 +181,8 @@ impl App {
             election_timeout_min: 1500,
             election_timeout_max: 3000,
             enable_heartbeat: true,
+            install_snapshot_timeout: 2000,
+            snapshot_max_chunk_size: 4194304, //  4MB
             ..Default::default()
         };
 
@@ -186,6 +190,9 @@ impl App {
         if let Some(overrides) = overrides {
             if let Some(snapshot_policy) = overrides.snapshot_policy {
                 raft_config.snapshot_policy = snapshot_policy;
+            }
+            if let Some(max_in_snapshot_log_to_keep) = overrides.max_in_snapshot_log_to_keep {
+                raft_config.max_in_snapshot_log_to_keep = max_in_snapshot_log_to_keep;
             }
         }
 
@@ -244,7 +251,9 @@ impl App {
             Arc::clone(&raft_client),
             addr.to_string(),
             server_config.coordinator_addr.clone(),
-        ));
+        ))
+        .max_encoding_message_size(GrpcConfig::MAX_ENCODING_SIZE)
+        .max_decoding_message_size(GrpcConfig::MAX_DECODING_SIZE);
         let (leader_change_tx, leader_change_rx) = watch::channel::<bool>(false);
 
         let metrics = Metrics::new(state_machine.clone());
@@ -815,10 +824,9 @@ impl App {
         let ns = &content_metadata.first().unwrap().namespace.clone();
         let extraction_graph_names = &content_metadata
             .iter()
-            .map(|c| c.extraction_graph_names.clone())
-            .flatten()
+            .flat_map(|c| c.extraction_graph_names.clone())
             .collect_vec();
-        let extraction_graphs = self.get_extraction_graphs_by_name(&ns, &extraction_graph_names)?;
+        let extraction_graphs = self.get_extraction_graphs_by_name(ns, extraction_graph_names)?;
         for (eg, extraction_graph_names) in
             extraction_graphs.into_iter().zip(extraction_graph_names)
         {

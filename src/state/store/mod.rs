@@ -214,13 +214,15 @@ impl StateMachineStore {
 
         self.data
             .indexify_state
-            .install_snapshot(indexify_state_snapshot);
+            .install_snapshot(&self.db, indexify_state_snapshot)
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write(&e),
+            })?;
 
         Ok(())
     }
 
     fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
-        debug!("Called get_current_snapshot_");
         if !self.snapshot_file_path.exists() {
             debug!("The snapshot file does not exist");
             return Ok(None);
@@ -251,8 +253,6 @@ impl StateMachineStore {
     /// This method is called when a new snapshot is received via
     /// InstallSnapshot RPC and is used to write the snapshot to disk
     fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
-        debug!("Called set_current_snapshot_");
-
         //  Serialize the data into JSON bytes
         let serialized_data = JsonEncoder::encode(&snap).map_err(|e| StorageError::IO {
             source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
@@ -516,6 +516,7 @@ impl StateMachineStore {
         self.data
             .indexify_state
             .get_all_rows_from_cf(column, &self.db)
+            .map_err(|e| anyhow::anyhow!("Failed to get all rows from column family: {}", e))
     }
 
     //  END FORWARD INDEX READER METHOD INTERFACES
@@ -594,7 +595,6 @@ impl StateMachineStore {
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        debug!("Called build_snapshot");
         let (last_applied_log, last_membership) = {
             let guard = self.data.last_applied_log_id.read().await;
             let last_applied_log = *guard;
@@ -604,7 +604,11 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
         };
 
         let indexify_state_json = {
-            let indexify_state_snapshot = self.data.indexify_state.build_snapshot();
+            let indexify_state_snapshot = self
+                .data
+                .indexify_state
+                .build_snapshot(&self.db)
+                .map_err(|e| StorageIOError::read_state_machine(&e))?;
             JsonEncoder::encode(&indexify_state_snapshot)
                 .map_err(|e| StorageIOError::read_state_machine(&e))?
         };
@@ -632,7 +636,6 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
         };
 
         self.set_current_snapshot_(snapshot)?;
-
         Ok(Snapshot {
             meta,
             snapshot: Box::new(Cursor::new(indexify_state_json)),
@@ -646,8 +649,6 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     async fn applied_state(
         &mut self,
     ) -> Result<(Option<LogId<NodeId>>, StoredMembership<NodeId, Node>), StorageError<NodeId>> {
-        // let sm = self.data.read().await;
-        // Ok((sm.last_applied_log_id, sm.last_membership.clone()))
         let (last_applied_log_id, last_membership) = {
             let guard = self.data.last_applied_log_id.read().await;
             let last_applied_log_id = *guard;
@@ -760,7 +761,6 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
-        debug!("Called get_current_snapshot");
         let x = self.get_current_snapshot_()?;
         Ok(x.map(|s| Snapshot {
             meta: s.meta.clone(),
@@ -1042,18 +1042,9 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 mod tests {
     use std::time::Duration;
 
-    use openraft::{raft::InstallSnapshotRequest, testing::log_id, SnapshotMeta, Vote};
+    use indexify_internal_api::ContentMetadataId;
 
-    use crate::{
-        state::{
-            self,
-            store::{
-                serializer::{JsonEncode, JsonEncoder},
-                state_machine_objects::IndexifyStateSnapshot,
-            },
-        },
-        test_utils::RaftTestCluster,
-    };
+    use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
 
     /// This is a dummy test which forces building a snapshot on the cluster by
     /// passing in some overrides Manually check that the snapshot file was
@@ -1062,28 +1053,42 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
-        let cluster = RaftTestCluster::new(3, None).await?;
+        //  set up raft cluster
+        let overrides = RaftConfigOverrides {
+            snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1)),
+            max_in_snapshot_log_to_keep: Some(0),
+        };
+        let mut cluster = RaftTestCluster::new(1, Some(overrides.clone())).await?;
         cluster.initialize(Duration::from_secs(2)).await?;
-        let indexify_state = IndexifyStateSnapshot::default();
-        let serialized_state =
-            JsonEncoder::encode(&indexify_state).expect("Failed to serialize the data");
-        let install_snapshot_req: InstallSnapshotRequest<state::TypeConfig> =
-            InstallSnapshotRequest {
-                vote: Vote::new_committed(2, 1),
-                meta: SnapshotMeta {
-                    snapshot_id: "ss1".into(),
-                    last_log_id: Some(log_id(1, 0, 6)),
-                    last_membership: Default::default(),
-                },
-                offset: 0,
-                data: serialized_state,
-                done: true,
-            };
-        let node = cluster.get_raft_node(2)?;
-        node.forwardable_raft
-            .raft
-            .install_snapshot(install_snapshot_req)
-            .await?;
+        let node = cluster.get_raft_node(0)?;
+
+        //  add data
+        let namespace = "test_namespace".to_string();
+        node.create_namespace(&namespace).await?;
+        let content = indexify_internal_api::ContentMetadata {
+            id: ContentMetadataId::new("content_id"),
+            ..Default::default()
+        };
+        node.create_content_batch(vec![content]).await?;
+
+        //  add a new node
+        cluster.add_node_to_cluster(Some(overrides)).await?;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        //  ensure that snapshot invariants are maintained on new node
+        let new_node = cluster.get_raft_node(1)?;
+        let content_table = new_node.state_machine.get_content_namespace_table();
+        assert_eq!(content_table.len(), 1);
+        let (key, value) = content_table.iter().next().unwrap();
+        assert_eq!(*key, namespace);
+        assert_eq!(value.len(), 1);
+
+        let contents = new_node.list_content(&namespace, "", |_| true).await?;
+        assert_eq!(contents.len(), 1);
+        let c = contents
+            .first()
+            .expect("expected the content to be present");
+        assert_eq!(c.namespace, namespace);
         Ok(())
     }
 }

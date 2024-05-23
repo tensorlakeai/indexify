@@ -571,8 +571,7 @@ mod tests {
                 .shared_state
                 .get_state_change_watcher()
                 .borrow_and_update()
-                .id
-                .clone();
+                .id;
 
             self.coordinator
                 .shared_state

@@ -258,6 +258,7 @@ impl Coordinator {
                 .get_coordinator_addr(leader_node_id)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            let leader_coord_addr = format!("http://{}", leader_coord_addr);
             self.forwardable_coordinator
                 .register_ingestion_server(&leader_coord_addr, ingestion_server_id)
                 .await?;
@@ -493,7 +494,7 @@ impl Coordinator {
             .tombstone_content_batch_with_version(
                 &[content_metadata.id.clone()],
                 vec![StateChangeProcessed {
-                    state_change_id: change.id.clone(),
+                    state_change_id: change.id,
                     processed_at: utils::timestamp_secs(),
                 }],
             )
@@ -669,7 +670,7 @@ mod tests {
 
         //  Read the extraction graph back
         let ret_graph =
-            shared_state.get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &vec![eg.name])?;
+            shared_state.get_extraction_graphs_by_name(DEFAULT_TEST_NAMESPACE, &[eg.name])?;
         assert!(ret_graph.first().unwrap().is_some());
         assert_eq!(ret_graph.len(), 1);
         Ok(())
@@ -945,7 +946,7 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", &executor_id_1, vec![extractor_1.clone()])
+            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
             .await?;
         let eg = create_test_extraction_graph("eg_name_1", vec!["ep_policy_name_1"]);
         coordinator.create_extraction_graph(eg.clone()).await?;
@@ -954,7 +955,7 @@ mod tests {
         let mut extractor_2 = mock_extractor();
         extractor_2.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor("localhost:8957", &executor_id_2, vec![extractor_2.clone()])
+            .register_executor("localhost:8957", executor_id_2, vec![extractor_2.clone()])
             .await?;
 
         //  Create an extraction graph with two levels of policies
@@ -995,9 +996,7 @@ mod tests {
 
         ////  check that tasks have been created for the second level for the second
         //// extractor
-        let tasks = shared_state
-            .tasks_for_executor(&executor_id_2, None)
-            .await?;
+        let tasks = shared_state.tasks_for_executor(executor_id_2, None).await?;
         assert_eq!(tasks.len(), 4);
 
         ////  Create the final child
@@ -1278,7 +1277,7 @@ mod tests {
     ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
         let mut content = test_mock_content_metadata(
             id,
-            &task.content_metadata.get_root_id(),
+            task.content_metadata.get_root_id(),
             &task.content_metadata.extraction_graph_names[0],
         );
         content.parent_id = Some(task.content_metadata.id.clone());
@@ -1436,7 +1435,7 @@ mod tests {
                 "test_extraction_policy_5",
                 "test_extraction_policy_6",
             ],
-            &vec![Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
+            &[Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
         );
         coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
@@ -1479,7 +1478,7 @@ mod tests {
                 1,
             ))?;
         assert_eq!(prev_tree.len(), 7); // root + 6 children
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         // replace all elements in the tree, should have two trees with 7 elements each
         perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
@@ -1499,7 +1498,7 @@ mod tests {
                 1,
             ))?;
         assert_eq!(prev_tree.len(), 7);
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         // the previous tree should be deleted after all tasks for new root are complete
         assert!(prev_tree.iter().all(|c| c.tombstoned));
@@ -1582,7 +1581,7 @@ mod tests {
             ))?;
         // all elements should be transferred to the new root
         assert_eq!(prev_tree.len(), 1);
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         coordinator.run_scheduler().await?;
         // the previous tree should be tombstoned after all tasks for new root are
@@ -1693,7 +1692,7 @@ mod tests {
         // elements after and including the identical child should be transferred to the
         // new root
         assert_eq!(prev_tree.len(), 4);
-        assert_eq!(prev_tree[0].latest, false);
+        assert!(!prev_tree[0].latest);
 
         coordinator.run_scheduler().await?;
         // the previous tree should be tombstoned after all tasks for new root are

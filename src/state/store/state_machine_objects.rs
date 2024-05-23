@@ -727,7 +727,7 @@ impl IndexifyState {
             let serialized_change = JsonEncoder::encode(&change)?;
             txn.put_cf(
                 StateMachineColumns::StateChanges.cf(db),
-                &change.id.to_key(),
+                change.id.to_key(),
                 &serialized_change,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -747,7 +747,7 @@ impl IndexifyState {
         for change in state_changes {
             let key = change.state_change_id.to_key();
             let result = txn
-                .get_cf(state_changes_cf, &key)
+                .get_cf(state_changes_cf, key)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             let result = result
                 .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
@@ -755,7 +755,7 @@ impl IndexifyState {
             let mut state_change = JsonEncoder::decode::<StateChange>(&result)?;
             state_change.processed_at = Some(change.processed_at);
             let serialized_change = JsonEncoder::encode(&state_change)?;
-            txn.put_cf(state_changes_cf, &key, &serialized_change)
+            txn.put_cf(state_changes_cf, key, &serialized_change)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             changes.push(state_change);
         }
@@ -1419,7 +1419,7 @@ impl IndexifyState {
     /// written in memory
     pub fn update_reverse_indexes(&self, request: StateMachineUpdateRequest) -> Result<()> {
         for change in request.new_state_changes {
-            self.unprocessed_state_changes.insert(change.id.clone());
+            self.unprocessed_state_changes.insert(change.id);
         }
         for change in request.state_changes_processed {
             self.mark_state_changes_processed(&change, change.processed_at);
@@ -1932,7 +1932,7 @@ impl IndexifyState {
         let extraction_graphs = self
             .get_extraction_graphs(&extraction_graphs_ids, db)?
             .into_iter()
-            .filter_map(|eg| eg)
+            .flatten()
             .collect();
 
         Ok(Some(indexify_internal_api::Namespace {
@@ -2045,24 +2045,43 @@ impl IndexifyState {
         &self,
         column: StateMachineColumns,
         db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<(String, V)>, anyhow::Error>
+    ) -> Result<Vec<(String, V)>, StateMachineError>
     where
         V: DeserializeOwned,
     {
-        let cf_handle = db.cf_handle(column.as_ref()).ok_or(anyhow::anyhow!(
-            "Failed to get column family {}",
-            column.to_string()
-        ))?;
+        let cf_handle = db
+            .cf_handle(column.as_ref())
+            .ok_or(StateMachineError::DatabaseError(format!(
+                "Failed to get column family {}",
+                column
+            )))?;
         let iter = db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
 
         iter.map(|item| {
-            item.map_err(|e| anyhow::anyhow!(e))
+            item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
                 .and_then(|(key, value)| {
-                    let key = String::from_utf8(key.to_vec())
-                        .map_err(|e| anyhow::anyhow!("UTF-8 conversion error for key: {}", e))?;
-                    let value = JsonEncoder::decode(&value)
-                        .map_err(|e| anyhow::anyhow!("Deserialization error for value: {}", e))?;
-                    Ok((key, value))
+                    match column {
+                        StateMachineColumns::StateChanges => {
+                            // let key = u64::from_be_bytes(key).to_string();
+                            let key =
+                                StateChangeId::from_key(key.to_vec()[..8].try_into().map_err(
+                                    |e: std::array::TryFromSliceError| {
+                                        StateMachineError::DatabaseError(e.to_string())
+                                    },
+                                )?)
+                                .to_string();
+                            let value = JsonEncoder::decode(&value)
+                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                            Ok((key, value))
+                        }
+                        _ => {
+                            let key = String::from_utf8(key.to_vec())
+                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                            let value = JsonEncoder::decode(&value)
+                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                            Ok((key, value))
+                        }
+                    }
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
@@ -2213,25 +2232,165 @@ impl IndexifyState {
     //  END WRITER METHODS FOR REVERSE INDEXES
 
     //  START SNAPSHOT METHODS
-    pub fn build_snapshot(&self) -> IndexifyStateSnapshot {
-        IndexifyStateSnapshot {
-            unassigned_tasks: self.get_unassigned_tasks(),
-            unprocessed_state_changes: self.get_unprocessed_state_changes(),
-            content_namespace_table: self.get_content_namespace_table(),
-            extraction_policies_table: self.get_extraction_policies_table(),
-            extractor_executors_table: self.get_extractor_executors_table(),
-            namespace_index_table: self.get_namespace_index_table(),
-            unfinished_tasks_by_extractor: self.get_unfinished_tasks_by_extractor(),
-            executor_running_task_count: self.get_executor_running_task_count(),
-            schemas_by_namespace: self.get_schemas_by_namespace(),
-            content_children_table: self.get_content_children_table(),
-            pending_tasks_for_content: self.get_pending_tasks_for_content(),
-            change_id: *self.change_id.lock().unwrap(),
-        }
+    pub fn build_snapshot(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+    ) -> Result<IndexifyStateSnapshot, StateMachineError> {
+        let executors = self.get_all_rows_from_cf::<internal_api::ExecutorMetadata>(
+            StateMachineColumns::Executors,
+            db,
+        )?;
+        let tasks =
+            self.get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks, db)?;
+        let gc_tasks = self.get_all_rows_from_cf::<internal_api::GarbageCollectionTask>(
+            StateMachineColumns::GarbageCollectionTasks,
+            db,
+        )?;
+        let task_assignments =
+            self.get_all_rows_from_cf::<HashSet<TaskId>>(StateMachineColumns::TaskAssignments, db)?;
+        let state_changes: HashMap<StateChangeId, StateChange> = self
+            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges, db)?
+            .into_iter()
+            .map(|(key, value)| {
+                let key = key
+                    .parse::<u64>()
+                    .map_err(|e| StateMachineError::ExternalError(e.into()))?;
+                Ok((StateChangeId::new(key), value))
+            })
+            .collect::<Result<_, StateMachineError>>()?;
+        let content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata> = self
+            .get_all_rows_from_cf::<internal_api::ContentMetadata>(
+                StateMachineColumns::ContentTable,
+                db,
+            )?
+            .into_iter()
+            .map(|(_, value)| Ok((value.id.clone(), value)))
+            .collect::<Result<_, StateMachineError>>()?;
+        let extraction_policies = self.get_all_rows_from_cf::<ExtractionPolicy>(
+            StateMachineColumns::ExtractionPolicies,
+            db,
+        )?;
+        let extractors =
+            self.get_all_rows_from_cf::<ExtractorDescription>(StateMachineColumns::Extractors, db)?;
+        let namespaces: HashSet<String> = self
+            .get_all_rows_from_cf::<NamespaceName>(StateMachineColumns::Namespaces, db)?
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        let index_table =
+            self.get_all_rows_from_cf::<internal_api::Index>(StateMachineColumns::IndexTable, db)?;
+        let structured_data_schemas = self
+            .get_all_rows_from_cf::<internal_api::StructuredDataSchema>(
+                StateMachineColumns::StructuredDataSchemas,
+                db,
+            )?;
+        let coordinator_address: HashMap<NodeId, String> = self
+            .get_all_rows_from_cf::<String>(StateMachineColumns::CoordinatorAddress, db)?
+            .into_iter()
+            .map(|(key, value)| {
+                let k = key
+                    .parse::<u64>()
+                    .map_err(|e| StateMachineError::ExternalError(e.into()))?;
+                Ok((k, value))
+            })
+            .collect::<Result<_, StateMachineError>>()?;
+        let extraction_graphs = self
+            .get_all_rows_from_cf::<ExtractionGraph>(StateMachineColumns::ExtractionGraphs, db)?;
+        let metrics = self.metrics.lock().unwrap().clone();
+
+        let snapshot = IndexifyStateSnapshot {
+            executors: executors.into_iter().collect(),
+            tasks: tasks.into_iter().collect(),
+            gc_tasks: gc_tasks.into_iter().collect(),
+            task_assignments: task_assignments.into_iter().collect(),
+            state_changes: state_changes.into_iter().collect(),
+            content_table: content_table.into_iter().collect(),
+            extraction_policies: extraction_policies.into_iter().collect(),
+            extractors: extractors.into_iter().collect(),
+            namespaces: namespaces.into_iter().collect(),
+            index_table: index_table.into_iter().collect(),
+            structured_data_schemas: structured_data_schemas.into_iter().collect(),
+            coordinator_address: coordinator_address.into_iter().collect(),
+            extraction_graphs: extraction_graphs.into_iter().collect(),
+            metrics,
+        };
+        Ok(snapshot)
     }
 
-    pub fn install_snapshot(&self, snapshot: IndexifyStateSnapshot) {
-        let mut unassigned_tasks_guard = self.unassigned_tasks.unassigned_tasks.write().unwrap();
+    pub fn install_snapshot(
+        &self,
+        db: &Arc<OptimisticTransactionDB>,
+        snapshot: IndexifyStateSnapshot,
+    ) -> Result<(), StateMachineError> {
+        fn put_cf<K, T>(
+            txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+            cf: &rocksdb::ColumnFamily,
+            key: K,
+            value: &T,
+        ) -> Result<(), StateMachineError>
+        where
+            K: AsRef<[u8]>,
+            T: serde::Serialize + std::fmt::Debug,
+        {
+            let serialized = JsonEncoder::encode(value)?;
+            txn.put_cf(cf, key, serialized)
+                .map_err(|e| StateMachineError::TransactionError(e.to_string()))
+        }
+
+        let txn = db.transaction();
+
+        //  Build the rocksdb forward indexes
+        for (executor_id, executor_metadata) in &snapshot.executors {
+            let cf = StateMachineColumns::Executors.cf(db);
+            put_cf(&txn, cf, executor_id, &executor_metadata)?;
+        }
+        for (task_id, task) in &snapshot.tasks {
+            let cf = StateMachineColumns::Tasks.cf(db);
+            put_cf(&txn, cf, task_id, &task)?;
+        }
+        for (gc_task_id, gc_task) in &snapshot.gc_tasks {
+            let cf = StateMachineColumns::GarbageCollectionTasks.cf(db);
+            put_cf(&txn, cf, gc_task_id, &gc_task)?;
+        }
+        for (executor_id, task_ids) in &snapshot.task_assignments {
+            let cf = StateMachineColumns::TaskAssignments.cf(db);
+            put_cf(&txn, cf, executor_id, &task_ids)?;
+        }
+        for (state_change_id, state_change) in &snapshot.state_changes {
+            let cf = StateMachineColumns::StateChanges.cf(db);
+            put_cf(&txn, cf, state_change_id.to_key(), &state_change)?;
+        }
+        for (content_id, content) in &snapshot.content_table {
+            let cf = StateMachineColumns::ContentTable.cf(db);
+            put_cf(&txn, cf, &content_id.id, &content)?;
+        }
+        for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
+            let cf = StateMachineColumns::ExtractionPolicies.cf(db);
+            put_cf(&txn, cf, extraction_policy_id, &extraction_policy_ids)?;
+        }
+        for (extractor_name, extractor_description) in &snapshot.extractors {
+            let cf = StateMachineColumns::Extractors.cf(db);
+            put_cf(&txn, cf, extractor_name, &extractor_description)?;
+        }
+        for namespace in snapshot.namespaces {
+            let cf = StateMachineColumns::Namespaces.cf(db);
+            put_cf(&txn, cf, &namespace, &namespace)?;
+        }
+        for (index_name, index) in &snapshot.index_table {
+            let cf = StateMachineColumns::IndexTable.cf(db);
+            put_cf(&txn, cf, index_name, &index)?;
+        }
+        for (schema_id, schema) in &snapshot.structured_data_schemas {
+            let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
+            put_cf(&txn, cf, schema_id, &schema)?;
+        }
+        for (node_id, addr) in &snapshot.coordinator_address {
+            let cf = StateMachineColumns::CoordinatorAddress.cf(db);
+            put_cf(&txn, cf, &node_id.to_string(), &addr)?;
+        }
+
+        //  Build the in-memory reverse indexes
+        let mut unassigned_tasks = self.unassigned_tasks.unassigned_tasks.write().unwrap();
         let mut unprocessed_state_changes_guard = self
             .unprocessed_state_changes
             .unprocessed_state_changes
@@ -2242,72 +2401,164 @@ impl IndexifyState {
             .content_namespace_table
             .write()
             .unwrap();
-        let mut extraction_policies_table_guard = self
+        let mut extraction_policies_table = self
             .extraction_policies_table
             .extraction_policies_table
             .write()
             .unwrap();
-        let mut extractor_executors_table_guard = self
+        let mut extractor_executors_table = self
             .extractor_executors_table
             .extractor_executors_table
             .write()
             .unwrap();
-        let mut namespace_index_table_guard = self
+        let mut namespace_index_table = self
             .namespace_index_table
             .namespace_index_table
             .write()
             .unwrap();
-        let mut unfinished_tasks_by_extractor_guard = self
+        let mut unfinished_tasks_by_extractor = self
             .unfinished_tasks_by_extractor
             .unfinished_tasks_by_extractor
             .write()
             .unwrap();
-        let mut executor_running_task_count_guard = self
+        let mut executor_running_task_count = self
             .executor_running_task_count
             .executor_running_task_count
             .write()
             .unwrap();
-        let mut schemas_by_namespace_guard = self
+        let mut schemas_by_namespace = self
             .schemas_by_namespace
             .schemas_by_namespace
             .write()
             .unwrap();
-        let mut content_children_table_guard = self
+        let mut content_children_table = self
             .content_children_table
             .content_children_table
+            .write()
+            .unwrap();
+        let mut pending_tasks_for_content = self
+            .pending_tasks_for_content
+            .pending_tasks_for_content
             .write()
             .unwrap();
 
-        *unassigned_tasks_guard = snapshot.unassigned_tasks;
-        *unprocessed_state_changes_guard = snapshot.unprocessed_state_changes;
-        *content_namespace_table_guard = snapshot.content_namespace_table;
-        *extraction_policies_table_guard = snapshot.extraction_policies_table;
-        *extractor_executors_table_guard = snapshot.extractor_executors_table;
-        *namespace_index_table_guard = snapshot.namespace_index_table;
-        *unfinished_tasks_by_extractor_guard = snapshot.unfinished_tasks_by_extractor;
-        *executor_running_task_count_guard = snapshot.executor_running_task_count;
-        *schemas_by_namespace_guard = snapshot.schemas_by_namespace;
-        *content_children_table_guard = snapshot.content_children_table;
-        *self.change_id.lock().unwrap() = snapshot.change_id;
+        for (task_id, task) in &snapshot.tasks {
+            if !task.terminal_state() {
+                unassigned_tasks.insert(task_id.clone());
+            }
+        }
+        for task_ids in snapshot.task_assignments.values() {
+            for task_id in task_ids {
+                unassigned_tasks.remove(task_id);
+            }
+        }
+
+        for state_change_id in snapshot.state_changes.keys() {
+            unprocessed_state_changes_guard.insert(*state_change_id);
+        }
+
+        for (content_id, content) in &snapshot.content_table {
+            content_namespace_table_guard
+                .entry(content.namespace.clone())
+                .or_default()
+                .insert(content_id.clone());
+        }
+
+        for (extraction_policy_id, extraction_policy) in &snapshot.extraction_policies {
+            extraction_policies_table
+                .entry(extraction_policy.namespace.clone())
+                .or_default()
+                .insert(extraction_policy_id.clone());
+        }
+
+        for (executor_id, executor_metadata) in &snapshot.executors {
+            for extractor in &executor_metadata.extractors {
+                extractor_executors_table
+                    .entry(extractor.name.clone())
+                    .or_default()
+                    .insert(executor_id.clone());
+            }
+        }
+
+        for (index_id, index) in &snapshot.index_table {
+            namespace_index_table
+                .entry(index.namespace.clone())
+                .or_default()
+                .insert(index_id.clone());
+        }
+
+        for (task_id, task) in &snapshot.tasks {
+            if !task.terminal_state() {
+                unfinished_tasks_by_extractor
+                    .entry(task.extractor.clone())
+                    .or_default()
+                    .insert(task_id.clone());
+            }
+        }
+
+        for (executor_id, task_ids) in &snapshot.task_assignments {
+            *executor_running_task_count
+                .entry(executor_id.clone())
+                .or_insert(0) += task_ids.len() as u64;
+        }
+
+        for (schema_id, schema) in &snapshot.structured_data_schemas {
+            schemas_by_namespace
+                .entry(schema.namespace.clone())
+                .or_default()
+                .insert(schema_id.clone());
+        }
+
+        for (content_id, content) in &snapshot.content_table {
+            if let Some(parent_id) = &content.parent_id {
+                content_children_table
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .insert(content_id.clone());
+            }
+        }
+
+        for (task_id, task) in &snapshot.tasks {
+            if !task.terminal_state() {
+                let content_id = &task.content_metadata.id;
+                let extraction_policy_id = &task.extraction_policy_id;
+
+                let policies_map = pending_tasks_for_content
+                    .entry(content_id.clone())
+                    .or_default();
+                let tasks_set = policies_map
+                    .entry(extraction_policy_id.clone())
+                    .or_default();
+                tasks_set.insert(task_id.clone());
+            }
+        }
+
+        //  set the metrics
+        *self.metrics.lock().unwrap() = snapshot.metrics;
+
+        txn.commit()
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+        Ok(())
     }
     //  END SNAPSHOT METHODS
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct IndexifyStateSnapshot {
-    unassigned_tasks: HashSet<TaskId>,
-    unprocessed_state_changes: HashSet<StateChangeId>,
-    content_namespace_table: HashMap<NamespaceName, HashSet<ContentMetadataId>>,
-    extraction_policies_table: HashMap<NamespaceName, HashSet<String>>,
-    extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>,
-    namespace_index_table: HashMap<NamespaceName, HashSet<String>>,
-    unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>,
-    executor_running_task_count: HashMap<ExecutorId, u64>,
-    schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>,
-    content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
-    pending_tasks_for_content:
-        HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>,
-    change_id: u64,
+    executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
+    tasks: HashMap<TaskId, internal_api::Task>,
+    gc_tasks: HashMap<internal_api::GarbageCollectionTaskId, internal_api::GarbageCollectionTask>,
+    task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
+    state_changes: HashMap<StateChangeId, StateChange>,
+    content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata>,
+    extraction_policies: HashMap<ExtractionPolicyId, ExtractionPolicy>,
+    extractors: HashMap<ExtractorName, ExtractorDescription>,
+    namespaces: HashSet<NamespaceName>,
+    index_table: HashMap<String, internal_api::Index>,
+    structured_data_schemas: HashMap<String, internal_api::StructuredDataSchema>,
+    coordinator_address: HashMap<NodeId, String>,
+    extraction_graphs: HashMap<ExtractionGraphId, ExtractionGraph>,
+    metrics: Metrics,
 }
 
 #[cfg(test)]
