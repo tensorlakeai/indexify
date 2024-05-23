@@ -46,14 +46,14 @@
       </div>
     </div>
 
-    <a href="https://calendly.com/diptanu/tensorlake-client-call" class="header-button">
+    <!-- <a href="https://calendly.com/diptanu/tensorlake-client-call" class="header-button">
         Schedule A Call
     </a>
 
     <a href="https://discord.gg/mrXrq3DmV8" class="header-button">
         Discord
-    </a>
-
+    </a> -->
+    
     <!-- Color palette -->
     {% if not config.theme.palette is mapping %}
       <form class="md-header__option" data-md-component="palette">
@@ -89,6 +89,16 @@
       </form>
     {% endif %}
 
+    {% if "material/search" in config.plugins %}
+      <label class="md-header__button md-icon" for="__search">
+        {% include ".icons/material/magnify.svg" %}
+      </label>
+
+      <!-- Search interface -->
+      {% include "partials/search.html" %}
+    {% endif %}
+
+
     <!-- Site language selector -->
     {% if config.extra.alternate %}
       <div class="md-header__option"></form>
@@ -117,17 +127,6 @@
           </div>
         </div>
       </div>
-    {% endif %}
-
-
-    <!-- Button to open search modal -->
-    {% if "search" in config["plugins"] %}
-      <label class="md-header__button md-icon" for="__search">
-        {% include ".icons/material/magnify.svg" %}
-      </label>
-
-      <!-- Search interface -->
-      {% include "partials/search.html" %}
     {% endif %}
 
    
