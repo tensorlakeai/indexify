@@ -109,3 +109,21 @@ tls:
   cert_file: .dev-tls/server.crt  # Path to the server certificate
   key_file: .dev-tls/server.key   # Path to the server private key
 ```
+### HA configuration 
+
+To setup mulitple coordinator nodes for high availability configuration, start with a single node, called a seed node. Create a separate configuration file for each additional coordinator instance. Each node should have a unique node_id field in configuration file. seed_node field should be set to ip address and port of the original coordinator node. 
+
+Seed node:
+
+```yaml
+raft_port: 8970
+node_id: 0
+seed_node: localhost:8970
+```
+
+New node (replace 10.0.0.10 with actual seed node IP address, 8970 should match configured raft_port of the seed node):
+```yaml
+node_id: 1
+seed_node: 10.0.0.10:8970
+```
+
