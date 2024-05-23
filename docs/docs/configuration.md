@@ -46,19 +46,15 @@ blob_storage:
 
 #### Qdrant Config
 `addr`: Address of the Qdrant http endpoint
-
-#### Pg Vector Config
-`addr`: Address of Postgres
-
-#### LanceDb Config
-`path`: Path of the database
-
 ```yaml
 index_config:
   index_store: Qdrant
   qdrant_config:
     addr: "http://127.0.0.1:6334"
 ```
+#### Pg Vector Config
+`addr`: Address of Postgres
+
 ```yaml
 index_config:
   index_store: PgVector
@@ -67,6 +63,9 @@ index_config:
     m: 16
     efconstruction: 64
 ```
+
+#### LanceDb Config
+`path`: Path of the database
 
 ### Caching
 ```yaml
