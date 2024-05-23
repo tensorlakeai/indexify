@@ -51,6 +51,7 @@ nav:
       - Web: 'apis/extractors/web.md'
 
   - APIs:
+    - Install: 'apis/install_clients.md'
     - Content Ingestion: 'apis/content_ingestion.md'
     - Extraction Graphs: 'apis/extraction_graphs.md'
     - Retrieval: 'apis/retrieval.md'
