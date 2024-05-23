@@ -74,9 +74,7 @@ nav:
     - Develop Indexify: 'develop.md'
     - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
-    - Image RAG: 'examples/Image_RAG_Structured_Extraction.ipynb'
-    - Scientific Journals: 'examples/Scientific_Journals.ipynb'
-    - MoonDream Visual Description: 'examples/Moondream_Visual_Description_Index.ipynb'
+    - All Examples: 'examples/landing.ipynb'
 
 plugins:
   - mkdocs-jupyter
