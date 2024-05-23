@@ -58,7 +58,8 @@ indexify-extractor join-server
 This example shows how to implement RAG on text
 #### Create an Extraction Graph
 ```python
-from indexify import Client
+from indexify import IndexifyClient, ExtractionGraph
+client = IndexifyClient()
 
 extraction_graph_spec = """
 name: 'sportsknowledgebase'
@@ -86,12 +87,44 @@ This example shows how to transcribe audio, and create a pipeline that embeds th
 More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_extraction/
 
 #### Create an Extraction Graph
+```python
+from indexify import IndexifyClient, ExtractionGraph
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'audiosummary'
+extraction_policies:
+   - extractor: 'tensorlake/asrdiarization'
+     name: 'asrextractor'
+   - extractor: 'tensorlake/summarization'
+     name: 'summarizer'
+     input_params:
+        max_length: int = 400
+        min_length: int = 300
+        chunk_method: str = 'recursive'
+     content_source: 'asrextractor'
+   - extractor: 'tensorlake/minilm-l6'
+     name: 'minilml6'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+```
 
 #### Upload an Audio
+```python
+content_id = client.upload_file("audiosummary", "file.mp3")
+```
 
 #### Retrieve Summary
+```python
+client.get_extracted_content(content_id)
+```
 
-#### Search Transcription Index 
+#### Search Transcription Index
+```python
+context = client.search_index(name="audiosummary.minilml6.embedding", query="President of America", top_k=1)
+```
 
 ### Object Detection on Images
 This example shows how to create a pipeline that performs object detection on images using the Yolo extractor.
@@ -110,10 +143,30 @@ This example shows how to create a pipeline that extracts from PDF documents.
 More information here - https://docs.getindexify.ai/usecases/pdf_extraction/
 
 #### Create an Extraction Graph
+```python
+from indexify import IndexifyClient, ExtractionGraph
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'pdfqa'
+extraction_policies:
+   - extractor: 'tensorlake/pdf-extractor'
+     name: 'docextractor'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+```
 
 #### Upload a Document
+```python
+content_id = client.upload_file("pdfqa", "file.pdf")
+```
 
 #### Get Text, Image and Tables
+```python
+client.get_extracted_content(content_id)
+```
 
 ### LLM Framework Integration 
 Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
