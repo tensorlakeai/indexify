@@ -10,7 +10,7 @@
 
 Indexify is an open-source engine for buidling fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. LLM Applications can query transformed content friendly to LLMs by semantic search and SQL queries. 
 
-Indexify keeps vectordbs, structured databases(postgres) updated by automatically invoking the pipelines as new data is ingested into the system from external data sources. 
+Indexify keeps vectordbs, structured databases(postgres) updated by automatically invoking the pipelines as new data is ingested into the system from external data sources.  
 
 ## Why use Indexify
 
@@ -31,29 +31,35 @@ To get started follow our [documentation](https://getindexify.ai/getting_started
 
 ## Quick Start
 
-#### Download Indexify 
-```bash
-curl https://tensorlake.ai | sh
-```
-
-#### Start the server
-```bash
+#### Download and start Indexify 
+```bash title="Terminal 1"
+curl https://getindexify.ai | sh
 ./indexify server -d
 ```
 
 #### Install the Indexify Extractor and Client SDKs
-```bash
+```bash title="Terminal 2"
+virtualenv ve
+source ve/bin/activate
 pip install indexify indexify-extractor-sdk
 ```
 
-#### Start an embedding extractor 
-```bash
+#### Download some extractors
+```bash title="Terminal 2"
 indexify-extractor download hub://embedding/minilm-l6
+indexify-extractor download hub://pdf/pdf-extractor
+indexify-extractor download hub://image/yolo
+indexify-extractor download hub://text/chunking
+indexify-extractor download hub://audio/whisper-asr
 indexify-extractor join-server
 ```
 
-#### Upload some texts 
+### Basic RAG
+This example shows how to implement RAG on text
+#### Create an Extraction Graph
 ```python
+from indexify import Client
+
 extraction_graph_spec = """
 name: 'sportsknowledgebase'
 extraction_policies:
@@ -61,27 +67,67 @@ extraction_policies:
      name: 'minilml6'
 """
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)  
-client.add_documents("sportsknowledgebase", ["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
+client.create_extraction_graph(extraction_graph) 
 print("indexes", client.indexes())
 ```
-
-#### Search the Index
+#### Add Texts
 ```python
-client.search_index(name="sportsknowledgebase.minilml6.embedding", query="NBA commissioner", top_k=1)
+client.add_documents("sportsknowledgebase", ["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
 ```
 
-#### Use Extracted Data in Applications
-You can now use the extracted data in your application. As data is ingested by Indexify, your indexes are going to be automatically
-updated by Indexify. We have an example of a Langchain application [here](https://getindexify.ai/integrations/langchain/python_langchain/)
+#### Retrieve
+```python
+context = client.search_index(name="sportsknowledgebase.minilml6.embedding", query="NBA commissioner", top_k=1)
+```
 
-#### Try out Video, Audio or PDF Extractors 
-We have extractors for [Video](https://getindexify.ai/usecases/video_rag/), [Audio](https://getindexify.ai/usecases/audio_extraction/) and [PDF](https://getindexify.ai/usecases/pdf_extraction/) as well, you can list all the available extractors 
 
+### Podcast Summarization and Embedding
+This example shows how to transcribe audio, and create a pipeline that embeds the transcription 
+More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_extraction/
+
+#### Create an Extraction Graph
+
+#### Upload an Audio
+
+#### Retrieve Summary
+
+#### Search Transcription Index 
+
+### Object Detection on Images
+This example shows how to create a pipeline that performs object detection on images using the Yolo extractor.
+More details about Image understanding and retrieval - https://docs.getindexify.ai/usecases/image_retrieval/
+
+#### Create an Extraction Graph
+
+#### Upload Images
+
+#### Retrieve Features of an Image
+
+#### Query using SQL
+
+###  PDF Extraction and Retrieval
+This example shows how to create a pipeline that extracts from PDF documents.
+More information here - https://docs.getindexify.ai/usecases/pdf_extraction/
+
+#### Create an Extraction Graph
+
+#### Upload a Document
+
+#### Get Text, Image and Tables
+
+### LLM Framework Integration 
+Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
+
+### Try out other extractors
+We have a ton of other extractors, you can list them and try them out - 
 ```bash
 indexify-extractor list
 ```
-#### Structured Data
+
+### Custom Extractors
+Any extraction or transformation algorithm can be expressed as an Indexify Extractor. We provide an SDK to write your own. Please follow [the docs here for instructions](https://docs.getindexify.ai/apis/develop_extractors/). 
+
+### Structured Data
 
 Extractors which produce structured data from content, such as bounding boxes and object type, or line items of invoices are stored in
 structured store. You can query extracted structured data using Indexify's SQL interface.
