@@ -535,7 +535,9 @@ impl Coordinator {
                 indexify_internal_api::ChangeType::NewContent => {
                     self.scheduler.create_new_tasks(change).await?
                 }
-                indexify_internal_api::ChangeType::ExecutorRemoved => {}
+                indexify_internal_api::ChangeType::ExecutorRemoved => {
+                    self.scheduler.handle_executor_removed(change).await?
+                }
                 indexify_internal_api::ChangeType::NewGargabeCollectionTask => {}
             }
         }
