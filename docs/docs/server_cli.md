@@ -4,7 +4,7 @@ Indexify Control Plane has two components - Ingestion Server and Coordinator Ser
 
 ### Download the CLI
 ```bash
-curl https://www.tensorlake.ai | sh
+curl https://getindexify.ai | sh
 ```
 
 ### Start in Dev Mode

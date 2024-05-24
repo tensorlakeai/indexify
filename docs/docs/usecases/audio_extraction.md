@@ -65,7 +65,7 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
 
 1. Start the Indexify Server and Extraction Policies:
    ```bash
-   curl https://tensorlake.ai | sh
+   curl https://getindexify.ai | sh
    ./indexify server -d
    ```
 

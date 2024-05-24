@@ -15,7 +15,7 @@ In this tutorial we will show you how to do all three image retrieval. We will u
 ### Download Indexify
 Download and start Indexify!
 ```
-curl https://tensorlake.ai | sh
+curl https://getindexify.ai | sh
 indexify server -d 
 ```
 

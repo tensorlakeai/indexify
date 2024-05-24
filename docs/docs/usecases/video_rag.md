@@ -33,7 +33,7 @@ The Q&A will be powered by Langchain and OpenAI. We will use Indexify Retriever 
 
 ```bash
 # Indexify server.
-curl https://www.tensorlake.ai | sh
+curl https://getindexify.ai | sh
 
 # Indexify extractors.
 pip install indexify-extractor-sdk
