@@ -27,7 +27,7 @@ Indexify keeps vectordbs, structured databases(postgres) updated by automaticall
 
 ## Detailed Getting Started
 
-To get started follow our [documentation](https://getindexify.ai/getting_started/).
+To get started follow our [documentation](https://docs.getindexify.ai/getting_started/).
 
 ## Quick Start
 
