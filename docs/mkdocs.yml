@@ -74,7 +74,7 @@ nav:
     - Develop Indexify: 'develop.md'
     - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
-    - All Examples: 'examples/landing.ipynb'
+    - All Examples: 'examples/landing.md'
 
 plugins:
   - mkdocs-jupyter
