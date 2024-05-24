@@ -71,6 +71,20 @@ impl Scheduler {
         }
     }
 
+    pub async fn handle_executor_removed(&self, state_change: StateChange) -> Result<()> {
+        let tasks = self.shared_state.unassigned_tasks().await?;
+        let plan = self.allocate_tasks(tasks).await?.0;
+        if !plan.is_empty() {
+            self.shared_state
+                .commit_task_assignments(plan, state_change.id)
+                .await
+        } else {
+            self.shared_state
+                .mark_change_events_as_processed(vec![state_change], Vec::new())
+                .await
+        }
+    }
+
     pub async fn create_new_tasks(&self, state_change: StateChange) -> Result<()> {
         let mut tasks: Vec<internal_api::Task> = Vec::new();
         let content = match self
