@@ -78,6 +78,7 @@ Add a name to your extractor, a description of what it does and python and syste
 
 * **name** - The name of the extractor. We use the name of the extractor also to name the container package.
 * **description** - Long description of the extractor
+* **system_dependencies** - List of dependencies to be installed when packaging the extractor in a docker container.
 * **input_mime_types** - The list of input data types the extractor can handle. We use standard mime types as the API. Default is `["text/plain]`, and you can override or specify which ones your extractor supports from the [list here](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types)
 
 #### Test the extractor locally
