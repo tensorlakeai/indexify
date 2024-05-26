@@ -113,8 +113,12 @@ client.create_extraction_graph(extraction_graph)
 
 #### Upload an Audio
 ```python
-content_id = client.upload_file("audiosummary", "file.mp3")
+with open("sample.mp3", 'wb') as file:
+  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/sample-000009.mp3")).content)
+content_id = client.upload_file("audiosummary", "sample.mp3")
 ```
+
+ Adding Texts and Files can be a time consuming process and by default we allow asynchronous ingestion for parallel operations. However the following codes might fail until the extraction has been completed. To make it a blocking call, use 'client.wait_for_extraction(content_id)' after getting the content_id from above.
 
 #### Retrieve Summary
 ```python
@@ -148,7 +152,9 @@ client.create_extraction_graph(extraction_graph)
 
 #### Upload Images
 ```python
-content_id = client.upload_file("imageknowledgebase", "file.jpg")
+with open("sample.jpg", 'wb') as file:
+  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/people-standing.jpg")).content)
+content_id = client.upload_file("imageknowledgebase", "sample.jpg")
 ```
 
 #### Retrieve Features of an Image
@@ -183,7 +189,9 @@ client.create_extraction_graph(extraction_graph)
 
 #### Upload a Document
 ```python
-content_id = client.upload_file("pdfqa", "file.pdf")
+with open("sample.pdf", 'wb') as file:
+  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/scientific-paper-example.pdf")).content)
+content_id = client.upload_file("pdfqa", "sample.pdf")
 ```
 
 #### Get Text, Image and Tables
