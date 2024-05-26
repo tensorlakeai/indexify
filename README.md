@@ -118,7 +118,7 @@ with open("sample.mp3", 'wb') as file:
 content_id = client.upload_file("audiosummary", "sample.mp3")
 ```
 
- Adding Texts and Files can be a time consuming process and by default we allow asynchronous ingestion for parallel operations. However the following codes might fail until the extraction has been completed. To make it a blocking call, use 'client.wait_for_extraction(content_id)' after getting the content_id from above.
+> Adding Texts and Files can be a time consuming process and by default we allow asynchronous ingestion for parallel operations. However the following codes might fail until the extraction has been completed. To make it a blocking call, use `client.wait_for_extraction(content_id)` after getting the content_id from above.
 
 #### Retrieve Summary
 ```python
