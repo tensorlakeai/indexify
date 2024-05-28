@@ -56,7 +56,7 @@ pub type CoordinatorServiceClient = coordinator_service_client::CoordinatorServi
 
 #[derive(Debug)]
 pub struct CoordinatorClient {
-    config: Arc<ServerConfig>,
+    pub config: Arc<ServerConfig>,
     addr: String,
     clients: Arc<Mutex<HashMap<String, CoordinatorServiceClient>>>,
 }

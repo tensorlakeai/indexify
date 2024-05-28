@@ -158,7 +158,7 @@ impl Server {
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
-            content_reader: Arc::new(ContentReader::new()),
+            content_reader: Arc::new(ContentReader::new(self.config.clone())),
             registry,
             metrics: Arc::new(crate::metrics::server::Metrics::new()),
         };
