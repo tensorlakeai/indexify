@@ -1,6 +1,6 @@
-# Getting Started - Intermediate 
+# Getting Started - Intermediate
 
-In this example, we will make an LLM answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis. 
+In this example, we will make an LLM answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
 
 While this example is simple, if you were building a production application on tax laws, you can ingest and extract information from 100s of state specific documents.
 
@@ -12,8 +12,13 @@ Download the indexify server and run it
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
+
 ## Download the Extractors
+
 Before we begin, let's download the extractors
+
+!!! note "Python Versions"
+    You must use Python 3.11 or older.
 
 ```bash title="( Terminal 2 ) Download Indexify Extractors"
 python3 -m venv venv
@@ -23,6 +28,31 @@ indexify-extractor download hub://pdf/marker
 indexify-extractor download hub://embedding/minilm-l6
 indexify-extractor download hub://text/chunking
 ```
+
+## Start the Extractors
+
+Run the Indexify Extractor server in a separate terminal
+
+```bash title=( Terminal 2 ) Join the server"
+indexify-extractor join-server
+```
+
+You'll be able to verify that the three extractors are available by going to
+the [dashboard](http://localhost:8900/ui/default) and looking at the extractors
+section.
+
+## Install the libraries
+
+To run the following scripts, please install the libraries that are dependencies:
+
+=== "Python"
+    ```bash
+    pip3 install indexify openai
+    ```
+=== "TypeScript"
+    ```bash
+    npm install axios getindexify openai
+    ```
 
 ## Extraction Graph Setup
 
@@ -53,34 +83,42 @@ Set up an extraction graph to process the PDF documents -
     ```
 === "TypeScript"
     ```typescript
-    import { ExtractionGraph } from "getindexify";
-    
-    const graph = ExtractionGraph.fromYaml(`
-    name: 'pdfqa' #(1)!
-    extraction_policies:
-      - extractor: 'tensorlake/marker'
-        name: 'mdextract'
-      - extractor: 'tensorlake/chunk-extractor'
-        name: 'chunker'
-        input_params:
-            chunk_size: 1000
-            overlap: 100
-        content_source: 'mdextract'
-      - extractor: 'tensorlake/minilm-l6'
-        name: 'pdfembedding'
-        content_source: 'chunker'
-    `);
-    await client.createExtractionGraph(graph);
+    import { ExtractionGraph, IndexifyClient } from "getindexify"
+
+    (async () => {
+        const client = await IndexifyClient.createClient();
+
+        const graph = ExtractionGraph.fromYaml(`
+        name: 'pdfqa' #(1)!
+        extraction_policies:
+          - extractor: 'tensorlake/marker'
+            name: 'mdextract'
+          - extractor: 'tensorlake/chunk-extractor'
+            name: 'chunker'
+            input_params:
+                chunk_size: 1000
+                overlap: 100
+            content_source: 'mdextract'
+          - extractor: 'tensorlake/minilm-l6'
+            name: 'pdfembedding'
+            content_source: 'chunker'
+        `)
+
+        await client.createExtractionGraph(graph)
+      })()
     ```
+
 !!! note "The Graph"
     1. Set the name of the extraction graph to "pdfqa".
     2. Converts the PDF document into Markdown. We use the extractor `tensorlake/marker`, which uses a popular Open Source PDF to markdown converter model.
     3. The text is then chunked into smaller fragments. Chunking makes retrieval and processing by LLMs efficient.
     4. The chunks are then embedded to make them searchable.
     5. Each stage has of the pipeline is named and connected to their upstream extractors using the field `content_source`
+
 ## Document Ingestion
 
-Add the PDF document to the "pdfqa" extraction graph
+Add the PDF document to the "pdfqa" extraction graph:
+
 === "Python"
     ```python
     import requests
@@ -89,28 +127,55 @@ Add the PDF document to the "pdfqa" extraction graph
     with open("taxes.pdf", 'wb') as file:
         file.write(response.content)
 
-    client.upload_file("taxes", "taxes.pdf")
+    client.upload_file("pdfqa", "taxes.pdf")
     ```
 === "TypeScript"
     ```typescript
-    import axios from 'axios';
-    import * as fs from 'fs';
+    import axios from 'axios'
+    import { promises as fs } from 'fs'
+    import { IndexifyClient } from "getindexify"
 
-    const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf";
-    const filePath = "taxes.pdf";
+    (async () => {
+      const client = await IndexifyClient.createClient()
 
-    await axios.get(url, { responseType: 'arraybuffer' })
-    .then(response => {
-        fs.writeFile(filePath, response.data);
-    })
+      const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf"
+      const filePath = "taxes.pdf"
 
-    await client.uploadFile("taxes", "taxes.pdf");
+      const response = await axios.get(url, { responseType: 'arraybuffer' })
+      await fs.writeFile(filePath, response.data)
+
+      await client.uploadFile("pdfqa", filePath)
+    })()
     ```
+
 ## Prompting and Context Retrieval Function
+
 We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
+
+!!! note "OpenAI API"
+    You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
 
 === "Python"
     ```python
+    from openai import OpenAI
+    from indexify import IndexifyClient
+
+    client = IndexifyClient()
+    client_openai = OpenAI()
+
+    def get_context(question: str, index: str, top_k=3):
+        results = client.search_index(name=index, query=question, top_k=3)
+        context = ""
+        for result in results:
+            context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
+        return context
+
+    def create_prompt(question, context):
+        return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
+
+    question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
+    context = get_context(question, "pdfqa.pdfembedding.embedding")
+
     prompt = create_prompt(question, context)
 
     chat_completion = client_openai.chat.completions.create(
@@ -122,28 +187,41 @@ We can use the same prompting and context retrieval function defined above to ge
         ],
         model="gpt-3.5-turbo",
     )
+
     print(chat_completion.choices[0].message.content)
     ```
 === "Typescript"
     ```typescript
-    const prompt = createPrompt(question, context);
+    import { ExtractionGraph, IndexifyClient } from "getindexify";
+    import { OpenAI } from "openai";
 
-    clientOpenAI.chat.completions
-      .create({
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
+    (async () => {
+      const client = await IndexifyClient.createClient();
+      const openai = new OpenAI();
+
+      const getContext = async (question: string, index: string, topK=3) => {
+        const results = await client.searchIndex(index, question, topK)
+
+        return results.reduce((ctx, result) =>
+          ctx + `content id: {${result.content_id}} \n\n passage: {${result.text}}\n`,
+        "")
+      }
+
+      const createPrompt = (question: string, context: string) =>
+        `Answer the question, based on the context.\n question: ${question} \n context: ${context}`
+
+      const question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
+      const context = await getContext(question, "pdfqa.pdfembedding.embedding")
+
+      const prompt = createPrompt(question, context)
+
+      console.log(await openai.chat.completions.create({
         model: "gpt-3.5-turbo",
-      })
-      .then((chatCompletion) => {
-        console.log(chatCompletion.choices[0].message.content);
-      })
-      .catch((error) => {
-        console.error(error);
-      });
+        messages: [
+          { role: "user", content: prompt }
+        ]
+      }))
+    })()
     ```
 
 !!! note "Response"
