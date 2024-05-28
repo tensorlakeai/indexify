@@ -12,7 +12,7 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::{BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, StoragePartWriter};
-use crate::blob_storage::PutResult;
+use crate::{blob_storage::PutResult, server_config::ServerConfig};
 
 pub struct S3Storage {
     bucket: String,
@@ -76,11 +76,12 @@ pub struct S3FileReader {
 }
 
 impl S3FileReader {
-    pub fn new(bucket: &str, key: &str) -> Self {
-        let client = AmazonS3Builder::from_env()
-            .with_bucket_name(bucket)
-            .build()
-            .unwrap();
+    pub fn new(bucket: &str, key: &str, config: &ServerConfig) -> Self {
+        let mut builder = AmazonS3Builder::from_env();
+        if let Some(s3) = &config.blob_storage.s3 {
+            builder = builder.with_region(&s3.region);
+        }
+        let client = builder.with_bucket_name(bucket).build().unwrap();
         S3FileReader {
             client: Arc::new(client),
             key: key.to_string(),

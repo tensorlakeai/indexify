@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWrite;
 
 use self::{disk::DiskFileReader, s3::S3FileReader};
+use crate::server_config::ServerConfig;
 
 pub mod disk;
 pub mod http;
@@ -199,17 +200,13 @@ fn parse_s3_url(s3_url: &str) -> Result<(&str, &str), &str> {
 }
 
 #[derive(Debug)]
-pub struct ContentReader {}
-
-impl Default for ContentReader {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct ContentReader {
+    config: Arc<ServerConfig>,
 }
 
 impl ContentReader {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(config: Arc<ServerConfig>) -> Self {
+        Self { config }
     }
 
     pub fn get(&self, key: &str) -> BlobStorageReaderTS {
@@ -217,7 +214,7 @@ impl ContentReader {
             let (bucket, key) = parse_s3_url(key)
                 .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))
                 .unwrap();
-            return Arc::new(S3FileReader::new(bucket, key));
+            return Arc::new(S3FileReader::new(bucket, key, &self.config));
         }
 
         if key.starts_with("http") {

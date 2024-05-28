@@ -43,7 +43,7 @@ pub struct ScoredText {
 impl VectorIndexManager {
     pub fn new(coordinator_client: Arc<CoordinatorClient>, vector_db: VectorDBTS) -> Result<Self> {
         let extractor_router = ExtractorRouter::new(coordinator_client.clone())?;
-        let content_reader = Arc::new(ContentReader::new());
+        let content_reader = Arc::new(ContentReader::new(coordinator_client.config.clone()));
         Ok(Self {
             vector_db,
             extractor_router,

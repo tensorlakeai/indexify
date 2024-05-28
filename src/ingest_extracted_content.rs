@@ -605,7 +605,7 @@ mod tests {
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
-            content_reader: Arc::new(ContentReader::new()),
+            content_reader: Arc::new(ContentReader::new(Arc::new(config.clone()))),
             registry: Arc::new(metrics::init_provider()),
             metrics: Arc::new(metrics::server::Metrics::new()),
         };
