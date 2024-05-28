@@ -29,7 +29,7 @@ Let's start by creating a new virtual environment before installing the required
 ```bash title="( Terminal 1 ) Install Dependencies"
 python3 -m venv venv
 source venv/bin/activate
-pip3 install indexify-extractor-sdk indexify wikipedia openai
+pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_community
 ```
 
 ## Indexify Server
