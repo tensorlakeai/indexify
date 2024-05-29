@@ -18,7 +18,8 @@ curl https://getindexify.ai | sh
 Before we begin, let's download the extractors
 
 !!! note "Python Versions"
-    You must use Python 3.11 or older.
+
+    Indexify requires python 3.11 or older at this present moment to work.
 
 ```bash title="( Terminal 2 ) Download Indexify Extractors"
 python3 -m venv venv
@@ -33,7 +34,7 @@ indexify-extractor download hub://text/chunking
 
 Run the Indexify Extractor server in a separate terminal
 
-```bash title=( Terminal 2 ) Join the server"
+```bash title="( Terminal 2 ) Join the server"
 indexify-extractor join-server
 ```
 
@@ -43,37 +44,41 @@ section.
 
 ## Install the libraries
 
-To run the following scripts, please install the libraries that are dependencies:
+Don't forget to install the necessary dependencies before running the rest of this tutorial.
 
 === "Python"
+
     ```bash
     pip3 install indexify openai
     ```
-=== "TypeScript"
+
+=== "Typescript"
+
     ```bash
     npm install axios getindexify openai
     ```
 
 ## Extraction Graph Setup
 
-Set up an extraction graph to process the PDF documents -
+Set up an extraction graph to process the PDF documents
 
 === "Python"
-    ```python
+
+    ``` python
     from indexify import ExtractionGraph
 
     extraction_graph_spec = """
     name: 'pdfqa'
     extraction_policies:
-      - extractor: 'tensorlake/marker'
+      - extractor: 'tensorlake/marker' # (2)!
         name: 'mdextract'
-      - extractor: 'tensorlake/chunk-extractor'
+      - extractor: 'tensorlake/chunk-extractor' #(3)!
         name: 'chunker'
         input_params:
             chunk_size: 1000
             overlap: 100
         content_source: 'mdextract'
-      - extractor: 'tensorlake/minilm-l6'
+      - extractor: 'tensorlake/minilm-l6' #(4)!
         name: 'pdfembedding'
         content_source: 'chunker'
     """
@@ -81,15 +86,17 @@ Set up an extraction graph to process the PDF documents -
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)
     ```
-=== "TypeScript"
-    ```typescript
+
+=== "Typescript"
+
+    ```javascript
     import { ExtractionGraph, IndexifyClient } from "getindexify"
 
     (async () => {
         const client = await IndexifyClient.createClient();
 
         const graph = ExtractionGraph.fromYaml(`
-        name: 'pdfqa' #(1)!
+        name: 'pdfqa'
         extraction_policies:
           - extractor: 'tensorlake/marker'
             name: 'mdextract'
@@ -108,18 +115,14 @@ Set up an extraction graph to process the PDF documents -
       })()
     ```
 
-!!! note "The Graph"
-    1. Set the name of the extraction graph to "pdfqa".
-    2. Converts the PDF document into Markdown. We use the extractor `tensorlake/marker`, which uses a popular Open Source PDF to markdown converter model.
-    3. The text is then chunked into smaller fragments. Chunking makes retrieval and processing by LLMs efficient.
-    4. The chunks are then embedded to make them searchable.
-    5. Each stage has of the pipeline is named and connected to their upstream extractors using the field `content_source`
+The process begins by setting the name of the extraction graph to "pdfqa". Next, the `tensorlake/marker` extractor is used to convert the PDF document into a Markdown format. Following this, the text extracted by the `tensorlake/marker` extractor is chunked by specifying a `content_source` of `mdextract`. Finally, an embedding step is added to the pipeline, allowing each chunk to be embedded and searchable through semantic search.
 
 ## Document Ingestion
 
 Add the PDF document to the "pdfqa" extraction graph:
 
 === "Python"
+
     ```python
     import requests
 
@@ -129,23 +132,25 @@ Add the PDF document to the "pdfqa" extraction graph:
 
     client.upload_file("pdfqa", "taxes.pdf")
     ```
+
 === "TypeScript"
+
     ```typescript
-    import axios from 'axios'
-    import { promises as fs } from 'fs'
-    import { IndexifyClient } from "getindexify"
+    import axios from 'axios';
+    import { promises as fs } from 'fs';
+    import { IndexifyClient } from "getindexify";
 
     (async () => {
-      const client = await IndexifyClient.createClient()
+        const client = await IndexifyClient.createClient();
 
-      const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf"
-      const filePath = "taxes.pdf"
+        const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf";
+        const filePath = "taxes.pdf";
 
-      const response = await axios.get(url, { responseType: 'arraybuffer' })
-      await fs.writeFile(filePath, response.data)
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        await fs.writeFile(filePath, response.data);
 
-      await client.uploadFile("pdfqa", filePath)
-    })()
+        await client.uploadFile("pdfqa", filePath);
+    })();
     ```
 
 ## Prompting and Context Retrieval Function
@@ -153,9 +158,11 @@ Add the PDF document to the "pdfqa" extraction graph:
 We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
 
 !!! note "OpenAI API"
+
     You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
 
 === "Python"
+
     ```python
     from openai import OpenAI
     from indexify import IndexifyClient
@@ -190,7 +197,9 @@ We can use the same prompting and context retrieval function defined above to ge
 
     print(chat_completion.choices[0].message.content)
     ```
+
 === "Typescript"
+
     ```typescript
     import { ExtractionGraph, IndexifyClient } from "getindexify";
     import { OpenAI } from "openai";
@@ -225,6 +234,7 @@ We can use the same prompting and context retrieval function defined above to ge
     ```
 
 !!! note "Response"
+
     Based on the provided information, the tax rates and brackets for California are as follows:
 
     - $0 - $11,450: 10% of the amount over $0
