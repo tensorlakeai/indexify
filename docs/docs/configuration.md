@@ -4,8 +4,14 @@ Indexify is configured by a YAML configuration file. The easiest way to start is
 
 ## Generate with CLI
 
+??? note "Unable to find `./indexify`?"
+
+    Don't forget to download our `Indexify` binary before running the command below. You can do by running the command `curl https://getindexify.ai | sh`.
+
+    This will in turn download the relevant binary at the relative path `./indexify`.
+
 ```shell
-indexify init-config --config-path /tmp/indexify.yaml
+./indexify init-config --config-path /tmp/indexify.yaml
 ```
 
 ## Configuration Reference
@@ -21,19 +27,47 @@ raft_port: 8970
 coordinator_addr: 0.0.0.0:8950
 ```
 
-* **listen_if:** The interface on which the servers listens on. Typically you would want to listen on all interfaces.
-* **api_port:** The port in which the application facing API server is exposed. This is the HTTP port on which applications upload data, create extraction policies and retrieved extracted data from indexes.
-* **coordinator_port:** Port on which the coordinator is exposed. This is available as a separate configuration becasue in the dev mode, we expose both the api server and the coordinator server in the same process.
-* **coordinator_http_port** Port to access coordinator metrics
-* **raft_port:** Port on which internal messages across coordinator nodes are transmitted. This is only needed if Indexify is either started as a coordinator or in dev mode.
+- **listen_if:** The interface on which the servers listens on. Typically you would want to listen on all interfaces.
+- **api_port:** The port in which the application facing API server is exposed. This is the HTTP port on which applications upload data, create extraction policies and retrieved extracted data from indexes.
+- **coordinator_port:** Port on which the coordinator is exposed. This is available as a separate configuration becasue in the dev mode, we expose both the api server and the coordinator server in the same process.
+- **coordinator_http_port** Port to access coordinator metrics
+- **raft_port:** Port on which internal messages across coordinator nodes are transmitted. This is only needed if Indexify is either started as a coordinator or in dev mode.
+
+!!! note "Don't forget to configure a volume"
+
+    Indexify stores all of the the Extraction Graphs you've configured and data it has processed locally. This is configured in `indexify.yaml` as seen below
+
+    ```
+    state_store:
+      path: <state store path>
+    ```
+
+    Don't forget to configure a persistent volume at this location if you'll like to make sure you don't lose your data when your server restarts.
 
 ### Blob Storage Configuration
+
+Blob Storage Configuration refers to the raw bytes of unstructured data. For instance if you're splitting your text data into chunks, these text chunks will be stored at the location you specify below.
+
+We support two forms of blob storage at the moment - Disk and S3 Storage.
+
+#### Disk
+
+A common use-case for disk storage is if you're using a shared volume to replicate/share data between different processes.
+
 ```yaml
 blob_storage:
   backend: disk
   disk:
-     path: /tmp/indexify-blob-storage
+    path: /tmp/indexify-blob-storage
 ```
+
+#### S3 Storage
+
+For S3 Storage, you'll need to also ensure you have the two following environment variables configured. Once you've configured these environment variables, our S3 integration will take care of the rest
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+
 ```yaml
 blob_storage:
   backend: s3
@@ -41,6 +75,7 @@ blob_storage:
     bucket: indexifydata
     region: us-east-1
 ```
+
 ### Vector Index Storage
 * **index_store:** (Default: LancDb): Name of the vector be, possible values: `LancdDb`, `Qdrant`, `PgVector`
 
@@ -121,8 +156,8 @@ seed_node: localhost:8970
 ```
 
 New node (replace 10.0.0.10 with actual seed node IP address, 8970 should match configured raft_port of the seed node):
+
 ```yaml
 node_id: 1
 seed_node: 10.0.0.10:8970
 ```
-
