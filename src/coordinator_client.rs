@@ -24,6 +24,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::{
     api::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments},
     server_config::ServerConfig,
+    state::grpc_config::GrpcConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -116,7 +117,9 @@ impl CoordinatorClient {
         let client = coordinator_service_client::CoordinatorServiceClient::with_interceptor(
             channel,
             OpenTelemetryInjector,
-        );
+        )
+        .max_decoding_message_size(GrpcConfig::MAX_DECODING_SIZE)
+        .max_encoding_message_size(GrpcConfig::MAX_ENCODING_SIZE);
         Ok(client)
     }
 
